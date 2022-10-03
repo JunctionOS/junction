@@ -7,10 +7,13 @@ ROOT_DIR=${SCRIPT_DIR}/../
 
 # Install Linux packages
 sudo apt update
-sudo apt install -y clang-format \
-                    cmake
+sudo apt install -y clang-format
 
 # Initialize submodules
 git submodule update --init --recursive
 
+# Install modules
+cd $SCRIPT_DIR
+./install_cmake.sh
 ./install_caladan.sh
+./install_syscall_intercept.sh

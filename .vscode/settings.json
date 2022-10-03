@@ -1,0 +1,12 @@
+{
+    "editor.tabSize": 2,
+    "editor.insertSpaces": true,
+    "editor.rulers": [
+        80
+    ],
+    "files.associations": {
+        "*.tcc": "cpp",
+        "filesystem": "cpp",
+        "fstream": "cpp"
+    },
+}

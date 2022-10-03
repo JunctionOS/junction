@@ -1,0 +1,14 @@
+---
+BasedOnStyle: Google
+IndentWidth: 2
+IndentCaseLabels: true
+AccessModifierOffset: -2
+AllowShortBlocksOnASingleLine: true
+AllowShortIfStatementsOnASingleLine: true
+AllowShortLoopsOnASingleLine: true
+---
+Language: Cpp
+# Force pointers to the type for C++.
+DerivePointerAlignment: false
+PointerAlignment: Left
+AlwaysBreakAfterReturnType: None

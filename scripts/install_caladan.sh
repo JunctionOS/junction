@@ -6,10 +6,23 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 CALADAN_DIR=${ROOT_DIR}/lib/shenango
 
-sudo apt install -y make gcc cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev meson
+# Install Linux packages
+sudo apt install -y make \
+                    gcc \
+                    pkg-config \
+                    libnl-3-dev \
+                    libnl-route-3-dev \
+                    libnuma-dev uuid-dev \
+                    libssl-dev \
+                    libaio-dev \
+                    libcunit1-dev \
+                    libclang-dev \
+                    meson
 
+cd $CALADAN_DIR
+
+# Install Caladan
 sudo spdk/scripts/pkgdep.sh
-
 curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain=nightly
 source $HOME/.cargo/env
 
