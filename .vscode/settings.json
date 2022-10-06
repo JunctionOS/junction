@@ -7,6 +7,7 @@
     "files.associations": {
         "*.tcc": "cpp",
         "filesystem": "cpp",
-        "fstream": "cpp"
+        "fstream": "cpp",
+        "libsyscall_intercept_hook_point.h": "c"
     },
 }

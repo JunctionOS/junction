@@ -1,6 +1,6 @@
 [submodule "lib/shenango"]
 	path = lib/shenango
-	url = https://github.com/abelay/shenango.git
+	url = git@github.com:abelay/shenango.git
 	ignore = dirty
 [submodule "lib/syscall_intercept"]
 	path = lib/syscall_intercept

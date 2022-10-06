@@ -6,7 +6,7 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 BUILD_DIR=${ROOT_DIR}/build
 BIN_DIR=${ROOT_DIR}/bin
-CMAKE=${BIN_DIR}/cmake-3.24.2-linux-x86_64/bin/cmake
+CMAKE=${BIN_DIR}/bin/cmake
 
 # Run clang-format
 # TODO(gohar): This is giving issues with likely/unlikely indentation.

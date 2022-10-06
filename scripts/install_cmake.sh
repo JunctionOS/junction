@@ -6,6 +6,7 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 BIN_DIR=${ROOT_DIR}/bin
 
+mkdir -p $BIN_DIR
 cd $BIN_DIR
 
 # Install a specific version of cmake

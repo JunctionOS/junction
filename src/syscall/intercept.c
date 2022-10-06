@@ -30,44 +30,22 @@ static int hook(long syscall_number, long arg0, long arg1, long arg2, long arg3,
     return 1;
   }
 
-  if (syscall_number == SYS_openat) {
-    if (arg0 == STDIN_FILENO || arg0 == STDOUT_FILENO ||
-        arg0 == STDERR_FILENO) {
-      return 1;
-    }
-    *result = handle_openat((int)arg0, (const char*)arg1, (int)arg2);
-    return 0;
-  } else if (syscall_number == SYS_fstat) {
-    *result = handle_fstat((int)arg0, (struct stat*)arg1);
-    return 0;
-  } else if (syscall_number == SYS_lseek) {
-    *result = handle_lseek((int)arg0, (off_t)arg1, (int)arg2);
-    return 0;
-  } else if (syscall_number == SYS_read) {
-    if (arg0 == STDIN_FILENO || arg0 == STDOUT_FILENO ||
-        arg0 == STDERR_FILENO) {
-      return 1;
-    }
-    *result = handle_read((int)arg0, (void*)arg1, (size_t)arg2);
-    return 0;
-  } else if (syscall_number == SYS_write) {
-    if (arg0 == STDIN_FILENO || arg0 == STDOUT_FILENO ||
-        arg0 == STDERR_FILENO) {
-      return 1;
-    }
-    *result = handle_write((int)arg0, (const void*)arg1, (size_t)arg2);
-    return 0;
-  } else if (syscall_number == SYS_close) {
-    if (arg0 == STDIN_FILENO || arg0 == STDOUT_FILENO ||
-        arg0 == STDERR_FILENO) {
-      return 1;
-    }
-    *result = handle_close((int)arg0);
-    return 0;
+  switch (syscall_number) {
+    case SYS_openat:
+      return handle_openat((int)arg0, (const char*)arg1, (int)arg2, result);
+    case SYS_fstat:
+      return handle_fstat((int)arg0, (struct stat*)arg1, result);
+    case SYS_lseek:
+      return handle_lseek((int)arg0, (off_t)arg1, (int)arg2, result);
+    case SYS_read:
+      return handle_read((int)arg0, (void*)arg1, (size_t)arg2, result);
+    case SYS_write:
+      return handle_write((int)arg0, (const void*)arg1, (size_t)arg2, result);
+    case SYS_close:
+      return handle_close((int)arg0, result);
+    default:
+      return STATUS_FWD_TO_KERNEL;
   }
-
-  // Pass any other syscalls to the kernel.
-  return 1;
 }
 
 static __attribute__((constructor)) void init(void) {
