@@ -12,6 +12,8 @@ FetchContent_MakeAvailable(googletest)
 
 enable_testing()
 
+set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
+
 include_directories(
   ${CMAKE_SOURCE_DIR}/inc
 )

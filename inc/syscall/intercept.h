@@ -25,6 +25,7 @@ static int preload_files(const char* filelist_path) {
     return 1;
   }
 
+  unsigned long num_files = 0;
   while (fgets(filepath, MAX_LINE_LENGTH, filelist)) {
     filepath[strcspn(filepath, "\n")] = 0;
     if (fgets(permissions, MAX_LINE_LENGTH, filelist)) {
@@ -37,24 +38,27 @@ static int preload_files(const char* filelist_path) {
         printf("Cannot preload. Unkown permissions: %s (%s)\n", filepath,
                permissions);
       }
+      num_files++;
     } else {
       printf("Cannot preload. Permissions not found: %s\n", filepath);
     }
   }
 
   fclose(filelist);
+
+  printf("Preloaded %lu files!\n", num_files);
   return 0;
 }
 
 static int enable_syscall_intercept() {
   _syscall_intercept_enabled = 1;
-  printf("Intercepting syscalls...\n");
+  printf("[junction]: Intercepting syscalls...\n");
   return 0;
 }
 
 static int disable_syscall_intercept() {
   _syscall_intercept_enabled = 0;
-  printf("Not intercepting syscalls...\n");
+  printf("[junction]: Not intercepting syscalls...\n");
   return 0;
 }
 

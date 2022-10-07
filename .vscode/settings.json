@@ -8,6 +8,9 @@
         "*.tcc": "cpp",
         "filesystem": "cpp",
         "fstream": "cpp",
-        "libsyscall_intercept_hook_point.h": "c"
+        "libsyscall_intercept_hook_point.h": "c",
+        "handlers.hpp": "c",
+        "*.inc": "c",
+        "string.h": "c"
     },
 }

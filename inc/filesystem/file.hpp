@@ -31,11 +31,13 @@ public:
 
   int openat();
   int fstat(struct stat* buf);
-  int fstatat(int dirfd, struct stat* buf, int flags);
   off_t lseek(off_t offset, int whence);
   ssize_t read(void* buf, size_t count);
   ssize_t write(const void* buf, size_t count);
   int close();
+
+  const void* memory(const size_t file_offset) const;
+  size_t size() const;
 
 private:
   /* WARNING: Must update move_helper if any variables are added. */
@@ -63,9 +65,6 @@ private:
   // The file decriptor itself will not be closed.
   void* _mmap{nullptr};
 
-  // Number of bytes mapped for the file.
-  size_t _mmap_length{0};
-
   void _move_helper(File&& other) {
     std::swap(_fd, other._fd);
     std::swap(_file_path, other._file_path);
@@ -73,11 +72,10 @@ private:
     std::swap(_stat, other._stat);
     std::swap(_offset, other._offset);
     std::swap(_mmap, other._mmap);
-    std::swap(_mmap_length, other._mmap_length);
   }
 
-  int _map_no_lock();
-  int _unmap_no_lock();
+  int _mmap_no_lock();
+  int _munmap_no_lock();
 };
 
 } // namespace junction

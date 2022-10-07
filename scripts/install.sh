@@ -7,7 +7,8 @@ ROOT_DIR=${SCRIPT_DIR}/../
 
 # Install Linux packages
 sudo apt update
-sudo apt install -y clang-format
+sudo apt install -y clang-format \
+                    libspdlog-dev
 
 # Initialize submodules
 git submodule update --init --recursive
