@@ -1,3 +1,10 @@
 build/**
 bin/**
 Testing/**
+*.d
+*.o
+*.a
+[._]*.sw[a-p]
+*~
+.cproject
+.project
