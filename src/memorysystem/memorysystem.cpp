@@ -1,14 +1,16 @@
 #include "memorysystem/memorysystem.hpp"
 
-#include "spdlog/spdlog.h"
+#include <assert.h>
 #include <libsyscall_intercept_hook_point.h>
-#include <algorithm>
+#include <string.h>
 #include <sys/mman.h>
 #include <syscall.h>
 #include <unistd.h>
-#include <string.h>
-#include <assert.h>
+
+#include <algorithm>
 #include <cstring>
+
+#include "spdlog/spdlog.h"
 
 namespace junction {
 
@@ -16,12 +18,12 @@ constexpr int MMAP_FD = -1;
 constexpr int MMAP_OFFSET = 0;
 
 void* MemorySystem::mmap(void* addr, size_t length, int prot, int flags,
-    const File& file, off_t offset) {
+                         const File& file, off_t offset) {
   // Mmap anonymous memory; later we will copy the requested fd contents into
   // this memory region and hand this back to the caller.
   // TODO(gohar): Handle the prot and flags properly.
   auto res = syscall_no_intercept(SYS_mmap, addr, length, prot | PROT_WRITE,
-    flags | MAP_ANONYMOUS, MMAP_FD, MMAP_OFFSET);
+                                  flags | MAP_ANONYMOUS, MMAP_FD, MMAP_OFFSET);
   {
     const int err = syscall_error_code(res);
     if (err != 0) {

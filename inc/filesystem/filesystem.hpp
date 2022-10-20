@@ -3,17 +3,17 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 
+#include <functional>
+#include <optional>
 #include <string>
 #include <unordered_map>
-#include <optional>
-#include <functional>
 
 #include "filesystem/file.hpp"
 
 namespace junction {
 
 class FileSystem {
-public:
+ public:
   FileSystem();
   ~FileSystem() = default;
 
@@ -31,11 +31,11 @@ public:
 
   int open_fd(const char* path, int flags);
   std::optional<std::reference_wrapper<const File>> get_file(
-    const int fd) const;
+      const int fd) const;
 
-private:
+ private:
   std::unordered_map<std::string, int> _path_to_fd;
   std::unordered_map<int, File> _fd_to_file;
 };
 
-} // namespace junction
+}  // namespace junction

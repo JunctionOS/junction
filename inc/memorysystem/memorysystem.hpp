@@ -9,7 +9,7 @@
 namespace junction {
 
 class MemorySystem {
-public:
+ public:
   MemorySystem() = default;
   ~MemorySystem() = default;
 
@@ -18,11 +18,11 @@ public:
   MemorySystem& operator=(const MemorySystem& temp_obj) = delete;
 
   void* mmap(void* addr, size_t length, int prot, int flags, const File& file,
-    off_t offset);
+             off_t offset);
   int munmap(void* addr, size_t length);
 
-private:
+ private:
   std::unordered_map<void*, size_t> _mem_to_length;
 };
 
-} // namespace junction
+}  // namespace junction

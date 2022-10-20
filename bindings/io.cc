@@ -10,7 +10,7 @@ constexpr int kStackSlots = 8;
 
 size_t SumIOV(std::span<const iovec> iov) {
   size_t len = 0;
-  for (const iovec &e : iov) {
+  for (const iovec& e : iov) {
     len += e.iov_len;
   }
   return len;
@@ -19,7 +19,7 @@ size_t SumIOV(std::span<const iovec> iov) {
 std::span<iovec> PullIOV(std::span<iovec> iov, size_t n) {
   for (auto it = iov.begin(); it < iov.end(); ++it) {
     if (n < it->iov_len) {
-      (*it).iov_base = reinterpret_cast<char *>(it->iov_base) + n;
+      (*it).iov_base = reinterpret_cast<char*>(it->iov_base) + n;
       (*it).iov_len -= n;
       return {it, iov.end()};
     }
@@ -34,7 +34,7 @@ std::span<iovec> PullIOV(std::span<iovec> iov, size_t n) {
 
 namespace rt {
 
-expected<void, Error> WritevFull(VectorIO *io, std::span<const iovec> iov) {
+expected<void, Error> WritevFull(VectorIO* io, std::span<const iovec> iov) {
   // first try to send without copying the vector
   expected<size_t, Error> ret = io->Writev(iov);
   if (!ret) return MakeError(ret);
@@ -45,7 +45,7 @@ expected<void, Error> WritevFull(VectorIO *io, std::span<const iovec> iov) {
   // partial transfer occurred, copy and update vector, then send the rest
   iovec vstack[kStackSlots];
   std::unique_ptr<iovec[]> vheap;
-  iovec *v = vstack;
+  iovec* v = vstack;
   if (iov.size() > kStackSlots) {
     vheap = std::unique_ptr<iovec[]>{new iovec[iov.size()]};
     v = vheap.get();
@@ -62,7 +62,7 @@ expected<void, Error> WritevFull(VectorIO *io, std::span<const iovec> iov) {
   return {};
 }
 
-expected<void, Error> ReadvFull(VectorIO *io, std::span<const iovec> iov) {
+expected<void, Error> ReadvFull(VectorIO* io, std::span<const iovec> iov) {
   // first try to send without copying the vector
   expected<size_t, Error> ret = io->Readv(iov);
   if (!ret) return MakeError(ret);
@@ -73,7 +73,7 @@ expected<void, Error> ReadvFull(VectorIO *io, std::span<const iovec> iov) {
   // partial transfer occurred, copy and update vector, then receive the rest
   iovec vstack[kStackSlots];
   std::unique_ptr<iovec[]> vheap;
-  iovec *v = vstack;
+  iovec* v = vstack;
   if (iov.size() > kStackSlots) {
     vheap = std::unique_ptr<iovec[]>{new iovec[iov.size()]};
     v = vheap.get();

@@ -1,11 +1,10 @@
 #include "syscall/handlers.hpp"
 
-#include "spdlog/spdlog.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <syscall.h>
 #include <unistd.h>
-#include <sys/mman.h>
 
 #include <csignal>
 #include <filesystem>
@@ -15,6 +14,7 @@
 
 #include "filesystem/filesystem.hpp"
 #include "memorysystem/memorysystem.hpp"
+#include "spdlog/spdlog.h"
 
 junction::FileSystem fs;
 junction::MemorySystem ms;
@@ -83,7 +83,7 @@ int handle_close(int fd, long* result) {
 }
 
 int handle_mmap(void* addr, size_t length, int prot, int flags, int fd,
-    off_t offset, long* result) {
+                off_t offset, long* result) {
   if ((flags & MAP_ANONYMOUS) == MAP_ANONYMOUS) {
     return STATUS_FWD_TO_KERNEL;
   }

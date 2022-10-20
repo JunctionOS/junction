@@ -1,5 +1,6 @@
-#include <gtest/gtest.h>
 #include <fcntl.h>
+#include <gtest/gtest.h>
+
 #include <string>
 
 #include "filesystem/file.hpp"

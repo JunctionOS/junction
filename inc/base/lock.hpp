@@ -6,7 +6,7 @@
 namespace junction {
 
 class Lock {
-public:
+ public:
   Lock() = default;
 
   void lock() { _std_mutex.lock(); }
@@ -19,8 +19,8 @@ public:
   Lock(Lock&&) = delete;
   Lock& operator=(const Lock&&) = delete;
 
-private:
+ private:
   std::mutex _std_mutex;
 };
 
-} // namespace junction
+}  // namespace junction

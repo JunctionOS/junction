@@ -1,19 +1,20 @@
 #include "filesystem/file.hpp"
 
-#include "spdlog/spdlog.h"
+#include <assert.h>
 #include <fcntl.h>
+#include <libsyscall_intercept_hook_point.h>
 #include <string.h>
-#include <cstring>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <unistd.h>
-#include <libsyscall_intercept_hook_point.h>
 #include <syscall.h>
-#include <assert.h>
+#include <unistd.h>
 
+#include <cstring>
 #include <iostream>
 #include <mutex>
 #include <string>
+
+#include "spdlog/spdlog.h"
 
 namespace junction {
 
@@ -37,7 +38,7 @@ File::File(int fd, const std::string file_path, bool _is_dir)
 
   // Map the file.
   if (!_is_dir) {
-    if (_mmap_no_lock()) [[unlikely]] {
+    if (_mmap_no_lock()) {
       std::cerr << "Cannot create file; unable to _map:" << _fd << std::endl;
       throw std::runtime_error("Cannot create file");
     }
@@ -46,7 +47,7 @@ File::File(int fd, const std::string file_path, bool _is_dir)
 
 File::~File() {
   // Unmap all the memory that was mapped for this file.
-  if (_munmap_no_lock()) [[unlikely]] {
+  if (_munmap_no_lock()) {
     std::cerr << "Cannot destroy file; failed to _munmap: " << _fd << std::endl;
   }
 
@@ -66,17 +67,13 @@ const void* File::memory(const size_t file_offset) const {
   return static_cast<const char*>(_mmap) + file_offset;
 }
 
-size_t File::size() const {
-  return _stat.st_size;
-}
+size_t File::size() const { return _stat.st_size; }
 
-int File::openat() {
-  return _fd;
-}
+int File::openat() { return _fd; }
 
 int File::fstat(struct stat* buf) {
   // Argument checking.
-  if (!buf) [[unlikely]] {
+  if (!buf) {
     std::cerr << "Cannot fstat; output buffer not provided" << std::endl;
     return -1;
   }
@@ -100,7 +97,7 @@ off_t File::lseek(off_t offset, int whence) {
   }
 
   // Argument checking.
-  if (whence != SEEK_CUR) [[unlikely]] {
+  if (whence != SEEK_CUR) {
     std::cerr << "Cannot lseek; unsupported whence: " << whence << std::endl;
     return -1;
   }
@@ -109,7 +106,7 @@ off_t File::lseek(off_t offset, int whence) {
   const size_t new_offset = _offset + offset;
 
   // Ensure that the new offset does not overrun the file size;
-  if (new_offset >= _stat.st_size) [[unlikely]] {
+  if (new_offset >= _stat.st_size) {
     std::cerr << "Cannot seek past the file size: (" << new_offset << " > "
               << _stat.st_size << ")" << std::endl;
     return -1;
@@ -132,12 +129,12 @@ ssize_t File::read(void* buf, size_t count) {
   }
 
   // Argument checking.
-  if (count == 0) [[unlikely]] {
+  if (count == 0) {
     return 0;
   }
 
   // Argument checking.
-  if (!buf) [[unlikely]] {
+  if (!buf) {
     std::cerr << "Cannot read; output buffer not provided" << std::endl;
     return -1;
   }
@@ -200,7 +197,7 @@ int File::_mmap_no_lock() {
 
   // Always mmap from the beginning.
   auto res = syscall_no_intercept(SYS_mmap, nullptr /* addr */, _stat.st_size,
-    PROT, FLAGS, _fd, 0);
+                                  PROT, FLAGS, _fd, 0);
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
@@ -211,7 +208,7 @@ int File::_mmap_no_lock() {
 
   // Error checking.
   void* mmap = reinterpret_cast<void*>(res);
-  if (mmap == MAP_FAILED) [[unlikely]] {
+  if (mmap == MAP_FAILED) {
     std::cerr << "Cannot create file; unable to mmap: " << _fd << ", "
               << _file_path << std::endl;
     perror("mmap");
@@ -225,7 +222,7 @@ int File::_mmap_no_lock() {
 
 int File::_munmap_no_lock() {
   // If not currently mapped, nothing to do.
-  if (!_mmap) [[unlikely]] {
+  if (!_mmap) {
     return 0;
   }
 

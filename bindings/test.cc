@@ -52,7 +52,7 @@ void MainHandler() {
 
 }  // anonymous namespace
 
-int main(int argc, char *argv[]) {
+int main(int argc, char* argv[]) {
   int ret;
 
   if (argc < 2) {

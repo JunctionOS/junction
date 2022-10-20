@@ -13,7 +13,7 @@ namespace junction {
 
 /* Internal file representation/state for an open file descriptor. */
 class File {
-public:
+ public:
   File() {}
   File(int fd, const std::string file_path, bool is_dir);
   ~File();
@@ -39,7 +39,7 @@ public:
   const void* memory(const size_t file_offset) const;
   size_t size() const;
 
-private:
+ private:
   /* WARNING: Must update move_helper if any variables are added. */
 
   // Kernel file descriptor associated with this file.
@@ -78,4 +78,4 @@ private:
   int _munmap_no_lock();
 };
 
-} // namespace junction
+}  // namespace junction

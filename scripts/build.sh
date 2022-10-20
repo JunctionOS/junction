@@ -8,12 +8,6 @@ BUILD_DIR=${ROOT_DIR}/build
 BIN_DIR=${ROOT_DIR}/bin
 CMAKE=${BIN_DIR}/bin/cmake
 
-# Run clang-format
-# TODO(gohar): This is giving issues with likely/unlikely indentation.
-# find ${ROOT_DIR}/src -iname *.h -o -iname *.cpp -o -iname *.c -o -iname *.h | xargs clang-format -i
-# find ${ROOT_DIR}/inc -iname *.h -o -iname *.cpp -o -iname *.c -o -iname *.h | xargs clang-format -i
-# find ${ROOT_DIR}/test -iname *.h -o -iname *.cpp -o -iname *.c -o -iname *.h | xargs clang-format -i
-
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
