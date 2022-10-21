@@ -14,5 +14,4 @@ if(NOT TARGET spdlog)
   find_package(spdlog REQUIRED)
 endif()
 
-add_subdirectory(src)
-add_subdirectory(test)
+add_subdirectory(jnct)

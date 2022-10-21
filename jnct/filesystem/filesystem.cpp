@@ -1,4 +1,4 @@
-#include "filesystem/filesystem.hpp"
+#include "jnct/filesystem/filesystem.hpp"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -15,7 +15,7 @@
 #include <regex>
 #include <string>
 
-#include "filesystem/file.hpp"
+#include "jnct/filesystem/file.hpp"
 #include "spdlog/spdlog.h"
 
 namespace junction {

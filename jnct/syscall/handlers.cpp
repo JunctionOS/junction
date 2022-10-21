@@ -1,4 +1,4 @@
-#include "syscall/handlers.hpp"
+#include "jnct/syscall/handlers.hpp"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -12,8 +12,8 @@
 #include <regex>
 #include <string>
 
-#include "filesystem/filesystem.hpp"
-#include "memorysystem/memorysystem.hpp"
+#include "jnct/filesystem/filesystem.hpp"
+#include "jnct/memorysystem/memorysystem.hpp"
 #include "spdlog/spdlog.h"
 
 junction::FileSystem fs;

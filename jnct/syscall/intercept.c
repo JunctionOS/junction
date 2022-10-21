@@ -1,4 +1,4 @@
-#include "syscall/intercept.h"
+#include "jnct/syscall/intercept.h"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -16,7 +16,7 @@
 #include <pthread.h>
 #include <dlfcn.h>
 
-#include "syscall/handlers.hpp"
+#include "jnct/syscall/handlers.hpp"
 
 #define likely(x) __builtin_expect(!!(x), 1)
 #define unlikely(x) __builtin_expect(!!(x), 0)
@@ -73,8 +73,7 @@ void start_initialization() {
 
 static __attribute__((constructor)) void init(void) {
   if (preload_files(MANIFEST_PATH)) {
-    printf("[junction]: Error loading manifest!\n");
-    exit(1);
+    printf("[junction]: Cannot load manifest, skipping...\n");
   }
 
   start_initialization();

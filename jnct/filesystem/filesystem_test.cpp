@@ -3,7 +3,7 @@
 
 #include <string>
 
-#include "filesystem/file.hpp"
+#include "jnct/filesystem/file.hpp"
 
 // Open a file from a valid fd.
 TEST(JunctionTest, FileCreationTest) {

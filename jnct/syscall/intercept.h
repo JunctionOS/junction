@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "handlers.hpp"
+#include "jnct/syscall/handlers.hpp"
 
 #define MAX_LINE_LENGTH 1000
 
