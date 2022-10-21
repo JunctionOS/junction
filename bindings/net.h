@@ -35,7 +35,7 @@ class UDPConn {
   static constexpr size_t kMaxPayloadSize = UDP_MAX_PAYLOAD;
 
   // Creates a UDP connection between a local and remote address.
-  static expected<UDPConn, Error> Dial(netaddr laddr, netaddr raddr) {
+  static Status<UDPConn> Dial(netaddr laddr, netaddr raddr) {
     udpconn_t *c;
     int ret = udp_dial(laddr, raddr, &c);
     if (ret) return MakeError(-ret);
@@ -43,7 +43,7 @@ class UDPConn {
   }
 
   // Creates a UDP connection that receives all packets on a local port.
-  static expected<UDPConn, Error> Listen(netaddr laddr) {
+  static Status<UDPConn> Listen(netaddr laddr) {
     udpconn_t *c;
     int ret = udp_listen(laddr, &c);
     if (ret) return MakeError(-ret);
@@ -59,20 +59,20 @@ class UDPConn {
   netaddr RemoteAddr() const { return udp_remote_addr(c_); }
 
   // Adjusts the length of buffer limits.
-  expected<void, Error> SetBuffers(int read_mbufs, int write_mbufs) {
+  Status<void> SetBuffers(int read_mbufs, int write_mbufs) {
     int ret = udp_set_buffers(c_, read_mbufs, write_mbufs);
     if (ret) MakeError(-ret);
     return {};
   }
 
   // Reads a datagram and gets from remote address.
-  expected<size_t, Error> ReadFrom(std::span<std::byte> buf, netaddr *raddr) {
+  Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr) {
     ssize_t ret = udp_read_from(c_, buf.data(), buf.size_bytes(), raddr);
     if (ret <= 0) return MakeError(-ret);
     return ret;
   }
   // Writes a datagram and sets to remote address.
-  expected<size_t, Error> WriteTo(std::span<const std::byte> buf,
+  Status<size_t> WriteTo(std::span<const std::byte> buf,
                                   const netaddr *raddr) {
     ssize_t ret = udp_write_to(c_, buf.data(), buf.size_bytes(), raddr);
     if (ret < 0) return MakeError(-ret);
@@ -80,13 +80,13 @@ class UDPConn {
   }
 
   // Reads a datagram.
-  expected<size_t, Error> Read(std::span<std::byte> buf) {
+  Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = udp_read(c_, buf.data(), buf.size_bytes());
     if (ret <= 0) return MakeError(-ret);
     return ret;
   }
   // Writes a datagram.
-  expected<size_t, Error> Write(std::span<const std::byte> buf) {
+  Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = udp_write(c_, buf.data(), buf.size_bytes());
     if (ret < 0) return MakeError(-ret);
     return ret;
@@ -121,7 +121,7 @@ class TCPConn : public VectorIO {
   }
 
   // Creates a TCP connection between a local and remote address.
-  static expected<TCPConn, Error> Dial(netaddr laddr, netaddr raddr) {
+  static Status<TCPConn> Dial(netaddr laddr, netaddr raddr) {
     tcpconn_t *c;
     int ret = tcp_dial(laddr, raddr, &c);
     if (ret) MakeError(-ret);
@@ -129,7 +129,7 @@ class TCPConn : public VectorIO {
   }
 
   // Creates a TCP connection with affinity to a CPU index.
-  static expected<TCPConn, Error> DialAffinity(unsigned int cpu,
+  static Status<TCPConn> DialAffinity(unsigned int cpu,
                                                netaddr raddr) {
     tcpconn_t *c;
     int ret = tcp_dial_affinity(cpu, raddr, &c);
@@ -138,7 +138,7 @@ class TCPConn : public VectorIO {
   }
 
   // Creates a new TCP connection with affinity to another TCP connection.
-  static expected<TCPConn, Error> DialAffinity(const TCPConn &cin,
+  static Status<TCPConn> DialAffinity(const TCPConn &cin,
                                                netaddr raddr) {
     tcpconn_t *c;
     int ret = tcp_dial_conn_affinity(cin.c_, raddr, &c);
@@ -152,33 +152,33 @@ class TCPConn : public VectorIO {
   netaddr RemoteAddr() const { return tcp_remote_addr(c_); }
 
   // Reads from the TCP stream.
-  expected<size_t, Error> Read(std::span<std::byte> buf) {
+  Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = tcp_read(c_, buf.data(), buf.size_bytes());
     if (ret <= 0) MakeError(-ret);
     return ret;
   }
   // Writes to the TCP stream.
-  expected<size_t, Error> Write(std::span<const std::byte> buf) {
+  Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = tcp_write(c_, buf.data(), buf.size_bytes());
     if (ret < 0) MakeError(-ret);
     return ret;
   }
 
   // Reads a vector from the TCP stream.
-  expected<size_t, Error> Readv(std::span<const iovec> iov) {
+  Status<size_t> Readv(std::span<const iovec> iov) {
     ssize_t ret = tcp_readv(c_, iov.data(), iov.size());
     if (ret <= 0) MakeError(-ret);
     return ret;
   }
   // Writes a vector to the TCP stream.
-  expected<size_t, Error> Writev(std::span<const iovec> iov) {
+  Status<size_t> Writev(std::span<const iovec> iov) {
     ssize_t ret = tcp_writev(c_, iov.data(), iov.size());
     if (ret < 0) MakeError(-ret);
     return ret;
   }
 
   // Gracefully shutdown the TCP connection.
-  expected<void, Error> Shutdown(int how) {
+  Status<void> Shutdown(int how) {
     int ret = tcp_shutdown(c_, how);
     if (ret < 0) MakeError(-ret);
     return {};
@@ -210,7 +210,7 @@ class TCPQueue {
   }
 
   // Creates a TCP listener queue.
-  static expected<TCPQueue, Error> Listen(netaddr laddr, int backlog) {
+  static Status<TCPQueue> Listen(netaddr laddr, int backlog) {
     tcpqueue_t *q;
     int ret = tcp_listen(laddr, backlog, &q);
     if (ret) return MakeError(-ret);
@@ -218,7 +218,7 @@ class TCPQueue {
   }
 
   // Accept a connection from the listener queue.
-  expected<TCPConn, Error> Accept() {
+  Status<TCPConn> Accept() {
     tcpconn_t *c;
     int ret = tcp_accept(q_, &c);
     if (ret) MakeError(-ret);

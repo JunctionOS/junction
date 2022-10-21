@@ -34,9 +34,9 @@ std::span<iovec> PullIOV(std::span<iovec> iov, size_t n) {
 
 namespace rt {
 
-expected<void, Error> WritevFull(VectorIO* io, std::span<const iovec> iov) {
+Status<void> WritevFull(VectorIO* io, std::span<const iovec> iov) {
   // first try to send without copying the vector
-  expected<size_t, Error> ret = io->Writev(iov);
+  Status<size_t> ret = io->Writev(iov);
   if (!ret) return MakeError(ret);
 
   // sum total length and check if everything was transfered
@@ -62,9 +62,9 @@ expected<void, Error> WritevFull(VectorIO* io, std::span<const iovec> iov) {
   return {};
 }
 
-expected<void, Error> ReadvFull(VectorIO* io, std::span<const iovec> iov) {
+Status<void> ReadvFull(VectorIO* io, std::span<const iovec> iov) {
   // first try to send without copying the vector
-  expected<size_t, Error> ret = io->Readv(iov);
+  Status<size_t> ret = io->Readv(iov);
   if (!ret) return MakeError(ret);
 
   // sum total length and check if everything was transfered

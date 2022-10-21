@@ -19,7 +19,7 @@ template <typename T>
 concept Reader = requires(T t) {
   {
     t.Read(std::declval<std::span<std::byte>>())
-    } -> std::same_as<expected<size_t, Error>>;
+    } -> std::same_as<Status<size_t>>;
 };
 
 // Writer is a concept for the basic UNIX-style Write method
@@ -27,7 +27,7 @@ template <typename T>
 concept Writer = requires(T t) {
   {
     t.Write(std::declval<std::span<const std::byte>>())
-    } -> std::same_as<expected<size_t, Error>>;
+    } -> std::same_as<Status<size_t>>;
 };
 
 // Cast an object as a const byte span (for use with Write())
@@ -44,11 +44,10 @@ std::span<std::byte, sizeof(T)> writable_byte_view(T &t) {
 
 // Reads the full span of bytes.
 template <typename T>
-expected<void, Error> ReadFull(T *t,
-                               std::span<std::byte> buf) requires Reader<T> {
+Status<void> ReadFull(T *t, std::span<std::byte> buf) requires Reader<T> {
   size_t n = 0;
   while (n < buf.size()) {
-    expected<size_t, Error> ret = t->Read({buf.begin() + n, buf.end()});
+    Status<size_t> ret = t->Read({buf.begin() + n, buf.end()});
     if (!ret) return MakeError(ret);
     n += *ret;
   }
@@ -58,11 +57,10 @@ expected<void, Error> ReadFull(T *t,
 
 // Writes the full span of bytes.
 template <typename T>
-expected<void, Error> WriteFull(
-    T *t, std::span<const std::byte> buf) requires Writer<T> {
+Status<void> WriteFull(T *t, std::span<const std::byte> buf) requires Writer<T> {
   size_t n = 0;
   while (n < buf.size()) {
-    expected<size_t, Error> ret = t->Write({buf.begin() + n, buf.end()});
+    Status<size_t> ret = t->Write({buf.begin() + n, buf.end()});
     if (!ret) return MakeError(ret);
     n += *ret;
   }
@@ -74,11 +72,11 @@ expected<void, Error> WriteFull(
 class VectorIO {
  public:
   virtual ~VectorIO(){};
-  virtual expected<size_t, Error> Readv(std::span<const iovec> sg) = 0;
-  virtual expected<size_t, Error> Writev(std::span<const iovec> sg) = 0;
+  virtual Status<size_t> Readv(std::span<const iovec> sg) = 0;
+  virtual Status<size_t> Writev(std::span<const iovec> sg) = 0;
 };
 
-expected<void, Error> ReadvFull(VectorIO *io, std::span<const iovec> sg);
-expected<void, Error> WritevFull(VectorIO *io, std::span<const iovec> sg);
+Status<void> ReadvFull(VectorIO *io, std::span<const iovec> sg);
+Status<void> WritevFull(VectorIO *io, std::span<const iovec> sg);
 
 }  // namespace rt

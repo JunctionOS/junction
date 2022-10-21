@@ -86,4 +86,18 @@ inline rt::unexpected<Error> MakeError(const rt::expected<T, Error>& ret) {
   return rt::unexpected(ret.error());
 }
 
+// A shorthand for making an expected with a value type 'T' and an error type
+// 'Error'. This is convenient because 'Error' is the default error type
+// throughout this project.
+//
+// Note that a function should never return an 'Error' directly, even if its
+// value type is 'void'. Instead use the Status API below.
+//
+// Example:
+//  Status<size_t> ret = Read(buf);
+//  if (!ret) return MakeError(ret);
+//  // success, inspect *ret to get the length
+template <typename T>
+using Status = rt::expected<T, Error>;
+
 }  // namespace rt
