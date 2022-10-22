@@ -1,8 +1,8 @@
-#include "thread.h"
+#include "junction/bindings/thread.h"
 
 #include <memory>
 
-namespace rt {
+namespace junction::rt {
 namespace thread_internal {
 
 // A helper to jump from a C function to a C++ std::function.
@@ -15,7 +15,7 @@ void ThreadTrampoline(void* arg) {
 // A helper to jump from a C function to a C++ std::function. This variant
 // can wait for the thread to be joined.
 void ThreadTrampolineWithJoin(void* arg) {
-  thread_internal::join_data* d = static_cast<thread_internal::join_data*>(arg);
+  auto* d = static_cast<thread_internal::join_data*>(arg);
   d->func_();
   std::destroy_at(&d->func_);
   spin_lock_np(&d->lock_);
@@ -87,4 +87,4 @@ void Thread::Join() {
   join_data_ = nullptr;
 }
 
-}  // namespace rt
+}  // namespace junction::rt

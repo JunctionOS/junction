@@ -1,4 +1,4 @@
-#include "io.h"
+#include "junction/base/io.h"
 
 #include <algorithm>
 #include <cstring>
@@ -32,7 +32,7 @@ std::span<iovec> PullIOV(std::span<iovec> iov, size_t n) {
 
 }  // namespace
 
-namespace rt {
+namespace junction {
 
 Status<void> WritevFull(VectorIO* io, std::span<const iovec> iov) {
   // first try to send without copying the vector
@@ -90,4 +90,4 @@ Status<void> ReadvFull(VectorIO* io, std::span<const iovec> iov) {
   return {};
 }
 
-}  // namespace rt
+}  // namespace junction

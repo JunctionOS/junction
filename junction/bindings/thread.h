@@ -9,7 +9,7 @@ extern "C" {
 
 #include <functional>
 
-namespace rt {
+namespace junction::rt {
 namespace thread_internal {
 
 struct join_data {
@@ -54,10 +54,10 @@ inline void Spawn(std::function<void()>&& func) {
 }
 
 // Called from a running thread to exit.
-inline void Exit(void) { thread_exit(); }
+inline void Exit() { thread_exit(); }
 
 // Called from a running thread to yield.
-inline void Yield(void) { thread_yield(); }
+inline void Yield() { thread_yield(); }
 
 // An STL-style thread class
 class Thread {
@@ -96,4 +96,4 @@ class Thread {
   thread_internal::join_data* join_data_;
 };
 
-}  // namespace rt
+}  // namespace junction::rt

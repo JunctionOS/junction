@@ -3,21 +3,21 @@
 #pragma once
 
 extern "C" {
-#include <stdlib.h>
 #include <base/init.h>
 #include <runtime/runtime.h>
 }
 
+#include <cstdlib>
 #include <functional>
 #include <string>
 
-namespace rt {
+namespace junction::rt {
 
 // The highest number of cores supported.
 constexpr unsigned int kCoreLimit = NCPU;
 
 // Initializes the runtime. If successful, calls @main_func and does not return.
-int RuntimeInit(std::string cfg_path, std::function<void()> main_func);
+int RuntimeInit(const std::string &cfg_path, std::function<void()> main_func);
 
 // Shuts down the runtime and exits with EXIT_FAILURE or EXIT_SUCCESS.
 inline void RuntimeExit(int status) { init_shutdown(status); }
@@ -39,4 +39,4 @@ inline unsigned int RuntimeGuaranteedCores() {
   return runtime_guaranteed_cores();
 }
 
-};  // namespace rt
+};  // namespace junction::rt

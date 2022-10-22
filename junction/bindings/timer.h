@@ -7,7 +7,7 @@ extern "C" {
 #include <runtime/timer.h>
 }
 
-namespace rt {
+namespace junction::rt {
 
 static constexpr uint64_t kMilliseconds = 1000;
 static constexpr uint64_t kSeconds = 1000000;
@@ -24,4 +24,4 @@ inline void SleepUntil(uint64_t deadline_us) { timer_sleep_until(deadline_us); }
 // Sleeps for a microsecond duration.
 inline void Sleep(uint64_t duration_us) { timer_sleep(duration_us); }
 
-}  // namespace rt
+}  // namespace junction::rt

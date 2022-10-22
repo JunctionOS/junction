@@ -1,4 +1,6 @@
 ///
+// TODO: Replace with the official std::expected when it is ready.
+//
 // expected - An implementation of std::expected with extensions
 // Written in 2017 by Simon Brand (simonrbrand@gmail.com, @TartanLlama)
 //
@@ -71,7 +73,7 @@
 #elif (defined(__GNUC__) && __GNUC__ < 8 && !defined(__clang__))
 #ifndef TL_GCC_LESS_8_TRIVIALLY_COPY_CONSTRUCTIBLE_MUTEX
 #define TL_GCC_LESS_8_TRIVIALLY_COPY_CONSTRUCTIBLE_MUTEX
-namespace rt {
+namespace junction {
 namespace detail {
 template <class T>
 struct is_trivially_copy_constructible
@@ -81,11 +83,11 @@ template <class T, class A>
 struct is_trivially_copy_constructible<std::vector<T, A>> : std::false_type {};
 #endif
 }  // namespace detail
-}  // namespace rt
+}  // namespace junction
 #endif
 
 #define TL_EXPECTED_IS_TRIVIALLY_COPY_CONSTRUCTIBLE(T) \
-  rt::detail::is_trivially_copy_constructible<T>
+  junction::detail::is_trivially_copy_constructible<T>
 #define TL_EXPECTED_IS_TRIVIALLY_COPY_ASSIGNABLE(T) \
   std::is_trivially_copy_assignable<T>
 #define TL_EXPECTED_IS_TRIVIALLY_DESTRUCTIBLE(T) \
@@ -116,7 +118,7 @@ struct is_trivially_copy_constructible<std::vector<T, A>> : std::false_type {};
 #define TL_EXPECTED_11_CONSTEXPR constexpr
 #endif
 
-namespace rt {
+namespace junction {
 template <class T, class E>
 class expected;
 
@@ -2388,6 +2390,6 @@ void swap(expected<T, E> &lhs,
           expected<T, E> &rhs) noexcept(noexcept(lhs.swap(rhs))) {
   lhs.swap(rhs);
 }
-}  // namespace rt
+}  // namespace junction
 
 #endif

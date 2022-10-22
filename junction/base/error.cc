@@ -1,6 +1,6 @@
-#include "error.h"
+#include "junction/base/error.h"
 
-namespace rt {
+namespace junction {
 
 std::string_view Error::ToString() const {
   switch (code()) {
@@ -253,4 +253,4 @@ std::ostream& operator<<(std::ostream& os, const Error& x) {
   return os << x.ToString();
 }
 
-}  // namespace rt
+}  // namespace junction

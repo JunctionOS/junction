@@ -9,10 +9,10 @@ extern "C" {
 #include <atomic>
 #include <memory>
 
-#include "sync.h"
-#include "thread.h"
+#include "junction/bindings/sync.h"
+#include "junction/bindings/thread.h"
 
-namespace rt {
+namespace junction::rt {
 
 // Usage Example:
 // std::unique_ptr<foo> p;
@@ -51,7 +51,13 @@ template <typename T>
 class RCUPtr {
  public:
   explicit RCUPtr(T *ptr) noexcept : ptr_(ptr) {}
-  ~RCUPtr() {}
+  ~RCUPtr() = default;
+
+  // disable copy and move
+  RCUPtr(RCUPtr &&) = delete;
+  RCUPtr &operator=(RCUPtr &&) = delete;
+  RCUPtr(const RCUPtr &) = delete;
+  RCUPtr &operator=(const RCUPtr &) = delete;
 
   // Set the pointer (as a writer).
   void set(T *ptr) { ptr_.store(ptr, std::memory_order_release); }
@@ -69,12 +75,6 @@ class RCUPtr {
 
  private:
   std::atomic<T *> ptr_;
-
-  // disable copy and move
-  RCUPtr(RCUPtr &&) = delete;
-  RCUPtr &operator=(RCUPtr &&) = delete;
-  RCUPtr(const RCUPtr &) = delete;
-  RCUPtr &operator=(const RCUPtr &) = delete;
 };
 
 // Blocks the calling thread and waits until a quiescent period has elapsed.
@@ -99,4 +99,4 @@ inline void RCUFree(std::unique_ptr<T> ptr) {
   rt::Spawn([p = std::move(ptr)]() mutable { RCUSynchronize(); });
 }
 
-}  // namespace rt
+}  // namespace junction::rt

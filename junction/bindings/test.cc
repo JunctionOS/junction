@@ -13,6 +13,8 @@ extern "C" {
 #include "thread.h"
 #include "timer.h"
 
+namespace junction {
+
 namespace {
 
 constexpr int kTestValue = 10;
@@ -50,7 +52,7 @@ void MainHandler() {
   rt::RuntimeExit(EXIT_SUCCESS);
 }
 
-}  // anonymous namespace
+}  // namespace
 
 int main(int argc, char* argv[]) {
   int ret;
@@ -67,3 +69,5 @@ int main(int argc, char* argv[]) {
   }
   return 0;
 }
+
+}  // namespace junction

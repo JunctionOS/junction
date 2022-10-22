@@ -6,6 +6,9 @@ extern "C" {
 #include <runtime/storage.h>
 }
 
+namespace junction {
+namespace rt {
+
 // TODO: this should be per-device.
 class Storage {
  public:
@@ -25,3 +28,6 @@ class Storage {
   // Returns the capacity of the device in blocks.
   static uint64_t get_num_blocks() { return storage_num_blocks(); }
 };
+
+}  // namespace rt
+}  // namespace junction

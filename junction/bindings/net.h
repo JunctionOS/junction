@@ -2,19 +2,21 @@
 
 #pragma once
 
+// NOLINTBEGIN
 extern "C" {
 #include <base/stddef.h>
 #include <runtime/tcp.h>
 #include <runtime/udp.h>
 }
+// NOLINTEND
 
 #include <cstddef>
 #include <span>
 
-#include "error.h"
-#include "io.h"
+#include "junction/base/error.h"
+#include "junction/base/io.h"
 
-namespace rt {
+namespace junction::rt {
 
 // UDP Connections.
 class UDPConn {
@@ -30,6 +32,10 @@ class UDPConn {
     c.c_ = nullptr;
     return *this;
   }
+
+  // disable copy.
+  UDPConn(const UDPConn &) = delete;
+  UDPConn &operator=(const UDPConn &) = delete;
 
   // The maximum possible payload size (with the maximum MTU).
   static constexpr size_t kMaxPayloadSize = UDP_MAX_PAYLOAD;
@@ -54,9 +60,9 @@ class UDPConn {
   static size_t PayloadSize() { return static_cast<size_t>(udp_payload_size); }
 
   // Gets the local UDP address.
-  netaddr LocalAddr() const { return udp_local_addr(c_); }
+  [[nodiscard]] netaddr LocalAddr() const { return udp_local_addr(c_); }
   // Gets the remote UDP address.
-  netaddr RemoteAddr() const { return udp_remote_addr(c_); }
+  [[nodiscard]] netaddr RemoteAddr() const { return udp_remote_addr(c_); }
 
   // Adjusts the length of buffer limits.
   Status<void> SetBuffers(int read_mbufs, int write_mbufs) {
@@ -68,27 +74,26 @@ class UDPConn {
   // Reads a datagram and gets from remote address.
   Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr) {
     ssize_t ret = udp_read_from(c_, buf.data(), buf.size_bytes(), raddr);
-    if (ret <= 0) return MakeError(-ret);
+    if (ret <= 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a datagram and sets to remote address.
-  Status<size_t> WriteTo(std::span<const std::byte> buf,
-                                  const netaddr *raddr) {
+  Status<size_t> WriteTo(std::span<const std::byte> buf, const netaddr *raddr) {
     ssize_t ret = udp_write_to(c_, buf.data(), buf.size_bytes(), raddr);
-    if (ret < 0) return MakeError(-ret);
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
 
   // Reads a datagram.
   Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = udp_read(c_, buf.data(), buf.size_bytes());
-    if (ret <= 0) return MakeError(-ret);
+    if (ret <= 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a datagram.
   Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = udp_write(c_, buf.data(), buf.size_bytes());
-    if (ret < 0) return MakeError(-ret);
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
 
@@ -97,10 +102,6 @@ class UDPConn {
 
  private:
   explicit UDPConn(udpconn_t *c) noexcept : c_(c) {}
-
-  // disable copy.
-  UDPConn(const UDPConn &) = delete;
-  UDPConn &operator=(const UDPConn &) = delete;
 
   udpconn_t *c_;
 };
@@ -120,6 +121,10 @@ class TCPConn : public VectorIO {
     return *this;
   }
 
+  // disable copy.
+  TCPConn(const TCPConn &) = delete;
+  TCPConn &operator=(const TCPConn &) = delete;
+
   // Creates a TCP connection between a local and remote address.
   static Status<TCPConn> Dial(netaddr laddr, netaddr raddr) {
     tcpconn_t *c;
@@ -129,8 +134,7 @@ class TCPConn : public VectorIO {
   }
 
   // Creates a TCP connection with affinity to a CPU index.
-  static Status<TCPConn> DialAffinity(unsigned int cpu,
-                                               netaddr raddr) {
+  static Status<TCPConn> DialAffinity(unsigned int cpu, netaddr raddr) {
     tcpconn_t *c;
     int ret = tcp_dial_affinity(cpu, raddr, &c);
     if (ret) return MakeError(-ret);
@@ -138,8 +142,7 @@ class TCPConn : public VectorIO {
   }
 
   // Creates a new TCP connection with affinity to another TCP connection.
-  static Status<TCPConn> DialAffinity(const TCPConn &cin,
-                                               netaddr raddr) {
+  static Status<TCPConn> DialAffinity(const TCPConn &cin, netaddr raddr) {
     tcpconn_t *c;
     int ret = tcp_dial_conn_affinity(cin.c_, raddr, &c);
     if (ret) return MakeError(-ret);
@@ -147,33 +150,33 @@ class TCPConn : public VectorIO {
   }
 
   // Gets the local TCP address.
-  netaddr LocalAddr() const { return tcp_local_addr(c_); }
+  [[nodiscard]] netaddr LocalAddr() const { return tcp_local_addr(c_); }
   // Gets the remote TCP address.
-  netaddr RemoteAddr() const { return tcp_remote_addr(c_); }
+  [[nodiscard]] netaddr RemoteAddr() const { return tcp_remote_addr(c_); }
 
   // Reads from the TCP stream.
   Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = tcp_read(c_, buf.data(), buf.size_bytes());
-    if (ret <= 0) MakeError(-ret);
+    if (ret <= 0) MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes to the TCP stream.
   Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = tcp_write(c_, buf.data(), buf.size_bytes());
-    if (ret < 0) MakeError(-ret);
+    if (ret < 0) MakeError(static_cast<int>(-ret));
     return ret;
   }
 
   // Reads a vector from the TCP stream.
   Status<size_t> Readv(std::span<const iovec> iov) {
     ssize_t ret = tcp_readv(c_, iov.data(), iov.size());
-    if (ret <= 0) MakeError(-ret);
+    if (ret <= 0) MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a vector to the TCP stream.
   Status<size_t> Writev(std::span<const iovec> iov) {
     ssize_t ret = tcp_writev(c_, iov.data(), iov.size());
-    if (ret < 0) MakeError(-ret);
+    if (ret < 0) MakeError(static_cast<int>(-ret));
     return ret;
   }
 
@@ -188,10 +191,6 @@ class TCPConn : public VectorIO {
 
  private:
   explicit TCPConn(tcpconn_t *c) noexcept : c_(c) {}
-
-  // disable copy.
-  TCPConn(const TCPConn &) = delete;
-  TCPConn &operator=(const TCPConn &) = delete;
 
   tcpconn_t *c_;
 };
@@ -208,6 +207,10 @@ class TCPQueue {
     q.q_ = nullptr;
     return *this;
   }
+
+  // disable copy.
+  TCPQueue(const TCPQueue &) = delete;
+  TCPQueue &operator=(const TCPQueue &) = delete;
 
   // Creates a TCP listener queue.
   static Status<TCPQueue> Listen(netaddr laddr, int backlog) {
@@ -231,11 +234,7 @@ class TCPQueue {
  private:
   explicit TCPQueue(tcpqueue_t *q) noexcept : q_(q) {}
 
-  // disable copy.
-  TCPQueue(const TCPQueue &) = delete;
-  TCPQueue &operator=(const TCPQueue &) = delete;
-
   tcpqueue_t *q_;
 };
 
-}  // namespace rt
+}  // namespace junction::rt

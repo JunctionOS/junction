@@ -10,9 +10,9 @@ extern "C" {
 #include <cstddef>
 #include <span>
 
-#include "error.h"
+#include "junction/base/error.h"
 
-namespace rt {
+namespace junction {
 
 // Reader is a concept for the basic UNIX-style Read method
 template <typename T>
@@ -57,7 +57,8 @@ Status<void> ReadFull(T *t, std::span<std::byte> buf) requires Reader<T> {
 
 // Writes the full span of bytes.
 template <typename T>
-Status<void> WriteFull(T *t, std::span<const std::byte> buf) requires Writer<T> {
+Status<void> WriteFull(T *t,
+                       std::span<const std::byte> buf) requires Writer<T> {
   size_t n = 0;
   while (n < buf.size()) {
     Status<size_t> ret = t->Write({buf.begin() + n, buf.end()});
@@ -71,12 +72,12 @@ Status<void> WriteFull(T *t, std::span<const std::byte> buf) requires Writer<T> 
 // VectorIO is an interface for vector reads and writes.
 class VectorIO {
  public:
-  virtual ~VectorIO(){};
-  virtual Status<size_t> Readv(std::span<const iovec> sg) = 0;
-  virtual Status<size_t> Writev(std::span<const iovec> sg) = 0;
+  virtual ~VectorIO() = default;
+  virtual Status<size_t> Readv(std::span<const iovec> iov) = 0;
+  virtual Status<size_t> Writev(std::span<const iovec> iov) = 0;
 };
 
-Status<void> ReadvFull(VectorIO *io, std::span<const iovec> sg);
-Status<void> WritevFull(VectorIO *io, std::span<const iovec> sg);
+Status<void> ReadvFull(VectorIO *io, std::span<const iovec> iov);
+Status<void> WritevFull(VectorIO *io, std::span<const iovec> iov);
 
-}  // namespace rt
+}  // namespace junction

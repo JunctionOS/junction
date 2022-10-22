@@ -11,7 +11,7 @@ extern "C" {
 
 #include <type_traits>
 
-namespace rt {
+namespace junction::rt {
 
 // Force the compiler to access a memory location.
 template <typename T>
@@ -73,35 +73,34 @@ class ThreadWaker {
 // Disables preemption across a critical section.
 class Preempt {
  public:
-  Preempt() noexcept {}
-  ~Preempt() {}
+  Preempt() noexcept = default;
+  ~Preempt() = default;
 
   // Disables preemption.
-  void Lock() { preempt_disable(); }
+  static void Lock() { preempt_disable(); }
 
   // Enables preemption.
-  void Unlock() { preempt_enable(); }
+  static void Unlock() { preempt_enable(); }
 
   // Atomically enables preemption and parks the running thread.
-  void UnlockAndPark() { thread_park_and_preempt_enable(); }
+  static void UnlockAndPark() { thread_park_and_preempt_enable(); }
 
   // Returns true if preemption is currently disabled.
-  bool IsHeld() const { return !preempt_enabled(); }
+  [[nodiscard]] static bool IsHeld() { return !preempt_enabled(); }
 
   // Returns true if preemption is needed. Will be handled on Unlock() or on
   // UnlockAndPark().
-  bool PreemptNeeded() const {
+  [[nodiscard]] static bool PreemptNeeded() {
     assert(IsHeld());
     return preempt_needed();
   }
 
   // Gets the current CPU index (not the same as the core number).
-  unsigned int get_cpu() const {
+  [[nodiscard]] static unsigned int get_cpu() {
     assert(IsHeld());
     return read_once(kthread_idx);
   }
 
- private:
   // disable move and copy.
   Preempt(Preempt &&) = delete;
   Preempt &operator=(Preempt &&) = delete;
@@ -114,6 +113,11 @@ class Spin {
  public:
   Spin() noexcept { spin_lock_init(&lock_); }
   ~Spin() { assert(!spin_lock_held(&lock_)); }
+
+  Spin(Spin &&) = delete;
+  Spin &operator=(Spin &&) = delete;
+  Spin(const Spin &) = delete;
+  Spin &operator=(const Spin &) = delete;
 
   // Locks the spin lock.
   void Lock() { spin_lock_np(&lock_); }
@@ -129,28 +133,23 @@ class Spin {
   bool TryLock() { return spin_try_lock_np(&lock_); }
 
   // Returns true if the lock is currently held.
-  bool IsHeld() const { return spin_lock_held(&lock_); }
+  [[nodiscard]] bool IsHeld() const { return spin_lock_held(&lock_); }
 
   // Returns true if preemption is needed. Will be handled on Unlock() or on
   // UnlockAndPark().
-  bool PreemptNeeded() const {
+  [[nodiscard]] bool PreemptNeeded() const {
     assert(IsHeld());
     return preempt_needed();
   }
 
   // Gets the current CPU index (not the same as the core number).
-  unsigned int get_cpu() const {
+  [[nodiscard]] unsigned int get_cpu() const {
     assert(IsHeld());
     return read_once(kthread_idx);
   }
 
  private:
   spinlock_t lock_;
-
-  Spin(Spin &&) = delete;
-  Spin &operator=(Spin &&) = delete;
-  Spin(const Spin &) = delete;
-  Spin &operator=(const Spin &) = delete;
 };
 
 // Pthread-like mutex support.
@@ -160,6 +159,11 @@ class Mutex {
  public:
   Mutex() noexcept { mutex_init(&mu_); }
   ~Mutex() { assert(!mutex_held(&mu_)); }
+
+  Mutex(Mutex &&) = delete;
+  Mutex &operator=(Mutex &&) = delete;
+  Mutex(const Mutex &) = delete;
+  Mutex &operator=(const Mutex &) = delete;
 
   // Locks the mutex.
   void Lock() { mutex_lock(&mu_); }
@@ -172,15 +176,10 @@ class Mutex {
   bool TryLock() { return mutex_try_lock(&mu_); }
 
   // Returns true if the mutex is currently held.
-  bool IsHeld() const { return mutex_held(&mu_); }
+  [[nodiscard]] bool IsHeld() const { return mutex_held(&mu_); }
 
  private:
   mutex_t mu_;
-
-  Mutex(Mutex &&) = delete;
-  Mutex &operator=(Mutex &&) = delete;
-  Mutex(const Mutex &) = delete;
-  Mutex &operator=(const Mutex &) = delete;
 };
 
 // Lockable is the concept of a lock.
@@ -206,6 +205,11 @@ class ScopedLock {
   explicit ScopedLock(L *lock) noexcept : lock_(lock) { lock_->Lock(); }
   ~ScopedLock() { lock_->Unlock(); }
 
+  ScopedLock(ScopedLock &&) = delete;
+  ScopedLock &operator=(ScopedLock &&) = delete;
+  ScopedLock(const ScopedLock &) = delete;
+  ScopedLock &operator=(const ScopedLock &) = delete;
+
   // Park is useful for blocking and waiting on a condition.
   // Only works with Spin and Preempt (not Mutex).
   // Example:
@@ -222,11 +226,6 @@ class ScopedLock {
 
  private:
   L *const lock_;
-
-  ScopedLock(ScopedLock &&) = delete;
-  ScopedLock &operator=(ScopedLock &&) = delete;
-  ScopedLock(const ScopedLock &) = delete;
-  ScopedLock &operator=(const ScopedLock &) = delete;
 };
 
 using SpinGuard = ScopedLock<Spin>;
@@ -241,13 +240,13 @@ class ScopedLockAndPark {
   explicit ScopedLockAndPark(L *lock) noexcept : lock_(lock) { lock_->Lock(); }
   ~ScopedLockAndPark() { lock_->UnlockAndPark(); }
 
- private:
-  L *const lock_;
-
   ScopedLockAndPark(ScopedLockAndPark &&) = delete;
   ScopedLockAndPark &operator=(ScopedLockAndPark &&) = delete;
   ScopedLockAndPark(const ScopedLockAndPark &) = delete;
   ScopedLockAndPark &operator=(const ScopedLockAndPark &) = delete;
+
+ private:
+  L *const lock_;
 };
 
 using SpinGuardAndPark = ScopedLockAndPark<Spin>;
@@ -257,7 +256,12 @@ using PreemptGuardAndPark = ScopedLockAndPark<Preempt>;
 class CondVar {
  public:
   CondVar() noexcept { condvar_init(&cv_); };
-  ~CondVar() {}
+  ~CondVar() = default;
+
+  CondVar(CondVar &&) = delete;
+  CondVar &operator=(CondVar &&) = delete;
+  CondVar(const CondVar &) = delete;
+  CondVar &operator=(const CondVar &) = delete;
 
   // Block until the condition variable is signaled. Recheck the condition
   // after wakeup, as no guarantees are made about preventing spurious wakeups.
@@ -271,11 +275,6 @@ class CondVar {
 
  private:
   condvar_t cv_;
-
-  CondVar(CondVar &&) = delete;
-  CondVar &operator=(CondVar &&) = delete;
-  CondVar(const CondVar &) = delete;
-  CondVar &operator=(const CondVar &) = delete;
 };
 
 // Golang-like waitgroup support.
@@ -292,6 +291,11 @@ class WaitGroup {
 
   ~WaitGroup() { assert(wg_.cnt == 0); };
 
+  WaitGroup(WaitGroup &&) = delete;
+  WaitGroup &operator=(WaitGroup &&) = delete;
+  WaitGroup(const WaitGroup &) = delete;
+  WaitGroup &operator=(const WaitGroup &) = delete;
+
   // Changes the number of jobs (can be negative).
   void Add(int count) { waitgroup_add(&wg_, count); }
 
@@ -303,11 +307,6 @@ class WaitGroup {
 
  private:
   waitgroup_t wg_;
-
-  WaitGroup(WaitGroup &&) = delete;
-  WaitGroup &operator=(WaitGroup &&) = delete;
-  WaitGroup(const WaitGroup &) = delete;
-  WaitGroup &operator=(const WaitGroup &) = delete;
 };
 
-}  // namespace rt
+}  // namespace junction::rt

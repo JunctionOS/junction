@@ -16,16 +16,16 @@ extern "C" {
 #include <string_view>
 #include <utility>
 
-#include "expected.h"
+#include "junction/base/expected.h"
 
-namespace rt {
+namespace junction {
 
 // read() UNIX calls can return this error (not normally an errno)
 #define EEOF 0  // end of file
 
 // Asserts if an integer is a valid linux error code
 inline void assert_code_is_valid(int code) {
-  assert(code >= 0 || code <= EREMOTEIO);
+  assert(code >= 0 && code <= EREMOTEIO);
 }
 
 class Error {
@@ -33,7 +33,7 @@ class Error {
   explicit Error(int code) noexcept : code_(code) {
     assert_code_is_valid(code);
   }
-  ~Error() {}
+  ~Error() = default;
 
   Error(const Error& e) { code_ = e.code_; }
   Error& operator=(const Error& e) {
@@ -47,10 +47,10 @@ class Error {
   }
 
   // Returns the underlying linux error code.
-  int code() const { return code_; }
+  [[nodiscard]] int code() const { return code_; }
 
   // Converts the error to a human readable string.
-  std::string_view ToString() const;
+  [[nodiscard]] std::string_view ToString() const;
 
  private:
   int code_;
@@ -72,18 +72,16 @@ inline bool operator!=(int lhs, const Error& rhs) { return lhs != rhs.code(); }
 std::ostream& operator<<(std::ostream& os, const Error& x);
 
 // Returns an unexpected error object from an errno code.
-inline rt::unexpected<Error> MakeError(int code) {
-  return rt::unexpected(Error(code));
-}
+inline unexpected<Error> MakeError(int code) { return unexpected(Error(code)); }
 
 // Returns an unexpected error propogated from another expected type.
 //
 // The other expected type can have a different value type but must have the
 // same error type.
 template <typename T>
-inline rt::unexpected<Error> MakeError(const rt::expected<T, Error>& ret) {
+inline unexpected<Error> MakeError(const expected<T, Error>& ret) {
   assert(!ret);
-  return rt::unexpected(ret.error());
+  return unexpected(ret.error());
 }
 
 // A shorthand for making an expected with a value type 'T' and an error type
@@ -98,6 +96,6 @@ inline rt::unexpected<Error> MakeError(const rt::expected<T, Error>& ret) {
 //  if (!ret) return MakeError(ret);
 //  // success, inspect *ret to get the length
 template <typename T>
-using Status = rt::expected<T, Error>;
+using Status = expected<T, Error>;
 
-}  // namespace rt
+}  // namespace junction

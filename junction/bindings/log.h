@@ -9,7 +9,7 @@ extern "C" {
 #include <sstream>
 #include <string>
 
-namespace rt {
+namespace junction::rt {
 
 // TODO: This allocates memory each use. Use std::ospanstream (C++23) instead?
 class Logger {
@@ -43,4 +43,4 @@ class Logger {
   if (false) rt::Logger(LOG_##level)
 #endif  // DEBUG
 
-}  // namespace rt
+}  // namespace junction::rt
