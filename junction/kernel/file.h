@@ -78,7 +78,7 @@ namespace detail {
 
 struct file_array {
   std::size_t len_;
-  std::shared_ptr<File> *files_;
+  std::unique_ptr<std::shared_ptr<File>[]> files_;
 };
 
 }  // namespace detail
@@ -86,7 +86,9 @@ struct file_array {
 class FileTable {
  public:
   File *Get(int fd);
+  std::shared_ptr<File> Dup(int fd);
   int Insert(std::shared_ptr<File> f);
+  void InsertAt(int fd, std::shared_ptr<File> f);
   void Remove(int fd);
 
  private:
