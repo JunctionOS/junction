@@ -34,7 +34,7 @@ void write_once(T &p, const T &val) requires std::is_integral_v<T> {
 // ThreadWaker is used to wake the current thread after it parks.
 class ThreadWaker {
  public:
-  ThreadWaker() noexcept : th_(nullptr) {}
+  ThreadWaker() noexcept = default;
   ~ThreadWaker() { assert(th_ == nullptr); }
 
   // disable copy.
@@ -67,7 +67,7 @@ class ThreadWaker {
   }
 
  private:
-  thread_t *th_;
+  thread_t *th_ = nullptr;
 };
 
 // Disables preemption across a critical section.

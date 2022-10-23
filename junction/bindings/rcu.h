@@ -84,7 +84,7 @@ inline void RCUSynchronize() { synchronize_rcu(); }
 // Does not block. Allocates memory (for a thread). Can take a custom deleter.
 template <typename T, typename D = std::default_delete<T>>
 inline void RCUFree(T *p, D d = {}) {
-  // TODO: eliminate thread spawning for better performance.
+  // TODO(amb): eliminate thread spawning for better performance.
   rt::Spawn([p, d = std::move(d)]() {
     RCUSynchronize();
     d(p);
@@ -95,7 +95,7 @@ inline void RCUFree(T *p, D d = {}) {
 // Does not block. Allocates memory (for a thread).
 template <typename T>
 inline void RCUFree(std::unique_ptr<T> ptr) {
-  // TODO: eliminate thread spawning for better performance.
+  // TODO(amb): eliminate thread spawning for better performance.
   rt::Spawn([p = std::move(ptr)]() mutable { RCUSynchronize(); });
 }
 

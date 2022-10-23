@@ -11,7 +11,7 @@ extern "C" {
 
 namespace junction::rt {
 
-// TODO: This allocates memory each use. Use std::ospanstream (C++23) instead?
+// TODO(amb): This allocates memory each use. Use std::ospanstream (C++23)?
 class Logger {
  public:
   explicit Logger(int level) noexcept : level_(level) {}

@@ -2,13 +2,11 @@
 
 #pragma once
 
-// NOLINTBEGIN
 extern "C" {
 #include <base/stddef.h>
 #include <runtime/tcp.h>
 #include <runtime/udp.h>
 }
-// NOLINTEND
 
 #include <cstddef>
 #include <span>
@@ -111,7 +109,7 @@ class TCPConn : public VectorIO {
   friend class TCPQueue;
 
  public:
-  ~TCPConn() { tcp_close(c_); }
+  ~TCPConn() override { tcp_close(c_); }
 
   // Move support.
   TCPConn(TCPConn &&c) noexcept : c_(c.c_) { c.c_ = nullptr; }
@@ -168,14 +166,14 @@ class TCPConn : public VectorIO {
   }
 
   // Reads a vector from the TCP stream.
-  Status<size_t> Readv(std::span<const iovec> iov) {
-    ssize_t ret = tcp_readv(c_, iov.data(), iov.size());
+  Status<size_t> Readv(std::span<const iovec> iov) override {
+    ssize_t ret = tcp_readv(c_, iov.data(), static_cast<int>(iov.size()));
     if (ret <= 0) MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a vector to the TCP stream.
-  Status<size_t> Writev(std::span<const iovec> iov) {
-    ssize_t ret = tcp_writev(c_, iov.data(), iov.size());
+  Status<size_t> Writev(std::span<const iovec> iov) override {
+    ssize_t ret = tcp_writev(c_, iov.data(), static_cast<int>(iov.size()));
     if (ret < 0) MakeError(static_cast<int>(-ret));
     return ret;
   }

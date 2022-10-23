@@ -36,10 +36,7 @@ class Error {
   ~Error() = default;
 
   Error(const Error& e) { code_ = e.code_; }
-  Error& operator=(const Error& e) {
-    code_ = e.code_;
-    return *this;
-  }
+  Error& operator=(const Error& e) = default;
   Error(Error&& e) noexcept : code_(e.code_) {}
   Error& operator=(Error&& e) noexcept {
     std::swap(code_, e.code_);

@@ -47,7 +47,8 @@ template <typename T>
 Status<void> ReadFull(T *t, std::span<std::byte> buf) requires Reader<T> {
   size_t n = 0;
   while (n < buf.size()) {
-    Status<size_t> ret = t->Read({buf.begin() + n, buf.end()});
+    Status<size_t> ret =
+        t->Read({buf.begin() + static_cast<ssize_t>(n), buf.end()});
     if (!ret) return MakeError(ret);
     n += *ret;
   }
@@ -61,7 +62,8 @@ Status<void> WriteFull(T *t,
                        std::span<const std::byte> buf) requires Writer<T> {
   size_t n = 0;
   while (n < buf.size()) {
-    Status<size_t> ret = t->Write({buf.begin() + n, buf.end()});
+    Status<size_t> ret =
+        t->Write({buf.begin() + static_cast<ssize_t>(n), buf.end()});
     if (!ret) return MakeError(ret);
     n += *ret;
   }

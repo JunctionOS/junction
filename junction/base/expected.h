@@ -1,5 +1,5 @@
 ///
-// TODO: Replace with the official std::expected when it is ready.
+// TODO(amb): Replace with the official std::expected when it is ready.
 //
 // expected - An implementation of std::expected with extensions
 // Written in 2017 by Simon Brand (simonrbrand@gmail.com, @TartanLlama)
