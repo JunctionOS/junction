@@ -5,7 +5,7 @@ set -xe
 SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 BUILD_DIR=${ROOT_DIR}/build
-TEST_DIR=${BUILD_DIR}/jnct
+TEST_DIR=${BUILD_DIR}/junction
 BIN_DIR=${ROOT_DIR}/bin
 CTEST=${BIN_DIR}/bin/ctest
 

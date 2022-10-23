@@ -7,7 +7,7 @@
 #include <string>
 #include <utility>
 
-#include "jnct/base/lock.hpp"
+#include "junction/base/lock.hpp"
 
 namespace junction {
 
