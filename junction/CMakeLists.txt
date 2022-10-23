@@ -11,7 +11,7 @@ include_directories(
   ${CMAKE_SOURCE_DIR}
 )
 
-add_library(junction SHARED
+add_library(junction
   base/error.cc
   base/io.cc
 
