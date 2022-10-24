@@ -1,5 +1,5 @@
 [submodule "lib/shenango"]
-	path = lib/shenango
+	path = lib/caladan
 	url = git@github.com:abelay/shenango.git
 	ignore = dirty
 [submodule "lib/syscall_intercept"]

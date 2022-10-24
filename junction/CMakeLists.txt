@@ -1,5 +1,8 @@
 message(STATUS "Building junction jnct")
 
+add_subdirectory(base)
+add_subdirectory(bindings)
+
 include(FindPkgConfig)
 
 pkg_check_modules(CAPSTONE REQUIRED capstone)
@@ -7,21 +10,16 @@ find_package(Threads REQUIRED)
 
 include_directories(
   ${CMAKE_SOURCE_DIR}/lib/syscall_intercept/install/include
-  ${CMAKE_SOURCE_DIR}/lib/shenango/inc
+  ${CMAKE_SOURCE_DIR}/lib/caladan/inc
   ${CMAKE_SOURCE_DIR}
 )
 
 add_library(junction
-  base/error.cc
-  base/io.cc
-
-  bindings/runtime.cc
-  bindings/thread.cc
 
 #  syscall/handlers.cpp
 #  syscall/intercept.c
 
-#  filesystem/file.cpp
+   filesystem/file.cpp
 #  filesystem/filesystem.cpp
 
 #  memorysystem/memorysystem.cpp
@@ -31,6 +29,8 @@ target_link_libraries(junction
   ${CAPSTONE_LIBRARIES}
   ${CMAKE_DL_LIBS}
   Threads::Threads
+  base
+  bindings
 )
 
 include(FetchContent)

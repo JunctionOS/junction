@@ -54,6 +54,10 @@ void MainHandler() {
 
 }  // namespace
 
+}  // namespace junction
+
+using namespace junction;
+
 int main(int argc, char* argv[]) {
   int ret;
 
@@ -69,5 +73,3 @@ int main(int argc, char* argv[]) {
   }
   return 0;
 }
-
-}  // namespace junction

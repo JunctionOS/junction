@@ -19,4 +19,10 @@ set(CMAKE_CXX_FLAGS "-Wall -Wextra")
 set(CMAKE_CXX_FLAGS_DEBUG "-g -DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3 -march=native -flto -ffast-math")
 
+include_directories(
+  ${CMAKE_SOURCE_DIR}
+  ${CMAKE_SOURCE_DIR}/lib/caladan/inc
+)
+
+add_subdirectory(lib)
 add_subdirectory(junction)
