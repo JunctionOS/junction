@@ -10,8 +10,6 @@ find_package(Threads REQUIRED)
 
 include_directories(
   ${CMAKE_SOURCE_DIR}/lib/syscall_intercept/install/include
-  ${CMAKE_SOURCE_DIR}/lib/caladan/inc
-  ${CMAKE_SOURCE_DIR}
 )
 
 add_library(junction
@@ -51,9 +49,15 @@ add_executable(junction_tests
   filesystem/filesystem_test.cpp
 )
 
+add_library(gtest_shim INTERFACE)
+target_link_libraries(gtest_shim INTERFACE
+  "$<LINK_LIBRARY:WHOLE_ARCHIVE,caladan_shim>"
+  "$<LINK_LIBRARY:WHOLE_ARCHIVE,gtest_main>"
+)
+
 target_link_libraries(junction_tests
   junction
-  GTest::gtest_main
+  gtest_shim
 )
 
 add_custom_target(generate_test_inputs
