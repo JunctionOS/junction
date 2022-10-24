@@ -20,8 +20,8 @@ namespace junction::rt {
 //
 // Reader:
 // {
-//   rt::RCURead l();
-//   rt::RCUReadGuard g(l);
+//   rt::RCURead l;
+//   rt::RCUReadGuard g(&l);
 //   auto a = rcu_p.get();
 //   // read the data in a
 // }

@@ -54,10 +54,10 @@ enum class SeekFrom : int {
 class File {
  public:
   virtual ~File() = default;
-  virtual Status<size_t> Read(std::span<std::byte> buf) {
+  virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
     return MakeError(EINVAL);
   }
-  virtual Status<size_t> Write(std::span<const std::byte> buf) {
+  virtual Status<size_t> Write(std::span<const std::byte> buf, off_t *off) {
     return MakeError(EINVAL);
   }
   virtual Status<off_t> Seek(off_t off, SeekFrom origin) {
@@ -65,7 +65,6 @@ class File {
   }
   virtual Status<void> Sync() { return {}; }
 
-  off_t get_offset() const { return off_; }
   unsigned int get_flags() const { return flags_; }
 
  private:
@@ -77,7 +76,7 @@ class File {
 namespace detail {
 
 struct file_array {
-  std::size_t len_;
+  size_t len_;
   std::unique_ptr<std::shared_ptr<File>[]> files_;
 };
 
@@ -85,10 +84,23 @@ struct file_array {
 
 class FileTable {
  public:
+  // Returns a raw pointer to a file for a given fd number. Returns nullptr if
+  // the file does not exist. This is a fast path: does not refcount the file.
   File *Get(int fd);
+
+  // Returns a shared pointer to a file for a given fd number. Typically this
+  // is used for dup() or clone() system calls. If the file does not exist,
+  // the shared pointer will be empty.
   std::shared_ptr<File> Dup(int fd);
+
+  // Inserts a file into the file table and refcounts it. Returns the fd number.
   int Insert(std::shared_ptr<File> f);
+
+  // Inserts a file into the file table at a specific fd number and refcounts it.
+  // If a file already exists for the fd number, it will be replaced atomically.
   void InsertAt(int fd, std::shared_ptr<File> f);
+
+  // Removes the file tied to an fd number and drops its refcount.
   void Remove(int fd);
 
  private:
@@ -99,6 +111,12 @@ class FileTable {
   rt::Spin lock_;
 };
 
-File *FileTable::Get(int fd) {}
+File *FileTable::Get(int fd) {
+  rt::RCURead l;
+  rt::RCUReadGuard g(&l);
+  FArr *tbl = rcup_.get();
+  if (unlikely(static_cast<size_t>(fd) >= tbl->len_)) return nullptr;
+  return tbl->files_[fd].get();
+}
 
 }  // namespace junction
