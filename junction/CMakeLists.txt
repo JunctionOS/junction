@@ -60,13 +60,28 @@ target_link_libraries(junction_tests
   gtest_shim
 )
 
-add_custom_target(generate_test_inputs
-  COMMAND echo "foo" > ${CMAKE_CURRENT_BINARY_DIR}/test.txt
+set(caladan_test_config
+"host_addr 192.168.127.7
+host_netmask 255.255.255.0
+host_gateway 192.168.127.1
+runtime_kthreads 2
+runtime_spinning_kthreads 0
+runtime_guaranteed_kthreads 2
+runtime_priority lc
+host_mac 02:02:02:02:02:02
+static_arp 192.168.127.3 02:02:02:02:02:02
+runtime_quantum_us 0"
 )
 
-add_dependencies(junction_tests
-  generate_test_inputs
+set(caladan_test_config_path
+  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test.config
 )
 
-include(GoogleTest)
-gtest_discover_tests(junction_tests)
+file(WRITE ${caladan_test_config_path} ${caladan_test_config})
+
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/test.txt "foo")
+
+add_test(
+  NAME junction_tests
+  COMMAND sh -c "$<TARGET_FILE:junction_tests> ${caladan_test_config_path}"
+)

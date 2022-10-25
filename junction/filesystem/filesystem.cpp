@@ -16,11 +16,10 @@
 #include <string>
 
 #include "junction/filesystem/file.hpp"
-#include "spdlog/spdlog.h"
 
 namespace junction {
 
-FileSystem::FileSystem() { spdlog::set_level(spdlog::level::trace); }
+FileSystem::FileSystem() { //spdlog::set_level(//spdlog::level::trace); }
 
 std::optional<std::reference_wrapper<const File>> FileSystem::get_file(
     const int fd) const {
@@ -34,21 +33,21 @@ std::optional<std::reference_wrapper<const File>> FileSystem::get_file(
 
 int FileSystem::openat(int dirfd, const char* pathname, int flags) {
   if (dirfd != AT_FDCWD) {
-    spdlog::warn("Cannot openat; unsupported dirfd: {0}", dirfd);
+    //spdlog::warn("Cannot openat; unsupported dirfd: {0}", dirfd);
     return -1;
   }
 
   const std::string pathname_str(pathname);
   const auto fd_iter = _path_to_fd.find(pathname_str);
   if (fd_iter == _path_to_fd.end()) {
-    spdlog::debug("Cannot openat; fd not found: {0}", pathname_str);
+    //spdlog::debug("Cannot openat; fd not found: {0}", pathname_str);
     return -1;
   }
 
   const int fd = fd_iter->second;
   const auto file_iter = _fd_to_file.find(fd);
   if (file_iter == _fd_to_file.end()) {
-    spdlog::debug("Cannot openat; file not found: {0}", fd);
+    //spdlog::debug("Cannot openat; file not found: {0}", fd);
     return -1;
   }
 

@@ -14,8 +14,6 @@
 #include <mutex>
 #include <string>
 
-#include "spdlog/spdlog.h"
-
 namespace junction {
 
 constexpr int PROT = PROT_EXEC | PROT_READ;
@@ -31,7 +29,7 @@ File::File(int fd, const std::string file_path, bool _is_dir)
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      spdlog::error("Cannot create file: {0}", strerror(err));
+      //spdlog::error("Cannot create file: {0}", strerror(err));
       throw std::runtime_error("Cannot create file");
     }
   }
@@ -57,7 +55,7 @@ File::~File() {
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      spdlog::error("Cannot close: {0}", strerror(err));
+      //spdlog::error("Cannot close: {0}", strerror(err));
     }
   }
 }
@@ -169,7 +167,7 @@ ssize_t File::read(void* buf, size_t count) {
 ssize_t File::write(const void* buf, size_t count) {
   std::lock_guard<decltype(_mutex)> lock(_mutex);
 
-  spdlog::warn("Unsupported operation: write");
+  //spdlog::warn("Unsupported operation: write");
   return -1;
 }
 
@@ -201,7 +199,7 @@ int File::_mmap_no_lock() {
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      spdlog::error("Cannot mmap: {0}", strerror(err));
+      //spdlog::error("Cannot mmap: {0}", strerror(err));
       return err;
     }
   }
@@ -230,7 +228,7 @@ int File::_munmap_no_lock() {
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      spdlog::error("Cannot munmap: {0}", strerror(err));
+      //spdlog::error("Cannot munmap: {0}", strerror(err));
       return err;
     }
   }

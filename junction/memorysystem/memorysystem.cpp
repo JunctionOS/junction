@@ -10,8 +10,6 @@
 #include <algorithm>
 #include <cstring>
 
-#include "spdlog/spdlog.h"
-
 namespace junction {
 
 constexpr int MMAP_FD = -1;
@@ -27,7 +25,7 @@ void* MemorySystem::mmap(void* addr, size_t length, int prot, int flags,
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      spdlog::error("Cannot mmap: {0}", strerror(err));
+      //spdlog::error("Cannot mmap: {0}", strerror(err));
       return MAP_FAILED;
     }
   }
@@ -51,7 +49,7 @@ int MemorySystem::munmap(void* addr, size_t length) {
   // Check if we have mmapped to this address before.
   const auto mem_iter = _mem_to_length.find(addr);
   if (mem_iter == _mem_to_length.end()) {
-    spdlog::error("Invalid address for munmap");
+    //spdlog::error("Invalid address for munmap");
     // Using this return value to distinguish from the -1 returned by munmap
     // syscall upon a failed munmap operation.
     return 1;
@@ -62,7 +60,7 @@ int MemorySystem::munmap(void* addr, size_t length) {
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      spdlog::error("Cannot munmap: {0}", strerror(err));
+      //spdlog::error("Cannot munmap: {0}", strerror(err));
       return err;
     }
   }
