@@ -23,6 +23,15 @@ void foo(int arg) {
   if (arg != kTestValue) BUG();
 }
 
+void func(const std::string arg1, const std::string arg2,
+          const std::string arg3) {
+  LOG(INFO) << "func called with arg1 '" << arg1 << "', arg2 '" << arg2
+            << "', arg3 '" << arg3 << "'";
+  if (arg1 != "foobar") BUG();
+  if (arg2 != "baz") BUG();
+  if (arg3 != "bar") BUG();
+}
+
 void MainHandler() {
   std::string str = "captured!";
   int i = kTestValue;
@@ -37,6 +46,8 @@ void MainHandler() {
     LOG(INFO) << "hello from ThreadSpawn()! '" << str << "'";
     foo(i);
   });
+
+  rt::Spawn(func, "foobar", "baz", "bar");
 
   rt::Yield();
   rt::Sleep(1 * rt::kMilliseconds);

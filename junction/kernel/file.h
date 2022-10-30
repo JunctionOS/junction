@@ -65,7 +65,7 @@ class File {
   }
   virtual Status<void> Sync() { return {}; }
 
-  unsigned int get_flags() const { return flags_; }
+  [[nodiscard]] unsigned int get_flags() const { return flags_; }
 
  private:
   off_t off_;
@@ -76,16 +76,24 @@ class File {
 namespace detail {
 
 struct file_array {
-  size_t len_;
-  std::unique_ptr<std::shared_ptr<File>[]> files_;
+  explicit file_array(size_t cap);
+  ~file_array();
+
+  size_t len = 0, cap;
+  std::unique_ptr<std::shared_ptr<File>[]> files;
 };
+
+std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap);
 
 }  // namespace detail
 
 class FileTable {
  public:
+  FileTable();
+  ~FileTable();
+
   // Returns a raw pointer to a file for a given fd number. Returns nullptr if
-  // the file does not exist. This is a fast path: does not refcount the file.
+  // the file does not exist. This fast path does not refcount the file.
   File *Get(int fd);
 
   // Returns a shared pointer to a file for a given fd number. Typically this
@@ -96,8 +104,9 @@ class FileTable {
   // Inserts a file into the file table and refcounts it. Returns the fd number.
   int Insert(std::shared_ptr<File> f);
 
-  // Inserts a file into the file table at a specific fd number and refcounts it.
-  // If a file already exists for the fd number, it will be replaced atomically.
+  // Inserts a file into the file table at a specific fd number and refcounts
+  // it. If a file already exists for the fd number, it will be replaced
+  // atomically.
   void InsertAt(int fd, std::shared_ptr<File> f);
 
   // Removes the file tied to an fd number and drops its refcount.
@@ -106,17 +115,20 @@ class FileTable {
  private:
   using FArr = detail::file_array;
 
+  // Adjust the file descriptor table's size if needed.
+  void Resize(size_t len);
+
   std::unique_ptr<FArr> farr_;
   rt::RCUPtr<FArr> rcup_;
   rt::Spin lock_;
 };
 
-File *FileTable::Get(int fd) {
+inline File *FileTable::Get(int fd) {
   rt::RCURead l;
   rt::RCUReadGuard g(&l);
-  FArr *tbl = rcup_.get();
-  if (unlikely(static_cast<size_t>(fd) >= tbl->len_)) return nullptr;
-  return tbl->files_[fd].get();
+  const FArr *tbl = rcup_.get();
+  if (unlikely(static_cast<size_t>(fd) >= tbl->len)) return nullptr;
+  return tbl->files[fd].get();
 }
 
 }  // namespace junction

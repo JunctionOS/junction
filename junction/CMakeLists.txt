@@ -2,6 +2,7 @@ message(STATUS "Building junction jnct")
 
 add_subdirectory(base)
 add_subdirectory(bindings)
+add_subdirectory(kernel)
 
 include(FindPkgConfig)
 

@@ -65,13 +65,15 @@ class RCUPtr {
   // Get the pointer (as a reader). Preemption must be disabled (normally via
   // RCUReadGuard), and the pointer cannot be held past when preemption is
   // re-enabled.
-  const T *get() const {
+  [[nodiscard]] const T *get() const {
     assert_preempt_disabled();
     return ptr_.load(std::memory_order_consume);
   }
 
   // Get the pointer (as a writer).
-  T *get_locked() const { return ptr_.load(std::memory_order_relaxed); }
+  [[nodiscard]] T *get_locked() const {
+    return ptr_.load(std::memory_order_relaxed);
+  }
 
  private:
   std::atomic<T *> ptr_;

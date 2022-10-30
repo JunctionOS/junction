@@ -7,49 +7,72 @@ extern "C" {
 #include <runtime/sync.h>
 }
 
+#include <concepts>
 #include <functional>
 
 namespace junction::rt {
 namespace thread_internal {
 
-struct join_data {
-  join_data(std::function<void()>&& func) noexcept
-      : done_(false), waiter_(nullptr), func_(std::move(func)) {
-    spin_lock_init(&lock_);
-  }
-  join_data(const std::function<void()>& func) noexcept
-      : done_(false), waiter_(nullptr), func_(func) {
-    spin_lock_init(&lock_);
-  }
-
-  spinlock_t lock_;
-  bool done_;
-  thread_t* waiter_;
-  std::function<void()> func_;
+class WrapperBase {
+ public:
+  virtual ~WrapperBase() = default;
+  virtual void Run() = 0;
 };
 
-extern void ThreadTrampoline(void* arg);
-extern void ThreadTrampolineWithJoin(void* arg);
+template <typename Callable, typename... Args>
+class Wrapper : public WrapperBase {
+ public:
+  Wrapper(Callable&& func, Args&&... args) noexcept
+      : func_(std::forward<Callable>(func)),
+        args_{std::forward<Args>(args)...} {}
+  ~Wrapper() override = default;
+
+  void Run() override { std::apply(func_, args_); }
+
+ private:
+  Callable func_;
+  std::tuple<std::decay_t<Args>...> args_;
+};
+
+struct join_data {
+  join_data() noexcept { spin_lock_init(&lock_); }
+  virtual ~join_data() = default;
+  virtual void Run() = 0;
+  spinlock_t lock_;
+  bool done_{false};
+  thread_t* waiter_{nullptr};
+};
+
+template <typename Callable, typename... Args>
+class JoinableWrapper : public join_data {
+ public:
+  JoinableWrapper(Callable&& func, Args&&... args) noexcept
+      : func_(std::forward<Callable>(func)),
+        args_{std::forward<Args>(args)...} {}
+  ~JoinableWrapper() override = default;
+
+  void Run() override { std::apply(func_, args_); }
+
+ private:
+  Callable func_;
+  std::tuple<std::decay_t<Args>...> args_;
+};
+
+extern "C" void ThreadTrampoline(void* arg);
+extern "C" void ThreadTrampolineWithJoin(void* arg);
 
 }  // namespace thread_internal
 
-// Spawns a new thread by copying.
-inline void Spawn(const std::function<void()>& func) {
+// Spawns a new thread.
+template <typename Callable, typename... Args>
+void Spawn(Callable&& func,
+           Args&&... args) requires std::invocable<Callable, Args...> {
   void* buf;
+  using Wrapper = thread_internal::Wrapper<Callable, Args...>;
   thread_t* th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
-                                        sizeof(std::function<void()>));
+                                        sizeof(Wrapper));
   if (unlikely(!th)) BUG();
-  new (buf) std::function<void()>(func);
-  thread_ready(th);
-}
-
-// Spawns a new thread by moving.
-inline void Spawn(std::function<void()>&& func) {
-  void* buf;
-  thread_t* th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
-                                        sizeof(std::function<void()>));
-  if (unlikely(!th)) BUG();
-  new (buf) std::function<void()>(std::move(func));
+  new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
   thread_ready(th);
 }
 
@@ -63,7 +86,7 @@ inline void Yield() { thread_yield(); }
 class Thread {
  public:
   // boilerplate constructors.
-  Thread() noexcept : join_data_(nullptr) {}
+  Thread() noexcept = default;
   ~Thread() { assert(join_data_ == nullptr); }
 
   // disable copy.
@@ -80,11 +103,24 @@ class Thread {
     return *this;
   }
 
-  // Spawns a thread by copying a std::function.
-  Thread(const std::function<void()>& func);
+  // Spawns a thread that runs the callable with the supplied arguments.
+  template <typename Callable, typename... Args>
+  Thread(Callable&& func,
+         Args&&... args) requires std::invocable<Callable, Args...> {
+    using Wrapper = thread_internal::JoinableWrapper<Callable, Args...>;
+    Wrapper* buf;
+    thread_t* th =
+        thread_create_with_buf(thread_internal::ThreadTrampolineWithJoin,
+                               reinterpret_cast<void**>(&buf), sizeof(*buf));
+    if (unlikely(!th)) BUG();
+    new (buf)
+        Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
+    join_data_ = buf;
+    thread_ready(th);
+  }
 
-  // Spawns a thread by moving a std::function.
-  Thread(std::function<void()>&& func);
+  // Can the thread be joined?
+  [[nodiscard]] bool Joinable() const { return join_data_ != nullptr; }
 
   // Waits for the thread to exit.
   void Join();
@@ -93,7 +129,7 @@ class Thread {
   void Detach();
 
  private:
-  thread_internal::join_data* join_data_;
+  thread_internal::join_data* join_data_{nullptr};
 };
 
 }  // namespace junction::rt
