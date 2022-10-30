@@ -1,5 +1,6 @@
 #include "junction/kernel/file.h"
 
+#include <algorithm>
 #include <bit>
 #include <memory>
 
@@ -22,7 +23,7 @@ file_array::~file_array() = default;
 std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap) {
   auto dst = std::make_unique<file_array>(cap);
   assert(src.len <= cap);
-  std::copy(src.files.get(), src.files.get() + src.len, dst->files.get());
+  std::copy_n(src.files.get(), src.len, dst->files.get());
   dst->len = src.len;
   return dst;
 }
@@ -62,7 +63,7 @@ int FileTable::Insert(std::shared_ptr<File> f) {
   for (i = 0; i < farr_->len; ++i) {
     if (!farr_->files[i]) {
       farr_->files[i] = std::move(f);
-      return i;
+      return static_cast<int>(i);
     }
   }
 

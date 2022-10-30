@@ -13,8 +13,7 @@ extern "C" {
 namespace junction::rt {
 namespace thread_internal {
 
-class basic_data {
- public:
+struct basic_data {
   virtual ~basic_data() = default;
   virtual void Run() = 0;
 };
