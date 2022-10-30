@@ -7,9 +7,9 @@ namespace thread_internal {
 
 // A helper to jump from extern C back to C++ for rt::Spawn().
 void ThreadTrampoline(void* arg) {
-  auto* wrapper = static_cast<WrapperBase*>(arg);
-  wrapper->Run();
-  std::destroy_at(wrapper);
+  auto* d = static_cast<basic_data*>(arg);
+  d->Run();
+  std::destroy_at(d);
 }
 
 // A helper to jump from extern C back to C++ for Thread::Thread().

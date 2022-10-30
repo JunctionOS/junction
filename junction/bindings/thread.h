@@ -13,25 +13,10 @@ extern "C" {
 namespace junction::rt {
 namespace thread_internal {
 
-class WrapperBase {
+class basic_data {
  public:
-  virtual ~WrapperBase() = default;
+  virtual ~basic_data() = default;
   virtual void Run() = 0;
-};
-
-template <typename Callable, typename... Args>
-class Wrapper : public WrapperBase {
- public:
-  Wrapper(Callable&& func, Args&&... args) noexcept
-      : func_(std::forward<Callable>(func)),
-        args_{std::forward<Args>(args)...} {}
-  ~Wrapper() override = default;
-
-  void Run() override { std::apply(func_, args_); }
-
- private:
-  Callable func_;
-  std::tuple<std::decay_t<Args>...> args_;
 };
 
 struct join_data {
@@ -43,13 +28,13 @@ struct join_data {
   thread_t* waiter_{nullptr};
 };
 
-template <typename Callable, typename... Args>
-class JoinableWrapper : public join_data {
+template <typename Data, typename Callable, typename... Args>
+class Wrapper : public Data {
  public:
-  JoinableWrapper(Callable&& func, Args&&... args) noexcept
+  Wrapper(Callable&& func, Args&&... args) noexcept
       : func_(std::forward<Callable>(func)),
         args_{std::forward<Args>(args)...} {}
-  ~JoinableWrapper() override = default;
+  ~Wrapper() override = default;
 
   void Run() override { std::apply(func_, args_); }
 
@@ -68,7 +53,8 @@ template <typename Callable, typename... Args>
 void Spawn(Callable&& func,
            Args&&... args) requires std::invocable<Callable, Args...> {
   void* buf;
-  using Wrapper = thread_internal::Wrapper<Callable, Args...>;
+  using Data = thread_internal::basic_data;
+  using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
   thread_t* th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
                                         sizeof(Wrapper));
   if (unlikely(!th)) BUG();
@@ -106,18 +92,7 @@ class Thread {
   // Spawns a thread that runs the callable with the supplied arguments.
   template <typename Callable, typename... Args>
   Thread(Callable&& func,
-         Args&&... args) requires std::invocable<Callable, Args...> {
-    using Wrapper = thread_internal::JoinableWrapper<Callable, Args...>;
-    Wrapper* buf;
-    thread_t* th =
-        thread_create_with_buf(thread_internal::ThreadTrampolineWithJoin,
-                               reinterpret_cast<void**>(&buf), sizeof(*buf));
-    if (unlikely(!th)) BUG();
-    new (buf)
-        Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
-    join_data_ = buf;
-    thread_ready(th);
-  }
+         Args&&... args) requires std::invocable<Callable, Args...>;
 
   // Can the thread be joined?
   [[nodiscard]] bool Joinable() const { return join_data_ != nullptr; }
@@ -131,5 +106,20 @@ class Thread {
  private:
   thread_internal::join_data* join_data_{nullptr};
 };
+
+template <typename Callable, typename... Args>
+inline Thread::Thread(Callable&& func, Args&&... args) requires
+    std::invocable<Callable, Args...> {
+  using Data = thread_internal::join_data;
+  using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
+  Wrapper* buf;
+  thread_t* th =
+      thread_create_with_buf(thread_internal::ThreadTrampolineWithJoin,
+                             reinterpret_cast<void**>(&buf), sizeof(*buf));
+  if (unlikely(!th)) BUG();
+  new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
+  join_data_ = buf;
+  thread_ready(th);
+}
 
 }  // namespace junction::rt
