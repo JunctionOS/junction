@@ -50,13 +50,13 @@ syscall_no_intercept:
 /* This is where we execute the actual syscall.
  */
 1:movq        %rdi, %rax  /* convert from linux ABI calling */
-	movq        %rsi, %rdi  /* convention to syscall calling convention */
-	movq        %rdx, %rsi
-	movq        %rcx, %rdx
-	movq        %r8, %r10
-	movq        %r9, %r8
-	movq        8(%rsp), %r9
-	syscall
+  movq        %rsi, %rdi  /* convention to syscall calling convention */
+  movq        %rdx, %rsi
+  movq        %rcx, %rdx
+  movq        %r8, %r10
+  movq        %r9, %r8
+  movq        8(%rsp), %r9
+  syscall
 /* This is the return address we use as the only allowed address range to
  * make syscalls.
  */
