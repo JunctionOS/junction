@@ -12,12 +12,5 @@ sudo apt install -y make gcc cmake pkg-config libnl-3-dev libnl-route-3-dev libn
 cd $CALADAN_DIR
 
 # Install Caladan
-#curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain=nightly
-#source $HOME/.cargo/env
-
 make submodules
 (cd ksched && make -j `nproc`)
-
-## Install load-generator app
-#cd apps/synthetic
-#cargo build --release

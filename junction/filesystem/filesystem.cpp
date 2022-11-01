@@ -15,11 +15,12 @@
 #include <regex>
 #include <string>
 
+#include "junction/bindings/log.h"
 #include "junction/filesystem/file.hpp"
 
 namespace junction {
 
-FileSystem::FileSystem() { //spdlog::set_level(//spdlog::level::trace); }
+using namespace rt;
 
 std::optional<std::reference_wrapper<const File>> FileSystem::get_file(
     const int fd) const {
@@ -33,21 +34,21 @@ std::optional<std::reference_wrapper<const File>> FileSystem::get_file(
 
 int FileSystem::openat(int dirfd, const char* pathname, int flags) {
   if (dirfd != AT_FDCWD) {
-    //spdlog::warn("Cannot openat; unsupported dirfd: {0}", dirfd);
+    LOG(WARN) << "Cannot openat; unsupported dirfd: " << dirfd << "\n";
     return -1;
   }
 
   const std::string pathname_str(pathname);
   const auto fd_iter = _path_to_fd.find(pathname_str);
   if (fd_iter == _path_to_fd.end()) {
-    //spdlog::debug("Cannot openat; fd not found: {0}", pathname_str);
+    LOG(DEBUG) << "Cannot openat; fd not found: " << pathname_str << "\n";
     return -1;
   }
 
   const int fd = fd_iter->second;
   const auto file_iter = _fd_to_file.find(fd);
   if (file_iter == _fd_to_file.end()) {
-    //spdlog::debug("Cannot openat; file not found: {0}", fd);
+    LOG(DEBUG) << "Cannot openat; file not found: " << fd << "\n";
     return -1;
   }
 
@@ -55,14 +56,14 @@ int FileSystem::openat(int dirfd, const char* pathname, int flags) {
 }
 
 int FileSystem::open(const char* pathname, int flags, mode_t mode) {
-  std::cerr << "Unspported operation: open" << std::endl;
+  LOG(ERR) << "Unspported operation: open\n";
   return -1;
 }
 
 int FileSystem::fstat(int fd, struct stat* buf) {
   const auto file_iter = _fd_to_file.find(fd);
   if (file_iter == _fd_to_file.end()) {
-    std::cerr << "Cannot fstat; file not found: " << fd << std::endl;
+    LOG(ERR) << "Cannot fstat; file not found: " << fd << "\n";
     return -1;
   }
 
@@ -72,7 +73,7 @@ int FileSystem::fstat(int fd, struct stat* buf) {
 off_t FileSystem::lseek(int fd, off_t offset, int whence) {
   const auto file_iter = _fd_to_file.find(fd);
   if (file_iter == _fd_to_file.end()) {
-    std::cerr << "Cannot lseek; file not found: " << fd << std::endl;
+    LOG(ERR) << "Cannot lseek; file not found: " << fd << "\n";
     return -1;
   }
 
@@ -82,7 +83,7 @@ off_t FileSystem::lseek(int fd, off_t offset, int whence) {
 ssize_t FileSystem::read(int fd, void* buf, size_t count) {
   const auto file_iter = _fd_to_file.find(fd);
   if (file_iter == _fd_to_file.end()) {
-    std::cerr << "Cannot read; file not found: " << fd << std::endl;
+    LOG(ERR) << "Cannot read; file not found: " << fd << "\n";
     return -1;
   }
 
@@ -92,7 +93,7 @@ ssize_t FileSystem::read(int fd, void* buf, size_t count) {
 ssize_t FileSystem::write(int fd, const void* buf, size_t count) {
   const auto file_iter = _fd_to_file.find(fd);
   if (file_iter == _fd_to_file.end()) {
-    std::cerr << "Cannot write; file not found: " << fd << std::endl;
+    LOG(ERR) << "Cannot write; file not found: " << fd << "\n";
     return -1;
   }
 
@@ -102,7 +103,7 @@ ssize_t FileSystem::write(int fd, const void* buf, size_t count) {
 int FileSystem::close(int fd) {
   const auto file_iter = _fd_to_file.find(fd);
   if (file_iter == _fd_to_file.end()) {
-    std::cerr << "Cannot close; file not found: " << fd << std::endl;
+    LOG(ERR) << "Cannot close; file not found: " << fd << "\n";
     return -1;
   }
 
@@ -126,10 +127,10 @@ int FileSystem::open_fd(const char* path, int flags) {
       // Create a mapping between the fd and File.
       _fd_to_file.emplace(std::piecewise_construct, std::forward_as_tuple(fd),
                           std::forward_as_tuple(fd, path_str, is_dir));
-      std::cout << "Opened: " << path_str << " (" << fd << ")" << std::endl;
+      LOG(DEBUG) << "Opened: " << path_str << " (" << fd << ")\n";
       ret = 0;
     } else {
-      std::cerr << "Cannot open: " << path << std::endl;
+      LOG(ERR) << "Cannot open: " << path << "\n";
       perror("open");
     }
   } else {

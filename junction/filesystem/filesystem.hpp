@@ -14,7 +14,7 @@ namespace junction {
 
 class FileSystem {
  public:
-  FileSystem();
+  FileSystem() = default;
   ~FileSystem() = default;
 
   /* disallow copy */

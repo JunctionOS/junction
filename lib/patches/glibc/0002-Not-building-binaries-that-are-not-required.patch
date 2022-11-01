@@ -1,0 +1,440 @@
+From 3383ad0078abaac8959a1b495eb73a84dc35bc65 Mon Sep 17 00:00:00 2001
+From: Gohar Irfan Chaudhry <girfan@mit.edu>
+Date: Wed, 26 Oct 2022 06:18:59 +0000
+Subject: [PATCH 2/2] Not building binaries that are not required
+
+---
+ Makeconfig                                  |  2 +-
+ Makefile                                    |  8 ++------
+ catgets/Makefile                            |  2 --
+ debug/Makefile                              |  2 --
+ elf/Depend                                  |  1 +
+ elf/Makefile                                |  9 +++++----
+ elf/static-stubs.c                          |  2 ++
+ iconv/Makefile                              |  4 ----
+ io/Makefile                                 |  1 -
+ junction/junction_syscall.c                 | 21 ++++++++++++++-------
+ locale/Makefile                             |  2 --
+ login/Makefile                              |  8 --------
+ nscd/Makefile                               |  5 -----
+ nss/Makefile                                |  2 --
+ posix/Makefile                              |  3 ---
+ support/Makefile                            |  4 ----
+ sysdeps/unix/sysdep.h                       | 13 +------------
+ sysdeps/unix/sysv/linux/Makefile            |  2 --
+ sysdeps/unix/sysv/linux/clock_adjtime.c     |  2 +-
+ sysdeps/unix/sysv/linux/nscd_setup_thread.c |  1 +
+ sysdeps/unix/sysv/linux/x86_64/Makefile     |  4 ----
+ timezone/Makefile                           |  3 ---
+ 22 files changed, 28 insertions(+), 73 deletions(-)
+ create mode 100644 elf/Depend
+
+diff --git a/Makeconfig b/Makeconfig
+index b4fc59465a..f9c6b2fdb3 100644
+--- a/Makeconfig
++++ b/Makeconfig
+@@ -1336,7 +1336,7 @@ endif
+ all-subdirs = junction csu assert ctype locale intl catgets math setjmp signal	    \
+ 	      stdlib stdio-common libio malloc string wcsmbs time dirent    \
+ 	      grp pwd posix io termios resource misc socket sysvipc gmon    \
+-	      gnulib iconv iconvdata wctype manual shadow gshadow po argp   \
++	      gnulib iconv iconvdata wctype shadow gshadow po argp   \
+ 	      localedata timezone rt conform debug mathvec support	    \
+ 	      dlfcn elf
+ 
+diff --git a/Makefile b/Makefile
+index 58f2edf3fa..bbe472542e 100644
+--- a/Makefile
++++ b/Makefile
+@@ -58,9 +58,9 @@ endif # $(AUTOCONF) = no
+ .NOTPARALLEL:
+ 
+ # These are the targets that are made by making them in each subdirectory.
+-+subdir_targets	:= subdir_lib objects objs subdir_mostlyclean	\
+++subdir_targets	:= subdir_lib objects objs others subdir_mostlyclean	\
+ 		   subdir_clean subdir_distclean subdir_realclean	\
+-		   tests xtests						\
++		   xtests						\
+ 		   subdir_update-abi subdir_check-abi			\
+ 		   subdir_update-all-abi				\
+ 		   subdir_echo-headers					\
+@@ -109,10 +109,6 @@ elf/ldso_install:
+ # Ignore the error if we cannot update /etc/ld.so.cache.
+ ifeq (no,$(cross-compiling))
+ ifeq (yes,$(build-shared))
+-install:
+-	-test ! -x $(elf-objpfx)ldconfig || LC_ALL=C \
+-	  $(elf-objpfx)ldconfig $(addprefix -r ,$(install_root)) \
+-				$(slibdir) $(libdir)
+ ifneq (no,$(PERL))
+ ifeq (/usr,$(prefix))
+ ifeq (,$(install_root))
+diff --git a/catgets/Makefile b/catgets/Makefile
+index 27b30b2395..cfea63717e 100644
+--- a/catgets/Makefile
++++ b/catgets/Makefile
+@@ -24,8 +24,6 @@ include ../Makeconfig
+ 
+ headers		= nl_types.h
+ routines	= catgets open_catalog
+-others		= gencat
+-install-bin	= gencat
+ extra-objs	= $(gencat-modules:=.o)
+ 
+ tests = tst-catgets
+diff --git a/debug/Makefile b/debug/Makefile
+index 99cdf3221b..c9acc4abc1 100644
+--- a/debug/Makefile
++++ b/debug/Makefile
+@@ -219,8 +219,6 @@ extra-libs-others = $(extra-libs)
+ libpcprofile-routines = pcprofile
+ libpcprofile-inhibit-o = $(filter-out .os,$(object-suffixes))
+ 
+-others = pcprofiledump
+-install-bin = pcprofiledump
+ install-bin-script = xtrace
+ 
+ generated += xtrace
+diff --git a/elf/Depend b/elf/Depend
+new file mode 100644
+index 0000000000..028f8bd489
+--- /dev/null
++++ b/elf/Depend
+@@ -0,0 +1 @@
++junction
+\ No newline at end of file
+diff --git a/elf/Makefile b/elf/Makefile
+index 5c256db03b..6e95fa2130 100644
+--- a/elf/Makefile
++++ b/elf/Makefile
+@@ -207,8 +207,7 @@ install-others	= $(inst_rtlddir)/$(rtld-installed-name) $(inst_bindir)/ld.so
+ install-bin-script = ldd
+ endif
+ 
+-others		= sprof sln
+-install-bin	= sprof
++others		= sln
+ others-static   = sln
+ install-rootsbin = sln
+ sln-modules	:= static-stubs
+@@ -1336,8 +1335,10 @@ $(objpfx)ld.so: $(objpfx)librtld.os $(ld-map)
+ 		  $(LDFLAGS-rtld) -Wl,-z,defs $(z-now-$(bind-now))	\
+ 		  $(dt-relr-ldflag) \
+ 		  $(filter-out $(map-file),$^) $(load-map-file)		\
+-		  -Wl,-soname=$(rtld-installed-name) \
+-      -Wl,-z,lazy -Wl,--unresolved-symbols=ignore-all
++		  -Wl,-soname=$(rtld-installed-name)
++	$(call after-link,$@.new)
++	$(READELF) -s $@.new \
++	  | $(AWK) '($$7 ~ /^UND(|EF)$$/ && $$1 != "0:" && $$4 != "REGISTER") { print; p=1 } END { exit p != 0 }'
+ 	mv -f $@.new $@
+ 
+ ifeq (yes,$(build-shared))
+diff --git a/elf/static-stubs.c b/elf/static-stubs.c
+index 328e094c69..d81d74ae53 100644
+--- a/elf/static-stubs.c
++++ b/elf/static-stubs.c
+@@ -44,3 +44,5 @@ __gcc_personality_v0 (int version __attribute__ ((unused)),
+ {
+   abort ();
+ }
++
++#include <junction/junction_syscall.c>
+\ No newline at end of file
+diff --git a/iconv/Makefile b/iconv/Makefile
+index a0d90cfeac..6c591a3820 100644
+--- a/iconv/Makefile
++++ b/iconv/Makefile
+@@ -57,10 +57,6 @@ tests = \
+ 	tst-iconv-opt \
+ 	# tests
+ 
+-others		= iconv_prog iconvconfig
+-install-others-programs	= $(inst_bindir)/iconv
+-install-sbin	= iconvconfig
+-
+ CFLAGS-gconv_cache.c += -DGCONV_DIR='"$(gconvdir)"'
+ CFLAGS-gconv_conf.c += -DGCONV_PATH='"$(gconvdir)"'
+ CFLAGS-iconvconfig.c += -DGCONV_PATH='"$(gconvdir)"' -DGCONV_DIR='"$(gconvdir)"'
+diff --git a/io/Makefile b/io/Makefile
+index b1710407d0..5aef1640cb 100644
+--- a/io/Makefile
++++ b/io/Makefile
+@@ -59,7 +59,6 @@ routines :=								\
+ 	ftw64-time64							\
+ 	closefrom close_range
+ 
+-others		:= pwd
+ test-srcs	:= ftwtest ftwtest-time64
+ tests		:= test-utime test-stat test-stat2 test-lfs tst-getcwd \
+ 		   tst-fcntl bug-ftw1 bug-ftw2 bug-ftw3 bug-ftw4 tst-statvfs \
+diff --git a/junction/junction_syscall.c b/junction/junction_syscall.c
+index 35c1193856..31f9fe526b 100644
+--- a/junction/junction_syscall.c
++++ b/junction/junction_syscall.c
+@@ -1,46 +1,53 @@
+ #include "junction_syscall.h"
++#include <errno.h>
+ 
+ #if !IS_IN(libc)
+-int
++unsigned long int
+ junction_syscall0 (int number)
+ {
+   __set_errno (EINVAL);
+   return JUNCTION_ERROR;
+ }
+ 
+-int
++unsigned long int
+ junction_syscall1 (int number, long arg1)
+ {
++  __set_errno (EINVAL);
+   return JUNCTION_ERROR;
+ }
+ 
+-int
++unsigned long int
+ junction_syscall2 (int number, long arg1, long arg2)
+ {
++  __set_errno (EINVAL);
+   return JUNCTION_ERROR;
+ }
+ 
+-int
++unsigned long int
+ junction_syscall3 (int number, long arg1, long arg2, long arg3)
+ {
++  __set_errno (EINVAL);
+   return JUNCTION_ERROR;
+ }
+ 
+-int
++unsigned long int
+ junction_syscall4 (int number, long arg1, long arg2, long arg3, long arg4)
+ {
++  __set_errno (EINVAL);
+   return JUNCTION_ERROR;
+ }
+ 
+-int
++unsigned long int
+ junction_syscall5 (int number, long arg1, long arg2, long arg3, long arg4, long arg5)
+ {
++  __set_errno (EINVAL);
+   return JUNCTION_ERROR;
+ }
+ 
+-int
++unsigned long int
+ junction_syscall6 (int number, long arg1, long arg2, long arg3, long arg4, long arg5, long arg6)
+ {
++  __set_errno (EINVAL);
+   return JUNCTION_ERROR;
+ }
+ #endif
+\ No newline at end of file
+diff --git a/locale/Makefile b/locale/Makefile
+index eb55750496..908c919fa6 100644
+--- a/locale/Makefile
++++ b/locale/Makefile
+@@ -33,9 +33,7 @@ categories	= ctype messages monetary numeric time paper name \
+ 		  address telephone measurement identification collate
+ aux		= $(categories:%=lc-%) $(categories:%=C-%) SYS_libc C_name \
+ 		  xlocale localename global-locale coll-lookup
+-others		= localedef locale
+ #others-static	= localedef locale
+-install-bin	= localedef locale
+ extra-objs	= $(localedef-modules:=.o) $(localedef-aux:=.o) \
+ 		  $(locale-modules:=.o) $(lib-modules:=.o)
+ generated 	+= C-translit.h
+diff --git a/login/Makefile b/login/Makefile
+index 62440499bc..c9d141adb6 100644
+--- a/login/Makefile
++++ b/login/Makefile
+@@ -32,14 +32,6 @@ routines := getlogin getlogin_r setlogin getlogin_r_chk \
+ 
+ CFLAGS-grantpt.c += -DLIBEXECDIR='"$(libexecdir)"'
+ 
+-others = utmpdump
+-
+-ifeq (yes,$(build-pt-chown))
+-others += pt_chown
+-others-pie = pt_chown
+-install-others-programs = $(inst_libexecdir)/pt_chown
+-endif
+-
+ subdir-dirs = programs
+ vpath %.c programs
+ 
+diff --git a/nscd/Makefile b/nscd/Makefile
+index dd9334a968..b4182b13ac 100644
+--- a/nscd/Makefile
++++ b/nscd/Makefile
+@@ -40,10 +40,6 @@ nscd-modules := nscd connections pwdcache getpwnam_r getpwuid_r grpcache \
+ 
+ ifeq ($(build-nscd)$(have-thread-library),yesyes)
+ 
+-others += nscd
+-others-pie += nscd
+-install-sbin := nscd
+-
+ extra-objs = $(nscd-modules:=.o)
+ 
+ endif
+@@ -94,7 +90,6 @@ cpp-srcs-left := $(nscd-modules)
+ lib := nscd
+ include $(patsubst %,$(..)libof-iterator.mk,$(cpp-srcs-left))
+ 
+-# TODO(girfan): Is there a better way to put a dependency on junctionsyscall.o?
+ $(objpfx)nscd: $(nscd-modules:%=$(objpfx)%.o)
+ 
+ ifeq ($(build-shared),yes)
+diff --git a/nss/Makefile b/nss/Makefile
+index a978e3927a..0391e54ab9 100644
+--- a/nss/Makefile
++++ b/nss/Makefile
+@@ -48,8 +48,6 @@ have-sunrpc		:= 0
+ endif
+ CPPFLAGS-getent.c	= -DHAVE_SUNRPC=$(have-sunrpc)
+ 
+-others                  := getent makedb
+-install-bin             := getent makedb
+ makedb-modules = xmalloc hash-string
+ others-extras		= $(makedb-modules)
+ extra-objs		+= $(makedb-modules:=.o)
+diff --git a/posix/Makefile b/posix/Makefile
+index d1df7c27cb..9480655998 100644
+--- a/posix/Makefile
++++ b/posix/Makefile
+@@ -137,9 +137,6 @@ tests		+= tst-getopt-cancel tst-_Fork
+ endif
+ tests-static	= tst-exec-static tst-spawn-static
+ tests		+= $(tests-static)
+-others		:= getconf
+-install-bin	:= getconf
+-install-others-programs	:= $(inst_libexecdir)/getconf
+ 
+ before-compile	+= $(objpfx)posix-conf-vars-def.h
+ 
+diff --git a/support/Makefile b/support/Makefile
+index 4046b12fbd..b111c97f2f 100644
+--- a/support/Makefile
++++ b/support/Makefile
+@@ -252,16 +252,12 @@ endif
+ 
+ LDLIBS-test-container = $(libsupport)
+ 
+-others += test-container
+ others-noinstall += test-container
+ 
+-others += shell-container echo-container true-container
+ others-noinstall += shell-container echo-container true-container
+ 
+-others += $(LINKS_DSO_PROGRAM)
+ others-noinstall += $(LINKS_DSO_PROGRAM)
+ 
+-others += test-run-command
+ others-static += test-run-command
+ others-noinstall += test-run-command
+ LDLIBS-test-run-command = $(libsupport)
+diff --git a/sysdeps/unix/sysdep.h b/sysdeps/unix/sysdep.h
+index d764e9f2ef..a1d9df4c73 100644
+--- a/sysdeps/unix/sysdep.h
++++ b/sysdeps/unix/sysdep.h
+@@ -171,16 +171,5 @@
+ /* Wrappers around system calls should normally inline the system call code.
+    But sometimes it is not possible or implemented and we use this code.  */
+ #ifndef INLINE_SYSCALL
+-/* TODO(girfan): Fix this to do proper argument passing to junctionsyscall. */
+-#include <junction/junctionsyscall.h>
+-#define INLINE_SYSCALL(name, nr, args...) \
+-({ \
+-  unsigned long int resultvar;					\
+-  const int status = junctionsyscall(__NR_##name, nr, &resultvar); \
+-  if (status == STATUS_FWD_TO_KERNEL) \
+-  { \
+-    resultvar = __syscall_##name (args); \
+-  } \
+-  (long int) resultvar; \
+-})
++#define INLINE_SYSCALL(name, nr, args...) __syscall_##name (args)
+ #endif
+diff --git a/sysdeps/unix/sysv/linux/Makefile b/sysdeps/unix/sysv/linux/Makefile
+index 60e4cb1521..49d76792ad 100644
+--- a/sysdeps/unix/sysv/linux/Makefile
++++ b/sysdeps/unix/sysv/linux/Makefile
+@@ -401,8 +401,6 @@ endif
+ ifeq ($(subdir),elf)
+ sysdep-rtld-routines += dl-brk dl-sbrk dl-getcwd dl-openat64 dl-opendir
+ 
+-others += pldd
+-install-bin += pldd
+ $(objpfx)pldd: $(objpfx)xmalloc.o
+ endif
+ 
+diff --git a/sysdeps/unix/sysv/linux/clock_adjtime.c b/sysdeps/unix/sysv/linux/clock_adjtime.c
+index dc7828639c..5ded82f506 100644
+--- a/sysdeps/unix/sysv/linux/clock_adjtime.c
++++ b/sysdeps/unix/sysv/linux/clock_adjtime.c
+@@ -19,9 +19,9 @@
+ #include <errno.h>
+ #include <stdlib.h>
+ #include <time.h>
++#include <sysdep.h>
+ #include <sys/timex.h>
+ #include <kernel-features.h>
+-#include <sysdep.h>
+ 
+ int
+ __clock_adjtime64 (const clockid_t clock_id, struct __timex64 *tx64)
+diff --git a/sysdeps/unix/sysv/linux/nscd_setup_thread.c b/sysdeps/unix/sysv/linux/nscd_setup_thread.c
+index 2f5c4cf462..bfd0aa0e05 100644
+--- a/sysdeps/unix/sysv/linux/nscd_setup_thread.c
++++ b/sysdeps/unix/sysv/linux/nscd_setup_thread.c
+@@ -20,6 +20,7 @@
+ #include <nscd.h>
+ #include <sysdep.h>
+ 
++
+ int
+ setup_thread (struct database_dyn *db)
+ {
+diff --git a/sysdeps/unix/sysv/linux/x86_64/Makefile b/sysdeps/unix/sysv/linux/x86_64/Makefile
+index 4403a39f06..5e19202ebf 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/Makefile
++++ b/sysdeps/unix/sysv/linux/x86_64/Makefile
+@@ -2,10 +2,6 @@ ifeq ($(subdir),misc)
+ sysdep_routines += ioperm iopl
+ endif
+ 
+-# ifeq ($(subdir),junction)
+-# sysdep_routines += junctionsyscall
+-# endif
+-
+ ifeq ($(subdir),stdlib)
+ sysdep_routines += __start_context
+ endif
+diff --git a/timezone/Makefile b/timezone/Makefile
+index a789c22d26..fccc4bd0c9 100644
+--- a/timezone/Makefile
++++ b/timezone/Makefile
+@@ -22,7 +22,6 @@ subdir	:= timezone
+ 
+ include ../Makeconfig
+ 
+-others	:= zdump zic
+ tests	:= test-tz tst-timezone tst-tzset tst-bz28707
+ 
+ generated-dirs += testdata
+@@ -32,8 +31,6 @@ generated += tzselect
+ testdata = $(objpfx)testdata
+ 
+ ifeq ($(enable-timezone-tools),yes)
+-install-sbin := zic
+-install-bin := zdump
+ install-bin-script = tzselect
+ endif
+ 
+-- 
+2.25.1

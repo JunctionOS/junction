@@ -2,7 +2,6 @@
 
 #include <assert.h>
 #include <fcntl.h>
-#include <libsyscall_intercept_hook_point.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -14,7 +13,12 @@
 #include <mutex>
 #include <string>
 
+#include "junction/bindings/log.h"
+#include "junction/syscall/no_intercept.h"
+
 namespace junction {
+
+using namespace rt;
 
 constexpr int PROT = PROT_EXEC | PROT_READ;
 constexpr int FLAGS = MAP_PRIVATE;
@@ -29,7 +33,7 @@ File::File(int fd, const std::string file_path, bool _is_dir)
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      //spdlog::error("Cannot create file: {0}", strerror(err));
+      LOG(ERR) << "Cannot create file: " << strerror(err) << "\n";
       throw std::runtime_error("Cannot create file");
     }
   }
@@ -37,7 +41,7 @@ File::File(int fd, const std::string file_path, bool _is_dir)
   // Map the file.
   if (!_is_dir) {
     if (_mmap_no_lock()) {
-      std::cerr << "Cannot create file; unable to _map:" << _fd << std::endl;
+      LOG(ERR) << "Cannot create file; unable to _map: " << _fd << "\n";
       throw std::runtime_error("Cannot create file");
     }
   }
@@ -46,7 +50,7 @@ File::File(int fd, const std::string file_path, bool _is_dir)
 File::~File() {
   // Unmap all the memory that was mapped for this file.
   if (_munmap_no_lock()) {
-    std::cerr << "Cannot destroy file; failed to _munmap: " << _fd << std::endl;
+    LOG(ERR) << "Cannot destroy file; failed to _munmap: " << _fd << "\n";
   }
 
   // Close the kernel-provided file descriptor.
@@ -55,7 +59,7 @@ File::~File() {
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      //spdlog::error("Cannot close: {0}", strerror(err));
+      LOG(ERR) << "Cannot close: " << strerror(err) << "\n";
     }
   }
 }
@@ -72,7 +76,7 @@ int File::openat() { return _fd; }
 int File::fstat(struct stat* buf) {
   // Argument checking.
   if (!buf) {
-    std::cerr << "Cannot fstat; output buffer not provided" << std::endl;
+    LOG(ERR) << "Cannot fstat; output buffer not provided\n";
     return -1;
   }
 
@@ -90,13 +94,13 @@ off_t File::lseek(off_t offset, int whence) {
   // Make sure this operation is not being performed on a directory as this
   // does not make sense.
   if (_is_dir) {
-    std::cerr << "Cannot lseek; directory: " << _file_path << std::endl;
+    LOG(ERR) << "Cannot lseek; directory: " << _file_path << "\n";
     return -1;
   }
 
   // Argument checking.
   if (whence != SEEK_CUR) {
-    std::cerr << "Cannot lseek; unsupported whence: " << whence << std::endl;
+    LOG(ERR) << "Cannot lseek; unsupported whence: " << whence << "\n";
     return -1;
   }
 
@@ -105,8 +109,9 @@ off_t File::lseek(off_t offset, int whence) {
 
   // Ensure that the new offset does not overrun the file size;
   if (new_offset >= _stat.st_size) {
-    std::cerr << "Cannot seek past the file size: (" << new_offset << " > "
-              << _stat.st_size << ")" << std::endl;
+    LOG(ERR) << "Cannot seek past the file size: (" << new_offset << " > "
+             << _stat.st_size << ")"
+             << "\n";
     return -1;
   }
 
@@ -122,7 +127,7 @@ ssize_t File::read(void* buf, size_t count) {
   // Make sure this operation is not being performed on a directory as this does
   // not make sense.
   if (_is_dir) {
-    std::cerr << "Cannot read; directory: " << _file_path << std::endl;
+    LOG(ERR) << "Cannot read; directory: " << _file_path << "\n";
     return -1;
   }
 
@@ -133,7 +138,8 @@ ssize_t File::read(void* buf, size_t count) {
 
   // Argument checking.
   if (!buf) {
-    std::cerr << "Cannot read; output buffer not provided" << std::endl;
+    LOG(ERR) << "Cannot read; output buffer not provided"
+             << "\n";
     return -1;
   }
 
@@ -166,8 +172,7 @@ ssize_t File::read(void* buf, size_t count) {
 
 ssize_t File::write(const void* buf, size_t count) {
   std::lock_guard<decltype(_mutex)> lock(_mutex);
-
-  //spdlog::warn("Unsupported operation: write");
+  LOG(WARN) << "Unsupported operation: write\n";
   return -1;
 }
 
@@ -199,7 +204,7 @@ int File::_mmap_no_lock() {
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      //spdlog::error("Cannot mmap: {0}", strerror(err));
+      LOG(ERR) << "Cannot mmap: " << strerror(err) << "\n";
       return err;
     }
   }
@@ -207,8 +212,8 @@ int File::_mmap_no_lock() {
   // Error checking.
   void* mmap = reinterpret_cast<void*>(res);
   if (mmap == MAP_FAILED) {
-    std::cerr << "Cannot create file; unable to mmap: " << _fd << ", "
-              << _file_path << std::endl;
+    LOG(ERR) << "Cannot create file; unable to mmap: " << _fd << ", "
+             << _file_path << "\n";
     perror("mmap");
     return -1;
   }
@@ -228,7 +233,7 @@ int File::_munmap_no_lock() {
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      //spdlog::error("Cannot munmap: {0}", strerror(err));
+      LOG(ERR) << "Cannot munmap: " << strerror(err) << "\n";
       return err;
     }
   }

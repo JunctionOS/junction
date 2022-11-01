@@ -7,8 +7,7 @@ ROOT_DIR=${SCRIPT_DIR}/../
 
 # Install Linux packages
 sudo apt update
-sudo apt install -y clang-format \
-                    libspdlog-dev
+sudo apt install -y clang-format clang-tidy
 
 # Initialize submodules
 git submodule update --init --recursive
@@ -17,4 +16,4 @@ git submodule update --init --recursive
 cd $SCRIPT_DIR
 ./install_cmake.sh
 ./install_caladan.sh
-./install_syscall_intercept.sh
+./install_glibc.sh

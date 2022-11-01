@@ -1,4 +1,4 @@
-#include "jnct/syscall/handlers.hpp"
+#include "junction/syscall/handlers.hpp"
 
 #include <errno.h>
 #include <fcntl.h>
@@ -12,102 +12,112 @@
 #include <regex>
 #include <string>
 
-#include "jnct/filesystem/filesystem.hpp"
-#include "jnct/memorysystem/memorysystem.hpp"
-#include "spdlog/spdlog.h"
+#include "junction/filesystem/filesystem.hpp"
+#include "junction/memorysystem/memorysystem.hpp"
+#include "junction/syscall/no_intercept.h"
 
 junction::FileSystem fs;
 junction::MemorySystem ms;
 
-int handle_openat(int dirfd, const char* pathname, int flags, long* result) {
+unsigned long handle_default(long syscall_number, long arg0, long arg1,
+                             long arg2, long arg3, long arg4, long arg5) {
+  return syscall_no_intercept(syscall_number, arg0, arg1, arg2, arg3, arg4,
+                              arg5);
+}
+
+unsigned long handle_openat(int dirfd, const char* pathname, int flags) {
   if (dirfd == STDIN_FILENO || dirfd == STDOUT_FILENO ||
       dirfd == STDERR_FILENO) {
-    return STATUS_FWD_TO_KERNEL;
+    return handle_default(SYS_openat, static_cast<long>(dirfd),
+                          reinterpret_cast<long>(pathname),
+                          static_cast<long>(flags));
   }
 
-  *result = fs.openat(dirfd, pathname, flags);
-  return STATUS_HANDLED;
+  return fs.openat(dirfd, pathname, flags);
 }
 
-int handle_open(const char* pathname, int flags, mode_t mode, long* result) {
-  *result = fs.open(pathname, flags, mode);
-  return STATUS_HANDLED;
+unsigned long handle_open(const char* pathname, int flags, mode_t mode) {
+  return handle_default(SYS_open, reinterpret_cast<long>(pathname),
+                        static_cast<long>(flags), static_cast<long>(mode));
 }
 
-int handle_fstat(int fd, struct stat* buf, long* result) {
+unsigned long handle_fstat(int fd, struct stat* buf) {
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO || fd == STDERR_FILENO) {
-    return STATUS_FWD_TO_KERNEL;
+    return handle_default(SYS_fstat, static_cast<long>(fd),
+                          reinterpret_cast<long>(buf));
   }
 
-  *result = fs.fstat(fd, buf);
-  return STATUS_HANDLED;
+  return fs.fstat(fd, buf);
 }
 
-int handle_lseek(int fd, off_t offset, int whence, long* result) {
+unsigned long handle_lseek(int fd, off_t offset, int whence) {
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO || fd == STDERR_FILENO) {
-    return STATUS_FWD_TO_KERNEL;
+    return handle_default(SYS_lseek, static_cast<long>(fd),
+                          static_cast<long>(offset), static_cast<long>(whence));
   }
 
-  auto ret = fs.lseek(fd, offset, whence);
-  *result = static_cast<long>(ret);
-  return STATUS_HANDLED;
+  return fs.lseek(fd, offset, whence);
 }
 
-int handle_read(int fd, void* buf, size_t count, long* result) {
+unsigned long handle_read(int fd, void* buf, size_t count) {
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO || fd == STDERR_FILENO) {
-    return STATUS_FWD_TO_KERNEL;
+    return handle_default(SYS_read, static_cast<long>(fd),
+                          reinterpret_cast<long>(buf),
+                          static_cast<long>(count));
   }
 
-  auto ret = fs.read(fd, buf, count);
-  *result = static_cast<long>(ret);
-  return STATUS_HANDLED;
+  return fs.read(fd, buf, count);
 }
 
-int handle_write(int fd, const void* buf, size_t count, long* result) {
+unsigned long handle_write(int fd, const void* buf, size_t count) {
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO || fd == STDERR_FILENO) {
-    return STATUS_FWD_TO_KERNEL;
+    return handle_default(SYS_write, static_cast<long>(fd),
+                          reinterpret_cast<long>(buf),
+                          static_cast<long>(count));
   }
 
-  auto ret = fs.write(fd, buf, count);
-  *result = static_cast<long>(ret);
-  return STATUS_HANDLED;
+  return fs.write(fd, buf, count);
 }
 
-int handle_close(int fd, long* result) {
+unsigned long handle_close(int fd) {
   if (fd == STDIN_FILENO || fd == STDOUT_FILENO || fd == STDERR_FILENO) {
-    return STATUS_FWD_TO_KERNEL;
+    return handle_default(SYS_close, static_cast<long>(fd));
   }
 
-  *result = fs.close(fd);
-  return STATUS_HANDLED;
+  return fs.close(fd);
 }
 
-int handle_mmap(void* addr, size_t length, int prot, int flags, int fd,
-                off_t offset, long* result) {
+unsigned long handle_mmap(void* addr, size_t length, int prot, int flags,
+                          int fd, off_t offset) {
   if ((flags & MAP_ANONYMOUS) == MAP_ANONYMOUS) {
-    return STATUS_FWD_TO_KERNEL;
+    return handle_default(SYS_mmap, reinterpret_cast<long>(addr),
+                          static_cast<long>(length), static_cast<long>(prot),
+                          static_cast<long>(flags), static_cast<long>(fd),
+                          static_cast<long>(offset));
   }
 
   auto file = fs.get_file(fd);
   if (!file.has_value()) {
-    *result = reinterpret_cast<long>(MAP_FAILED);
-    return STATUS_HANDLED;
+    // TODO(girfan): This needs to be errored out.
+    return handle_default(SYS_mmap, reinterpret_cast<long>(addr),
+                          static_cast<long>(length), static_cast<long>(prot),
+                          static_cast<long>(flags), static_cast<long>(fd),
+                          static_cast<long>(offset));
   }
 
   void* map = ms.mmap(addr, length, prot, flags, file->get(), offset);
-  *result = reinterpret_cast<long>(map);
-  return STATUS_HANDLED;
+  return reinterpret_cast<long>(map);
 }
 
-int handle_munmap(void* addr, size_t length, long* result) {
-  int status = ms.munmap(addr, length);
+unsigned long handle_munmap(void* addr, size_t length) {
+  auto status = ms.munmap(addr, length);
   if (status == 1) {
     // This indicates that the address was not mapped using the MemorySystem.
-    return STATUS_FWD_TO_KERNEL;
+    return handle_default(SYS_munmap, reinterpret_cast<long>(addr),
+                          static_cast<long>(length));
   }
 
-  *result = status;
-  return STATUS_HANDLED;
+  return status;
 }
 
 int preload_file(const char* path, int flags) {

@@ -2,7 +2,7 @@
 	path = lib/caladan
 	url = git@github.com:abelay/shenango.git
 	ignore = dirty
-[submodule "lib/syscall_intercept"]
-	path = lib/syscall_intercept
-	url = https://github.com/pmem/syscall_intercept.git
+[submodule "lib/glibc"]
+	path = lib/glibc
+	url = https://sourceware.org/git/glibc.git
 	ignore = dirty

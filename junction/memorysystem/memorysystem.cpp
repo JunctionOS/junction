@@ -1,7 +1,6 @@
-#include "jnct/memorysystem/memorysystem.hpp"
+#include "junction/memorysystem/memorysystem.hpp"
 
 #include <assert.h>
-#include <libsyscall_intercept_hook_point.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <syscall.h>
@@ -10,7 +9,12 @@
 #include <algorithm>
 #include <cstring>
 
+#include "junction/bindings/log.h"
+#include "junction/syscall/no_intercept.h"
+
 namespace junction {
+
+using namespace rt;
 
 constexpr int MMAP_FD = -1;
 constexpr int MMAP_OFFSET = 0;
@@ -25,7 +29,7 @@ void* MemorySystem::mmap(void* addr, size_t length, int prot, int flags,
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      //spdlog::error("Cannot mmap: {0}", strerror(err));
+      LOG(ERR) << "Cannot mmap: " << strerror(err) << "\n";
       return MAP_FAILED;
     }
   }
@@ -49,7 +53,7 @@ int MemorySystem::munmap(void* addr, size_t length) {
   // Check if we have mmapped to this address before.
   const auto mem_iter = _mem_to_length.find(addr);
   if (mem_iter == _mem_to_length.end()) {
-    //spdlog::error("Invalid address for munmap");
+    LOG(ERR) << "Invalid address for munmap\n";
     // Using this return value to distinguish from the -1 returned by munmap
     // syscall upon a failed munmap operation.
     return 1;
@@ -60,7 +64,7 @@ int MemorySystem::munmap(void* addr, size_t length) {
   {
     const int err = syscall_error_code(res);
     if (err != 0) {
-      //spdlog::error("Cannot munmap: {0}", strerror(err));
+      LOG(ERR) << "Cannot munmap: " << strerror(err) << "\n";
       return err;
     }
   }

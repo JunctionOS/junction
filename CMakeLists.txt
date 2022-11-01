@@ -1,5 +1,5 @@
-cmake_minimum_required(VERSION 3.21)
-project(junction)
+cmake_minimum_required(VERSION 3.24)
+project(junction C CXX ASM)
 
 message(STATUS "Building junction")
 
@@ -9,7 +9,10 @@ set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_ENABLE_EXPORTS ON)
 set(THREADS_PREFER_PTHREAD_FLAG ON)
+SET(ASM_OPTIONS "-x assembler-with-cpp")
+SET(CMAKE_ASM_FLAGS "${CFLAGS} ${ASM_OPTIONS}")
 
 if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
