@@ -43,7 +43,7 @@ class Wrapper : public Data {
   void Run() override { std::apply(func_, args_); }
 
  private:
-  Callable func_;
+  std::decay_t<Callable> func_;
   std::tuple<std::decay_t<Args>...> args_;
 };
 
@@ -118,7 +118,7 @@ class AsyncWrapper : public basic_data {
 
  private:
   async_state<Ret>* state_;
-  Callable func_;
+  std::decay_t<Callable> func_;
   std::tuple<std::decay_t<Args>...> args_;
 };
 
@@ -160,7 +160,7 @@ class Future {
       Callable&& func,
       Args&&... args) requires std::invocable<Callable, Args...>;
 
-  Future() = default;
+  Future() noexcept = default;
   ~Future() {
     if (Valid()) Wait();
   }
@@ -191,13 +191,13 @@ class Future {
   }
 
   // Checks if the future is attached to a promised value.
-  bool Valid() const { return !!state_; }
+  [[nodiscard]] bool Valid() const { return !!state_; }
 
   // Blocks and waits for the future's value to be ready.
   void Wait() { state_->base_.Wait(); }
 
  private:
-  Future(std::unique_ptr<thread_internal::async_state<T>> ptr)
+  explicit Future(std::unique_ptr<thread_internal::async_state<T>> ptr)
       : state_{std::move(ptr)} {}
 
   std::unique_ptr<thread_internal::async_state<T>> state_{};
