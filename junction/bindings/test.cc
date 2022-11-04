@@ -32,6 +32,12 @@ void func(const std::string arg1, const std::string arg2,
   if (arg3 != "bar") BUG();
 }
 
+size_t TestAsync(const std::string arg1, const std::string arg2) {
+  std::string str = arg1 + arg2;
+  LOG(INFO) << "TestAsync: arg1 '" << arg1 << "' arg2 '" << arg2 << "'";
+  return str.length();
+}
+
 void MainHandler() {
   std::string str = "captured!";
   int i = kTestValue;
@@ -49,17 +55,21 @@ void MainHandler() {
 
   rt::Spawn(func, "foobar", "baz", "bar");
 
-  rt::Yield();
-  rt::Sleep(1 * rt::kMilliseconds);
-
   auto th = rt::Thread([&] {
     LOG(INFO) << "hello from rt::Thread! '" << str << "'";
     foo(i);
     j *= 2;
   });
   th.Join();
-
   if (j != kTestValue * 2) BUG();
+
+  auto f1 = rt::Async(TestAsync, "foo", "foobar");
+  auto f2 = rt::Async(TestAsync, "baz", "done");
+  if (f1.get() + f2.get() != 16) BUG();
+
+  rt::Yield();
+  rt::Sleep(1 * rt::kMilliseconds);
+
   rt::RuntimeExit(EXIT_SUCCESS);
 }
 

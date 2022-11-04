@@ -210,8 +210,9 @@ class ScopedLock {
   ScopedLock(const ScopedLock &) = delete;
   ScopedLock &operator=(const ScopedLock &) = delete;
 
-  // Park is useful for blocking and waiting on a condition.
+  // Blocks in order to wait for a condition.
   // Only works with Spin and Preempt (not Mutex).
+  // Spurious wakeups are possible, so the condition must be rechecked.
   // Example:
   //   rt::ThreadWaker w;
   //   rt::SpinLock l;
@@ -222,6 +223,23 @@ class ScopedLock {
     w->Arm();
     lock_->UnlockAndPark();
     lock_->Lock();
+  }
+
+  // Blocks and waits for the predicate to become true.
+  // Only works with Spin and Preempt (not Mutex).
+  // Example:
+  //   rt::ThreadWaker w;
+  //   rt::SpinLock l;
+  //   rt::SpinGuard guard(l);
+  //   guard.Park(&w, []{ return predicate; });
+  template <typename Predicate>
+  void Park(ThreadWaker *w, Predicate p) {
+    assert(lock_->IsHeld());
+    while (!p()) {
+      w->Arm();
+      lock_->UnlockAndPark();
+      lock_->Lock();
+    }
   }
 
  private:
@@ -266,6 +284,12 @@ class CondVar {
   // Block until the condition variable is signaled. Recheck the condition
   // after wakeup, as no guarantees are made about preventing spurious wakeups.
   void Wait(Mutex *mu) { condvar_wait(&cv_, &mu->mu_); }
+
+  // Block until a predicate is true.
+  template <typename Predicate>
+  void Wait(Mutex *mu, Predicate p) {
+    while (!p()) condvar_wait(&cv_, &mu->mu_);
+  }
 
   // Wake up one waiter.
   void Signal() { condvar_signal(&cv_); }
