@@ -1,8 +1,10 @@
-#include "junction/kernel/file.h"
-
 #include <algorithm>
 #include <bit>
 #include <memory>
+
+#include "junction/base/io.h"
+#include "junction/kernel/file.h"
+#include "junction/kernel/proc.h"
 
 namespace {
 
@@ -79,12 +81,15 @@ void FileTable::InsertAt(int fd, std::shared_ptr<File> f) {
   farr_->files[fd] = std::move(f);
 }
 
-void FileTable::Remove(int fd) {
+bool FileTable::Remove(int fd) {
   rt::SpinGuard g(&lock_);
+
+  // Check if the file is present
+  if (!farr_->files[fd]) return false;
 
   // Remove the file.
   farr_->files[fd].reset();
-  if (static_cast<size_t>(fd) != farr_->len - 1) return;
+  if (static_cast<size_t>(fd) != farr_->len - 1) return true;
 
   // Try to shrink the table.
   size_t i;
@@ -92,6 +97,78 @@ void FileTable::Remove(int fd) {
     if (farr_->files[i]) break;
   }
   Resize(i + 1);
+  return true;
+}
+
+//
+// System call implementations
+//
+
+ssize_t ksys_read(int fd, char *buf, size_t len) {
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
+  Status<size_t> ret = f->Read(readable_span(buf, len), &f->get_off_ref());
+  if (!ret) return -ret.error().code();
+  return static_cast<ssize_t>(*ret);
+}
+
+ssize_t ksys_write(int fd, const char *buf, size_t len) {
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  Status<size_t> ret = f->Write(writable_span(buf, len), &f->get_off_ref());
+  if (!ret) return -ret.error().code();
+  return static_cast<ssize_t>(*ret);
+}
+
+ssize_t ksys_pread(int fd, char *buf, size_t len, off_t offset) {
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
+  Status<size_t> ret = f->Read(readable_span(buf, len), &offset);
+  if (!ret) return -ret.error().code();
+  return static_cast<ssize_t>(*ret);
+}
+
+ssize_t ksys_pwrite(int fd, const char *buf, size_t len, off_t offset) {
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  Status<size_t> ret = f->Write(writable_span(buf, len), &offset);
+  if (!ret) return -ret.error().code();
+  return static_cast<ssize_t>(*ret);
+}
+
+off_t ksys_lseek(int fd, off_t offset, int whence) {
+  // TODO(amb): validate whence
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+  Status<off_t> ret = f->Seek(offset, static_cast<SeekFrom>(whence));
+  if (!ret) return -ret.error().code();
+  return static_cast<off_t>(*ret);
+}
+
+int ksys_dup(int oldfd) {
+  FileTable &ftbl = myproc()->ftable;
+  std::shared_ptr<File> f = ftbl.Dup(oldfd);
+  if (!f) return -EBADF;
+  return ftbl.Insert(std::move(f));
+}
+
+int ksys_dup2(int oldfd, int newfd) {
+  FileTable &ftbl = myproc()->ftable;
+  std::shared_ptr<File> f = ftbl.Dup(oldfd);
+  if (!f) return -EBADF;
+  ftbl.InsertAt(newfd, std::move(f));
+  return newfd;
+}
+
+int ksys_close(int fd) {
+  FileTable &ftbl = myproc()->ftable;
+  if (!ftbl.Remove(fd)) return -EBADF;
+  return 0;
 }
 
 }  // namespace junction

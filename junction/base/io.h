@@ -42,6 +42,16 @@ std::span<std::byte, sizeof(T)> writable_byte_view(T &t) {
   return std::as_writable_bytes(std::span<T, 1>{std::addressof(t), 1});
 }
 
+// Cast a legacy UNIX read buffer as a span.
+std::span<std::byte> readable_span(char *buf, size_t len) {
+  return {reinterpret_cast<std::byte *>(buf), len};
+}
+
+// Cast a legacy UNIX write buffer as a span.
+std::span<const std::byte> writable_span(const char *buf, size_t len) {
+  return {reinterpret_cast<const std::byte *>(buf), len};
+}
+
 // Reads the full span of bytes.
 template <typename T>
 Status<void> ReadFull(T *t, std::span<std::byte> buf) requires Reader<T> {

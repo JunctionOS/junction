@@ -66,11 +66,13 @@ class File {
   virtual Status<void> Sync() { return {}; }
 
   [[nodiscard]] unsigned int get_flags() const { return flags_; }
+  [[nodiscard]] unsigned int get_mode() const { return mode_; }
+  [[nodiscard]] off_t &get_off_ref() { return off_; }
 
  private:
-  off_t off_;
   unsigned int flags_;
   unsigned int mode_;
+  off_t off_;
 };
 
 namespace detail {
@@ -109,8 +111,9 @@ class FileTable {
   // atomically.
   void InsertAt(int fd, std::shared_ptr<File> f);
 
-  // Removes the file tied to an fd number and drops its refcount.
-  void Remove(int fd);
+  // Removes the file tied to an fd number and drops its refcount. Returns true
+  // if successful.
+  bool Remove(int fd);
 
  private:
   using FArr = detail::file_array;
