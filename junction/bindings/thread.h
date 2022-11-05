@@ -24,12 +24,12 @@ struct basic_data {
 };
 
 struct join_data {
-  join_data() noexcept { spin_lock_init(&lock_); }
+  join_data() noexcept = default;
   virtual ~join_data() = default;
   virtual void Run() = 0;
-  spinlock_t lock_;
-  bool done_{false};
-  thread_t* waiter_{nullptr};
+  rt::Spin lock_;
+  rt::ThreadWaker waker_;
+  std::atomic_bool done_{false};
 };
 
 template <typename Data, typename Callable, typename... Args>
@@ -114,7 +114,14 @@ class AsyncWrapper : public basic_data {
         args_{std::forward<Args>(args)...} {}
   ~AsyncWrapper() override = default;
 
-  void Run() override { state_->set_value(std::apply(func_, args_)); }
+  void Run() override {
+    if constexpr (std::is_void_v<Ret>) {
+      std::apply(func_, args_);
+      state_->set_value();
+    } else {
+      state_->set_value(std::apply(func_, args_));
+    }
+  }
 
  private:
   async_state<Ret>* state_;
@@ -156,9 +163,8 @@ template <typename T>
 class Future {
  public:
   template <typename Callable, typename... Args>
-  friend Future<thread_internal::ret_t<Callable, Args...>> Async(
-      Callable&& func,
-      Args&&... args) requires std::invocable<Callable, Args...>;
+  friend auto Async(Callable&& func,
+                    Args&&... args) requires std::invocable<Callable, Args...>;
 
   Future() noexcept = default;
   ~Future() {
@@ -205,9 +211,8 @@ class Future {
 
 // Spawns a new thread and provides its return value as a future.
 template <typename Callable, typename... Args>
-Future<thread_internal::ret_t<Callable, Args...>> Async(
-    Callable&& func,
-    Args&&... args) requires std::invocable<Callable, Args...> {
+auto Async(Callable&& func,
+           Args&&... args) requires std::invocable<Callable, Args...> {
   void* buf;
   using Ret = thread_internal::ret_t<Callable, Args...>;
   using Wrapper = thread_internal::AsyncWrapper<Ret, Callable, Args...>;

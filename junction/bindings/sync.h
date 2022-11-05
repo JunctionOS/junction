@@ -57,8 +57,7 @@ class ThreadWaker {
   // immediate future).
   void Wake(bool head = false) {
     if (th_ == nullptr) return;
-    thread_t *th = th_;
-    th_ = nullptr;
+    thread_t *th = std::exchange(th_, nullptr);
     if (head) {
       thread_ready_head(th);
     } else {
@@ -233,7 +232,7 @@ class ScopedLock {
   //   rt::SpinGuard guard(l);
   //   guard.Park(&w, []{ return predicate; });
   template <typename Predicate>
-  void Park(ThreadWaker *w, Predicate p) {
+  void Park(ThreadWaker *w, Predicate p) requires LockAndParkable<L> {
     assert(lock_->IsHeld());
     while (!p()) {
       w->Arm();

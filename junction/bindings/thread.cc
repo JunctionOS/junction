@@ -1,6 +1,7 @@
-#include "junction/bindings/thread.h"
-
 #include <memory>
+
+#include "junction/base/finally.h"
+#include "junction/bindings/thread.h"
 
 namespace junction::rt {
 namespace thread_internal {
@@ -15,56 +16,73 @@ void ThreadTrampoline(void* arg) {
 // A helper to jump from extern C back to C++ for Thread::Thread().
 void ThreadTrampolineWithJoin(void* arg) {
   auto* d = static_cast<join_data*>(arg);
+  auto f = finally([d] { std::destroy_at(d); });
   d->Run();
-  spin_lock_np(&d->lock_);
-  if (d->done_) {
-    spin_unlock_np(&d->lock_);
-    if (d->waiter_) thread_ready(d->waiter_);
-    std::destroy_at(d);
+
+  // Hot path if the thread is already detached or joined.
+  if (d->done_.load(std::memory_order_acquire)) {
+    d->waker_.Wake();
     return;
   }
-  d->done_ = true;
-  d->waiter_ = thread_self();
-  thread_park_and_unlock_np(&d->lock_);
-  std::destroy_at(d);
+
+  // Cold path: Check again with the lock held.
+  d->lock_.Lock();
+  if (d->done_.load(std::memory_order_relaxed)) {
+    d->waker_.Wake();
+    d->lock_.Unlock();
+    return;
+  }
+  d->waker_.Arm();
+  d->done_.store(true, std::memory_order_release);
+  d->lock_.UnlockAndPark();
 }
 
 }  // namespace thread_internal
 
 void Thread::Detach() {
   assert(join_data_ != nullptr);
+  auto* d = join_data_;
+  auto f = finally([this] { join_data_ = nullptr; });
 
-  spin_lock_np(&join_data_->lock_);
-  if (join_data_->done_) {
-    spin_unlock_np(&join_data_->lock_);
-    assert(join_data_->waiter_ != nullptr);
-    thread_ready(join_data_->waiter_);
-    join_data_ = nullptr;
+  // Hot path if the thread is already blocked.
+  if (d->done_.load(std::memory_order_acquire)) {
+    d->waker_.Wake();
     return;
   }
 
-  join_data_->done_ = true;
-  join_data_->waiter_ = nullptr;
-  spin_unlock_np(&join_data_->lock_);
-  join_data_ = nullptr;
+  // Cold path: The thread is not yet blocked.
+  {
+    rt::SpinGuard(&d->lock_);
+    if (d->done_.load(std::memory_order_relaxed)) {
+      d->waker_.Wake();
+      return;
+    }
+    d->done_.store(true, std::memory_order_release);
+  }
 }
 
 void Thread::Join() {
   assert(join_data_ != nullptr);
+  auto* d = join_data_;
+  auto f = finally([this] { join_data_ = nullptr; });
 
-  spin_lock_np(&join_data_->lock_);
-  if (join_data_->done_) {
-    spin_unlock_np(&join_data_->lock_);
-    assert(join_data_->waiter_ != nullptr);
-    thread_ready(join_data_->waiter_);
-    join_data_ = nullptr;
+  // Hot path if the thread is already blocked.
+  if (d->done_.load(std::memory_order_acquire)) {
+    d->waker_.Wake();
     return;
   }
 
-  join_data_->done_ = true;
-  join_data_->waiter_ = thread_self();
-  thread_park_and_unlock_np(&join_data_->lock_);
-  join_data_ = nullptr;
+  // Cold path: The thread is not yet blocked.
+  rt::SpinGuard(&d->lock_);
+  d->lock_.Lock();
+  if (d->done_.load(std::memory_order_relaxed)) {
+    d->lock_.Unlock();
+    d->waker_.Wake();
+    return;
+  }
+  d->waker_.Arm();
+  d->done_.store(true, std::memory_order_release);
+  d->lock_.UnlockAndPark();
 }
 
 }  // namespace junction::rt
