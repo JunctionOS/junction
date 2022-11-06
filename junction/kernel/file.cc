@@ -104,7 +104,7 @@ bool FileTable::Remove(int fd) {
 // System call implementations
 //
 
-ssize_t ksys_read(int fd, char *buf, size_t len) {
+ssize_t usys_read(int fd, char *buf, size_t len) {
   FileTable &ftbl = myproc()->ftable;
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
@@ -113,7 +113,7 @@ ssize_t ksys_read(int fd, char *buf, size_t len) {
   return static_cast<ssize_t>(*ret);
 }
 
-ssize_t ksys_write(int fd, const char *buf, size_t len) {
+ssize_t usys_write(int fd, const char *buf, size_t len) {
   FileTable &ftbl = myproc()->ftable;
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
@@ -122,7 +122,7 @@ ssize_t ksys_write(int fd, const char *buf, size_t len) {
   return static_cast<ssize_t>(*ret);
 }
 
-ssize_t ksys_pread(int fd, char *buf, size_t len, off_t offset) {
+ssize_t usys_pread(int fd, char *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc()->ftable;
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
@@ -131,7 +131,7 @@ ssize_t ksys_pread(int fd, char *buf, size_t len, off_t offset) {
   return static_cast<ssize_t>(*ret);
 }
 
-ssize_t ksys_pwrite(int fd, const char *buf, size_t len, off_t offset) {
+ssize_t usys_pwrite(int fd, const char *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc()->ftable;
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
@@ -140,7 +140,7 @@ ssize_t ksys_pwrite(int fd, const char *buf, size_t len, off_t offset) {
   return static_cast<ssize_t>(*ret);
 }
 
-off_t ksys_lseek(int fd, off_t offset, int whence) {
+off_t usys_lseek(int fd, off_t offset, int whence) {
   // TODO(amb): validate whence
   FileTable &ftbl = myproc()->ftable;
   File *f = ftbl.Get(fd);
@@ -151,7 +151,7 @@ off_t ksys_lseek(int fd, off_t offset, int whence) {
   return static_cast<off_t>(*ret);
 }
 
-int ksys_fsync(int fd) {
+int usys_fsync(int fd) {
   FileTable &ftbl = myproc()->ftable;
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
@@ -160,14 +160,14 @@ int ksys_fsync(int fd) {
   return 0;
 }
 
-int ksys_dup(int oldfd) {
+int usys_dup(int oldfd) {
   FileTable &ftbl = myproc()->ftable;
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
   return ftbl.Insert(std::move(f));
 }
 
-int ksys_dup2(int oldfd, int newfd) {
+int usys_dup2(int oldfd, int newfd) {
   FileTable &ftbl = myproc()->ftable;
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
@@ -175,7 +175,7 @@ int ksys_dup2(int oldfd, int newfd) {
   return newfd;
 }
 
-int ksys_close(int fd) {
+int usys_close(int fd) {
   FileTable &ftbl = myproc()->ftable;
   if (!ftbl.Remove(fd)) return -EBADF;
   return 0;
