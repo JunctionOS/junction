@@ -6,6 +6,9 @@
 
 .text
 
+.globl ksys_start_addr
+ksys_start_addr:
+
 .align 16
 .globl ksys_mmap
 .type ksys_mmap, @function
@@ -79,3 +82,6 @@ ksys_exit:
 	# doesn't return
 	hlt
 	ret
+
+.globl ksys_end_addr
+ksys_end_addr:
