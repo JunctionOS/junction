@@ -84,7 +84,7 @@ void FileTable::InsertAt(int fd, std::shared_ptr<File> f) {
 bool FileTable::Remove(int fd) {
   rt::SpinGuard g(&lock_);
 
-  // Check if the file is present
+  // Check if the file is present.
   if (!farr_->files[fd]) return false;
 
   // Remove the file.
@@ -147,7 +147,17 @@ off_t ksys_lseek(int fd, off_t offset, int whence) {
   if (unlikely(!f)) return -EBADF;
   Status<off_t> ret = f->Seek(offset, static_cast<SeekFrom>(whence));
   if (!ret) return -ret.error().code();
+  f->get_off_ref() = *ret;
   return static_cast<off_t>(*ret);
+}
+
+int ksys_fsync(int fd) {
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+  Status<void> ret = f->Sync();
+  if (!ret) return -ret.error().code();
+  return 0;
 }
 
 int ksys_dup(int oldfd) {
