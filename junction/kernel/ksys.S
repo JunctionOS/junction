@@ -14,6 +14,7 @@ ksys_start_addr:
 .type ksys_mmap, @function
 ksys_mmap:
 	movl	$__NR_mmap, %eax
+	movq	%rcx, %r10
 	syscall
 	ret
 
@@ -62,6 +63,7 @@ ksys_write:
 .type ksys_pread, @function
 ksys_pread:
 	movl	$__NR_pread64, %eax
+	movq	%rcx, %r10
 	syscall
 	ret
 
@@ -70,6 +72,7 @@ ksys_pread:
 .type ksys_pwrite, @function
 ksys_pwrite:
 	movl	$__NR_pwrite64, %eax
+	movq	%rcx, %r10
 	syscall
 	ret
 
