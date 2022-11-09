@@ -6,8 +6,22 @@
 
 .text
 
-.globl ksys_start_addr
-ksys_start_addr:
+.globl ksys_start
+ksys_start:
+
+.align 16
+.globl ksys_default
+.type ksys_default, @function
+ksys_default:
+	movq	%rdi, %rax
+	movq	%rsi, %rdi
+	movq	%rdx, %rsi
+	movq	%rcx, %rdx
+	movq	%r8, %r10
+	movq	%r9, %r8
+	movq	8(%rsp), %r9
+	syscall
+	ret
 
 .align 16
 .globl ksys_mmap
@@ -39,6 +53,14 @@ ksys_mprotect:
 .type ksys_madvise, @function
 ksys_madvise:
 	movl	$__NR_madvise, %eax
+	syscall
+	ret
+
+.align 16
+.globl ksys_open
+.type ksys_open, @function
+ksys_open:
+	movl	$__NR_open, %eax
 	syscall
 	ret
 
@@ -86,5 +108,5 @@ ksys_exit:
 	hlt
 	ret
 
-.globl ksys_end_addr
-ksys_end_addr:
+.globl ksys_end
+ksys_end:

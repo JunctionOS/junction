@@ -6,8 +6,9 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 
 # Install Linux packages
+sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt update
-sudo apt install -y clang-format clang-tidy
+sudo apt install -y clang-format clang-tidy g++-11
 
 # Initialize submodules
 git submodule update --init --recursive

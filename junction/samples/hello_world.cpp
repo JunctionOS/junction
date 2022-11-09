@@ -9,7 +9,6 @@
 
 #include <csignal>
 
-#include "junction/syscall/intercept.hpp"
 #include "junction/syscall/seccomp_filtering.hpp"
 
 /* Perform syscalls using glibc. */
@@ -59,11 +58,7 @@ int main() {
   printf("PID = %d\n", pid);
 
   /* Enable libjunction. */
-  if (enable_syscall_intercept()) {
-    printf("Cannot enable syscall intercept\n");
-    return 1;
-  }
-  if (install_syscall_filter()) {
+  if (junction::install_syscall_filter()) {
     printf("Cannot install syscall filter\n");
     return 1;
   }

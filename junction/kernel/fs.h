@@ -22,7 +22,8 @@ class Inode {
   // Lookup a child inode for this inode (can be empty).
   virtual std::shared_ptr<Inode> Lookup(const std::string_view &name);
   // Insert a new child inode into this inode (must be a directory).
-  virtual Status<void> Insert(const std::string_view &name, std::shared_ptr<Inode> inode);
+  virtual Status<void> Insert(const std::string_view &name,
+                              std::shared_ptr<Inode> inode);
   // Remove a child inode from this inode (must be a directory).
   virtual Status<void> Remove(const std::string_view &name);
   // Adjust the size of the file.
@@ -33,7 +34,6 @@ class Inode {
 
 class FileSystem {
  public:
-
  private:
   std::shared_ptr<Inode> root_;  // the root directory of the file system
   std::shared_ptr<Inode> cwd_;   // the current working directory

@@ -20,6 +20,7 @@
 #include <string.h>
 #include <sys/prctl.h>
 #include <unistd.h>
+#include <cstdint>
 
 #ifndef PR_SET_NO_NEW_PRIVS
 #define PR_SET_NO_NEW_PRIVS 38
@@ -93,6 +94,18 @@ struct seccomp_data {
 #define ARCH_NR 0
 #endif
 
+#include "junction/kernel/ksys.h"
+
+/* Compute the valid address range where syscalls are allowed from.
+ * This is the address range of calls made from ksys.S
+ */
+static size_t ksys_start_addr = reinterpret_cast<size_t>(&junction::ksys_start);
+static size_t ksys_end_addr = reinterpret_cast<size_t>(&junction::ksys_end);
+static uint32_t ksys_start_addr_low = static_cast<uint32_t>(ksys_start_addr);
+static uint32_t ksys_start_addr_hi = static_cast<uint32_t>(ksys_start_addr >> 32);
+static uint32_t ksys_end_addr_low = static_cast<uint32_t>(ksys_end_addr);
+static uint32_t ksys_end_addr_hi = static_cast<uint32_t>(ksys_end_addr >> 32);
+
 #define VALIDATE_ARCHITECTURE                             \
   BPF_STMT(BPF_LD + BPF_W + BPF_ABS, arch_nr),            \
       BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ARCH_NR, 1, 0), \
@@ -100,13 +113,35 @@ struct seccomp_data {
 
 #define EXAMINE_SYSCALL BPF_STMT(BPF_LD + BPF_W + BPF_ABS, syscall_nr)
 
-#define ALLOW_RANGE_SYSCALL(name, low, hi)            \
-  BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),         \
-      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, low, 0, 3), \
-      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),     \
-      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, hi, 0, 1),  \
-      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW),   \
-      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_TRAP)
+/* Steps to check if a syscall should be allowed:
+ * 1:  Check the syscall number.
+ * 2:  Check the instruction pointer's MSB 32 bits.
+ * 3:  If they are greater than the MSB 32 bits of ksys_start, proceed.
+ * 4:  Check the instruction pointer's LSB 32 bits.
+ * 5:  If they are greater than the LSB 32 bits of ksys_start, proceed.
+ * 6:  Check the instruction pointer's MSB 32 bits.
+ * 7:  If they are greater than the MSB 32 bits of ksys_end, fail, else allow.
+ * 8:  If they are equal to the MSB 32 bits of ksys_end, proceed.
+ * 9:  Check the instruction pointer's LSB 32 bits.
+ * 10: If they are greater than the LSB 32 bits of ksys_end, fail.
+ * 11: If you have reached here, allow.
+ * (Note: Address comparison of the instruction pointer and our start/end of the
+ *        address range is done in chunks of 32 bits since BPF does not deal
+ *        with 64 bits.)
+ */
+#define ALLOW_JUNCTION_SYSCALL(name)                                  \
+  BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_##name, 0, 11),            \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                     \
+      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, ksys_start_addr_hi, 0, 9),  \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                     \
+      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, ksys_start_addr_low, 0, 7), \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                     \
+      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, ksys_end_addr_hi, 5, 0),    \
+      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ksys_end_addr_hi, 1, 0),    \
+      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW),                   \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                     \
+      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, ksys_end_addr_low, 1, 0),   \
+      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW)
 
 #define ALLOW_SYSCALL(name)                               \
   BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_##name, 0, 1), \

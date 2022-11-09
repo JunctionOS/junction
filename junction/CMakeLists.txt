@@ -44,18 +44,19 @@ file(WRITE ${caladan_test_config_path} ${caladan_test_config})
 add_subdirectory(base)
 add_subdirectory(bindings)
 add_subdirectory(filesystem)
-add_subdirectory(memorysystem)
-add_subdirectory(samples)
 add_subdirectory(syscall)
 add_subdirectory(kernel)
+add_subdirectory(samples)
 
 # Build junction
-add_library(junction
+add_library(junction INTERFACE)
+target_link_libraries(junction INTERFACE
+  "$<LINK_LIBRARY:WHOLE_ARCHIVE,caladan_shim>"
+  "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
   base
   bindings
   filesystem
-  memorysystem
-  syscall
+  kernel
 )
 
 # Configure junction
@@ -63,6 +64,6 @@ set_target_properties(junction
   PROPERTIES
     LINKER_LANGUAGE CXX
 )
-target_link_options(junction PUBLIC
+target_link_options(junction INTERFACE
   -Wl,--export-dynamic,--export-dynamic
 )

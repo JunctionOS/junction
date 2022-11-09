@@ -1,9 +1,10 @@
+#include "junction/kernel/file.h"
+
 #include <algorithm>
 #include <bit>
 #include <memory>
 
 #include "junction/base/io.h"
-#include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 
 namespace {

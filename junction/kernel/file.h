@@ -25,6 +25,8 @@ constexpr unsigned int kFlagAppend = O_APPEND;
 constexpr unsigned int kFlagTruncate = O_TRUNC;
 // File was created if it didn't exist.
 constexpr unsigned int kFlagCreate = O_CREAT;
+// Create an unnamed temporary regular file.
+constexpr unsigned int kFlagTemp = O_TMPFILE;
 // File must be a directory.
 constexpr unsigned int kFlagDirectory = O_DIRECTORY;
 // File is using nonblocking I/O.
@@ -69,7 +71,7 @@ class File {
   [[nodiscard]] unsigned int get_mode() const { return mode_; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
 
- private:
+ protected:
   unsigned int flags_;
   unsigned int mode_;
   off_t off_;

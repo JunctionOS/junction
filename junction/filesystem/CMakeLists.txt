@@ -2,21 +2,22 @@ message(STATUS "Building junction filesystem")
 
 # Library
 add_library(filesystem
-  file.cpp
-  filesystem.cpp
+  linuxfile.cpp
 )
 
 target_link_libraries(filesystem
   base
   bindings
+  kernel
 )
 
 # Tests
 add_executable(filesystem_test
-  filesystem_test.cpp
+  linuxfile_test.cpp
 )
 
 target_link_libraries(filesystem_test
+  syscall
   filesystem
   gtest_shim
 )

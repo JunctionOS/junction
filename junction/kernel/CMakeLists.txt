@@ -1,5 +1,17 @@
 message(STATUS "Building junction kernel")
 
-add_library(kernel
-	file.cc
+set(SOURCES_C_CPP
+  file.cc
+)
+
+set(SOURCES_ASM
+  ksys.S
+)
+
+add_library(kernel_c_cpp OBJECT ${SOURCES_C_CPP})
+add_library(kernel_asm OBJECT ${SOURCES_ASM})
+
+add_library(kernel STATIC
+  $<TARGET_OBJECTS:kernel_c_cpp>
+  $<TARGET_OBJECTS:kernel_asm>
 )

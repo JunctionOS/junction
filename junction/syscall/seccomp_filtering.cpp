@@ -11,17 +11,15 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-#include <iostream>
-
-#include "junction/syscall/handlers.hpp"
-#include "junction/syscall/no_intercept.h"
 #include "junction/syscall/seccomp_bpf.hpp"
-#include "junction/syscall/seccomp_reporter.hpp"
+#include "junction/kernel/ksys.h"
+
+namespace junction {
 
 /* Source: https://outflux.net/teach-seccomp/step-3/example.c
  * List of syscall numbers: https://filippo.io/linux-syscall-table/
  */
-int _install_syscall_filter(const uint32_t low, const uint32_t hi) {
+int _install_syscall_filter() {
   struct sock_filter filter[] = {
       /* Validate architecture. */
       VALIDATE_ARCHITECTURE,
@@ -34,7 +32,6 @@ int _install_syscall_filter(const uint32_t low, const uint32_t hi) {
 #endif
 
       ALLOW_SYSCALL(fstat),
-      ALLOW_SYSCALL(read),
       ALLOW_SYSCALL(lseek),
       ALLOW_SYSCALL(exit),
       ALLOW_SYSCALL(stat),
@@ -67,7 +64,6 @@ int _install_syscall_filter(const uint32_t low, const uint32_t hi) {
       ALLOW_SYSCALL(getegid),
       ALLOW_SYSCALL(getgid),
       ALLOW_SYSCALL(uname),
-      ALLOW_SYSCALL(write),
       ALLOW_SYSCALL(rt_sigreturn),
       ALLOW_SYSCALL(exit_group),
       ALLOW_SYSCALL(rename),
@@ -87,7 +83,6 @@ int _install_syscall_filter(const uint32_t low, const uint32_t hi) {
       ALLOW_SYSCALL(madvise),
       ALLOW_SYSCALL(restart_syscall),
       ALLOW_SYSCALL(clock_nanosleep),
-      ALLOW_SYSCALL(ioctl),
       ALLOW_SYSCALL(getrandom),
       ALLOW_SYSCALL(getppid),
       ALLOW_SYSCALL(getpid),
@@ -96,9 +91,13 @@ int _install_syscall_filter(const uint32_t low, const uint32_t hi) {
       ALLOW_SYSCALL(access),
       ALLOW_SYSCALL(getdents64),
 
-      ALLOW_RANGE_SYSCALL(openat, low, hi),
-      ALLOW_RANGE_SYSCALL(open, low, hi),
-      ALLOW_RANGE_SYSCALL(close, low, hi),
+      ALLOW_JUNCTION_SYSCALL(openat),
+      ALLOW_JUNCTION_SYSCALL(open),
+      ALLOW_JUNCTION_SYSCALL(close),
+      ALLOW_JUNCTION_SYSCALL(read),
+      ALLOW_JUNCTION_SYSCALL(pread64),
+      ALLOW_JUNCTION_SYSCALL(pwrite64),
+      ALLOW_JUNCTION_SYSCALL(write),
 
       TRAP,
   };
@@ -125,8 +124,8 @@ int _install_syscall_filter(const uint32_t low, const uint32_t hi) {
   return 0;
 }
 
+#ifdef _DEBUG
 const char* const msg_needed = "Handling: ";
-
 /* Since "sprintf" is technically not signal-safe, reimplement %d here. */
 static void write_uint(char* buf, unsigned int val) {
   int width = 0;
@@ -140,6 +139,7 @@ static void write_uint(char* buf, unsigned int val) {
   buf[width] = '\0';
   for (tens = val; tens; tens /= 10) buf[--width] = '0' + (tens % 10);
 }
+#endif // _DEBUG
 
 static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   ucontext_t* ctx = (ucontext_t*)(void_context);
@@ -155,7 +155,7 @@ static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   // Preserve the old errno
   const int old_errno = errno;
 
-  long syscall = static_cast<long>(ctx->uc_mcontext.gregs[REG_SYSCALL]);
+  long sysn = static_cast<long>(ctx->uc_mcontext.gregs[REG_SYSCALL]);
   long arg0 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG0]);
   long arg1 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG1]);
   long arg2 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG2]);
@@ -163,22 +163,22 @@ static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
   long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
 
-  auto res = handle_default(syscall, arg0, arg1, arg2, arg3, arg4, arg5);
-  ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
-
-  // Restore the errno
-  errno = old_errno;
-
+#ifdef _DEBUG
   // Logging
   char buf[128];
   strcpy(buf, msg_needed);
   strcat(buf, "(");
-  write_uint(buf + strlen(buf), syscall);
-  strcat(buf, "=");
-  write_uint(buf + strlen(buf), res);
+  write_uint(buf + strlen(buf), sysn);
   strcat(buf, ")");
   strcat(buf, "\n");
-  write(STDOUT_FILENO, buf, strlen(buf));
+  ksys_write(STDOUT_FILENO, buf, strlen(buf));
+#endif // _DEBUG
+
+  auto res = ksys_default(sysn, arg0, arg1, arg2, arg3, arg4, arg5);
+  ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
+
+  // Restore the errno
+  errno = old_errno;
 }
 
 int _install_signal_handler() {
@@ -208,11 +208,8 @@ int install_syscall_filter() {
     return -1;
   }
 
-  // Obtain the address for allowed syscalls.
-  uintptr_t ret = static_cast<uintptr_t>(syscall_no_intercept(-1));
-  uint32_t low = static_cast<uint32_t>(ret);
-  uint32_t hi = static_cast<uint32_t>(ret >> 32);
-
   // Install syscall filter.
-  return _install_syscall_filter(low, hi);
+  return _install_syscall_filter();
 }
+
+} // namespace junction
