@@ -184,22 +184,25 @@ class Mutex {
 // Lockable is the concept of a lock.
 template <typename T>
 concept Lockable = requires(T t) {
-  { t.Lock() } -> std::same_as<void>;
-  { t.Unlock() } -> std::same_as<void>;
+  { t.Lock() }
+  ->std::same_as<void>;
+  { t.Unlock() }
+  ->std::same_as<void>;
 };
 
 // LockAndParkable is the concept of a lock that can park and wait for a
 // condition during unlocking.
 template <typename T>
 concept LockAndParkable = requires(T t) {
-  { t.Lock() } -> std::same_as<void>;
-  { t.UnlockAndPark() } -> std::same_as<void>;
+  { t.Lock() }
+  ->std::same_as<void>;
+  { t.UnlockAndPark() }
+  ->std::same_as<void>;
 };
 
 // RAII lock support (works with Spin, Preempt, and Mutex).
 template <typename L>
-requires Lockable<L>
-class ScopedLock {
+requires Lockable<L> class ScopedLock {
  public:
   explicit ScopedLock(L *lock) noexcept : lock_(lock) { lock_->Lock(); }
   ~ScopedLock() { lock_->Unlock(); }
@@ -251,8 +254,7 @@ using PreemptGuard = ScopedLock<Preempt>;
 
 // RAII lock and park support (works with both Spin and Preempt).
 template <typename L>
-requires LockAndParkable<L>
-class ScopedLockAndPark {
+requires LockAndParkable<L> class ScopedLockAndPark {
  public:
   explicit ScopedLockAndPark(L *lock) noexcept : lock_(lock) { lock_->Lock(); }
   ~ScopedLockAndPark() { lock_->UnlockAndPark(); }

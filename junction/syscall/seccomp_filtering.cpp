@@ -11,8 +11,8 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-#include "junction/syscall/seccomp_bpf.hpp"
 #include "junction/kernel/ksys.h"
+#include "junction/syscall/seccomp_bpf.hpp"
 
 namespace junction {
 
@@ -139,7 +139,7 @@ static void write_uint(char* buf, unsigned int val) {
   buf[width] = '\0';
   for (tens = val; tens; tens /= 10) buf[--width] = '0' + (tens % 10);
 }
-#endif // _DEBUG
+#endif  // _DEBUG
 
 static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   ucontext_t* ctx = (ucontext_t*)(void_context);
@@ -172,7 +172,7 @@ static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   strcat(buf, ")");
   strcat(buf, "\n");
   ksys_write(STDOUT_FILENO, buf, strlen(buf));
-#endif // _DEBUG
+#endif  // _DEBUG
 
   auto res = ksys_default(sysn, arg0, arg1, arg2, arg3, arg4, arg5);
   ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
@@ -212,4 +212,4 @@ int install_syscall_filter() {
   return _install_syscall_filter();
 }
 
-} // namespace junction
+}  // namespace junction

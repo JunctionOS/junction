@@ -20,6 +20,7 @@
 #include <string.h>
 #include <sys/prctl.h>
 #include <unistd.h>
+
 #include <cstdint>
 
 #ifndef PR_SET_NO_NEW_PRIVS
@@ -102,7 +103,8 @@ struct seccomp_data {
 static size_t ksys_start_addr = reinterpret_cast<size_t>(&junction::ksys_start);
 static size_t ksys_end_addr = reinterpret_cast<size_t>(&junction::ksys_end);
 static uint32_t ksys_start_addr_low = static_cast<uint32_t>(ksys_start_addr);
-static uint32_t ksys_start_addr_hi = static_cast<uint32_t>(ksys_start_addr >> 32);
+static uint32_t ksys_start_addr_hi =
+    static_cast<uint32_t>(ksys_start_addr >> 32);
 static uint32_t ksys_end_addr_low = static_cast<uint32_t>(ksys_end_addr);
 static uint32_t ksys_end_addr_hi = static_cast<uint32_t>(ksys_end_addr >> 32);
 

@@ -1,7 +1,8 @@
+#include "junction/bindings/thread.h"
+
 #include <memory>
 
 #include "junction/base/finally.h"
-#include "junction/bindings/thread.h"
 
 namespace junction::rt {
 namespace thread_internal {

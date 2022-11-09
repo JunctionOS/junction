@@ -17,7 +17,7 @@ extern long ksys_start;
 extern long ksys_end;
 // TODO(girfan): We need to eventually remove ksys_default.
 long ksys_default(long sys_num, ...);
-void* ksys_mmap(void *addr, size_t length, int prot, int flags, int fd,
+void *ksys_mmap(void *addr, size_t length, int prot, int flags, int fd,
                 off_t offset);
 int ksys_munmap(void *addr, size_t length);
 int ksys_mprotect(void *addr, size_t len, int prot);

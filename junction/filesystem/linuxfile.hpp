@@ -10,7 +10,7 @@ namespace junction {
 
 class LinuxFile : public File {
  public:
-  LinuxFile(const std::string_view& pathname, int flags, mode_t mode);
+  LinuxFile(const std::string_view &pathname, int flags, mode_t mode);
   virtual ~LinuxFile();
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off);
   virtual Status<size_t> Write(std::span<const std::byte> buf, off_t *off);

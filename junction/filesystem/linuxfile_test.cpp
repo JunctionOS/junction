@@ -94,10 +94,6 @@ TEST_F(LinuxFileTest, FileWriteTest) {
   EXPECT_EQ(data, std::string(read_buf.get(), nbytes));
 }
 
-TEST_F(LinuxFileTest, FileWriteInvalidModeTest) {
-  GTEST_SKIP() << "Skipping";
-}
+TEST_F(LinuxFileTest, FileWriteInvalidModeTest) { GTEST_SKIP() << "Skipping"; }
 
-TEST_F(LinuxFileTest, FileReadNonExistentTest) {
-  GTEST_SKIP() << "Skipping";
-}
+TEST_F(LinuxFileTest, FileReadNonExistentTest) { GTEST_SKIP() << "Skipping"; }

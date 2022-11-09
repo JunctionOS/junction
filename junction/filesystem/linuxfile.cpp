@@ -10,7 +10,7 @@
 
 namespace junction {
 
-LinuxFile::LinuxFile(const std::string_view& pathname, int flags, mode_t mode) {
+LinuxFile::LinuxFile(const std::string_view &pathname, int flags, mode_t mode) {
   int fd = ksys_open(pathname.data(), flags, mode);
   if (fd < 0) {
     LOG(ERR) << "Cannot open: " << pathname;

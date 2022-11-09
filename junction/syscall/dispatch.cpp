@@ -1,8 +1,8 @@
 #include "junction/kernel/ksys.h"
 
 static unsigned long dispatch(long sys_num, long arg0 = 0, long arg1 = 0,
-                          long arg2 = 0, long arg3 = 0, long arg4 = 0,
-                          long arg5 = 0) {
+                              long arg2 = 0, long arg3 = 0, long arg4 = 0,
+                              long arg5 = 0) {
   // TODO(girfan): Dispatch to the appropriate handlers.
   return junction::ksys_default(sys_num, arg0, arg1, arg2, arg3, arg4, arg5);
 }
@@ -38,5 +38,4 @@ unsigned long int junction_syscall6(int number, long arg1, long arg2, long arg3,
                                     long arg4, long arg5, long arg6) {
   return dispatch(number, arg1, arg2, arg3, arg4, arg5, arg6);
 }
-
 }

@@ -268,8 +268,9 @@ class Thread {
 };
 
 template <typename Callable, typename... Args>
-inline Thread::Thread(Callable&& func, Args&&... args) requires
-    std::invocable<Callable, Args...> {
+inline Thread::Thread(
+    Callable&& func,
+    Args&&... args) requires std::invocable<Callable, Args...> {
   using Data = thread_internal::join_data;
   using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
   Wrapper* buf;

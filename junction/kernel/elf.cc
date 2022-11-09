@@ -12,26 +12,26 @@ namespace {
 constexpr size_t kMagicLen = 16;
 
 struct elf_header {
-  uint8_t magic[kMagicLen]; // used to detect the file type
-  uint16_t type;            // the type of ELF file
-  uint16_t machine;         // the machine's architecture
-  uint32_t version;         // the object file version
-  uint64_t entry;           // the entry point (a virtual address)
-  uint64_t phoff;           // program header table offset (start location)
-  uint64_t shoff;           // section header table offset (start location)
-  uint32_t flags;           // processor-specific flags (ignored)
-  uint16_t ehsize;          // ELF header size in bytes
-  uint16_t phsize;          // size of a program header entry in bytes
-  uint16_t phnum;           // number of program header entries
-  uint16_t shsize;          // size of a section header entry in bytes
-  uint16_t shnum;           // number of section header entries
-  uint16_t shstrndx;        // section header string table index
+  uint8_t magic[kMagicLen];  // used to detect the file type
+  uint16_t type;             // the type of ELF file
+  uint16_t machine;          // the machine's architecture
+  uint32_t version;          // the object file version
+  uint64_t entry;            // the entry point (a virtual address)
+  uint64_t phoff;            // program header table offset (start location)
+  uint64_t shoff;            // section header table offset (start location)
+  uint32_t flags;            // processor-specific flags (ignored)
+  uint16_t ehsize;           // ELF header size in bytes
+  uint16_t phsize;           // size of a program header entry in bytes
+  uint16_t phnum;            // number of program header entries
+  uint16_t shsize;           // size of a section header entry in bytes
+  uint16_t shnum;            // number of section header entries
+  uint16_t shstrndx;         // section header string table index
 };
 
-constexpr uint8_t kMagicClass64 = 2;   // 64-bit object file
-constexpr uint8_t kMagicData2LSB = 1;  // 2's complement, little endian
-constexpr uint8_t kMagicVersion = 1;   // the current ELF format version
-constexpr uint16_t kMachineAMD64 = 62; // X86_64 processor (Intel and AMD)
+constexpr uint8_t kMagicClass64 = 2;    // 64-bit object file
+constexpr uint8_t kMagicData2LSB = 1;   // 2's complement, little endian
+constexpr uint8_t kMagicVersion = 1;    // the current ELF format version
+constexpr uint16_t kMachineAMD64 = 62;  // X86_64 processor (Intel and AMD)
 
 // mask of supported PHDR type values (other types can be ignored)
 constexpr uint32_t kPTypeMask = 0xf;
@@ -107,16 +107,12 @@ Status<std::string> ReadInterp(int lfd, const elf_phdr &phdr) {
 }
 
 // LoadSegment initializes a LOAD PHDR in memory, reading it from the ELF file
-Status<void> LoadSegment(Proc *p, int lfd, off_t off, const elf_phdr &phdr) {
-
-}
+Status<void> LoadSegment(Proc *p, int lfd, off_t off, const elf_phdr &phdr) {}
 
 }  // namespace
 
 namespace junction {
 
-Status<void> LoadELF(Proc *p, int lfd) {
-
-}
+Status<void> LoadELF(Proc *p, int lfd) {}
 
 }  // namespace junction
