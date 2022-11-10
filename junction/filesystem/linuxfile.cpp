@@ -25,14 +25,14 @@ LinuxFile::~LinuxFile() {}
 
 Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {
   long ret = ksys_pread(fd_, buf.data(), buf.size_bytes(), *off);
-  if (ret == -1) return MakeError(-ret);
+  if (ret <= 0) return MakeError(-ret);
   *off += ret;
   return ret;
 }
 
 Status<size_t> LinuxFile::Write(std::span<const std::byte> buf, off_t *off) {
   long ret = ksys_pwrite(fd_, buf.data(), buf.size_bytes(), *off);
-  if (ret == -1) return MakeError(-ret);
+  if (ret < 0) return MakeError(-ret);
   *off += ret;
   return ret;
 }
