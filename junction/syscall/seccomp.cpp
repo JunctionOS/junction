@@ -1,4 +1,4 @@
-#include "junction/syscall/seccomp_filtering.hpp"
+#include "junction/syscall/seccomp.hpp"
 
 #include <errno.h>
 #include <linux/audit.h>
@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "junction/kernel/ksys.h"
+#include "junction/syscall/dispatch.hpp"
 #include "junction/syscall/seccomp_bpf.hpp"
 
 namespace junction {
@@ -85,7 +86,6 @@ int _install_syscall_filter() {
       ALLOW_SYSCALL(clock_nanosleep),
       ALLOW_SYSCALL(getrandom),
       ALLOW_SYSCALL(getppid),
-      ALLOW_SYSCALL(getpid),
       ALLOW_SYSCALL(getuid),
       ALLOW_SYSCALL(gettid),
       ALLOW_SYSCALL(access),
@@ -98,6 +98,7 @@ int _install_syscall_filter() {
       ALLOW_JUNCTION_SYSCALL(pread64),
       ALLOW_JUNCTION_SYSCALL(pwrite64),
       ALLOW_JUNCTION_SYSCALL(write),
+      ALLOW_JUNCTION_SYSCALL(clock_gettime),
 
       TRAP,
   };
@@ -174,7 +175,7 @@ static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   ksys_write(STDOUT_FILENO, buf, strlen(buf));
 #endif  // _DEBUG
 
-  auto res = ksys_default(sysn, arg0, arg1, arg2, arg3, arg4, arg5);
+  auto res = sys_dispatch(sysn, arg0, arg1, arg2, arg3, arg4, arg5);
   ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
 
   // Restore the errno

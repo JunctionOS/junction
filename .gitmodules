@@ -6,3 +6,7 @@
 	path = lib/glibc
 	url = https://sourceware.org/git/glibc.git
 	ignore = dirty
+[submodule "lib/FlameGraph"]
+	path = lib/FlameGraph
+	url = https://github.com/brendangregg/FlameGraph.git
+	ignore = dirty

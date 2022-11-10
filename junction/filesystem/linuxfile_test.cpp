@@ -3,14 +3,13 @@
 #include <fcntl.h>
 #include <gtest/gtest.h>
 
-#include <iostream>
 #include <memory>
 #include <span>
 #include <string>
 #include <string_view>
 
 #include "junction/base/io.h"
-#include "junction/syscall/seccomp_filtering.hpp"
+#include "junction/syscall/seccomp.hpp"
 
 using namespace junction;
 

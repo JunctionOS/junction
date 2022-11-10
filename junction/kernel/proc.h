@@ -18,4 +18,9 @@ inline struct Proc *myproc() {
   return nullptr;
 }
 
+pid_t usys_getpid() {
+  // TODO(girfan): return value from myproc().
+  return 0;
+}
+
 }  // namespace junction

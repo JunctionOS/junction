@@ -1,5 +1,6 @@
 build/**
 bin/**
+perf_*/**
 Testing/**
 *.d
 *.o

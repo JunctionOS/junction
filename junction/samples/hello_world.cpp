@@ -9,7 +9,7 @@
 
 #include <csignal>
 
-#include "junction/syscall/seccomp_filtering.hpp"
+#include "junction/syscall/seccomp.hpp"
 
 /* Perform syscalls using glibc. */
 int test_glibc_syscall() {
