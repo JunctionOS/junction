@@ -9,3 +9,8 @@
 ```
 ./scripts/build.sh
 ```
+
+## Test
+```
+./scripts/test.sh
+```
