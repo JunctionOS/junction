@@ -151,7 +151,8 @@ void ClearSegments(off_t map_off, const std::vector<elf_phdr> &phdrs) {
 }
 
 // LoadOneSegment loads one loadable PHDR into memory
-Status<void> LoadOneSegment(int lfd, off_t map_off, const elf_phdr &phdr) {
+Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
+                            const elf_phdr &phdr) {
   // Determine the mapping permissions.
   unsigned int prot = 0;
   if (phdr.flags & kFlagExec) prot |= PROT_EXEC;
@@ -166,20 +167,17 @@ Status<void> LoadOneSegment(int lfd, off_t map_off, const elf_phdr &phdr) {
 
   // Map the file part of the segment.
   if (file_end > start) {
-    intptr_t addr = ksys_mmap(reinterpret_cast<void *>(start), file_end - start,
-                              prot, MAP_PRIVATE | MAP_DENYWRITE | MAP_FIXED,
-                              lfd, std::bit_floor(phdr.offset));
-    if (unlikely(addr < 0)) return MakeError(-addr);
-    assert(addr == start);
+    Status<void> ret =
+        f.MMapFixed(reinterpret_case<void *>(start), file_end - start, prot,
+                    MAP_DENYWRITE, page_align_down(phdr.offset));
+    if (unlikely(!ret)) return MakeError(ret);
   }
 
   // Map the remaining anonymous part of the segment.
   if (mem_end > gap_end) {
-    intptr_t addr = ksys_mmap(
-        reinterpret_cast<void *>(gap_end), mem_end - gap_end, prot,
-        MAP_PRIVATE | MAP_DENYWRITE | MAP_FIXED | MAP_ANONYMOUS, -1, 0);
-    if (unlikely(addr < 0)) return MakeError(-addr);
-    assert(addr == gap_end);
+    Status<void> ret = MMapFixed(reinterpret_cast<void *>(gap_end),
+                                 mem_end - gap_end, prot, MAP_DENYWRITE);
+    if (unlikely(!ret)) return MakeError(ret);
   }
 
   return {};
@@ -192,9 +190,9 @@ Status<void> LoadSegments(KernelFile &f, const std::vector<elf_phdr> &phdrs,
   off_t map_off = 0;
   if (reloc) {
     size_t len = CountTotalLength(phdrs);
-    intptr_t addr = ksys_mmap(nullptr, len, PROT_NONE, MAP_PRIVATE, -1, 0);
-    if (addr < 0) return MakeError(-addr);
-    map_off = static_cast<off_t>(addr);
+    Status<void *> ret = MMap(len, PROT_NONE, 0);
+    if (!ret) return MakeError(ret);
+    map_off = static_cast<off_t>(*ret);
   }
 
   // Load the segments.
