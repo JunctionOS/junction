@@ -8,10 +8,11 @@
 #include "junction/base/arch.h"
 #include "junction/base/error.h"
 #include "junction/base/io.h"
-#include "junction/base/log.h"
+#include "junction/bindings/log.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 
+namespace junction {
 namespace {
 
 constexpr size_t kMagicLen = 16;
@@ -77,8 +78,10 @@ enum {
 };
 
 constexpr bool HeaderIsValid(const elf_header &hdr) {
-  auto str = string_view{hdr.magic, 4};
-  if (str.compare("\177ELF") != 0) return false;
+  if (hdr.magic[0] != '\177' || hdr.magic[1] != 'E' ||
+      hdr.magic[2] != 'L' || hdr.magic[3] != 'F') {
+    return false;
+  }
   if (hdr.magic[4] != kMagicClass64) return false;
   if (hdr.magic[5] != kMagicData2LSB) return false;
   if (hdr.magic[6] != kMagicVersion) return false;
@@ -90,9 +93,8 @@ constexpr bool HeaderIsValid(const elf_header &hdr) {
 }
 
 // ReadHeader reads and validates the header of the ELF file
-Status<elf_header> ReadHeader(int lfd) {
+Status<elf_header> ReadHeader(KernelFile &f) {
   elf_header hdr;
-  KernelFileReader f(lfd);
   Status<void> ret = ReadFull(&f, writable_byte_view(hdr));
   if (!ret) MakeError(ret);
   if (!HeaderIsValid(hdr)) {
@@ -103,13 +105,12 @@ Status<elf_header> ReadHeader(int lfd) {
 }
 
 // ReadPHDRs reads a vector of PHDRs from the ELF file
-Status<std::vector<elf_phdr>> ReadPHDRs(int lfd, const elf_header &hdr) {
+Status<std::vector<elf_phdr>> ReadPHDRs(KernelFile &f, const elf_header &hdr) {
   std::vector<elf_phdr> phdrs(hdr.phnum);
 
   // Read the PHDRs into the vector.
-  KernelFileReader f(lfd);
   f.Seek(hdr.phoff);
-  Status<void> ret = ReadFull(&f, {phdrs.data(), hdr.phnum});
+  Status<void> ret = ReadFull(&f, std::as_writable_bytes(std::span(phdrs)));
   if (!ret) MakeError(ret);
 
   // Confirm that the PHDRs contain valid state.
@@ -127,27 +128,19 @@ Status<std::vector<elf_phdr>> ReadPHDRs(int lfd, const elf_header &hdr) {
 size_t CountTotalLength(const std::vector<elf_phdr> &phdrs) {
   size_t len = 0;
   for (const elf_phdr &phdr : phdrs) {
-    if (phdr.type != PTypeLoad) continue;
+    if (phdr.type != kPTypeLoad) continue;
     len = std::max(len, phdr.vaddr + phdr.memsz);
   }
   return len;
 }
 
 // ReadInterp loads the interpretor section and returns a path
-Status<std::string> ReadInterp(int lfd, const elf_phdr &phdr) {
+Status<std::string> ReadInterp(KernelFile &f, const elf_phdr &phdr) {
   std::string interp_path(phdr.filesz, '\0');
-  KernelFileReader f(lfd);
   f.Seek(phdr.offset);
-  Status<void> ret = ReadFull(&f, {interp_path.data(), phdr.filesz});
+  Status<void> ret = ReadFull(&f, std::as_writable_bytes(std::span(interp_path)));
   if (!ret) MakeError(ret);
   return std::move(interp_path);
-}
-
-// ClearSegments unmaps all segments
-void ClearSegments(off_t map_off, const std::vector<elf_phdr> &phdrs) {
-  for (const elf_phdr &phdr : *phdrs) {
-    sys_munmap(reinterpret_cast<void *>(phdr.vaddr + map_off), phdr.memsz);
-  }
 }
 
 // LoadOneSegment loads one loadable PHDR into memory
@@ -160,16 +153,16 @@ Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
   if (phdr.flags & kFlagRead) prot |= PROT_READ;
 
   // Determine the layout.
-  uintptr_t start = page_align_down(pdhr.vaddr + map_off);
-  uintptr_t file_end = pdhr.vaddr + map_off + phdr.filesz;
-  uintptr_t gap_end = page_align(file_end);
-  uintptr_t mem_end = pdhr.vaddr + map_off + phdr.memsz;
+  uintptr_t start = PageAlignDown(phdr.vaddr + map_off);
+  uintptr_t file_end = phdr.vaddr + map_off + phdr.filesz;
+  uintptr_t gap_end = PageAlign(file_end);
+  uintptr_t mem_end = phdr.vaddr + map_off + phdr.memsz;
 
   // Map the file part of the segment.
   if (file_end > start) {
     Status<void> ret =
-        f.MMapFixed(reinterpret_case<void *>(start), file_end - start, prot,
-                    MAP_DENYWRITE, page_align_down(phdr.offset));
+        f.MMapFixed(reinterpret_cast<void *>(start), file_end - start, prot,
+                    MAP_DENYWRITE, PageAlignDown(phdr.offset));
     if (unlikely(!ret)) return MakeError(ret);
   }
 
@@ -192,57 +185,90 @@ Status<void> LoadSegments(KernelFile &f, const std::vector<elf_phdr> &phdrs,
     size_t len = CountTotalLength(phdrs);
     Status<void *> ret = MMap(len, PROT_NONE, 0);
     if (!ret) return MakeError(ret);
-    map_off = static_cast<off_t>(*ret);
+    map_off = reinterpret_cast<off_t>(*ret);
   }
 
   // Load the segments.
-  for (const elf_phdr &phdr : *phdrs) {
+  for (const elf_phdr &phdr : phdrs) {
     if (phdr.type != kPTypeLoad) continue;
-    Status<void> ret = LoadOneSegment(lfd, map_off, phdr);
+    Status<void> ret = LoadOneSegment(f, map_off, phdr);
     if (!ret) return MakeError(ret);
   }
 
   return {};
 }
 
-Status<elf_data::interp_data> LoadInterp(const std::string &path) {}
+Status<elf_data::interp_data> LoadInterp(std::string_view path) {
+  DLOG(INFO) << "elf: loading interpreter ELF object file '" << path << "'";
+
+  // Open the file.
+  Status<KernelFile> file = KernelFile::Open(path, 0, S_IRUSR | S_IXUSR);
+  if (!file) return MakeError(file);
+
+  // Load the ELF header.
+  Status<elf_header> hdr = ReadHeader(*file);
+  if (!hdr) return MakeError(hdr);
+
+  // Check if the ELF type is supported.
+  if (hdr->type != kPTypeDynamic) return MakeError(EINVAL);
+
+  // Load the PHDR table.
+  Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);
+  if (!phdrs) return MakeError(phdrs);
+
+  // Load each load-type PHDR.
+  Status<void> ret = LoadSegments(*file, *phdrs, true);
+  if (!ret) return MakeError(ret);
+
+  return {};
+}
 
 }  // namespace
 
-namespace junction {
-
 // Loads an ELF file into the address space. Returns the entry address.
-Status<elf_data> LoadELF(int lfd) {
+Status<elf_data> LoadELF(std::string_view path) {
+  DLOG(INFO) << "elf: loading ELF object file '" << path << "'";
+
+  // Open the file.
+  Status<KernelFile> file = KernelFile::Open(path, 0, S_IRUSR | S_IXUSR);
+  if (!file) return MakeError(file);
+
   // Load the ELF header.
-  Status<elf_header> hdr = ReadHeader(lfd);
-  if (!hdr) {
-    LOG(ERR) << "elf: couldn't load ELF file header.";
-    return MakeError(hdr);
-  }
+  Status<elf_header> hdr = ReadHeader(*file);
+  if (!hdr) return MakeError(hdr);
 
   // Check if the ELF type is supported.
-  if (hdr->type != kETypeExec && hdr->type != kETypeDynamic) {
-    LOG(ERR) << "elf: unsupported ELF type '" << hdr->type << "'.";
+  if (hdr->type != kETypeExec && hdr->type != kPTypeDynamic) {
     return MakeError(EINVAL);
   }
 
   // Load the PHDR table.
-  Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(lfd, *hdr);
-  if (!phdrs) {
-    LOG(ERR) << "elf: couldn't load ELF PHDR table.";
-    return MakeError(phdrs);
-  }
+  Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);
+  if (!phdrs) return MakeError(phdrs);
 
-  // Load the interpreter if one is requested.
+  // Get the interpreter path (if one is present).
+  std::string interp_path;
   for (const elf_phdr &phdr : *phdrs) {
     if (phdr.type == kPTypeInterp) {
-      Status<std::string> path = ReadInterp(phdr);
-      if (!path) MakeError(path);
-      Status<elf_data::interp_data> ret = LoadInterp();
-      if (!ret) MakeError(ret);
+      Status<std::string> path = ReadInterp(*file, phdr);
+      if (!path) return MakeError(path);
+      interp_path = std::move(*path);
       break;
     }
   }
+
+  // Load the interpreter (if present)
+  std::optional<elf_data::interp_data> interp_data;
+  if (!interp_path.empty()) {
+    Status<elf_data::interp_data> data = LoadInterp(interp_path);
+    if (!data) return MakeError(data);
+    interp_data = *data;
+  }
+
+  // Load each load-type PHDR.
+  Status<void> ret = LoadSegments(*file, *phdrs, hdr->type == kPTypeDynamic);
+  if (!ret) return MakeError(ret);
+
 
   // Success, return entry address.
   return hdr.entry;
