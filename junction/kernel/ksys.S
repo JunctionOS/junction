@@ -65,6 +65,14 @@ ksys_open:
 	ret
 
 .align 16
+.globl ksys_close
+.type ksys_close, @function
+ksys_close:
+	movl	$__NR_close, %eax
+	syscall
+	ret
+
+.align 16
 .globl ksys_read
 .type ksys_read, @function
 ksys_read:
