@@ -74,7 +74,6 @@ void Thread::Join() {
   }
 
   // Cold path: The thread is not yet blocked.
-  rt::SpinGuard g(&d->lock_);
   d->lock_.Lock();
   if (d->done_.load(std::memory_order_relaxed)) {
     d->lock_.Unlock();
