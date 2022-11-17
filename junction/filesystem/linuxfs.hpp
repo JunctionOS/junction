@@ -57,7 +57,8 @@ class LinuxFileSystem : public FileSystem {
   LinuxFileSystem();
   virtual ~LinuxFileSystem();
   virtual Status<std::shared_ptr<File>> Open(const std::string_view& pathname,
-                                     uint32_t mode, uint32_t flags) override;
+                                             uint32_t mode,
+                                             uint32_t flags) override;
 
   friend std::ostream& operator<<(std::ostream& os, const LinuxFileSystem& fs);
 

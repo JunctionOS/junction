@@ -58,7 +58,7 @@ class FileSystem {
  public:
   virtual ~FileSystem() = default;
   virtual Status<std::shared_ptr<File>> Open(const std::string_view &pathname,
-                                     uint32_t mode, uint32_t flags) {
+                                             uint32_t mode, uint32_t flags) {
     return nullptr;
   }
 

@@ -117,8 +117,8 @@ LinuxFileSystem::LinuxFileSystem() {
 
 LinuxFileSystem::~LinuxFileSystem() {}
 
-Status<std::shared_ptr<File>> LinuxFileSystem::Open(const std::string_view& pathname,
-                                            uint32_t mode, uint32_t flags) {
+Status<std::shared_ptr<File>> LinuxFileSystem::Open(
+    const std::string_view& pathname, uint32_t mode, uint32_t flags) {
   // TODO(girfan): Check the manifest and create a virtual-physical mapping.
   std::filesystem::path fp(pathname);
   std::filesystem::path fp_parent = fp.parent_path();
