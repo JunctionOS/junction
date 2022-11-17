@@ -36,7 +36,7 @@ TEST_F(LinuxFileTest, FileReadTest) {
   const std::string data = "foo";
   const size_t nbytes = data.size();
 
-  auto buf = std::make_shared<char[]>(nbytes);
+  auto buf = std::make_unique<char[]>(nbytes);
   off_t offset{0};
 
   // Action
@@ -70,7 +70,7 @@ TEST_F(LinuxFileTest, FileWriteTest) {
   EXPECT_EQ(nbytes, offset);
 
   // Inputs/Outputs
-  auto read_buf = std::make_shared<char[]>(nbytes);
+  auto read_buf = std::make_unique<char[]>(nbytes);
   offset = 0;
 
   // Action (Read)
