@@ -57,7 +57,7 @@ class Inode {
 class FileSystem {
  public:
   virtual ~FileSystem() = default;
-  virtual std::shared_ptr<File> Open(const std::string_view &pathname,
+  virtual Status<std::shared_ptr<File>> Open(const std::string_view &pathname,
                                      uint32_t mode, uint32_t flags) {
     return nullptr;
   }
@@ -67,6 +67,7 @@ class FileSystem {
   std::shared_ptr<Inode> cwd_;   // the current working directory
 };
 
+// Sets the currently used FileSystem; used during initialization.
 void set_fs(FileSystem *fs);
 FileSystem *get_fs();
 

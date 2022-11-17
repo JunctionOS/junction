@@ -112,29 +112,28 @@ bool FileTable::Remove(int fd) {
 // System call implementations
 //
 
-std::unique_ptr<FileSystem> fs_;
-
+// Currently used FileSystem.
+static std::unique_ptr<FileSystem> fs_;
 void set_fs(FileSystem *fs) { fs_.reset(fs); }
-
-FileSystem *get_fs() { return fs_.get(); }
+inline FileSystem* get_fs() { return fs_.get(); }
 
 int usys_open(const char *pathname, int flags, mode_t mode) {
   const std::string_view path(pathname);
   FileSystem *fs = get_fs();
-  std::shared_ptr<File> f = fs->Open(path, mode, flags);
+  Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -EBADF;
   FileTable &ftbl = myproc()->ftable;
-  return ftbl.Insert(std::move(f));
+  return ftbl.Insert(std::move(*f));
 }
 
 int usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   if (unlikely(dirfd != AT_FDCWD)) return -EINVAL;
   const std::string_view path(pathname);
   FileSystem *fs = get_fs();
-  std::shared_ptr<File> f = fs->Open(path, mode, flags);
+  Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -EBADF;
   FileTable &ftbl = myproc()->ftable;
-  return ftbl.Insert(std::move(f));
+  return ftbl.Insert(std::move(*f));
 }
 
 ssize_t usys_read(int fd, char *buf, size_t len) {
