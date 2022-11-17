@@ -263,7 +263,7 @@ Status<elf_data> LoadELF(std::string_view path) {
 
   // Load the PHDR segments.
   Status<std::tuple<uintptr_t, size_t>> ret =
-      LoadSegments(*file, *phdrs, hdr->type == kPTypeDynamic);
+      LoadSegments(*file, *phdrs, hdr->type == kETypeDynamic);
   if (!ret) return MakeError(ret);
 
   // Success, return metadata.
