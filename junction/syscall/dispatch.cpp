@@ -24,6 +24,8 @@ unsigned long sys_dispatch(long syscall, long arg0, long arg1, long arg2,
     case SYS_getpid: {
       return usys_getpid();
     }
+    // TODO(girfan): Enable this when we have a stable FileSystem backend.
+    /*
     case SYS_openat: {
       int dirfd = static_cast<int>(arg0);
       const char *pathname = reinterpret_cast<char *>(arg1);
@@ -51,6 +53,7 @@ unsigned long sys_dispatch(long syscall, long arg0, long arg1, long arg2,
       }
       return static_cast<unsigned long>(ret);
     }
+    */
     default: {
       long ret = ksys_default(syscall, arg0, arg1, arg2, arg3, arg4, arg5);
       return static_cast<unsigned long>(ret);
