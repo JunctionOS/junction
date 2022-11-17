@@ -78,8 +78,8 @@ enum {
 };
 
 constexpr bool HeaderIsValid(const elf_header &hdr) {
-  if (hdr.magic[0] != '\177' || hdr.magic[1] != 'E' ||
-      hdr.magic[2] != 'L' || hdr.magic[3] != 'F') {
+  if (hdr.magic[0] != '\177' || hdr.magic[1] != 'E' || hdr.magic[2] != 'L' ||
+      hdr.magic[3] != 'F') {
     return false;
   }
   if (hdr.magic[4] != kMagicClass64) return false;
@@ -138,7 +138,8 @@ size_t CountTotalLength(const std::vector<elf_phdr> &phdrs) {
 Status<std::string> ReadInterp(KernelFile &f, const elf_phdr &phdr) {
   std::string interp_path(phdr.filesz, '\0');
   f.Seek(phdr.offset);
-  Status<void> ret = ReadFull(&f, std::as_writable_bytes(std::span(interp_path)));
+  Status<void> ret =
+      ReadFull(&f, std::as_writable_bytes(std::span(interp_path)));
   if (!ret) MakeError(ret);
   return std::move(interp_path);
 }
@@ -168,8 +169,8 @@ Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
 
   // Map the remaining anonymous part of the segment.
   if (mem_end > gap_end) {
-    Status<void> ret = MMapFixed(reinterpret_cast<void *>(gap_end),
-                                 mem_end - gap_end, prot, MAP_DENYWRITE);
+    Status<void> ret = KernelMMapFixed(reinterpret_cast<void *>(gap_end),
+                                       mem_end - gap_end, prot, MAP_DENYWRITE);
     if (unlikely(!ret)) return MakeError(ret);
   }
 
@@ -177,13 +178,13 @@ Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
 }
 
 // LoadSegments loads all loadable PHDRs
-Status<void> LoadSegments(KernelFile &f, const std::vector<elf_phdr> &phdrs,
-                          bool reloc) {
+Status<std::tuple<uintptr_t, size_t>> LoadSegments(
+    KernelFile &f, const std::vector<elf_phdr> &phdrs, bool reloc) {
   // Determine the base address.
   off_t map_off = 0;
+  size_t map_len = CountTotalLength(phdrs);
   if (reloc) {
-    size_t len = CountTotalLength(phdrs);
-    Status<void *> ret = MMap(len, PROT_NONE, 0);
+    Status<void *> ret = KernelMMap(map_len, PROT_NONE, 0);
     if (!ret) return MakeError(ret);
     map_off = reinterpret_cast<off_t>(*ret);
   }
@@ -195,7 +196,7 @@ Status<void> LoadSegments(KernelFile &f, const std::vector<elf_phdr> &phdrs,
     if (!ret) return MakeError(ret);
   }
 
-  return {};
+  return std::make_tuple(map_off, map_len);
 }
 
 Status<elf_data::interp_data> LoadInterp(std::string_view path) {
@@ -216,16 +217,18 @@ Status<elf_data::interp_data> LoadInterp(std::string_view path) {
   Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);
   if (!phdrs) return MakeError(phdrs);
 
-  // Load each load-type PHDR.
-  Status<void> ret = LoadSegments(*file, *phdrs, true);
+  // Load the PHDR segments.
+  Status<std::tuple<uintptr_t, size_t>> ret = LoadSegments(*file, *phdrs, true);
   if (!ret) return MakeError(ret);
 
-  return {};
+  // Success, return metadata.
+  return elf_data::interp_data{.map_base{std::get<0>(*ret)},
+                               .map_len{std::get<1>(*ret)},
+                               .entry_addr{hdr->entry}};
 }
 
 }  // namespace
 
-// Loads an ELF file into the address space. Returns the entry address.
 Status<elf_data> LoadELF(std::string_view path) {
   DLOG(INFO) << "elf: loading ELF object file '" << path << "'";
 
@@ -246,7 +249,7 @@ Status<elf_data> LoadELF(std::string_view path) {
   Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);
   if (!phdrs) return MakeError(phdrs);
 
-  // Get the interpreter path (if one is present).
+  // Get the interpreter path (if present).
   std::string interp_path;
   for (const elf_phdr &phdr : *phdrs) {
     if (phdr.type == kPTypeInterp) {
@@ -257,7 +260,7 @@ Status<elf_data> LoadELF(std::string_view path) {
     }
   }
 
-  // Load the interpreter (if present)
+  // Load the interpreter (if present).
   std::optional<elf_data::interp_data> interp_data;
   if (!interp_path.empty()) {
     Status<elf_data::interp_data> data = LoadInterp(interp_path);
@@ -265,13 +268,19 @@ Status<elf_data> LoadELF(std::string_view path) {
     interp_data = *data;
   }
 
-  // Load each load-type PHDR.
-  Status<void> ret = LoadSegments(*file, *phdrs, hdr->type == kPTypeDynamic);
+  // Load the PHDR segments.
+  Status<std::tuple<uintptr_t, size_t>> ret =
+      LoadSegments(*file, *phdrs, hdr->type == kPTypeDynamic);
   if (!ret) return MakeError(ret);
 
-
-  // Success, return entry address.
-  return hdr.entry;
+  // Success, return metadata.
+  return elf_data{.map_base{std::get<0>(*ret)},
+                  .map_len{std::get<1>(*ret)},
+                  .entry_addr{hdr->entry},
+                  .phdr_addr{hdr->phoff},
+                  .phdr_num{hdr->phnum},
+                  .phdr_entsz{hdr->phsize},
+                  .interp{std::move(interp_data)}};
 }
 
 }  // namespace junction
