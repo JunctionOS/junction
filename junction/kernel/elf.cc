@@ -42,7 +42,7 @@ constexpr uint16_t kMachineAMD64 = 62;  // X86_64 processor (Intel and AMD)
 
 enum {
   kETypeExec = 2,     // Executable type
-  KETypeDynamic = 3,  // Dynamically loaded type
+  kETypeDynamic = 3,  // Dynamically loaded type
   // other types are not supported
 };
 
@@ -211,7 +211,7 @@ Status<elf_data::interp_data> LoadInterp(std::string_view path) {
   if (!hdr) return MakeError(hdr);
 
   // Check if the ELF type is supported.
-  if (hdr->type != kPTypeDynamic) return MakeError(EINVAL);
+  if (hdr->type != kETypeDynamic) return MakeError(EINVAL);
 
   // Load the PHDR table.
   Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);
@@ -241,7 +241,7 @@ Status<elf_data> LoadELF(std::string_view path) {
   if (!hdr) return MakeError(hdr);
 
   // Check if the ELF type is supported.
-  if (hdr->type != kETypeExec && hdr->type != kPTypeDynamic) {
+  if (hdr->type != kETypeExec && hdr->type != kETypeDynamic) {
     return MakeError(EINVAL);
   }
 
@@ -249,23 +249,16 @@ Status<elf_data> LoadELF(std::string_view path) {
   Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);
   if (!phdrs) return MakeError(phdrs);
 
-  // Get the interpreter path (if present).
-  std::string interp_path;
-  for (const elf_phdr &phdr : *phdrs) {
-    if (phdr.type == kPTypeInterp) {
-      Status<std::string> path = ReadInterp(*file, phdr);
-      if (!path) return MakeError(path);
-      interp_path = std::move(*path);
-      break;
-    }
-  }
-
   // Load the interpreter (if present).
   std::optional<elf_data::interp_data> interp_data;
-  if (!interp_path.empty()) {
-    Status<elf_data::interp_data> data = LoadInterp(interp_path);
+  for (const elf_phdr &phdr : *phdrs) {
+    if (phdr.type != kPTypeInterp) continue;
+    Status<std::string> path = ReadInterp(*file, phdr);
+    if (!path) return MakeError(path);
+    Status<elf_data::interp_data> data = LoadInterp(*path);
     if (!data) return MakeError(data);
     interp_data = *data;
+    break;
   }
 
   // Load the PHDR segments.
