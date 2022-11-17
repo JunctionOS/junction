@@ -67,7 +67,9 @@ add_subdirectory(kernel)
 add_subdirectory(samples)
 
 # Build junction
-add_library(junction INTERFACE)
+add_library(junction
+  junction.cpp
+)
 target_link_libraries(junction INTERFACE
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,caladan_shim>"
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"

@@ -17,17 +17,15 @@ namespace junction {
 // Reader is a concept for the basic UNIX-style Read method
 template <typename T>
 concept Reader = requires(T t) {
-  {
-    t.Read(std::declval<std::span<std::byte>>())
-    } -> std::same_as<Status<size_t>>;
+  { t.Read(std::declval<std::span<std::byte>>()) }
+  ->std::same_as<Status<size_t>>;
 };
 
 // Writer is a concept for the basic UNIX-style Write method
 template <typename T>
 concept Writer = requires(T t) {
-  {
-    t.Write(std::declval<std::span<const std::byte>>())
-    } -> std::same_as<Status<size_t>>;
+  { t.Write(std::declval<std::span<const std::byte>>()) }
+  ->std::same_as<Status<size_t>>;
 };
 
 // Cast an object as a const byte span (for use with Write())

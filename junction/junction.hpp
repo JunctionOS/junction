@@ -2,6 +2,6 @@
 
 namespace junction {
 
-int install_seccomp_filter();
+int init();
 
 }  // namespace junction

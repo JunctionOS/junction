@@ -2,6 +2,8 @@
 
 // Needed for rdtsc.
 extern "C" {
+#include <sys/types.h>
+
 #include "asm/ops.h"
 }
 
@@ -9,24 +11,7 @@ extern "C" {
 
 #include <iostream>
 
-#include "junction/base/io.h"
-#include "junction/syscall/dispatch.hpp"
-#include "junction/syscall/seccomp.hpp"
-
 using namespace junction;
-
-class DispatchTest : public ::testing::Test {
- public:
-  static void SetUpTestSuite() {
-#ifdef JUNCTION
-    if (install_syscall_filter()) {
-      throw std::runtime_error("Cannot install syscall filter");
-    }
-#endif  // JUNCTION
-  };
-
-  static void TearDownTestSuite() {}
-};
 
 /* Runs getpid() in a loop for a given number of iterations.
  * Logs the mean time taken for each call in number of cycles.
@@ -41,6 +26,8 @@ pid_t _getpid_test_core(const long iters) {
   std::cout << "getpid() = " << tsc_elapsed / iters << " cycles / syscall\n";
   return pid;
 }
+
+class DispatchTest : public ::testing::Test {};
 
 /* This test benchmarks the performance of getpid() with/without junction,
  * depending on how the test binary was built.

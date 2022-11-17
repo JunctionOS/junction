@@ -9,11 +9,11 @@
 
 #include <csignal>
 
-#include "junction/syscall/seccomp.hpp"
+#include "junction/junction.hpp"
 
 /* Perform syscalls using glibc. */
 int test_glibc_syscall() {
-  int fd = open("test.txt", O_RDONLY);
+  int fd = open("testdata/test.txt", O_RDONLY);
 
   if (fd == -1) {
     perror("open");
@@ -32,7 +32,7 @@ int test_glibc_syscall() {
 
 /* Perform *direct* syscalls without glibc. */
 int test_direct_syscall() {
-  int fd = syscall(SYS_open, "test.txt", O_RDONLY);
+  int fd = syscall(SYS_open, "testdata/test.txt", O_RDONLY);
 
   if (fd == -1) {
     perror("open");
@@ -58,8 +58,8 @@ int main() {
   printf("PID = %d\n", pid);
 
   /* Enable libjunction. */
-  if (junction::install_syscall_filter()) {
-    printf("Cannot install syscall filter\n");
+  if (junction::init()) {
+    printf("Error: junction::init()\n");
     return 1;
   }
 

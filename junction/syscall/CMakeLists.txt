@@ -11,14 +11,13 @@ target_link_libraries(syscall
   bindings
 )
 
-# Benchmark
+# Benchmarks
 # syscall_benchmark_glibc (custom glibc and junction)
 add_executable(syscall_benchmark
   syscall_benchmark.cpp
 )
 target_link_libraries(syscall_benchmark
-  "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
-  kernel
+  junction
 )
 target_link_options(syscall_benchmark PUBLIC
   ${JUNCTION_GLIBC}
@@ -29,18 +28,17 @@ add_executable(syscall_benchmark_default_glibc
   syscall_benchmark.cpp
 )
 target_link_libraries(syscall_benchmark_default_glibc
-  "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
-  kernel
+  junction
 )
 
 # Tests
 # dispatch_test (custom glibc and junction)
 add_executable(dispatch_test
+  syscall_testenv.cpp
   dispatch_test.cpp
 )
 target_link_libraries(dispatch_test
-  "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
-  kernel
+  junction
   gtest_shim
 )
 target_link_options(dispatch_test PUBLIC
@@ -56,11 +54,11 @@ add_test(
 
 # dispatch_default_glibc_test (default glibc and junction)
 add_executable(dispatch_default_glibc_test
+  syscall_testenv.cpp
   dispatch_test.cpp
 )
 target_link_libraries(dispatch_default_glibc_test
-  "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
-  kernel
+  junction
   gtest_shim
 )
 target_compile_definitions(dispatch_default_glibc_test PUBLIC
@@ -73,6 +71,7 @@ add_test(
 
 # dispatch_native_test (default glibc and NO junction)
 add_executable(dispatch_native_test
+  syscall_testenv.cpp
   dispatch_test.cpp
 )
 target_link_libraries(dispatch_native_test

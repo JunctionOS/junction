@@ -4,6 +4,7 @@
 
 extern "C" {
 #include <fcntl.h>
+#include <sys/stat.h>
 }
 
 #include <memory>

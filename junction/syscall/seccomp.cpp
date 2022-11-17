@@ -20,7 +20,7 @@ namespace junction {
 /* Source: https://outflux.net/teach-seccomp/step-3/example.c
  * List of syscall numbers: https://filippo.io/linux-syscall-table/
  */
-int _install_syscall_filter() {
+int _install_seccomp_filter() {
   struct sock_filter filter[] = {
       /* Validate architecture. */
       VALIDATE_ARCHITECTURE,
@@ -202,7 +202,7 @@ int _install_signal_handler() {
   return 0;
 }
 
-int install_syscall_filter() {
+int install_seccomp_filter() {
   // Install signal handlers for syscalls
   if (_install_signal_handler()) {
     printf("Failed to install signal handler\n");
@@ -210,7 +210,7 @@ int install_syscall_filter() {
   }
 
   // Install syscall filter.
-  return _install_syscall_filter();
+  return _install_seccomp_filter();
 }
 
 }  // namespace junction

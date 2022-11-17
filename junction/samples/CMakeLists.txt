@@ -20,4 +20,4 @@ target_link_libraries(hello_world
 )
 
 # Generate inputs for the program
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/test.txt "foo")
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/testdata/test.txt "foo")

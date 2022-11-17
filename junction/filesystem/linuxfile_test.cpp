@@ -9,25 +9,15 @@
 #include <string_view>
 
 #include "junction/base/io.h"
-#include "junction/syscall/seccomp.hpp"
 
 using namespace junction;
 
-class LinuxFileTest : public ::testing::Test {
- public:
-  static void SetUpTestSuite() {
-    if (install_syscall_filter()) {
-      throw std::runtime_error("Cannot install syscall filter");
-    }
-  };
-
-  static void TearDownTestSuite() {}
-};
+class LinuxFileTest : public ::testing::Test {};
 
 TEST_F(LinuxFileTest, FileCreationTest) {
   // Inputs/Outputs
-  const std::string filepath = "test.txt";
-  const unsigned int flags = kFlagAppend;
+  const std::string filepath = "testdata/test.txt";
+  const unsigned int flags = kFlagSync;
   const unsigned int mode = kModeRead;
 
   // Action
@@ -40,8 +30,8 @@ TEST_F(LinuxFileTest, FileCreationTest) {
 
 TEST_F(LinuxFileTest, FileReadTest) {
   // Inputs/Outputs
-  const std::string filepath = "test.txt";
-  const unsigned int flags = kFlagAppend;
+  const std::string filepath = "testdata/test.txt";
+  const unsigned int flags = kFlagSync;
   const unsigned int mode = kModeRead;
   const std::string data = "foo";
   const size_t nbytes = data.size();

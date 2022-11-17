@@ -27,7 +27,7 @@ extern "C" {
 
 #include <stdexcept>
 
-#include "junction/syscall/seccomp.hpp"
+#include "junction/junction.hpp"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
@@ -140,8 +140,8 @@ int main(int argc, char *argv[]) {
   native = timing(CLOCK_PROCESS_CPUTIME_ID, samples) / samples;
   printf("getpid native: %lu cycles\n", native);
 
-  if (junction::install_syscall_filter()) {
-    printf("Error: install_syscall_filter()\n");
+  if (junction::init()) {
+    printf("Error: junction::init()\n");
     return 1;
   }
 

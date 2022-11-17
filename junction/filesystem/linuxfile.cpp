@@ -16,7 +16,6 @@ LinuxFile::LinuxFile(const std::string_view &pathname, int flags, mode_t mode) {
     LOG(ERR) << "Cannot open: " << pathname;
     return;
   }
-
   fd_ = fd;
   flags_ = flags;
 }

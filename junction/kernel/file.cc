@@ -1,11 +1,18 @@
-#include "junction/kernel/file.h"
+extern "C" {
+#include <fcntl.h>
+#include <sys/stat.h>
+}
 
 #include <algorithm>
 #include <bit>
 #include <memory>
 
 #include "junction/base/io.h"
+#include "junction/bindings/log.h"
+#include "junction/kernel/file.h"
+#include "junction/kernel/fs.h"
 #include "junction/kernel/proc.h"
+#include "junction/kernel/usys.h"
 
 namespace {
 
@@ -104,6 +111,31 @@ bool FileTable::Remove(int fd) {
 //
 // System call implementations
 //
+
+std::unique_ptr<FileSystem> fs_;
+
+void set_fs(FileSystem *fs) { fs_.reset(fs); }
+
+FileSystem *get_fs() { return fs_.get(); }
+
+int usys_open(const char *pathname, int flags, mode_t mode) {
+  const std::string_view path(pathname);
+  FileSystem *fs = get_fs();
+  std::shared_ptr<File> f = fs->Open(path, mode, flags);
+  if (unlikely(!f)) return -EBADF;
+  FileTable &ftbl = myproc()->ftable;
+  return ftbl.Insert(std::move(f));
+}
+
+int usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
+  if (unlikely(dirfd != AT_FDCWD)) return -EINVAL;
+  const std::string_view path(pathname);
+  FileSystem *fs = get_fs();
+  std::shared_ptr<File> f = fs->Open(path, mode, flags);
+  if (unlikely(!f)) return -EBADF;
+  FileTable &ftbl = myproc()->ftable;
+  return ftbl.Insert(std::move(f));
+}
 
 ssize_t usys_read(int fd, char *buf, size_t len) {
   FileTable &ftbl = myproc()->ftable;

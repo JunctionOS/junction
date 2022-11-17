@@ -13,16 +13,17 @@ target_link_libraries(filesystem
 
 # Tests
 add_executable(filesystem_test
+  fs_testenv.cpp
   linuxfile_test.cpp
 )
 
 target_link_libraries(filesystem_test
-  syscall
-  filesystem
+  junction
   gtest_shim
 )
 
-file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/test.txt "foo")
+# Test inputs
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/testdata/test.txt "foo")
 
 add_test(
   NAME filesystem_test
