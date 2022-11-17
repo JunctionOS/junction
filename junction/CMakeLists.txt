@@ -45,18 +45,18 @@ file(WRITE ${caladan_test_config_path} ${caladan_test_config})
 set(JUNCTION_LIB_PATH
   ${CMAKE_BINARY_DIR}/src
 )
-set(GLIBC_BUILD_PATH
-  ${CMAKE_SOURCE_DIR}/lib/glibc/build
-)
-set(OPT_RPATH
-  "-Wl,-rpath,.,-rpath,${JUNCTION_LIB_PATH},-rpath,${CMAKE_CURRENT_BINARY_DIR},-rpath,${GLIBC_BUILD_PATH},-rpath,${GLIBC_BUILD_PATH}/elf,-rpath,${GLIBC_BUILD_PATH}/dlfcn,-rpath,${GLIBC_BUILD_PATH}/nss,-rpath,${GLIBC_BUILD_PATH}/nis,-rpath,${GLIBC_BUILD_PATH}/rt,-rpath,${GLIBC_BUILD_PATH}/resolv,-rpath,${GLIBC_BUILD_PATH}/mathvec,-rpath,${GLIBC_BUILD_PATH}/support,-rpath,${GLIBC_BUILD_PATH}/crypt,-rpath,${GLIBC_BUILD_PATH}/nptl,-rpath,/usr/lib/x86_64-linux-gnu,-rpath,/lib/x86_64-linux-gnu,-rpath,/lib64"
-)
-set(OPT_DYNAMIC_LINKER_PATH
-  "-Wl,--dynamic-linker=${GLIBC_BUILD_PATH}/elf/ld.so"
-)
-set(JUNCTION_GLIBC
-  "${OPT_RPATH} ${OPT_DYNAMIC_LINKER_PATH}"
-)
+# set(GLIBC_BUILD_PATH
+#   ${CMAKE_SOURCE_DIR}/lib/glibc/build
+# )
+# set(OPT_RPATH
+#   "-Wl,-rpath,.,-rpath,${JUNCTION_LIB_PATH},-rpath,${CMAKE_CURRENT_BINARY_DIR},-rpath,${GLIBC_BUILD_PATH},-rpath,${GLIBC_BUILD_PATH}/elf,-rpath,${GLIBC_BUILD_PATH}/dlfcn,-rpath,${GLIBC_BUILD_PATH}/nss,-rpath,${GLIBC_BUILD_PATH}/nis,-rpath,${GLIBC_BUILD_PATH}/rt,-rpath,${GLIBC_BUILD_PATH}/resolv,-rpath,${GLIBC_BUILD_PATH}/mathvec,-rpath,${GLIBC_BUILD_PATH}/support,-rpath,${GLIBC_BUILD_PATH}/crypt,-rpath,${GLIBC_BUILD_PATH}/nptl,-rpath,/usr/lib/x86_64-linux-gnu,-rpath,/lib/x86_64-linux-gnu,-rpath,/lib64"
+# )
+# set(OPT_DYNAMIC_LINKER_PATH
+#   "-Wl,--dynamic-linker=${GLIBC_BUILD_PATH}/elf/ld.so"
+# )
+# set(JUNCTION_GLIBC
+#   "${OPT_RPATH} ${OPT_DYNAMIC_LINKER_PATH}"
+# )
 
 # Build all modules
 add_subdirectory(base)
