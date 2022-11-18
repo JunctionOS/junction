@@ -82,6 +82,7 @@ class KernelFile {
   // Map a portion of the file.
   Status<void *> MMap(size_t length, int prot, int flags, off_t off) {
     assert(!(flags & (MAP_FIXED | MAP_ANONYMOUS)));
+    flags |= MAP_PRIVATE;
     intptr_t ret = ksys_mmap(nullptr, length, prot, flags, fd_, off);
     if (ret < 0) return MakeError(-ret);
     return reinterpret_cast<void *>(ret);
@@ -91,7 +92,7 @@ class KernelFile {
   Status<void> MMapFixed(void *addr, size_t length, int prot, int flags,
                          off_t off) {
     assert(!(flags & MAP_ANONYMOUS));
-    flags |= MAP_FIXED;
+    flags |= MAP_FIXED | MAP_PRIVATE;
     intptr_t ret = ksys_mmap(addr, length, prot, flags, fd_, off);
     if (ret < 0) return MakeError(-ret);
     assert(reinterpret_cast<void *>(ret) == addr);
@@ -108,7 +109,7 @@ class KernelFile {
 
 // Map anonymous memory.
 inline Status<void *> KernelMMap(size_t length, int prot, int flags) {
-  flags |= MAP_ANONYMOUS;
+  flags |= MAP_ANONYMOUS | MAP_PRIVATE;
   intptr_t ret = ksys_mmap(nullptr, length, prot, flags, -1, 0);
   if (ret < 0) return MakeError(-ret);
   return reinterpret_cast<void *>(ret);
@@ -117,7 +118,7 @@ inline Status<void *> KernelMMap(size_t length, int prot, int flags) {
 // Map anonymous memory to a fixed address.
 inline Status<void> KernelMMapFixed(void *addr, size_t length, int prot,
                                     int flags) {
-  flags |= MAP_ANONYMOUS | MAP_FIXED;
+  flags |= MAP_ANONYMOUS | MAP_FIXED | MAP_PRIVATE;
   intptr_t ret = ksys_mmap(addr, length, prot, flags, -1, 0);
   if (ret < 0) return MakeError(-ret);
   assert(reinterpret_cast<void *>(ret) == addr);
@@ -127,6 +128,12 @@ inline Status<void> KernelMMapFixed(void *addr, size_t length, int prot,
 // Unmap memory.
 inline Status<void> KernelUnmap(void *addr, size_t length) {
   int ret = ksys_munmap(addr, length);
+  if (ret < 0) return MakeError(-ret);
+  return {};
+}
+
+inline Status<void> KernelMProtect(void *addr, size_t length, int prot) {
+  int ret = ksys_mprotect(addr, length, prot);
   if (ret < 0) return MakeError(-ret);
   return {};
 }
