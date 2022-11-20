@@ -22,8 +22,7 @@ void JunctionMain(int argc, char *argv[]) {
   thread_ready(*th);
 
   // Wait forever... (the binary will directly call GROUP_EXIT for now)
-  rt::WaitGroup wg;
-  wg.Add(1);
+  rt::WaitGroup wg(1);
   wg.Wait();
   return;
 }

@@ -11,7 +11,7 @@
 namespace junction {
 
 Status<thread_t *> Exec(std::string_view pathname,
-                        std::vector<std::string_view> argv,
-                        std::vector<std::string_view> envp);
+                        const std::vector<std::string_view> &argv,
+                        const std::vector<std::string_view> &envp);
 
 }  // namespace junction

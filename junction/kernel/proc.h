@@ -7,7 +7,6 @@ extern "C" {
 }
 
 #include "junction/kernel/file.h"
-#include "junction/kernel/usys.h"
 
 namespace junction {
 

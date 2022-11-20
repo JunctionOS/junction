@@ -10,13 +10,13 @@ constexpr size_t kPageSize = 4096;
 constexpr size_t kLargePageSize = 2097152;
 constexpr size_t kCacheLineSize = 64;
 
-// page_align aligns an address upward to the nearest page size
+// PageAlign aligns an address upward to the nearest page size
 template <typename T>
 constexpr T PageAlign(T addr) requires std::is_unsigned_v<T> {
   return AlignUp(addr, kPageSize);
 }
 
-// page_align_down aligns an address downward to the nearest page size
+// PageAlignDown aligns an address downward to the nearest page size
 template <typename T>
 constexpr T PageAlignDown(T addr) requires std::is_unsigned_v<T> {
   return AlignDown(addr, kPageSize);

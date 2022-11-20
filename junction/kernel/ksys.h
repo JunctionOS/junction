@@ -126,12 +126,13 @@ inline Status<void> KernelMMapFixed(void *addr, size_t length, int prot,
 }
 
 // Unmap memory.
-inline Status<void> KernelUnmap(void *addr, size_t length) {
+inline Status<void> KernelMUnmap(void *addr, size_t length) {
   int ret = ksys_munmap(addr, length);
   if (ret < 0) return MakeError(-ret);
   return {};
 }
 
+// Change memory permissions.
 inline Status<void> KernelMProtect(void *addr, size_t length, int prot) {
   int ret = ksys_mprotect(addr, length, prot);
   if (ret < 0) return MakeError(-ret);

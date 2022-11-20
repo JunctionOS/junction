@@ -2,9 +2,8 @@ extern "C" {
 #include <asm/ops.h>
 #include <runtime/thread.h>
 #include <sys/auxv.h>
-}
-
 #include <elf.h>
+}
 
 #include <cstring>
 
@@ -14,14 +13,16 @@ extern "C" {
 #include "junction/kernel/usys.h"
 
 namespace junction {
+namespace {
 
-size_t VectorBytes(std::vector<std::string_view> &vec) {
+// the number of auxiliary vectors used
+constexpr size_t kNumAuxVectors = 18;
+
+size_t VectorBytes(const std::vector<std::string_view> &vec) {
   size_t len = 0;
   for (auto &v : vec) len += v.size() + 1;
   return len;
 }
-
-#define NUM_AUX 18
 
 void SetupAuxVec(Elf64_auxv_t *vec, const char *filename, elf_data &edata,
                  char *random_ptr) {
@@ -32,7 +33,7 @@ void SetupAuxVec(Elf64_auxv_t *vec, const char *filename, elf_data &edata,
 
 #define AUX_VEC(type, val)                 \
   do {                                     \
-    assert(idx < NUM_AUX);                 \
+    assert(idx < kNumAuxVectors);          \
     vec[idx].a_type = (type);              \
     vec[idx].a_un.a_val = (uint64_t)(val); \
     idx++;                                 \
@@ -65,8 +66,8 @@ void SetupAuxVec(Elf64_auxv_t *vec, const char *filename, elf_data &edata,
   AUX_VEC(AT_NULL, 0);         /* must be last */
 }
 
-void SetupStack(uint64_t *sp, std::vector<std::string_view> &argv,
-                std::vector<std::string_view> &envp, elf_data &edata) {
+void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
+                const std::vector<std::string_view> &envp, elf_data &edata) {
   size_t len = 0;
   char *info_block_ptr, *random_ptr;
   const char *filename;
@@ -76,20 +77,18 @@ void SetupStack(uint64_t *sp, std::vector<std::string_view> &argv,
   len += VectorBytes(argv);
   len += VectorBytes(envp);
 
-  info_block_ptr = (char *)(*sp - len);
+  info_block_ptr = reinterpret_cast<char *>(*sp - len);
   filename = info_block_ptr;
 
   // TODO: generate random data here
   random_ptr = info_block_ptr - 16;
   len += 16;  // random bytes
 
-  /*
-   * The System V AMD64 ABI requires a 16-byte stack
-   * alignment. We go with 32-byte to be extra careful.
-   */
-  len += sizeof(Elf64_auxv_t) * NUM_AUX;
+  // The System V AMD64 ABI requires a 16-byte stack
+  // alignment. We go with 32-byte to be extra careful.
+  len += sizeof(Elf64_auxv_t) * kNumAuxVectors;
   len += (argv.size() + envp.size() + 3) * sizeof(uint64_t);
-  len = align_up(len, 32);
+  len = AlignUp(len, 32);
   *sp = *sp - len;
   arg_ptr = reinterpret_cast<uint64_t *>(*sp);
 
@@ -124,9 +123,7 @@ void SetupStack(uint64_t *sp, std::vector<std::string_view> &argv,
 }
 
 extern "C" {
-
-// Start trampoline that zeros most of the arg registers, some binaries need
-// this
+// Start trampoline with zero arg registers; some binaries need this
 void junction_exec_start(void *entry_arg);
 asm(R"(
 .globl junction_exec_start
@@ -142,10 +139,11 @@ asm(R"(
     jmpq    *%rdi
 )");
 }
+}  // namespace
 
 Status<thread_t *> Exec(std::string_view pathname,
-                        std::vector<std::string_view> argv,
-                        std::vector<std::string_view> envp) {
+                        const std::vector<std::string_view> &argv,
+                        const std::vector<std::string_view> &envp) {
   auto edata = LoadELF(pathname);
   if (!edata) return MakeError(edata);
 
