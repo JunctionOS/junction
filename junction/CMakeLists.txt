@@ -71,7 +71,6 @@ add_library(junction
   junction.cpp
 )
 target_link_libraries(junction INTERFACE
-  "$<LINK_LIBRARY:WHOLE_ARCHIVE,caladan_shim>"
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
   base
   bindings
@@ -84,6 +83,14 @@ set_target_properties(junction
   PROPERTIES
     LINKER_LANGUAGE CXX
 )
-target_link_options(junction INTERFACE
-  -Wl,--export-dynamic,--export-dynamic
+# target_link_options(junction INTERFACE
+#   -Wl,--export-dynamic,--export-dynamic
+# )
+
+add_executable(junction_run
+  run.cc
+)
+
+target_link_libraries(junction_run
+  junction
 )

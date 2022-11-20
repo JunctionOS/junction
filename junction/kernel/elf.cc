@@ -136,7 +136,8 @@ size_t CountTotalLength(const std::vector<elf_phdr> &phdrs) {
 
 // ReadInterp loads the interpretor section and returns a path
 Status<std::string> ReadInterp(KernelFile &f, const elf_phdr &phdr) {
-  std::string interp_path(phdr.filesz, '\0');
+  std::string interp_path(phdr.filesz - 1,
+                          '\0');  // Don't read the null terminator
   f.Seek(phdr.offset);
   Status<void> ret =
       ReadFull(&f, std::as_writable_bytes(std::span(interp_path)));
@@ -155,9 +156,9 @@ Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
 
   // Determine the layout.
   uintptr_t start = PageAlignDown(phdr.vaddr + map_off);
-  uintptr_t file_end = PageAlignDown(phdr.vaddr + map_off + phdr.filesz);
-  uintptr_t file_extra = phdr.vaddr + map_off + phdr.filesz;
-  uintptr_t mem_end = PageAlign(phdr.vaddr + map_off + phdr.memsz);
+  uintptr_t file_end = phdr.vaddr + map_off + phdr.filesz;
+  uintptr_t gap_end = PageAlign(file_end);
+  uintptr_t mem_end = phdr.vaddr + map_off + phdr.memsz;
 
   // Map the file part of the segment.
   if (file_end > start) {
@@ -167,31 +168,27 @@ Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
     if (unlikely(!ret)) return MakeError(ret);
   }
 
-  // Map the remaining anonymous part of the segment.
-  if (mem_end > file_end) {
-    // We may need to copy part of the file section into memory
-    unsigned int temp_prot = prot;
-    if (file_extra > file_end) temp_prot |= PROT_WRITE;
-
-    Status<void> ret = KernelMMapFixed(reinterpret_cast<void *>(file_end),
-                                       mem_end - file_end, temp_prot, 0);
-    if (unlikely(!ret)) return MakeError(ret);
-
-    // Copy some of the file in
-    if (file_extra > file_end) {
-      f.Seek(PageAlignDown(phdr.offset) + file_end - start);
-      Status<void> ret = ReadFull(
-          &f, std::as_writable_bytes(std::span(
-                  reinterpret_cast<char *>(file_end), file_extra - file_end)));
+  // Zero the gap
+  if (gap_end > file_end) {
+    if ((prot & PROT_WRITE) == 0) {
+      Status<void> ret =
+          KernelMProtect(reinterpret_cast<void *>(PageAlignDown(file_end)),
+                         kPageSize, prot | PROT_WRITE);
       if (unlikely(!ret)) return MakeError(ret);
-
-      // restore original prot if needed
-      if (temp_prot != prot) {
-        Status<void> ret = KernelMProtect(reinterpret_cast<void *>(file_end),
-                                          mem_end - file_end, prot);
-        if (unlikely(!ret)) return MakeError(ret);
-      }
     }
+    memset(reinterpret_cast<void *>(file_end), 0, gap_end - file_end);
+    if ((prot & PROT_WRITE) == 0) {
+      Status<void> ret = KernelMProtect(
+          reinterpret_cast<void *>(PageAlignDown(file_end)), kPageSize, prot);
+      if (unlikely(!ret)) return MakeError(ret);
+    }
+  }
+
+  // Map the remaining anonymous part of the segment.
+  if (mem_end > gap_end) {
+    Status<void> ret = KernelMMapFixed(reinterpret_cast<void *>(gap_end),
+                                       mem_end - gap_end, prot, 0);
+    if (unlikely(!ret)) return MakeError(ret);
   }
 
   return {};
@@ -241,10 +238,12 @@ Status<elf_data::interp_data> LoadInterp(std::string_view path) {
   Status<std::tuple<uintptr_t, size_t>> ret = LoadSegments(*file, *phdrs, true);
   if (!ret) return MakeError(ret);
 
+  LOG(INFO) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
+
   // Success, return metadata.
   return elf_data::interp_data{.map_base{std::get<0>(*ret)},
                                .map_len{std::get<1>(*ret)},
-                               .entry_addr{hdr->entry}};
+                               .entry_addr{hdr->entry + std::get<0>(*ret)}};
 }
 
 }  // namespace
@@ -269,11 +268,6 @@ Status<elf_data> LoadELF(std::string_view path) {
   Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);
   if (!phdrs) return MakeError(phdrs);
 
-  // Also map the PHDR table into memory
-  size_t map_sz = hdr->phoff + sizeof(elf_phdr) * phdrs->size();
-  Status<void *> phdr_mem = file->MMap(map_sz, PROT_READ, 0, 0);
-  if (!phdr_mem) return MakeError(phdr_mem);
-
   // Load the interpreter (if present).
   std::optional<elf_data::interp_data> interp_data;
   for (const elf_phdr &phdr : *phdrs) {
@@ -291,15 +285,24 @@ Status<elf_data> LoadELF(std::string_view path) {
       LoadSegments(*file, *phdrs, hdr->type == kETypeDynamic);
   if (!ret) return MakeError(ret);
 
+  // Look for a PHDR table segment
+  uintptr_t phdr_va = 0;
+  for (const auto &phdr : *phdrs) {
+    if (phdr.type != kPTypeSelf) continue;
+    phdr_va = phdr.vaddr + std::get<0>(*ret);
+    break;
+  }
+
+  LOG(INFO) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
+
   // Success, return metadata.
-  return elf_data{
-      .map_base{std::get<0>(*ret)},
-      .map_len{std::get<1>(*ret)},
-      .entry_addr{hdr->entry},
-      .phdr_addr{hdr->phoff + reinterpret_cast<uintptr_t>(*phdr_mem)},
-      .phdr_num{hdr->phnum},
-      .phdr_entsz{hdr->phsize},
-      .interp{std::move(interp_data)}};
+  return elf_data{.map_base{std::get<0>(*ret)},
+                  .map_len{std::get<1>(*ret)},
+                  .entry_addr{hdr->entry + std::get<0>(*ret)},
+                  .phdr_addr{phdr_va},
+                  .phdr_num{hdr->phnum},
+                  .phdr_entsz{hdr->phsize},
+                  .interp{std::move(interp_data)}};
 }
 
 }  // namespace junction

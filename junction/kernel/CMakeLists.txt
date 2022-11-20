@@ -4,6 +4,7 @@ set(SOURCES_C_CPP
   elf.cc
   file.cc
   proc.cc
+  exec.cc
 )
 
 set(SOURCES_ASM

@@ -1,0 +1,49 @@
+From 55383372f0c6e5bfb0d2e3f55ebd61f1be181b3b Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sun, 20 Nov 2022 02:05:54 -0500
+Subject: [PATCH] runtime: export access to stack pointer for junction
+
+---
+ inc/runtime/thread.h |  2 ++
+ runtime/sched.c      | 12 ++++++++++++
+ 2 files changed, 14 insertions(+)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index ff4e1e8..d038eb6 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -25,6 +25,8 @@ extern void thread_ready(thread_t *thread);
+ extern void thread_ready_head(thread_t *thread);
+ extern thread_t *thread_create(thread_fn_t fn, void *arg);
+ extern thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t len);
++extern uint64_t *get_tf_rsp(thread_t *thread);
++
+ 
+ extern __thread thread_t *__self;
+ extern __thread unsigned int kthread_idx;
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 8085b7b..bf41d3d 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -851,6 +851,18 @@ thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t buf_len)
+ 	return th;
+ }
+ 
++
++/**
++ * get_tf_rsp - get a pointer to the stored rsp value in a thread's trapframe
++ * @th: the thread
++ *
++ * Returns a pointer to the stored rsp value
++ */
++uint64_t *get_tf_rsp(thread_t *th)
++{
++	return &th->tf.rsp;
++}
++
+ /**
+  * thread_spawn - creates and launches a new thread
+  * @fn: a function pointer to the starting method of the thread
+-- 
+2.34.1
+
