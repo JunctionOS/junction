@@ -12,8 +12,8 @@
 #include <unistd.h>
 
 #include "junction/kernel/ksys.h"
-#include "junction/syscall/dispatch.hpp"
 #include "junction/syscall/seccomp_bpf.hpp"
+#include "junction/syscall/syscall.hpp"
 
 namespace junction {
 
@@ -177,7 +177,7 @@ static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   ksys_write(STDOUT_FILENO, buf, strlen(buf));
 #endif  // _DEBUG
 
-  auto res = sys_dispatch(sysn, arg0, arg1, arg2, arg3, arg4, arg5);
+  auto res = sys_dispatch(arg0, arg1, arg2, arg3, arg4, arg5, sysn);
   ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
 
   // Restore the errno

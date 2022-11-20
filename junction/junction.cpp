@@ -1,19 +1,21 @@
 #include "junction/junction.hpp"
 
+#include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/filesystem/linuxfs.hpp"
 #include "junction/kernel/fs.h"
-#include "junction/syscall/dispatch.hpp"
 #include "junction/syscall/seccomp.hpp"
+#include "junction/syscall/syscall.hpp"
 
 namespace junction {
 
-int init() {
+Status<void> init() {
   set_fs(new LinuxFileSystem());
   install_seccomp_filter();
-  init_glibc_dispatcher();
+  Status<void> ret = SyscallInit();
+  if (unlikely(!ret)) return MakeError(ret);
 
-  return 0;
+  return {};
 }
 
 }  // namespace junction

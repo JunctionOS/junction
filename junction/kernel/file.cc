@@ -163,7 +163,7 @@ ssize_t usys_pread(int fd, char *buf, size_t len, off_t offset) {
   return static_cast<ssize_t>(*ret);
 }
 
-ssize_t usys_pwrite(int fd, const char *buf, size_t len, off_t offset) {
+ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc()->ftable;
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;

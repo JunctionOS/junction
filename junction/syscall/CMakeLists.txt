@@ -1,9 +1,21 @@
 message(STATUS "Building junction syscall")
 
+
+# Outputs syscall_tbl.cpp to build/junction/syscall/syscall_tbl.cpp
+add_custom_command(
+    OUTPUT  syscall_tbl.cpp
+    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/systbl.py
+      ${CMAKE_CURRENT_SOURCE_DIR}/syscall_defs.txt
+      ${CMAKE_CURRENT_SOURCE_DIR}/usys.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/syscall_tbl.cpp
+    DEPENDS systbl.py syscall_defs.txt systbl.hpp usys.txt
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+)
+
 add_library(syscall
-  dispatch.cpp
-  glibc.cpp
+  syscall.cpp
   seccomp.cpp
+  syscall_tbl.cpp
 )
 
 target_link_libraries(syscall

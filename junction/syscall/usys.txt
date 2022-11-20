@@ -1,0 +1,11 @@
+# add syscalls that are implemented by junction to this file
+
+getpid
+#read
+#write
+#pwrite64
+#lseek
+#fsync
+#dup
+#dup2
+#close

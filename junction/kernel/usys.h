@@ -12,7 +12,7 @@ int usys_openat(int dirfd, const char *pathname, int flags, mode_t mode);
 ssize_t usys_read(int fd, char *buf, size_t len);
 ssize_t usys_write(int fd, const char *buf, size_t len);
 ssize_t usys_pread(int fd, char *buf, size_t len, off_t offset);
-ssize_t usys_pwrite(int fd, const char *buf, size_t len, off_t offset);
+ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset);
 off_t usys_lseek(int fd, off_t offset, int whence);
 int usys_fsync(int fd);
 int usys_dup(int oldfd);

@@ -9,8 +9,8 @@ namespace junction {
 
 void JunctionMain(int argc, char *argv[]) {
   // initialize junction
-  int ret = init();
-  BUG_ON(ret);
+  Status<void> ret = init();
+  BUG_ON(!ret);
 
   std::vector<std::string_view> envp = {};
   std::vector<std::string_view> args = {};
