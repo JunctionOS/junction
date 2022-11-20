@@ -14,6 +14,7 @@
 #include "junction/kernel/ksys.h"
 #include "junction/syscall/seccomp_bpf.hpp"
 #include "junction/syscall/syscall.hpp"
+#include "junction/syscall/systbl.hpp"
 
 namespace junction {
 
@@ -127,8 +128,7 @@ int _install_seccomp_filter() {
   return 0;
 }
 
-#ifdef _DEBUG
-const char* const msg_needed = "Handling: ";
+#if 0
 /* Since "sprintf" is technically not signal-safe, reimplement %d here. */
 static void write_uint(char* buf, unsigned int val) {
   int width = 0;
@@ -166,15 +166,23 @@ static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
   long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
 
-#ifdef _DEBUG
+#if 1
   // Logging
-  char buf[128];
-  strcpy(buf, msg_needed);
-  strcat(buf, "(");
-  write_uint(buf + strlen(buf), sysn);
-  strcat(buf, ")");
-  strcat(buf, "\n");
-  ksys_write(STDOUT_FILENO, buf, strlen(buf));
+  const char* const msg_needed = "TRAP Handling SYSCALL: ";
+
+  char buf[128], *pos;
+  memcpy(buf, msg_needed, strlen(msg_needed));
+  pos = buf + strlen(msg_needed);
+  *pos++ = '(';
+  size_t slen = strlen(syscall_names[sysn]);
+  // This will likely cause a segfault instead of printing
+  BUG_ON(pos - buf + slen + 2 > sizeof(buf));
+  memcpy(pos, syscall_names[sysn], slen);
+  pos += slen;
+  *pos++ = ')';
+  *pos++ = '\n';
+
+  ksys_write(STDOUT_FILENO, buf, pos - buf);
 #endif  // _DEBUG
 
   auto res = sys_dispatch(arg0, arg1, arg2, arg3, arg4, arg5, sysn);

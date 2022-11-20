@@ -52,7 +52,6 @@ for i, entry in enumerate(defined_syscalls):
 	name = syscall_nr_to_name.get(i, str(i)) 
 	fn = f"""
 long usys_{name}_fwd(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
-  LOG(WARN) << "Syscall {name} unimplemented, forwarding to kernel";
   return ksys_default({i}, arg0, arg1, arg2, arg3, arg4, arg5);
 {'}'}"""
 	dispatch_file.append(fn)
@@ -65,6 +64,14 @@ for i, entry in enumerate(defined_syscalls):
 		name = syscall_nr_to_name.get(i, str(i))
 		entry = f"usys_{name}_fwd"
 	dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{entry}),")
+dispatch_file.append("};")
+
+# generate the table of names for debugging
+dispatch_file += [f"const char *syscall_names[SYS_NR] = {'{'}"]
+for i, entry in enumerate(defined_syscalls):
+	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
+	name = syscall_nr_to_name.get(i, f"unknown_syscall_{i}")
+	dispatch_file.append(f"\t[{idx}] = \"{name}\",")
 dispatch_file.append("};")
 
 # finish file and write it out
