@@ -51,9 +51,9 @@ for i, entry in enumerate(defined_syscalls):
 	if entry: continue
 	name = syscall_nr_to_name.get(i, str(i)) 
 	fn = f"""
-long usys_{name}_fwd(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
-  return ksys_default({i}, arg0, arg1, arg2, arg3, arg4, arg5);
-{'}'}"""
+extern "C" {'{'} long usys_{name}_fwd(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+  return ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, {i});
+{'}'}{'}'}"""
 	dispatch_file.append(fn)
 
 # generate the sysfn table

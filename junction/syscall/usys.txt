@@ -1,6 +1,9 @@
 # add syscalls that are implemented by junction to this file
 
 getpid
+open
+openat
+exit_group
 #read
 #write
 #pwrite64

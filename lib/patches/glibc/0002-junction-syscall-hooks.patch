@@ -1,0 +1,246 @@
+From d475ea7ac4218382ec6ee23930f67ec086145cc6 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sun, 20 Nov 2022 16:47:47 -0500
+Subject: [PATCH 2/2] junction syscall hooks
+
+---
+ elf/Makefile                             |   6 +-
+ sysdeps/unix/sysv/linux/x86_64/syscall.S |  14 ++-
+ sysdeps/unix/sysv/linux/x86_64/sysdep.h  | 109 ++++++-----------------
+ 3 files changed, 44 insertions(+), 85 deletions(-)
+
+diff --git a/elf/Makefile b/elf/Makefile
+index 6e95fa2130..30db945015 100644
+--- a/elf/Makefile
++++ b/elf/Makefile
+@@ -215,9 +215,9 @@ extra-objs	+= $(sln-modules:=.o)
+ 
+ ifeq (yes,$(use-ldconfig))
+ ifeq (yes,$(build-shared))
+-others-static	+= ldconfig
+-others		+= ldconfig
+-install-rootsbin += ldconfig
++#others-static	+= ldconfig
++#others		+= ldconfig
++#install-rootsbin += ldconfig
+ 
+ ldconfig-modules := \
+   cache \
+diff --git a/sysdeps/unix/sysv/linux/x86_64/syscall.S b/sysdeps/unix/sysv/linux/x86_64/syscall.S
+index 192455a898..4614b4430e 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/syscall.S
++++ b/sysdeps/unix/sysv/linux/x86_64/syscall.S
+@@ -34,7 +34,19 @@ ENTRY (syscall)
+ 	movq %r8, %r10
+ 	movq %r9, %r8
+ 	movq 8(%rsp),%r9	/* arg6 is on the stack.  */
+-	syscall			/* Do the system call.  */
++
++	pushq %r15 // will use a callee-saved register (r15) to stash rsp
++        movq %rsp, %r15
++        andq $-16, %rsp // align the stack
++
++	shlq $3, %rax  	/* multiply syscall number by 8 */
++	addq $SYS_TBL_ADDR, %rax /* add table offset */
++	callq *(%rax) /* Do the system call.  */
++
++	// restore the stack
++        movq    %r15, %rsp
++        popq    %r15
++
+ 	cmpq $-4095, %rax	/* Check %rax for error.  */
+ 	jae SYSCALL_ERROR_LABEL	/* Jump to error handler if error.  */
+ 	ret			/* Return to caller.  */
+diff --git a/sysdeps/unix/sysv/linux/x86_64/sysdep.h b/sysdeps/unix/sysv/linux/x86_64/sysdep.h
+index 740abefcfd..ff5fffa4f6 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/sysdep.h
++++ b/sysdeps/unix/sysv/linux/x86_64/sysdep.h
+@@ -31,7 +31,10 @@
+    of the kernel.  But these symbols do not follow the SYS_* syntax
+    so we have to redefine the `SYS_ify' macro here.  */
+ #undef SYS_ify
++#define SYS_TBL_ADDR 0x200000ULL
+ #define SYS_ify(syscall_name)	__NR_##syscall_name
++#define SYSTBL_NAME_ADDR(syscall_name) (SYS_ify(syscall_name) * 8ULL + SYS_TBL_ADDR)
++#define SYSTBL_NR_ADDR(syscall_number) ((void *)(syscall_number * 8ULL + SYS_TBL_ADDR))
+ 
+ #ifdef __ASSEMBLER__
+ 
+@@ -194,16 +197,18 @@
+ # undef	DO_CALL
+ # define DO_CALL(syscall_name, args, ulong_arg_1, ulong_arg_2) \
+     DOARGS_##args				\
++    sub $0x8, %rsp; \
+     ZERO_EXTEND_##ulong_arg_1			\
+     ZERO_EXTEND_##ulong_arg_2			\
+-    movl $SYS_ify (syscall_name), %eax;		\
+-    syscall;
++    call *(SYSTBL_NAME_ADDR(syscall_name)); \
++    add $0x8, %rsp;
++
+ 
+ # define DOARGS_0 /* nothing */
+ # define DOARGS_1 /* nothing */
+ # define DOARGS_2 /* nothing */
+ # define DOARGS_3 /* nothing */
+-# define DOARGS_4 movq %rcx, %r10;
++# define DOARGS_4 /* nothing */ // movq %rcx, %r10;
+ # define DOARGS_5 DOARGS_4
+ # define DOARGS_6 DOARGS_5
+ 
+@@ -239,132 +244,74 @@
+ 	internal_syscall##nr (number, args)
+ 
+ #undef internal_syscall0
+-#define internal_syscall0(number, dummy...)				\
+-({									\
+-    unsigned long int resultvar;					\
+-    asm volatile (							\
+-    "syscall\n\t"							\
+-    : "=a" (resultvar)							\
+-    : "0" (number)							\
+-    : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
+-    (long int) resultvar;						\
++#define internal_syscall0(number, dummy...)\
++({                  \
++    long int (**fn)(void) = SYSTBL_NR_ADDR(number);  \
++    (*fn)(); \
+ })
+ 
+ #undef internal_syscall1
+-#define internal_syscall1(number, arg1)					\
+-({									\
+-    unsigned long int resultvar;					\
+-    TYPEFY (arg1, __arg1) = ARGIFY (arg1);			 	\
+-    register TYPEFY (arg1, _a1) asm ("rdi") = __arg1;			\
+-    asm volatile (							\
+-    "syscall\n\t"							\
+-    : "=a" (resultvar)							\
+-    : "0" (number), "r" (_a1)						\
+-    : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
+-    (long int) resultvar;						\
++#define internal_syscall1(number, arg1) \
++({                  \
++  TYPEFY (arg1, __arg1) = ARGIFY (arg1);        \
++  long int (**fn)(long) = SYSTBL_NR_ADDR(number);  \
++  (*fn)(__arg1); \
+ })
+ 
+ #undef internal_syscall2
+ #define internal_syscall2(number, arg1, arg2)				\
+ ({									\
+-    unsigned long int resultvar;					\
+     TYPEFY (arg2, __arg2) = ARGIFY (arg2);			 	\
+     TYPEFY (arg1, __arg1) = ARGIFY (arg1);			 	\
+-    register TYPEFY (arg2, _a2) asm ("rsi") = __arg2;			\
+-    register TYPEFY (arg1, _a1) asm ("rdi") = __arg1;			\
+-    asm volatile (							\
+-    "syscall\n\t"							\
+-    : "=a" (resultvar)							\
+-    : "0" (number), "r" (_a1), "r" (_a2)				\
+-    : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
+-    (long int) resultvar;						\
++    long int (**fn)(long, long) = SYSTBL_NR_ADDR(number);  \
++    (*fn)(__arg1, __arg2); \
+ })
+ 
+ #undef internal_syscall3
+ #define internal_syscall3(number, arg1, arg2, arg3)			\
+ ({									\
+-    unsigned long int resultvar;					\
+     TYPEFY (arg3, __arg3) = ARGIFY (arg3);			 	\
+     TYPEFY (arg2, __arg2) = ARGIFY (arg2);			 	\
+     TYPEFY (arg1, __arg1) = ARGIFY (arg1);			 	\
+-    register TYPEFY (arg3, _a3) asm ("rdx") = __arg3;			\
+-    register TYPEFY (arg2, _a2) asm ("rsi") = __arg2;			\
+-    register TYPEFY (arg1, _a1) asm ("rdi") = __arg1;			\
+-    asm volatile (							\
+-    "syscall\n\t"							\
+-    : "=a" (resultvar)							\
+-    : "0" (number), "r" (_a1), "r" (_a2), "r" (_a3)			\
+-    : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
+-    (long int) resultvar;						\
++    long int (**fn)(long, long, long) = SYSTBL_NR_ADDR(number);  \
++    (*fn)(__arg1, __arg2, __arg3); \
+ })
+ 
+ #undef internal_syscall4
+ #define internal_syscall4(number, arg1, arg2, arg3, arg4)		\
+ ({									\
+-    unsigned long int resultvar;					\
+     TYPEFY (arg4, __arg4) = ARGIFY (arg4);			 	\
+     TYPEFY (arg3, __arg3) = ARGIFY (arg3);			 	\
+     TYPEFY (arg2, __arg2) = ARGIFY (arg2);			 	\
+     TYPEFY (arg1, __arg1) = ARGIFY (arg1);			 	\
+-    register TYPEFY (arg4, _a4) asm ("r10") = __arg4;			\
+-    register TYPEFY (arg3, _a3) asm ("rdx") = __arg3;			\
+-    register TYPEFY (arg2, _a2) asm ("rsi") = __arg2;			\
+-    register TYPEFY (arg1, _a1) asm ("rdi") = __arg1;			\
+-    asm volatile (							\
+-    "syscall\n\t"							\
+-    : "=a" (resultvar)							\
+-    : "0" (number), "r" (_a1), "r" (_a2), "r" (_a3), "r" (_a4)		\
+-    : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
+-    (long int) resultvar;						\
++    long int (**fn)(long, long, long, long) = SYSTBL_NR_ADDR(number);  \
++    (*fn)(__arg1, __arg2, __arg3, __arg4); \
+ })
+ 
+ #undef internal_syscall5
+ #define internal_syscall5(number, arg1, arg2, arg3, arg4, arg5)	\
+ ({									\
+-    unsigned long int resultvar;					\
+     TYPEFY (arg5, __arg5) = ARGIFY (arg5);			 	\
+     TYPEFY (arg4, __arg4) = ARGIFY (arg4);			 	\
+     TYPEFY (arg3, __arg3) = ARGIFY (arg3);			 	\
+     TYPEFY (arg2, __arg2) = ARGIFY (arg2);			 	\
+     TYPEFY (arg1, __arg1) = ARGIFY (arg1);			 	\
+-    register TYPEFY (arg5, _a5) asm ("r8") = __arg5;			\
+-    register TYPEFY (arg4, _a4) asm ("r10") = __arg4;			\
+-    register TYPEFY (arg3, _a3) asm ("rdx") = __arg3;			\
+-    register TYPEFY (arg2, _a2) asm ("rsi") = __arg2;			\
+-    register TYPEFY (arg1, _a1) asm ("rdi") = __arg1;			\
+-    asm volatile (							\
+-    "syscall\n\t"							\
+-    : "=a" (resultvar)							\
+-    : "0" (number), "r" (_a1), "r" (_a2), "r" (_a3), "r" (_a4),		\
+-      "r" (_a5)								\
+-    : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
+-    (long int) resultvar;						\
++    long int (**fn)(long, long, long, long, long) = SYSTBL_NR_ADDR(number);  \
++    (*fn)(__arg1, __arg2, __arg3, __arg4, __arg5); \
+ })
+ 
+ #undef internal_syscall6
+ #define internal_syscall6(number, arg1, arg2, arg3, arg4, arg5, arg6) \
+ ({									\
+-    unsigned long int resultvar;					\
+     TYPEFY (arg6, __arg6) = ARGIFY (arg6);			 	\
+     TYPEFY (arg5, __arg5) = ARGIFY (arg5);			 	\
+     TYPEFY (arg4, __arg4) = ARGIFY (arg4);			 	\
+     TYPEFY (arg3, __arg3) = ARGIFY (arg3);			 	\
+     TYPEFY (arg2, __arg2) = ARGIFY (arg2);			 	\
+     TYPEFY (arg1, __arg1) = ARGIFY (arg1);			 	\
+-    register TYPEFY (arg6, _a6) asm ("r9") = __arg6;			\
+-    register TYPEFY (arg5, _a5) asm ("r8") = __arg5;			\
+-    register TYPEFY (arg4, _a4) asm ("r10") = __arg4;			\
+-    register TYPEFY (arg3, _a3) asm ("rdx") = __arg3;			\
+-    register TYPEFY (arg2, _a2) asm ("rsi") = __arg2;			\
+-    register TYPEFY (arg1, _a1) asm ("rdi") = __arg1;			\
+-    asm volatile (							\
+-    "syscall\n\t"							\
+-    : "=a" (resultvar)							\
+-    : "0" (number), "r" (_a1), "r" (_a2), "r" (_a3), "r" (_a4),		\
+-      "r" (_a5), "r" (_a6)						\
+-    : "memory", REGISTERS_CLOBBERED_BY_SYSCALL);			\
+-    (long int) resultvar;						\
+-})
++    long int (**fn)(long, long, long, long, long, long) = SYSTBL_NR_ADDR(number);  \
++    (*fn)(__arg1, __arg2, __arg3, __arg4, __arg5, __arg6); \
++  })
+ 
+ 
+ # define VDSO_NAME  "LINUX_2.6"
+-- 
+2.34.1
+

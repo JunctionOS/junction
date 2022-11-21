@@ -17,4 +17,4 @@ git submodule update --init --recursive
 cd $SCRIPT_DIR
 ./install_cmake.sh
 ./install_caladan.sh
-# ./install_glibc.sh
+./install_glibc.sh

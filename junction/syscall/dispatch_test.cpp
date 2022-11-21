@@ -1,5 +1,3 @@
-#include "junction/filesystem/linuxfile.hpp"
-
 // Needed for rdtsc.
 extern "C" {
 #include <sys/types.h>
@@ -10,8 +8,6 @@ extern "C" {
 #include <gtest/gtest.h>
 
 #include <iostream>
-
-using namespace junction;
 
 /* Runs getpid() in a loop for a given number of iterations.
  * Logs the mean time taken for each call in number of cycles.
@@ -40,14 +36,5 @@ TEST_F(DispatchTest, GetPidPerfTest) {
   pid_t pid = _getpid_test_core(iters);
 
   // Test
-#ifdef JUNCTION
-  // Junction will shim the getpid() call and return 0.
-  // TODO(girfan): Fix this when we return non-zero PIDs.
-  EXPECT_EQ(0, pid);
-  std::cout << "[JUNCTION]\n";
-#else
-  // When running without junction, we expect a non-zero (real) PID.
-  EXPECT_NE(0, pid);
-  std::cout << "[NATIVE]\n";
-#endif  // JUNCTION
+  EXPECT_NE(-1, pid);
 }

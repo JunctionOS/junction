@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "junction/base/error.h"
+#include "junction/bindings/log.h"
 #include "junction/bindings/runtime.h"
 #include "junction/junction.hpp"
 #include "junction/kernel/exec.h"
@@ -12,12 +13,16 @@ void JunctionMain(int argc, char *argv[]) {
   Status<void> ret = init();
   BUG_ON(!ret);
 
-  std::vector<std::string_view> envp = {};
+  std::vector<std::string_view> envp = {
+      "LD_LIBRARY_PATH=/lib/x86_64-linux-gnu/"};
   std::vector<std::string_view> args = {};
   for (int i = 2; i < argc; i++) args.emplace_back(argv[i]);
 
   Status<thread_t *> th = Exec(args[0], args, envp);
-  if (!th) return;
+  if (!th) {
+    LOG(ERR) << "Failed to exec binary: " << th.error();
+    return;
+  }
 
   thread_ready(*th);
 

@@ -102,6 +102,7 @@ int _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(pwrite64),
       ALLOW_JUNCTION_SYSCALL(write),
       ALLOW_JUNCTION_SYSCALL(clock_gettime),
+      ALLOW_JUNCTION_SYSCALL(writev),
 
       TRAP,
   };

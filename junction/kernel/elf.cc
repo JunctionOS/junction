@@ -220,6 +220,12 @@ Status<std::tuple<uintptr_t, size_t>> LoadSegments(
 Status<elf_data::interp_data> LoadInterp(std::string_view path) {
   DLOG(INFO) << "elf: loading interpreter ELF object file '" << path << "'";
 
+  // TODO(jfried): this path should be passed in at runtime
+#ifdef CUSTOM_GLIBC_INTERPRETER_PATH
+  if (path.ends_with("ld-linux-x86-64.so.2"))
+    path = CUSTOM_GLIBC_INTERPRETER_PATH;
+#endif
+
   // Open the file.
   Status<KernelFile> file = KernelFile::Open(path, 0, S_IRUSR | S_IXUSR);
   if (!file) return MakeError(file);

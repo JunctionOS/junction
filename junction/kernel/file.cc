@@ -11,6 +11,7 @@ extern "C" {
 #include "junction/bindings/log.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/fs.h"
+#include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 
@@ -118,7 +119,17 @@ void set_fs(FileSystem *fs) { fs_.reset(fs); }
 inline FileSystem *get_fs() { return fs_.get(); }
 
 int usys_open(const char *pathname, int flags, mode_t mode) {
-  const std::string_view path(pathname);
+  std::string_view path(pathname);
+
+#ifdef CUSTOM_GLIBC_PATH
+  // TODO: make this not bad.
+  if (path.ends_with("libc.so") || path.ends_with("libc.so.6")) {
+    path = CUSTOM_GLIBC_PATH;
+  }
+#endif
+
+  return ksys_open(path.data(), flags, mode);
+
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -EBADF;
@@ -128,7 +139,17 @@ int usys_open(const char *pathname, int flags, mode_t mode) {
 
 int usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   if (unlikely(dirfd != AT_FDCWD)) return -EINVAL;
-  const std::string_view path(pathname);
+
+  std::string_view path(pathname);
+#ifdef CUSTOM_GLIBC_PATH
+  // TODO: make this not bad.
+  if (path.ends_with("libc.so") || path.ends_with("libc.so.6")) {
+    path = CUSTOM_GLIBC_PATH;
+  }
+#endif
+
+  return ksys_open(path.data(), flags, mode);
+
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -EBADF;

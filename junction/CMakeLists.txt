@@ -40,23 +40,21 @@ set(caladan_test_config_path
 )
 file(WRITE ${caladan_test_config_path} ${caladan_test_config})
 
-# Paths for linking with custom glibc.
-# Binaries that need this will set the option JUNCTION_GLIBC.
-set(JUNCTION_LIB_PATH
-  ${CMAKE_BINARY_DIR}/src
+set(CUSTOM_GLIBC_INTERPRETER_PATH
+  "${CMAKE_SOURCE_DIR}/lib/glibc/build/elf/ld.so"
 )
-# set(GLIBC_BUILD_PATH
-#   ${CMAKE_SOURCE_DIR}/lib/glibc/build
-# )
-# set(OPT_RPATH
-#   "-Wl,-rpath,.,-rpath,${JUNCTION_LIB_PATH},-rpath,${CMAKE_CURRENT_BINARY_DIR},-rpath,${GLIBC_BUILD_PATH},-rpath,${GLIBC_BUILD_PATH}/elf,-rpath,${GLIBC_BUILD_PATH}/dlfcn,-rpath,${GLIBC_BUILD_PATH}/nss,-rpath,${GLIBC_BUILD_PATH}/nis,-rpath,${GLIBC_BUILD_PATH}/rt,-rpath,${GLIBC_BUILD_PATH}/resolv,-rpath,${GLIBC_BUILD_PATH}/mathvec,-rpath,${GLIBC_BUILD_PATH}/support,-rpath,${GLIBC_BUILD_PATH}/crypt,-rpath,${GLIBC_BUILD_PATH}/nptl,-rpath,/usr/lib/x86_64-linux-gnu,-rpath,/lib/x86_64-linux-gnu,-rpath,/lib64"
-# )
-# set(OPT_DYNAMIC_LINKER_PATH
-#   "-Wl,--dynamic-linker=${GLIBC_BUILD_PATH}/elf/ld.so"
-# )
-# set(JUNCTION_GLIBC
-#   "${OPT_RPATH} ${OPT_DYNAMIC_LINKER_PATH}"
-# )
+
+set(CUSTOM_GLIBC_PATH
+  "${CMAKE_SOURCE_DIR}/lib/glibc/build/libc.so"
+)
+
+if(EXISTS ${CUSTOM_GLIBC_INTERPRETER_PATH} AND EXISTS ${CUSTOM_GLIBC_PATH})
+  message("Setting custom ld.so interpreter to ${CUSTOM_GLIBC_INTERPRETER_PATH}")
+  add_compile_definitions(CUSTOM_GLIBC_INTERPRETER_PATH=\"${CUSTOM_GLIBC_INTERPRETER_PATH}\")
+  add_compile_definitions(CUSTOM_GLIBC_PATH=\"${CUSTOM_GLIBC_PATH}\")
+else()
+  message("Missing custom ld.so interpreter and libc.so")
+endif()
 
 # Build all modules
 add_subdirectory(base)
@@ -77,15 +75,6 @@ target_link_libraries(junction INTERFACE
   filesystem
   kernel
 )
-
-# Configure junction
-set_target_properties(junction
-  PROPERTIES
-    LINKER_LANGUAGE CXX
-)
-# target_link_options(junction INTERFACE
-#   -Wl,--export-dynamic,--export-dynamic
-# )
 
 add_executable(junction_run
   run.cc

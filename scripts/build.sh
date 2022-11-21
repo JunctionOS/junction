@@ -11,5 +11,5 @@ CMAKE=${BIN_DIR}/bin/cmake
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
-$CMAKE -DCMAKE_BUILD_TYPE=RelWithDebInfo ..
+$CMAKE -DCMAKE_BUILD_TYPE=Release ..
 make -j `nproc`

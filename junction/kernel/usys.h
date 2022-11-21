@@ -5,6 +5,7 @@ extern "C" {
 }
 
 namespace junction {
+extern "C" {
 
 // File
 int usys_open(const char *pathname, int flags, mode_t mode);
@@ -21,5 +22,7 @@ int usys_close(int fd);
 
 // Proc
 pid_t usys_getpid();
+void usys_exit_group(int status);
 
+}  // extern "C"
 }  // namespace junction
