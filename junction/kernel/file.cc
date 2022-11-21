@@ -119,15 +119,17 @@ int usys_open(const char *pathname, int flags, mode_t mode) {
   // TODO: make this not bad.
   if (path.ends_with("libc.so") || path.ends_with("libc.so.6")) {
     path = CUSTOM_GLIBC_PATH;
-    return ksys_open(path.data(), flags, mode);
   }
 #endif
 
+  return ksys_open(path.data(), flags, mode);
+  /*
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -EBADF;
   FileTable &ftbl = myproc()->ftable;
   return ftbl.Insert(std::move(*f));
+  */
 }
 
 int usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
@@ -138,15 +140,17 @@ int usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   // TODO: make this not bad.
   if (path.ends_with("libc.so") || path.ends_with("libc.so.6")) {
     path = CUSTOM_GLIBC_PATH;
-    return ksys_open(path.data(), flags, mode);  
   }
 #endif
 
+  return ksys_open(path.data(), flags, mode);
+  /*
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -EBADF;
   FileTable &ftbl = myproc()->ftable;
   return ftbl.Insert(std::move(*f));
+  */
 }
 
 ssize_t usys_read(int fd, char *buf, size_t len) {
