@@ -97,7 +97,7 @@ class Preempt {
   // Gets the current CPU index (not the same as the core number).
   [[nodiscard]] static unsigned int get_cpu() {
     assert(IsHeld());
-    return read_once(kthread_idx);
+    return perthread_read(kthread_idx);
   }
 
   // disable move and copy.
@@ -144,7 +144,7 @@ class Spin {
   // Gets the current CPU index (not the same as the core number).
   [[nodiscard]] unsigned int get_cpu() const {
     assert(IsHeld());
-    return read_once(kthread_idx);
+    return perthread_read(kthread_idx);
   }
 
  private:

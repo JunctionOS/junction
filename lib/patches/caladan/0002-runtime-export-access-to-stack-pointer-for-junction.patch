@@ -1,7 +1,7 @@
-From 55383372f0c6e5bfb0d2e3f55ebd61f1be181b3b Mon Sep 17 00:00:00 2001
+From c4b8f0459571f83649033e3ef336e13af65c2839 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
-Date: Sun, 20 Nov 2022 02:05:54 -0500
-Subject: [PATCH] runtime: export access to stack pointer for junction
+Date: Sun, 20 Nov 2022 21:49:09 -0500
+Subject: [PATCH 2/3] runtime: export access to stack pointer for junction
 
 ---
  inc/runtime/thread.h |  2 ++
@@ -9,20 +9,20 @@ Subject: [PATCH] runtime: export access to stack pointer for junction
  2 files changed, 14 insertions(+)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index ff4e1e8..d038eb6 100644
+index d71d30f..2e626a8 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -25,6 +25,8 @@ extern void thread_ready(thread_t *thread);
+@@ -26,6 +26,8 @@ extern void thread_ready(thread_t *thread);
  extern void thread_ready_head(thread_t *thread);
  extern thread_t *thread_create(thread_fn_t fn, void *arg);
  extern thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t len);
 +extern uint64_t *get_tf_rsp(thread_t *thread);
 +
  
- extern __thread thread_t *__self;
- extern __thread unsigned int kthread_idx;
+ DECLARE_PERTHREAD(thread_t *, __self);
+ DECLARE_PERTHREAD(unsigned int, kthread_idx);
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 8085b7b..bf41d3d 100644
+index 2410edc..f363a37 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -851,6 +851,18 @@ thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t buf_len)
