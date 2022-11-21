@@ -14,7 +14,12 @@ void JunctionMain(int argc, char *argv[]) {
   BUG_ON(!ret);
 
   std::vector<std::string_view> envp = {
-      "LD_LIBRARY_PATH=/lib/x86_64-linux-gnu/"};
+#ifndef CUSTOM_GLIBC_DIR
+      "LD_LIBRARY_PATH=/lib/x86_64-linux-gnu/"
+#else
+      "LD_LIBRARY_PATH=" CUSTOM_GLIBC_DIR ":/lib/x86_64-linux-gnu/"
+#endif
+  };
   std::vector<std::string_view> args = {};
   for (int i = 2; i < argc; i++) args.emplace_back(argv[i]);
 

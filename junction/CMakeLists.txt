@@ -40,18 +40,19 @@ set(caladan_test_config_path
 )
 file(WRITE ${caladan_test_config_path} ${caladan_test_config})
 
+
+set(CUSTOM_GLIBC_DIR
+  "${CMAKE_SOURCE_DIR}/lib/glibc/build/"
+)
+
 set(CUSTOM_GLIBC_INTERPRETER_PATH
-  "${CMAKE_SOURCE_DIR}/lib/glibc/build/elf/ld.so"
+  "${CUSTOM_GLIBC_DIR}/elf/ld.so"
 )
 
-set(CUSTOM_GLIBC_PATH
-  "${CMAKE_SOURCE_DIR}/lib/glibc/build/libc.so"
-)
-
-if(EXISTS ${CUSTOM_GLIBC_INTERPRETER_PATH} AND EXISTS ${CUSTOM_GLIBC_PATH})
+if(EXISTS ${CUSTOM_GLIBC_INTERPRETER_PATH})
   message("Setting custom ld.so interpreter to ${CUSTOM_GLIBC_INTERPRETER_PATH}")
   add_compile_definitions(CUSTOM_GLIBC_INTERPRETER_PATH=\"${CUSTOM_GLIBC_INTERPRETER_PATH}\")
-  add_compile_definitions(CUSTOM_GLIBC_PATH=\"${CUSTOM_GLIBC_PATH}\")
+  add_compile_definitions(CUSTOM_GLIBC_DIR=\"${CUSTOM_GLIBC_DIR}\")
 else()
   message("Missing custom ld.so interpreter and libc.so")
 endif()

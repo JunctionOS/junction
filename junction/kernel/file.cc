@@ -113,44 +113,22 @@ void set_fs(FileSystem *fs) { fs_.reset(fs); }
 inline FileSystem *get_fs() { return fs_.get(); }
 
 int usys_open(const char *pathname, int flags, mode_t mode) {
-  std::string_view path(pathname);
-
-#ifdef CUSTOM_GLIBC_PATH
-  // TODO: make this not bad.
-  if (path.ends_with("libc.so") || path.ends_with("libc.so.6")) {
-    path = CUSTOM_GLIBC_PATH;
-  }
-#endif
-
-  return ksys_open(path.data(), flags, mode);
-  /*
+  const std::string_view path(pathname);
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -EBADF;
   FileTable &ftbl = myproc()->ftable;
   return ftbl.Insert(std::move(*f));
-  */
 }
 
 int usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   if (unlikely(dirfd != AT_FDCWD)) return -EINVAL;
-
-  std::string_view path(pathname);
-#ifdef CUSTOM_GLIBC_PATH
-  // TODO: make this not bad.
-  if (path.ends_with("libc.so") || path.ends_with("libc.so.6")) {
-    path = CUSTOM_GLIBC_PATH;
-  }
-#endif
-
-  return ksys_open(path.data(), flags, mode);
-  /*
+  const std::string_view path(pathname);
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -EBADF;
   FileTable &ftbl = myproc()->ftable;
   return ftbl.Insert(std::move(*f));
-  */
 }
 
 ssize_t usys_read(int fd, char *buf, size_t len) {
