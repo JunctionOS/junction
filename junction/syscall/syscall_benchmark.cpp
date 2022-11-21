@@ -140,7 +140,7 @@ int main(int argc, char *argv[]) {
   native = timing(CLOCK_PROCESS_CPUTIME_ID, samples) / samples;
   printf("getpid native: %lu cycles\n", native);
 
-  if (junction::init()) {
+  if (!junction::init()) {
     printf("Error: junction::init()\n");
     return 1;
   }

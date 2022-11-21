@@ -58,7 +58,7 @@ int main() {
   printf("PID = %d\n", pid);
 
   /* Enable libjunction. */
-  if (junction::init()) {
+  if (!junction::init()) {
     printf("Error: junction::init()\n");
     return 1;
   }

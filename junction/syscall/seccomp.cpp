@@ -166,7 +166,7 @@ static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
   long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
   long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
 
-#if 1
+#if 0
   // Logging
   const char* const msg_needed = "TRAP Handling SYSCALL: ";
 

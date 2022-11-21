@@ -11,7 +11,7 @@ class SyscallTestEnvironment : public ::testing::Environment {
  public:
   void SetUp() override {
 #ifdef JUNCTION
-    if (junction::init()) {
+    if (!junction::init()) {
       throw std::runtime_error("Cannot initialize junction");
     }
 #endif  // JUNCTION
