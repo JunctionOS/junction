@@ -38,7 +38,6 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
                  const char *filename, const elf_data &edata,
                  char *random_ptr) {
   cpuid_info info;
-
   cpuid(0x00000001, &info);
 
   std::get<0>(*vec) = MakeAuxVec(AT_HWCAP, info.edx);
@@ -121,9 +120,8 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
       filename, edata, random_ptr);
 }
 
-extern "C" {
 // Start trampoline with zero arg registers; some binaries need this
-void junction_exec_start(void *entry_arg);
+extern "C" void junction_exec_start(void *entry_arg);
 asm(R"(
 .globl junction_exec_start
     .type junction_exec_start, @function
@@ -137,7 +135,6 @@ asm(R"(
 
     jmpq    *%rdi
 )");
-}
 }  // namespace
 
 Status<thread_t *> Exec(std::string_view pathname,
@@ -150,7 +147,7 @@ Status<thread_t *> Exec(std::string_view pathname,
       edata->interp ? edata->interp->entry_addr : edata->entry_addr;
   thread_t *th =
       thread_create(junction_exec_start, reinterpret_cast<void *>(entry));
-  if (!th) return MakeError(-ENOMEM);
+  if (!th) return MakeError(ENOMEM);
 
   // get a pointer to this thread's RSP, remove the existing exit function
   // pointer
@@ -158,7 +155,6 @@ Status<thread_t *> Exec(std::string_view pathname,
   *rsp -= 8;
 
   SetupStack(rsp, argv, envp, *edata);
-
   return th;
 }
 

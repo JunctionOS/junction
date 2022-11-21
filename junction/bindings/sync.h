@@ -332,4 +332,10 @@ class WaitGroup {
   waitgroup_t wg_;
 };
 
+// Blocks the thread forever (doesn't return).
+inline void WaitForever() {
+  Preempt p;
+  PreemptGuardAndPark g(&p);
+}
+
 }  // namespace junction::rt
