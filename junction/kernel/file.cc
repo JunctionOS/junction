@@ -93,14 +93,13 @@ void FileTable::InsertAt(int fd, std::shared_ptr<File> f) {
 
 bool FileTable::Remove(int fd) {
   rt::SpinGuard g(&lock_);
-
+    
   // Check if the file is present.
+  if (fd >= farr_->len) return false;
   if (!farr_->files[fd]) return false;
 
   // Remove the file.
   farr_->files[fd].reset();
-  if (static_cast<size_t>(fd) != farr_->len - 1) return true;
-
   return true;
 }
 
