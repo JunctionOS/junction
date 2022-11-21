@@ -49,7 +49,7 @@ FileTable::~FileTable() = default;
 void FileTable::Resize(size_t len) {
   assert(lock_.IsHeld());
   size_t new_cap = std::bit_ceil(len) * kOversizeRatio;
-  if (farr_->cap != new_cap) {
+  if (farr_->cap < new_cap) {
     auto narr = detail::CopyFileArray(*farr_, new_cap);
     narr->len = len;
     rcup_.set(narr.get());
@@ -80,6 +80,7 @@ int FileTable::Insert(std::shared_ptr<File> f) {
 
   // Otherwise grow the table.
   Resize(i + 1);
+  farr_->len = i + 1;
   farr_->files[i] = std::move(f);
   return static_cast<int>(i);
 }
@@ -100,12 +101,6 @@ bool FileTable::Remove(int fd) {
   farr_->files[fd].reset();
   if (static_cast<size_t>(fd) != farr_->len - 1) return true;
 
-  // Try to shrink the table.
-  size_t i;
-  for (i = farr_->len - 2; i > 0; --i) {
-    if (farr_->files[i]) break;
-  }
-  Resize(i + 1);
   return true;
 }
 
