@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <bit>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -176,7 +177,7 @@ Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
                          kPageSize, prot | PROT_WRITE);
       if (unlikely(!ret)) return MakeError(ret);
     }
-    memset(reinterpret_cast<void *>(file_end), 0, gap_end - file_end);
+    std::memset(reinterpret_cast<void *>(file_end), 0, gap_end - file_end);
     if ((prot & PROT_WRITE) == 0) {
       Status<void> ret = KernelMProtect(
           reinterpret_cast<void *>(PageAlignDown(file_end)), kPageSize, prot);

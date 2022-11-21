@@ -19,7 +19,7 @@ Status<void> SyscallInit() {
 // this function is only used for system calls that are trapped
 unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
                            long arg4, long arg5, long syscall) {
-  if (syscall >= SYS_NR) return -1;
+  if (unlikely(syscall >= SYS_NR)) return -ENOSYS;
 
   return sys_tbl[syscall](arg0, arg1, arg2, arg3, arg4, arg5);
 }

@@ -1,8 +1,8 @@
 extern "C" {
 #include <asm/ops.h>
+#include <elf.h>
 #include <runtime/thread.h>
 #include <sys/auxv.h>
-#include <elf.h>
 }
 
 #include <cstring>
@@ -24,46 +24,44 @@ size_t VectorBytes(const std::vector<std::string_view> &vec) {
   return len;
 }
 
-void SetupAuxVec(Elf64_auxv_t *vec, const char *filename, elf_data &edata,
+template <typename T>
+constexpr Elf64_auxv_t MakeAuxVec(uint64_t type, T val) {
+  return {.a_type{type}, .a_un{.a_val{static_cast<uint64_t>(val)}}};
+}
+
+template <typename T>
+constexpr Elf64_auxv_t MakeAuxVec(uint64_t type, T *val) {
+  return {.a_type{type}, .a_un{.a_val{reinterpret_cast<uint64_t>(val)}}};
+}
+
+void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
+                 const char *filename, const elf_data &edata,
                  char *random_ptr) {
-  int idx = 0;
   cpuid_info info;
 
   cpuid(0x00000001, &info);
 
-#define AUX_VEC(type, val)                 \
-  do {                                     \
-    assert(idx < kNumAuxVectors);          \
-    vec[idx].a_type = (type);              \
-    vec[idx].a_un.a_val = (uint64_t)(val); \
-    idx++;                                 \
-  } while (0)
-
-  AUX_VEC(AT_HWCAP, info.edx);
-  AUX_VEC(AT_PAGESZ, kPageSize);
-  /* FIXME: using a fake CLKTCK value for now */
-  AUX_VEC(AT_CLKTCK, 1000000);
-  AUX_VEC(AT_PHDR, edata.phdr_addr);
-  AUX_VEC(AT_PHENT, sizeof(Elf64_Phdr));
-  AUX_VEC(AT_PHNUM, edata.phdr_num);
-  AUX_VEC(AT_FLAGS, 0);
-  AUX_VEC(AT_ENTRY, edata.entry_addr);
-  AUX_VEC(AT_BASE, edata.interp ? edata.interp->map_base : 0);
-  /* FIXME: get these from the proc struct */
-  AUX_VEC(AT_UID, 1);
-  AUX_VEC(AT_EUID, 1);
-  AUX_VEC(AT_GID, 1);
-  AUX_VEC(AT_EGID, 1);
-  AUX_VEC(AT_SECURE, 0);
-  /*
-   * FIXME: for some reason Ubuntu binaries won't
-   * work without this vector, so we need to
-   * generate real random entropy.
-   */
-  AUX_VEC(AT_RANDOM, random_ptr);
-  AUX_VEC(AT_EXECFN, filename);
-  AUX_VEC(AT_SYSINFO_EHDR, 0); /* don't provide vdso */
-  AUX_VEC(AT_NULL, 0);         /* must be last */
+  std::get<0>(*vec) = MakeAuxVec(AT_HWCAP, info.edx);
+  std::get<1>(*vec) = MakeAuxVec(AT_PAGESZ, kPageSize);
+  // TODO(amb): these are kernel clock ticks via sysconf(_SC_CLK_TCK)
+  std::get<2>(*vec) = MakeAuxVec(AT_CLKTCK, 1000000);
+  std::get<3>(*vec) = MakeAuxVec(AT_PHDR, edata.phdr_addr);
+  std::get<4>(*vec) = MakeAuxVec(AT_PHENT, edata.phdr_entsz);
+  std::get<5>(*vec) = MakeAuxVec(AT_PHNUM, edata.phdr_num);
+  std::get<6>(*vec) = MakeAuxVec(AT_FLAGS, 0);
+  std::get<7>(*vec) = MakeAuxVec(AT_ENTRY, edata.entry_addr);
+  std::get<8>(*vec) = MakeAuxVec(
+      AT_BASE, edata.interp ? edata.interp->map_base : edata.map_base);
+  // TODO(jfried): get these from the proc struct
+  std::get<9>(*vec) = MakeAuxVec(AT_UID, 1);
+  std::get<10>(*vec) = MakeAuxVec(AT_EUID, 1);
+  std::get<11>(*vec) = MakeAuxVec(AT_GID, 1);
+  std::get<12>(*vec) = MakeAuxVec(AT_EGID, 1);
+  std::get<13>(*vec) = MakeAuxVec(AT_SECURE, 0);
+  std::get<14>(*vec) = MakeAuxVec(AT_RANDOM, random_ptr);
+  std::get<15>(*vec) = MakeAuxVec(AT_EXECFN, filename);
+  std::get<16>(*vec) = MakeAuxVec(AT_SYSINFO_EHDR, 0);  // not needed on x86
+  std::get<17>(*vec) = MakeAuxVec(AT_NULL, 0);          // must be last
 }
 
 void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
@@ -118,8 +116,9 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
   *arg_ptr++ = 0;
 
   // add the auxiliary vector to the stack
-  SetupAuxVec(reinterpret_cast<Elf64_auxv_t *>(arg_ptr), filename, edata,
-              random_ptr);
+  SetupAuxVec(
+      reinterpret_cast<std::array<Elf64_auxv_t, kNumAuxVectors> *>(arg_ptr),
+      filename, edata, random_ptr);
 }
 
 extern "C" {
