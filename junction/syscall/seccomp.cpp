@@ -93,6 +93,7 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(getdents64),
       ALLOW_SYSCALL(rseq),
       ALLOW_SYSCALL(newfstatat),
+      ALLOW_SYSCALL(mbind), /* caladan's slab allocator uses this */
 
       ALLOW_JUNCTION_SYSCALL(openat),
       ALLOW_JUNCTION_SYSCALL(open),

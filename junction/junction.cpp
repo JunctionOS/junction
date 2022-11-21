@@ -1,8 +1,11 @@
-#include "junction/junction.hpp"
+extern "C" {
+#include <runtime/smalloc.h>
+}
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/filesystem/linuxfs.hpp"
+#include "junction/junction.hpp"
 #include "junction/kernel/fs.h"
 #include "junction/syscall/seccomp.hpp"
 #include "junction/syscall/syscall.hpp"
@@ -19,3 +22,29 @@ Status<void> init() {
 }
 
 }  // namespace junction
+
+// Override global new and delete operators
+inline void *__new(size_t size) {
+  if (likely(thread_self()))
+    return smalloc(size);
+  else
+    return malloc(size);
+}
+
+void *operator new(size_t size, const std::nothrow_t &nothrow_value) noexcept {
+  return __new(size);
+}
+
+void *operator new(size_t size) throw() {
+  void *ptr = __new(size);
+  if (unlikely(size && !ptr)) throw std::bad_alloc();
+  return ptr;
+}
+
+void operator delete(void *ptr) noexcept {
+  if (!ptr) return;
+  if (likely(thread_self()))
+    sfree(ptr);
+  else
+    ;  // memory is being freed at teardown, probably ok to leak?
+}
