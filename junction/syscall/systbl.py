@@ -43,7 +43,13 @@ dispatch_file += ["namespace junction {"]
 defined_syscalls = [None for i in range(SYS_NR)]
 
 for name in gen_usys_list():
-	defined_syscalls[syscall_name_to_nr.get(name)] = f"junction::usys_{name}"
+	ns = name.split(":::", 2)
+	name = ns[0]
+	assert name in syscall_name_to_nr, f"Missing definition of {name} in syscall list"
+	if len(ns) > 1 and ns[1] == "enosys":
+		defined_syscalls[syscall_name_to_nr.get(name)] = f"junction::usys_enosys"
+	else:
+		defined_syscalls[syscall_name_to_nr.get(name)] = f"junction::usys_{name}"
 
 # generate stub functions for unimplemented syscalls
 # TODO: eventually replace these with a single function

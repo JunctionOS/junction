@@ -2,6 +2,7 @@
 
 #include <cstring>
 
+#include "junction/bindings/log.h"
 #include "junction/kernel/ksys.h"
 #include "junction/syscall/systbl.hpp"
 
@@ -22,6 +23,11 @@ unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
   if (unlikely(syscall >= SYS_NR)) return -ENOSYS;
 
   return sys_tbl[syscall](arg0, arg1, arg2, arg3, arg4, arg5);
+}
+
+long usys_enosys(...) {
+  DLOG(INFO) << "usys enosys";
+  return -ENOSYS;
 }
 
 }  // namespace junction

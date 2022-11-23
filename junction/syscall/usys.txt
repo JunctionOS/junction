@@ -1,9 +1,13 @@
 # add syscalls that are implemented by junction to this file
 
 getpid
+arch_prctl
+clone3
+set_tid_address
 #open
 #openat
 exit_group
+exit
 #read
 #write
 #pwrite64
@@ -12,3 +16,13 @@ exit_group
 #dup
 #dup2
 #close
+futex
+sched_yield
+
+# syscalls for which we return enosys
+rseq:::enosys
+set_robust_list:::enosys
+get_robust_list:::enosys
+rt_sigprocmask:::enosys
+rt_sigaction:::enosys
+tgkill:::enosys

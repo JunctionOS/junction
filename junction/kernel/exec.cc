@@ -153,6 +153,7 @@ Status<thread_t *> Exec(std::string_view pathname,
   // pointer
   uint64_t *rsp = get_tf_rsp(th);
   *rsp -= 8;
+  myproc()->ProcSetupNewThread(th);
 
   SetupStack(rsp, argv, envp, *edata);
   return th;

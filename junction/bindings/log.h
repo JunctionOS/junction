@@ -9,13 +9,18 @@ extern "C" {
 #include <sstream>
 #include <string>
 
+#include "junction/bindings/runtime.h"
+
 namespace junction::rt {
 
 // TODO(amb): This allocates memory each use. Use std::ospanstream (C++23)?
 class Logger {
  public:
   explicit Logger(int level) noexcept : level_(level) {}
-  ~Logger() { logk(level_, "%s", buf_.str().c_str()); }
+  ~Logger() {
+    RuntimeLibcGuard guard;
+    logk(level_, "%s", buf_.str().c_str());
+  }
 
   template <typename T>
   Logger &operator<<(T const &value) {

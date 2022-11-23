@@ -1,0 +1,82 @@
+From 253f0ea9c0a5fafcb2273f7ea00f534099badbfa Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Wed, 23 Nov 2022 17:12:56 -0500
+Subject: [PATCH 3/3] glibc: hook some more syscalls
+
+---
+ sysdeps/unix/sysv/linux/kernel-features.h |  2 +-
+ sysdeps/unix/sysv/linux/x86_64/clone3.S   | 13 ++++++++-----
+ sysdeps/x86_64/nptl/tls.h                 |  9 +--------
+ 3 files changed, 10 insertions(+), 14 deletions(-)
+
+diff --git a/sysdeps/unix/sysv/linux/kernel-features.h b/sysdeps/unix/sysv/linux/kernel-features.h
+index 74adc3956b..344b4f93e5 100644
+--- a/sysdeps/unix/sysv/linux/kernel-features.h
++++ b/sysdeps/unix/sysv/linux/kernel-features.h
+@@ -52,7 +52,7 @@
+ /* Support for inter-process robust mutexes was added in 2.6.17 (but
+    some architectures lack futex_atomic_cmpxchg_inatomic in some
+    configurations).  */
+-#define __ASSUME_SET_ROBUST_LIST	1
++//#define __ASSUME_SET_ROBUST_LIST	1
+ 
+ /* Support for various CLOEXEC and NONBLOCK flags was added in
+    2.6.27.  */
+diff --git a/sysdeps/unix/sysv/linux/x86_64/clone3.S b/sysdeps/unix/sysv/linux/x86_64/clone3.S
+index 18fc2ee966..ad99e7c07e 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/clone3.S
++++ b/sysdeps/unix/sysv/linux/x86_64/clone3.S
+@@ -51,13 +51,14 @@ ENTRY (__clone3)
+ 	   syscall.  */
+ 	mov	%RCX_LP, %R8_LP
+ 
+-	/* Do the system call.  */
+-	movl	$SYS_ify(clone3), %eax
+ 
+ 	/* End FDE now, because in the child the unwind info will be
+ 	   wrong.  */
+ 	cfi_endproc
+-	syscall
++
++	sub $0x8, %rsp
++	call *(SYSTBL_NAME_ADDR(clone3))
++	add $0x8, %rsp;
+ 
+ 	test	%RAX_LP, %RAX_LP
+ 	jl	SYSCALL_ERROR_LABEL
+@@ -81,8 +82,10 @@ L(thread_start):
+ 	call	*%rdx		/* Call function.  */
+ 	/* Call exit with return value from function call. */
+ 	movq	%rax, %rdi
+-	movl	$SYS_ify(exit), %eax
+-	syscall
++
++	and	$-16, %RSP_LP
++	call *(SYSTBL_NAME_ADDR(exit))
++
+ 	cfi_endproc
+ 
+ 	cfi_startproc
+diff --git a/sysdeps/x86_64/nptl/tls.h b/sysdeps/x86_64/nptl/tls.h
+index 75f8020975..4cab076458 100644
+--- a/sysdeps/x86_64/nptl/tls.h
++++ b/sysdeps/x86_64/nptl/tls.h
+@@ -147,14 +147,7 @@ _Static_assert (offsetof (tcbhead_t, __glibc_unused2) == 0x80,
+      _head->tcb = _thrdescr;						      \
+      /* For now the thread descriptor is at the same address.  */	      \
+      _head->self = _thrdescr;						      \
+-									      \
+-     /* It is a simple syscall to set the %fs value for the thread.  */	      \
+-     asm volatile ("syscall"						      \
+-		   : "=a" (_result)					      \
+-		   : "0" ((unsigned long int) __NR_arch_prctl),		      \
+-		     "D" ((unsigned long int) ARCH_SET_FS),		      \
+-		     "S" (_thrdescr)					      \
+-		   : "memory", "cc", "r11", "cx");			      \
++     _result = INTERNAL_SYSCALL(arch_prctl, 2, ARCH_SET_FS, _thrdescr);       \
+ 									      \
+     _result ? "cannot set %fs base address for thread-local storage" : 0;     \
+   })
+-- 
+2.34.1
+

@@ -2,10 +2,16 @@
 
 extern "C" {
 #include <sys/stat.h>
+#include <sys/types.h>
+struct clone_args;
 }
+
+#include <cstdint>
 
 namespace junction {
 extern "C" {
+
+long usys_enosys(...);  // Always returns -ENOSYS
 
 // File
 int usys_open(const char *pathname, int flags, mode_t mode);
@@ -22,7 +28,20 @@ int usys_close(int fd);
 
 // Proc
 pid_t usys_getpid();
+pid_t usys_set_tid_address(int *tidptr);
 void usys_exit_group(int status);
+void usys_exit(int status);
+int usys_arch_prctl(int code, unsigned long addr);
+
+long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
+                 void *arg);
+
+long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
+                const struct timespec *timeout, uint32_t *uaddr2,
+                uint32_t val3);
+
+// Sched
+int usys_sched_yield();
 
 }  // extern "C"
 }  // namespace junction

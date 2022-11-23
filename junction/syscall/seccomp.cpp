@@ -33,6 +33,8 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(sigreturn),
 #endif
 
+      ALLOW_SYSCALL(write),
+      ALLOW_SYSCALL(writev),
       ALLOW_SYSCALL(fstat),
       ALLOW_SYSCALL(lseek),
       ALLOW_SYSCALL(exit),
@@ -55,10 +57,6 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(dup),
       ALLOW_SYSCALL(clone),
       ALLOW_SYSCALL(execve),
-      ALLOW_SYSCALL(arch_prctl),
-      ALLOW_SYSCALL(set_tid_address),
-      ALLOW_SYSCALL(set_robust_list),
-      ALLOW_SYSCALL(rt_sigprocmask),
       ALLOW_SYSCALL(prlimit64),
       ALLOW_SYSCALL(sysinfo),
       ALLOW_SYSCALL(fcntl),
@@ -67,7 +65,6 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(getgid),
       ALLOW_SYSCALL(uname),
       ALLOW_SYSCALL(rt_sigreturn),
-      ALLOW_SYSCALL(exit_group),
       ALLOW_SYSCALL(rename),
       ALLOW_SYSCALL(nanosleep),
       ALLOW_SYSCALL(socket),
@@ -91,7 +88,6 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(gettid),
       ALLOW_SYSCALL(access),
       ALLOW_SYSCALL(getdents64),
-      ALLOW_SYSCALL(rseq),
       ALLOW_SYSCALL(newfstatat),
       ALLOW_SYSCALL(mbind), /* caladan's slab allocator uses this */
 
@@ -104,6 +100,7 @@ int _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(write),
       ALLOW_JUNCTION_SYSCALL(clock_gettime),
       ALLOW_JUNCTION_SYSCALL(writev),
+      ALLOW_JUNCTION_SYSCALL(exit_group),
 
       TRAP,
   };

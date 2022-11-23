@@ -5,6 +5,8 @@ set(SOURCES_C_CPP
   file.cc
   proc.cc
   exec.cc
+  futex.cc
+  sched.cc
 )
 
 set(SOURCES_ASM

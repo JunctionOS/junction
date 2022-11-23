@@ -11,6 +11,8 @@ extern "C" {
 #include <functional>
 #include <string>
 
+#include "junction/base/arch.h"
+
 namespace junction::rt {
 
 // The highest number of cores supported.
@@ -38,5 +40,24 @@ inline unsigned int RuntimeMaxCores() { return runtime_max_cores(); }
 inline unsigned int RuntimeGuaranteedCores() {
   return runtime_guaranteed_cores();
 }
+
+// Use when calling into the runtime's copy of libc
+// Will disable preemption and set the correct FS register
+class RuntimeLibcGuard {
+ public:
+  RuntimeLibcGuard() {
+    preempt_disable();
+    _prev_fs_base = ReadFsBase();
+    SetFsBase(perthread_read(runtime_fsbase));
+  }
+
+  ~RuntimeLibcGuard() {
+    SetFsBase(_prev_fs_base);
+    preempt_enable();
+  }
+
+ private:
+  uint64_t _prev_fs_base;
+};
 
 };  // namespace junction::rt
