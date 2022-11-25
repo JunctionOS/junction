@@ -57,7 +57,7 @@ int FutexWake(uint32_t *key) {
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 const struct timespec *timeout, uint32_t *uaddr2,
                 uint32_t val3) {
-  if (futex_op & FUTEX_CLOCK_REALTIME) {
+  if (timeout) {
     static bool once;
     if (!once) {
       LOG(WARN) << "Futex timeout not supported";
