@@ -53,6 +53,7 @@ if(EXISTS ${CUSTOM_GLIBC_INTERPRETER_PATH})
   message("Setting custom ld.so interpreter to ${CUSTOM_GLIBC_INTERPRETER_PATH}")
   add_compile_definitions(CUSTOM_GLIBC_INTERPRETER_PATH=\"${CUSTOM_GLIBC_INTERPRETER_PATH}\")
   add_compile_definitions(CUSTOM_GLIBC_DIR=\"${CUSTOM_GLIBC_DIR}\")
+  add_compile_definitions(CUSTOM_GLIBC_PRELOAD=\"$<TARGET_FILE:shim_preload>\")
 else()
   message("Missing custom ld.so interpreter and libc.so")
 endif()
@@ -64,6 +65,7 @@ add_subdirectory(filesystem)
 add_subdirectory(syscall)
 add_subdirectory(kernel)
 add_subdirectory(samples)
+add_subdirectory(shim)
 
 # Build junction
 add_library(junction
@@ -75,6 +77,7 @@ target_link_libraries(junction INTERFACE
   bindings
   filesystem
   kernel
+  glibc_shim_backend
 )
 
 add_executable(junction_run

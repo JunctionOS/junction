@@ -24,6 +24,7 @@ class Logger {
 
   template <typename T>
   Logger &operator<<(T const &value) {
+    RuntimeLibcGuard guard;
     buf_ << value;
     return *this;
   }

@@ -143,7 +143,8 @@ static void write_uint(char* buf, unsigned int val) {
 }
 #endif  // _DEBUG
 
-static void __signal_handler(int nr, siginfo_t* info, void* void_context) {
+static __attribute__((__optimize__("-fno-stack-protector"))) void
+__signal_handler(int nr, siginfo_t* info, void* void_context) {
   ucontext_t* ctx = (ucontext_t*)(void_context);
 
   if (info->si_code != SYS_SECCOMP) {

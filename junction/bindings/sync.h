@@ -182,6 +182,60 @@ class Mutex {
   mutex_t mu_;
 };
 
+// Pthread-like rwmutex support.
+class RWMutex {
+ public:
+  RWMutex() noexcept { rwmutex_init(&mu_); }
+  ~RWMutex() { assert(!rwmutex_held(&mu_)); }
+
+  RWMutex(RWMutex &&) = delete;
+  RWMutex &operator=(RWMutex &&) = delete;
+  RWMutex(const RWMutex &) = delete;
+  RWMutex &operator=(const RWMutex &) = delete;
+
+  // Locks the mutex for reading.
+  void RdLock() { rwmutex_rdlock(&mu_); }
+
+  // Locks the mutex for writing.
+  void WrLock() { rwmutex_wrlock(&mu_); }
+
+  // Unlocks the mutex.
+  void Unlock() { rwmutex_unlock(&mu_); }
+
+  // Locks the mutex for reading only if it is currently unlocked. Returns true
+  // if successful.
+  bool TryRdLock() { return rwmutex_try_rdlock(&mu_); }
+
+  // Locks the mutex for writing only if it is currently unlocked. Returns true
+  // if successful.
+  bool TryWrLock() { return rwmutex_try_wrlock(&mu_); }
+
+  // Returns true if the mutex is currently held.
+  [[nodiscard]] bool IsHeld() const { return rwmutex_held(&mu_); }
+
+ private:
+  rwmutex_t mu_;
+};
+
+// Pthread-like barrier support.
+class Barrier {
+ public:
+  Barrier(int count) noexcept { barrier_init(&b_, count); }
+  ~Barrier() {}
+
+  Barrier(Barrier &&) = delete;
+  Barrier &operator=(Barrier &&) = delete;
+  Barrier(const Barrier &) = delete;
+  Barrier &operator=(const Barrier &) = delete;
+
+  // Waits on the barrier. Returns true if the calling thread released the
+  // barrier.
+  bool Wait() { return barrier_wait(&b_); }
+
+ private:
+  barrier_t b_;
+};
+
 // Lockable is the concept of a lock.
 template <typename T>
 concept Lockable = requires(T t) {
@@ -284,6 +338,12 @@ class CondVar {
   // Block until the condition variable is signaled. Recheck the condition
   // after wakeup, as no guarantees are made about preventing spurious wakeups.
   void Wait(Mutex *mu) { condvar_wait(&cv_, &mu->mu_); }
+
+  // Block until signaled. If timeout us elapses before a signal is generated,
+  // the function returns false.
+  bool WaitTimed(Mutex *mu, uint64_t timeout_us) {
+    return condvar_wait_timed(&cv_, &mu->mu_, timeout_us);
+  }
 
   // Block until a predicate is true.
   template <typename Predicate>

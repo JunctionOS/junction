@@ -26,3 +26,5 @@ get_robust_list:::enosys
 rt_sigprocmask:::enosys
 rt_sigaction:::enosys
 tgkill:::enosys
+sched_setaffinity:::enosys
+sched_getaffinity:::enosys

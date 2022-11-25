@@ -1,0 +1,28 @@
+From 1fc67f9e159922ae90097a56257c9ec2a4ce7e5a Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sun, 27 Nov 2022 11:47:56 -0500
+Subject: [PATCH 6/6] nit
+
+---
+ inc/runtime/sync.h | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/inc/runtime/sync.h b/inc/runtime/sync.h
+index c949fda..ad1810f 100644
+--- a/inc/runtime/sync.h
++++ b/inc/runtime/sync.h
+@@ -196,6 +196,11 @@ struct rwmutex {
+ 
+ typedef struct rwmutex rwmutex_t;
+ 
++static inline bool rwmutex_held(const rwmutex_t *m)
++{
++	return ACCESS_ONCE(m->count) != 0;
++}
++
+ extern void rwmutex_init(rwmutex_t *m);
+ extern void rwmutex_rdlock(rwmutex_t *m);
+ extern void rwmutex_wrlock(rwmutex_t *m);
+-- 
+2.34.1
+

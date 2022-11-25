@@ -66,17 +66,19 @@ long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
   if ((cl_args->flags & REQUIRED_CLONE_FLAGS) != REQUIRED_CLONE_FLAGS)
     return -ENOSYS;
 
-  thread_t *th = thread_create(reinterpret_cast<thread_fn_t>(func), arg);
-  if (!th) return -ENOMEM;
+  thread_t *th;
+  if (cl_args->stack) {
+    th = thread_create_nostack(reinterpret_cast<thread_fn_t>(func), arg);
+    if (!th) return -ENOMEM;
+    th->tf.rsp = cl_args->stack + cl_args->stack_size;
+  } else {
+    th = thread_create(reinterpret_cast<thread_fn_t>(func), arg);
+    if (!th) return -ENOMEM;
+    th->tf.rsp += 8;
+  }
 
   // Allocate some stack space for some of our thread-local data
-  // Remove existing pointer to caladan's thread_exit, threads here will do a
-  // syscall(SYS_exit).
-  th->tf.rsp += 8;
   ThreadState *tstate = myproc()->ProcSetupNewThread(th);
-
-  // Use a library-provided stack
-  if (cl_args->stack) th->tf.rsp = cl_args->stack + cl_args->stack_size;
 
   // New function expects stack to be aligned to 8 mod 16.
   assert(th->tf.rsp % 16 == 0);

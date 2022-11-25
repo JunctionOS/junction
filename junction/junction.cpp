@@ -7,6 +7,7 @@ extern "C" {
 #include "junction/filesystem/linuxfs.hpp"
 #include "junction/junction.hpp"
 #include "junction/kernel/fs.h"
+#include "junction/shim/backend/init.h"
 #include "junction/syscall/seccomp.hpp"
 #include "junction/syscall/syscall.hpp"
 
@@ -16,6 +17,9 @@ Status<void> init() {
   set_fs(new LinuxFileSystem());
   install_seccomp_filter();
   Status<void> ret = SyscallInit();
+  if (unlikely(!ret)) return MakeError(ret);
+
+  ret = ShimJmpInit();
   if (unlikely(!ret)) return MakeError(ret);
 
   return {};
