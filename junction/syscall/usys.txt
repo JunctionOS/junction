@@ -34,3 +34,4 @@ rt_sigaction:::enosys
 tgkill:::enosys
 sched_setaffinity:::enosys
 sched_getaffinity:::enosys
+prctl:::enosys

@@ -19,7 +19,7 @@ std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
   auto manifest = std::make_shared<LinuxFileSystemManifest>();
   const unsigned int flags = 0;
   const std::vector<std::string> filepaths(
-      {"/proc/*", "/lib64/*", "/lib/*", "/usr/*", "/home/*"});
+      {"/proc/*", "/lib64/*", "/lib/*", "/usr/*", "/home/*", "/etc/*"});
   for (const auto &filepath : filepaths) {
     manifest->Insert(filepath, flags);
   }
