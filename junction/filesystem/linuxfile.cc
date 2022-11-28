@@ -8,7 +8,7 @@ extern "C" {
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
-#include "junction/filesystem/linuxfile.hpp"
+#include "junction/filesystem/linuxfile.h"
 #include "junction/kernel/ksys.h"
 
 namespace junction {

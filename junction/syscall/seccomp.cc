@@ -1,4 +1,4 @@
-#include "junction/syscall/seccomp.hpp"
+#include "junction/syscall/seccomp.h"
 
 #include <errno.h>
 #include <linux/audit.h>
@@ -12,9 +12,9 @@
 #include <unistd.h>
 
 #include "junction/kernel/ksys.h"
-#include "junction/syscall/seccomp_bpf.hpp"
-#include "junction/syscall/syscall.hpp"
-#include "junction/syscall/systbl.hpp"
+#include "junction/syscall/seccomp_bpf.h"
+#include "junction/syscall/syscall.h"
+#include "junction/syscall/systbl.h"
 
 namespace junction {
 
@@ -82,6 +82,7 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(time),
       ALLOW_SYSCALL(mbind), /* caladan's slab allocator uses this */
 
+      ALLOW_JUNCTION_SYSCALL(prctl),
       ALLOW_JUNCTION_SYSCALL(getdents),
       ALLOW_JUNCTION_SYSCALL(getdents64),
       ALLOW_JUNCTION_SYSCALL(newfstatat),

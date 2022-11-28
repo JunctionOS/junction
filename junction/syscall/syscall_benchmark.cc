@@ -27,7 +27,7 @@ extern "C" {
 
 #include <stdexcept>
 
-#include "junction/junction.hpp"
+#include "junction/junction.h"
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 

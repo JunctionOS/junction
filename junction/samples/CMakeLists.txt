@@ -2,7 +2,7 @@ message(STATUS "Building junction samples")
 
 # hello_world
 add_executable(hello_world
-  hello_world.cpp
+  hello_world.cc
 )
 
 # Generate inputs for the program

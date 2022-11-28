@@ -1,21 +1,21 @@
 message(STATUS "Building junction syscall")
 
 
-# Outputs syscall_tbl.cpp to build/junction/syscall/syscall_tbl.cpp
+# Outputs syscall_tbl.cc to build/junction/syscall/syscall_tbl.cpp
 add_custom_command(
-    OUTPUT  syscall_tbl.cpp
+    OUTPUT  syscall_tbl.cc
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/systbl.py
       ${CMAKE_CURRENT_SOURCE_DIR}/syscall_defs.txt
       ${CMAKE_CURRENT_SOURCE_DIR}/usys.txt
-      ${CMAKE_CURRENT_BINARY_DIR}/syscall_tbl.cpp
-    DEPENDS systbl.py syscall_defs.txt systbl.hpp usys.txt
+      ${CMAKE_CURRENT_BINARY_DIR}/syscall_tbl.cc
+    DEPENDS systbl.py syscall_defs.txt systbl.h usys.txt
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
 
 add_library(syscall
-  syscall.cpp
-  seccomp.cpp
-  syscall_tbl.cpp
+  syscall.cc
+  seccomp.cc
+  syscall_tbl.cc
 )
 
 target_link_libraries(syscall
@@ -26,7 +26,7 @@ target_link_libraries(syscall
 # Benchmarks
 # syscall_benchmark_glibc (custom glibc and junction)
 add_executable(syscall_benchmark
-  syscall_benchmark.cpp
+  syscall_benchmark.cc
 )
 target_link_libraries(syscall_benchmark
   junction
@@ -37,7 +37,7 @@ target_link_options(syscall_benchmark PUBLIC
 
 # syscall_benchmark_default_glibc (default glibc and junction)
 add_executable(syscall_benchmark_default_glibc
-  syscall_benchmark.cpp
+  syscall_benchmark.cc
 )
 target_link_libraries(syscall_benchmark_default_glibc
   junction
@@ -46,7 +46,7 @@ target_link_libraries(syscall_benchmark_default_glibc
 # Tests
 # dispatch_test
 add_executable(dispatch_test
-  dispatch_test.cpp
+  dispatch_test.cc
 )
 target_link_libraries(dispatch_test
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,gtest_main>"

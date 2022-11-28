@@ -2,8 +2,8 @@ message(STATUS "Building junction filesystem")
 
 # Library
 add_library(filesystem
-  linuxfile.cpp
-  linuxfs.cpp
+  linuxfile.cc
+  linuxfs.cc
 )
 
 target_link_libraries(filesystem
@@ -14,9 +14,9 @@ target_link_libraries(filesystem
 
 # Tests
 add_executable(filesystem_test
-  fs_testenv.cpp
-  linuxfile_test.cpp
-  linuxfs_test.cpp
+  fs_testenv.cc
+  linuxfile_test.cc
+  linuxfs_test.cc
 )
 
 target_link_libraries(filesystem_test

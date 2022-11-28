@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
 #ifdef JUNCTION
-#include "junction/junction.hpp"
+#include "junction/junction.h"
 #endif  // JUNCTION
 
 /*

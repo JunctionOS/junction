@@ -12,8 +12,8 @@ extern "C" {
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
-#include "junction/filesystem/linuxfile.hpp"
-#include "junction/filesystem/linuxfs.hpp"
+#include "junction/filesystem/linuxfile.h"
+#include "junction/filesystem/linuxfs.h"
 #include "junction/kernel/file.h"
 
 namespace {

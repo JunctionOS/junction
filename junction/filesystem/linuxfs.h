@@ -16,7 +16,7 @@ extern "C" {
 
 #include "junction/base/containers.h"
 #include "junction/base/error.h"
-#include "junction/filesystem/linuxfile.hpp"
+#include "junction/filesystem/linuxfile.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/fs.h"
 

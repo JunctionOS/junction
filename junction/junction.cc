@@ -6,12 +6,12 @@ extern "C" {
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
-#include "junction/filesystem/linuxfs.hpp"
-#include "junction/junction.hpp"
+#include "junction/filesystem/linuxfs.h"
+#include "junction/junction.h"
 #include "junction/kernel/fs.h"
 #include "junction/shim/backend/init.h"
-#include "junction/syscall/seccomp.hpp"
-#include "junction/syscall/syscall.hpp"
+#include "junction/syscall/seccomp.h"
+#include "junction/syscall/syscall.h"
 
 namespace junction {
 

@@ -1,10 +1,10 @@
-#include "junction/syscall/syscall.hpp"
+#include "junction/syscall/syscall.h"
 
 #include <cstring>
 
 #include "junction/bindings/log.h"
 #include "junction/kernel/ksys.h"
-#include "junction/syscall/systbl.hpp"
+#include "junction/syscall/systbl.h"
 
 namespace junction {
 

@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 
-#include "junction/junction.hpp"
+#include "junction/junction.h"
 
 /*
  * Performs a one-time environment setup for all FileSystem tests.
