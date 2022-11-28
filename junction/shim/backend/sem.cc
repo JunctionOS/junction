@@ -27,8 +27,7 @@ static_assert(sizeof(sem_t) >= sizeof(ShimSem));
 int shim_sem_init(sem_t *__sem, int __pshared, unsigned int __value) {
   if (__pshared) {
     LOG(WARN) << "No shim support for shared semaphores";
-    errno = ENOSYS;
-    return -1;
+    return -ENOSYS;
   }
 
   new (__sem) ShimSem(__value);
@@ -45,22 +44,19 @@ int shim_sem_destroy(sem_t *__sem) {
 /* Open a named semaphore NAME with open flags OFLAG.  */
 sem_t *shim_sem_open(const char *__name, int __oflag, ...) {
   LOG(WARN) << "No shim support for sem_open";
-  errno = ENOSYS;
-  return NULL;
+  return reinterpret_cast<sem_t *>(-ENOSYS);
 }
 
 /* Close descriptor for named semaphore SEM.  */
 int shim_sem_close(sem_t *__sem) {
   LOG(WARN) << "No shim support for sem_close";
-  errno = ENOSYS;
-  return -1;
+  return -ENOSYS;
 }
 
 /* Remove named semaphore NAME.  */
 int shim_sem_unlink(const char *__name) {
   LOG(WARN) << "No shim support for sem_unlink";
-  errno = ENOSYS;
-  return -1;
+  return -ENOSYS;
 }
 
 /* Wait for SEM being posted.
@@ -85,8 +81,7 @@ int shim_sem_wait(sem_t *__sem) {
 int shim_sem_clockwait(sem_t *__restrict __sem, clockid_t clock,
                        const struct timespec *__restrict __abstime) {
   LOG(WARN) << "No shim support for sem_clockwait";
-  errno = ENOSYS;
-  return -1;
+  return -ENOSYS;
 }
 
 /* Test whether SEM is posted.  */
@@ -101,8 +96,7 @@ int shim_sem_trywait(sem_t *__sem) {
   }
   s->lock.Unlock();
   if (success) return 0;
-  errno = EAGAIN;
-  return -1;
+  return -EAGAIN;
 }
 
 /* Post SEM.  */
