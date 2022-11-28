@@ -18,10 +18,17 @@ iok_pid=$!
 sleep 3
 reset
 
+# Prepare test environment
+rm -rf /tmp/junction
+mkdir /tmp/junction
+
 # Run tests
 cd $TEST_DIR
 export GTEST_COLOR=1
 $CTEST --output-on-failure --verbose --timeout 120
+
+# Cleanup test state
+rm -rf /tmp/junction
 
 # Stop Caladan
 sudo pkill iokerneld
