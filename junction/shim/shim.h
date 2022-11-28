@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <cstdarg>
 #include <cstddef>
 
 extern "C" {
@@ -51,7 +52,7 @@ struct CallNumber {
     sem_trywait,
     sem_post,
     sem_getvalue,
-    NR_SHIM_CALL
+    NR_SHIM_CALL  // must be last
   };
 };
 
@@ -95,7 +96,7 @@ int shim_pthread_rwlock_unlock(pthread_rwlock_t *r);
 
 int shim_sem_init(sem_t *__sem, int __pshared, unsigned int __value);
 int shim_sem_destroy(sem_t *__sem);
-sem_t *shim_sem_open(const char *__name, int __oflag, ...);
+sem_t *shim_sem_open(const char *__name, int __oflag, va_list *args);
 int shim_sem_close(sem_t *__sem);
 int shim_sem_unlink(const char *__name);
 int shim_sem_wait(sem_t *__sem);

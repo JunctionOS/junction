@@ -42,7 +42,7 @@ int shim_sem_destroy(sem_t *__sem) {
 }
 
 /* Open a named semaphore NAME with open flags OFLAG.  */
-sem_t *shim_sem_open(const char *__name, int __oflag, ...) {
+sem_t *shim_sem_open(const char *__name, int __oflag, va_list *args) {
   LOG(WARN) << "No shim support for sem_open";
   return reinterpret_cast<sem_t *>(-ENOSYS);
 }

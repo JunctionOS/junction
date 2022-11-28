@@ -1,0 +1,35 @@
+# Keep in sync with the order of enums in shim.h
+# Ret type, name, [argN type]...
+stack *, allocate_stack
+void, free_stack, stack *
+int, pthread_rwlock_destroy, pthread_rwlock_t *
+int, pthread_rwlock_init, pthread_rwlock_t *, const pthread_rwlockattr_t *
+int, pthread_rwlock_rdlock, pthread_rwlock_t *
+int, pthread_rwlock_tryrdlock, pthread_rwlock_t *
+int, pthread_rwlock_trywrlock, pthread_rwlock_t *
+int, pthread_rwlock_wrlock, pthread_rwlock_t *
+int, pthread_rwlock_unlock, pthread_rwlock_t *
+int, pthread_barrier_init, pthread_barrier_t *__restrict, const pthread_barrierattr_t *__restrict, unsigned
+int, pthread_barrier_wait, pthread_barrier_t *
+int, pthread_barrier_destroy, pthread_barrier_t *
+int, pthread_cond_init, pthread_cond_t *__restrict, const pthread_condattr_t *__restrict
+int, pthread_cond_signal, pthread_cond_t *
+int, pthread_cond_broadcast, pthread_cond_t *
+int, pthread_cond_wait, pthread_cond_t *, pthread_mutex_t *
+int, pthread_cond_timedwait, pthread_cond_t *, pthread_mutex_t *, const struct timespec *
+int, pthread_cond_destroy, pthread_cond_t *
+int, pthread_mutex_init, pthread_mutex_t *, const pthread_mutexattr_t *
+int, pthread_mutex_lock, pthread_mutex_t *
+int, pthread_mutex_trylock, pthread_mutex_t *
+int, pthread_mutex_unlock, pthread_mutex_t *
+int, pthread_mutex_destroy, pthread_mutex_t *
+int, sem_init, sem_t *, int, unsigned int
+int, sem_destroy, sem_t *
+sem_t *, sem_open, const char *, int , ...
+int, sem_close, sem_t *
+int, sem_unlink, const char *
+int, sem_wait, sem_t *
+int, sem_clockwait, sem_t *__restrict, clockid_t, const struct timespec *__restrict
+int, sem_trywait, sem_t *
+int, sem_post, sem_t *
+int, sem_getvalue, sem_t *__restrict, int *__restrict
