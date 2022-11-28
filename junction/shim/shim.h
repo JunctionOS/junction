@@ -7,6 +7,7 @@
 
 extern "C" {
 #include <pthread.h>
+#include <semaphore.h>
 }
 
 #define SHIMCALL_JMPTBL_LOC (0x202000UL)
@@ -40,6 +41,16 @@ struct CallNumber {
     pthread_mutex_trylock,
     pthread_mutex_unlock,
     pthread_mutex_destroy,
+    sem_init,
+    sem_destroy,
+    sem_open,
+    sem_close,
+    sem_unlink,
+    sem_wait,
+    sem_clockwait,
+    sem_trywait,
+    sem_post,
+    sem_getvalue,
     NR_SHIM_CALL
   };
 };
@@ -81,6 +92,18 @@ int shim_pthread_rwlock_tryrdlock(pthread_rwlock_t *r);
 int shim_pthread_rwlock_trywrlock(pthread_rwlock_t *r);
 int shim_pthread_rwlock_wrlock(pthread_rwlock_t *r);
 int shim_pthread_rwlock_unlock(pthread_rwlock_t *r);
+
+int shim_sem_init(sem_t *__sem, int __pshared, unsigned int __value);
+int shim_sem_destroy(sem_t *__sem);
+sem_t *shim_sem_open(const char *__name, int __oflag, ...);
+int shim_sem_close(sem_t *__sem);
+int shim_sem_unlink(const char *__name);
+int shim_sem_wait(sem_t *__sem);
+int shim_sem_clockwait(sem_t *__restrict __sem, clockid_t clock,
+                       const struct timespec *__restrict __abstime);
+int shim_sem_trywait(sem_t *__sem);
+int shim_sem_post(sem_t *__sem);
+int shim_sem_getvalue(sem_t *__restrict __sem, int *__restrict __sval);
 
 extern void *shim_jmptbl[static_cast<size_t>(CallNumber::NR_SHIM_CALL)];
 }

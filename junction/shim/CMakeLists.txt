@@ -19,6 +19,7 @@ add_library(shim_preload SHARED
 
 add_library(glibc_shim_backend
   backend/init.cc
+  backend/sem.cc
   backend/sync.cc
   backend/thread.cc
   shimjmp_tbl.cpp
