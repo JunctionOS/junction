@@ -36,7 +36,6 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(write),
       ALLOW_SYSCALL(writev),
       ALLOW_SYSCALL(fstat),
-      ALLOW_SYSCALL(lseek),
       ALLOW_SYSCALL(exit),
       ALLOW_SYSCALL(stat),
       ALLOW_SYSCALL(accept),
@@ -45,14 +44,12 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(ioctl),
       ALLOW_SYSCALL(mprotect),
       ALLOW_SYSCALL(rt_sigaction),
-      ALLOW_SYSCALL(getdents),
       ALLOW_SYSCALL(brk),
       ALLOW_SYSCALL(munmap),
       ALLOW_SYSCALL(getcwd),
       ALLOW_SYSCALL(readlink),
       ALLOW_SYSCALL(readlink),
       ALLOW_SYSCALL(sigaltstack),
-      ALLOW_SYSCALL(dup),
       ALLOW_SYSCALL(prlimit64),
       ALLOW_SYSCALL(sysinfo),
       ALLOW_SYSCALL(fcntl),
@@ -82,10 +79,12 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(getuid),
       ALLOW_SYSCALL(gettid),
       ALLOW_SYSCALL(access),
-      ALLOW_SYSCALL(getdents64),
-      ALLOW_SYSCALL(newfstatat),
+      ALLOW_SYSCALL(time),
       ALLOW_SYSCALL(mbind), /* caladan's slab allocator uses this */
 
+      ALLOW_JUNCTION_SYSCALL(getdents),
+      ALLOW_JUNCTION_SYSCALL(getdents64),
+      ALLOW_JUNCTION_SYSCALL(newfstatat),
       ALLOW_JUNCTION_SYSCALL(mmap),
       ALLOW_JUNCTION_SYSCALL(openat),
       ALLOW_JUNCTION_SYSCALL(open),
@@ -208,7 +207,7 @@ int _install_signal_handler() {
   return 0;
 }
 
-int install_seccomp_filter() {
+int init_seccomp() {
   // Install signal handlers for syscalls
   if (_install_signal_handler()) {
     printf("Failed to install signal handler\n");

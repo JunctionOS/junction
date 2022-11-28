@@ -67,8 +67,7 @@ class FileSystem {
   std::shared_ptr<Inode> cwd_;   // the current working directory
 };
 
-// Sets the currently used FileSystem; used during initialization.
-void set_fs(FileSystem *fs);
-FileSystem *get_fs();
+// Use the provided filesystem and perform initialization steps.
+void init_fs(FileSystem *fs);
 
 }  // namespace junction

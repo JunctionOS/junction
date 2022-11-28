@@ -2,6 +2,8 @@ extern "C" {
 #include <runtime/smalloc.h>
 }
 
+#include <memory>
+
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/filesystem/linuxfs.hpp"
@@ -13,9 +15,21 @@ extern "C" {
 
 namespace junction {
 
+std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
+  auto manifest = std::make_shared<LinuxFileSystemManifest>();
+  const unsigned int flags = 0;
+  const std::vector<std::string> filepaths(
+      {"/proc/*", "/lib64/*", "/lib/*", "/usr/*", "/home/*"});
+  for (const auto &filepath : filepaths) {
+    manifest->Insert(filepath, flags);
+  }
+  return manifest;
+}
+
 Status<void> init() {
-  set_fs(new LinuxFileSystem());
-  install_seccomp_filter();
+  std::shared_ptr<LinuxFileSystemManifest> manifest = init_fs_manifest();
+  init_fs(new LinuxFileSystem(std::move(manifest)));
+  init_seccomp();
   Status<void> ret = SyscallInit();
   if (unlikely(!ret)) return MakeError(ret);
 

@@ -66,16 +66,30 @@ class File {
   virtual Status<off_t> Seek(off_t off, SeekFrom origin) {
     return MakeError(EINVAL);
   }
-  virtual Status<void> Sync() { return {}; }
+  virtual Status<void> Sync() { return MakeError(EINVAL); }
+  virtual Status<void *> MMap(void *addr, size_t length, int prot, int flags,
+                              off_t off) {
+    return MakeError(EINVAL);
+  }
+  virtual Status<int> Stat(struct stat *statbuf, int flags) {
+    return MakeError(EINVAL);
+  }
+  virtual Status<int> GetDents(void *dirp, unsigned int count) {
+    return MakeError(EINVAL);
+  }
+  // TODO(girfan): We should be able to do with just one version of GetDents.
+  virtual Status<int> GetDents64(void *dirp, unsigned int count) {
+    return MakeError(EINVAL);
+  }
 
   [[nodiscard]] unsigned int get_flags() const { return flags_; }
   [[nodiscard]] unsigned int get_mode() const { return mode_; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
 
  protected:
-  unsigned int flags_;
-  unsigned int mode_;
-  off_t off_;
+  unsigned int flags_{0};
+  unsigned int mode_{0};
+  off_t off_{0};
 };
 
 namespace detail {

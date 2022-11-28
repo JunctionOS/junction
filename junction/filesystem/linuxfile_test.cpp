@@ -14,24 +14,25 @@ using namespace junction;
 
 class LinuxFileTest : public ::testing::Test {};
 
-TEST_F(LinuxFileTest, FileCreationTest) {
+TEST_F(LinuxFileTest, FileOpenTest) {
   // Inputs/Outputs
   const std::string filepath = "testdata/test.txt";
-  const unsigned int flags = kFlagSync;
+  const unsigned int flags = 0;
   const unsigned int mode = kModeRead;
 
   // Action
-  LinuxFile lf(filepath, flags, mode);
+  std::shared_ptr<LinuxFile> lf = LinuxFile::Open(filepath, flags, mode);
 
   // Test
-  EXPECT_EQ(flags, lf.get_flags());
-  EXPECT_NE(-1, lf.get_fd());
+  EXPECT_NE(nullptr, lf);
+  EXPECT_EQ(flags, lf->get_flags());
+  EXPECT_NE(-1, lf->get_fd());
 }
 
 TEST_F(LinuxFileTest, FileReadTest) {
   // Inputs/Outputs
   const std::string filepath = "testdata/test.txt";
-  const unsigned int flags = kFlagSync;
+  const unsigned int flags = 0;
   const unsigned int mode = kModeRead;
   const std::string data = "foo";
   const size_t nbytes = data.size();
@@ -40,8 +41,8 @@ TEST_F(LinuxFileTest, FileReadTest) {
   off_t offset{0};
 
   // Action
-  LinuxFile lf(filepath, flags, mode);
-  auto ret = lf.Read(readable_span(buf.get(), nbytes), &offset);
+  std::shared_ptr<LinuxFile> lf = LinuxFile::Open(filepath, flags, mode);
+  auto ret = lf->Read(readable_span(buf.get(), nbytes), &offset);
 
   // Test
   EXPECT_TRUE(ret);
@@ -61,8 +62,8 @@ TEST_F(LinuxFileTest, FileWriteTest) {
   off_t offset{0};
 
   // Action (Write)
-  LinuxFile lf(filepath, flags, mode);
-  auto ret = lf.Write(writable_span(data.c_str(), nbytes), &offset);
+  std::shared_ptr<LinuxFile> lf = LinuxFile::Open(filepath, flags, mode);
+  auto ret = lf->Write(writable_span(data.c_str(), nbytes), &offset);
 
   // Test
   EXPECT_TRUE(ret);
@@ -74,7 +75,7 @@ TEST_F(LinuxFileTest, FileWriteTest) {
   offset = 0;
 
   // Action (Read)
-  ret = lf.Read(readable_span(read_buf.get(), nbytes), &offset);
+  ret = lf->Read(readable_span(read_buf.get(), nbytes), &offset);
 
   // Test
   EXPECT_TRUE(ret);

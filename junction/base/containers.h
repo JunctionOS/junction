@@ -8,7 +8,7 @@
 
 namespace junction {
 
-// comparators for unordered_map to be used with std::string_view
+// Comparators for unordered_map to be used with std::string_view.
 struct string_hash {
   using is_transparent = void;
   [[nodiscard]] size_t operator()(const char *txt) const {
@@ -22,8 +22,8 @@ struct string_hash {
   }
 };
 
-// unordered_map that has a std::string key but can take std::string_view for
-// lookups
+// Unordered_map that has a std::string key but can take std::string_view for
+// lookups.
 template <typename Value>
 using string_unordered_map =
     std::unordered_map<std::string, Value, string_hash, std::equal_to<>>;

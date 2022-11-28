@@ -17,6 +17,7 @@ sudo ./iokerneld simple nobw noht no_hw_qdel -- --allow 00:00.0 --vdev=net_tap0 
 iok_pid=$!
 sleep 3
 reset
+
 # Run tests
 cd $TEST_DIR
 export GTEST_COLOR=1

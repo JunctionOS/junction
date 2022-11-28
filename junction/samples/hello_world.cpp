@@ -9,13 +9,11 @@
 
 #include <csignal>
 
-#include "junction/junction.hpp"
-
 /* Perform syscalls using glibc. */
 int test_glibc_syscall() {
   int fd = open("testdata/test.txt", O_RDONLY);
 
-  if (fd == -1) {
+  if (fd < 0) {
     perror("open");
     return 1;
   }
@@ -34,7 +32,7 @@ int test_glibc_syscall() {
 int test_direct_syscall() {
   int fd = syscall(SYS_open, "testdata/test.txt", O_RDONLY);
 
-  if (fd == -1) {
+  if (fd < 0) {
     perror("open");
     return 1;
   }
@@ -56,12 +54,6 @@ int main() {
   /* Log the PID. */
   pid_t pid = getpid();
   printf("PID = %d\n", pid);
-
-  /* Enable libjunction. */
-  if (!junction::init()) {
-    printf("Error: junction::init()\n");
-    return 1;
-  }
 
   if (test_glibc_syscall()) {
     printf("Failed: test_glibc_syscall\n");

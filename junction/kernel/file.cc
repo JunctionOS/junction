@@ -1,5 +1,6 @@
 extern "C" {
 #include <fcntl.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 }
 
@@ -13,6 +14,7 @@ extern "C" {
 #include "junction/kernel/fs.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
+#include "junction/kernel/stdiofile.h"
 #include "junction/kernel/usys.h"
 
 namespace {
@@ -109,26 +111,62 @@ bool FileTable::Remove(int fd) {
 
 // Currently used FileSystem.
 static std::unique_ptr<FileSystem> fs_;
-void set_fs(FileSystem *fs) { fs_.reset(fs); }
+void init_fs(FileSystem *fs) {
+  // Set the filesystem.
+  fs_.reset(fs);
+  FileTable &ftbl = myproc()->ftable;
+  // Create STDIN, STDOUT, STDERR files.
+  std::shared_ptr<StdIOFile> fin =
+      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
+  std::shared_ptr<StdIOFile> fout =
+      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
+  std::shared_ptr<StdIOFile> ferr =
+      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
+  ftbl.Insert(std::move(fin));
+  ftbl.Insert(std::move(fout));
+  ftbl.Insert(std::move(ferr));
+}
 inline FileSystem *get_fs() { return fs_.get(); }
 
-int usys_open(const char *pathname, int flags, mode_t mode) {
+long usys_open(const char *pathname, int flags, mode_t mode) {
   const std::string_view path(pathname);
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
-  if (unlikely(!f)) return -EBADF;
+  if (unlikely(!f)) return -ENOENT;
   FileTable &ftbl = myproc()->ftable;
   return ftbl.Insert(std::move(*f));
 }
 
-int usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
+long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   if (unlikely(dirfd != AT_FDCWD)) return -EINVAL;
   const std::string_view path(pathname);
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
-  if (unlikely(!f)) return -EBADF;
+  if (unlikely(!f)) return -ENOENT;
   FileTable &ftbl = myproc()->ftable;
   return ftbl.Insert(std::move(*f));
+}
+
+void *usys_mmap(void *addr, size_t length, int prot, int flags, int fd,
+                off_t offset) {
+  if (fd < 0) {
+    intptr_t ret = ksys_mmap(addr, length, prot, flags, fd, offset);
+    if (ret < 0) return MAP_FAILED;
+    return reinterpret_cast<void *>(ret);
+  }
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return MAP_FAILED;
+  Status<void *> ret = f->MMap(addr, length, prot, flags, offset);
+  if (!ret) return MAP_FAILED;
+  return static_cast<void *>(*ret);
+}
+
+int usys_munmap(void *addr, size_t length) {
+  if (unlikely(addr == nullptr)) return -EINVAL;
+  // TODO(girfan): Track the addresses when they were mmaped; this is just a bad
+  // hack.
+  return ksys_munmap(addr, length);
 }
 
 ssize_t usys_read(int fd, char *buf, size_t len) {
@@ -149,7 +187,7 @@ ssize_t usys_write(int fd, const char *buf, size_t len) {
   return static_cast<ssize_t>(*ret);
 }
 
-ssize_t usys_pread(int fd, char *buf, size_t len, off_t offset) {
+ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc()->ftable;
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
@@ -202,10 +240,45 @@ int usys_dup2(int oldfd, int newfd) {
   return newfd;
 }
 
-int usys_close(int fd) {
+long usys_close(int fd) {
   FileTable &ftbl = myproc()->ftable;
   if (!ftbl.Remove(fd)) return -EBADF;
   return 0;
+}
+
+long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
+                     int flags) {
+  if (flags & AT_EMPTY_PATH) {
+    FileTable &ftbl = myproc()->ftable;
+    File *f = ftbl.Get(dirfd);
+    if (unlikely(!f)) return -EBADF;
+    Status<int> ret = f->Stat(statbuf, flags);
+    if (!ret) return -ret.error().code();
+    return static_cast<long>(*ret);
+  } else {
+    // TODO(girfan): Eventually we should not allow this. Only files from the
+    // filesystem should be able to do this. We can fstat when we open
+    // files/mock it for newly created files.
+    return static_cast<long>(ksys_newfstatat(dirfd, pathname, statbuf, flags));
+  }
+}
+
+long usys_getdents(unsigned int fd, void *dirp, unsigned int count) {
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+  Status<int> ret = f->GetDents(dirp, count);
+  if (!ret) return -ret.error().code();
+  return static_cast<long>(*ret);
+}
+
+long usys_getdents64(unsigned int fd, void *dirp, unsigned int count) {
+  FileTable &ftbl = myproc()->ftable;
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+  Status<int> ret = f->GetDents64(dirp, count);
+  if (!ret) return -ret.error().code();
+  return static_cast<long>(*ret);
 }
 
 }  // namespace junction

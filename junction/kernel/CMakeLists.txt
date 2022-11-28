@@ -3,6 +3,7 @@ message(STATUS "Building junction kernel")
 set(SOURCES_C_CPP
   elf.cc
   file.cc
+  stdiofile.cc
   proc.cc
   exec.cc
   futex.cc

@@ -19,7 +19,10 @@ void JunctionMain(int argc, char *argv[]) {
 #else
       "LD_LIBRARY_PATH=" CUSTOM_GLIBC_DIR ":/lib/x86_64-linux-gnu/",
       "LD_PRELOAD=" CUSTOM_GLIBC_PRELOAD,
-#endif
+#endif  // CUSTOM_GLIBC_DIR
+#ifdef DEBUG
+      "LD_DEBUG=all"
+#endif  // DEBUG
   };
   std::vector<std::string_view> args = {};
   for (int i = 2; i < argc; i++) args.emplace_back(argv[i]);

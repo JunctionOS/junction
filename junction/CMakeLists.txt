@@ -40,7 +40,6 @@ set(caladan_test_config_path
 )
 file(WRITE ${caladan_test_config_path} ${caladan_test_config})
 
-
 set(CUSTOM_GLIBC_DIR
   "${CMAKE_SOURCE_DIR}/lib/glibc/build/"
 )

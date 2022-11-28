@@ -30,7 +30,7 @@ ksys_mmap:
 .align 16
 .globl ksys_munmap
 .type ksys_munmap, @function
-ksys_unmap:
+ksys_munmap:
 	movl	$__NR_munmap, %eax
 	syscall
 	ret
@@ -98,6 +98,31 @@ ksys_pread:
 ksys_pwrite:
 	movl	$__NR_pwrite64, %eax
 	movq	%rcx, %r10
+	syscall
+	ret
+
+.align 16
+.globl ksys_newfstatat
+.type ksys_newfstatat, @function
+ksys_newfstatat:
+	movl	$__NR_newfstatat, %eax
+	movq	%rcx, %r10
+	syscall
+	ret
+
+.align 16
+.globl ksys_getdents
+.type ksys_getdents, @function
+ksys_getdents:
+	movl	$__NR_getdents, %eax
+	syscall
+	ret
+
+.align 16
+.globl ksys_getdents64
+.type ksys_getdents64, @function
+ksys_getdents64:
+	movl	$__NR_getdents64, %eax
 	syscall
 	ret
 

@@ -1,48 +1,125 @@
 #include "junction/filesystem/linuxfs.hpp"
 
+extern "C" {
+#include <fcntl.h>
+}
+
 #include <gtest/gtest.h>
 
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "junction/base/io.h"
 #include "junction/bindings/log.h"
 #include "junction/kernel/file.h"
+#include "junction/kernel/ksys.h"
 
 using namespace junction;
 
 class LinuxFileSystemTest : public ::testing::Test {};
 
-TEST_F(LinuxFileSystemTest, FileCreationTest) {
+TEST_F(LinuxFileSystemTest, FileOpenTest) {
   // Inputs/Outputs
   const std::string filepath = "testdata/test.txt";
-  const unsigned int flags = kFlagSync;
+  const unsigned int flags = 0;
   const unsigned int mode = kModeRead;
 
+  // Prepare
+  auto manifest = std::make_shared<LinuxFileSystemManifest>();
+  manifest->Insert(filepath, flags);
+  LinuxFileSystem fs(manifest);
+
   // Action
-  LinuxFileSystem fs;
-  Status<std::shared_ptr<File>> file = fs.Open(filepath, mode, flags);
+  Status<std::shared_ptr<File>> ret = fs.Open(filepath, mode, flags);
 
   // Test
-  EXPECT_TRUE(file);
+  EXPECT_TRUE(ret);
 
   // Logging
   LOG(DEBUG) << "\n" << fs;
+}
+
+TEST_F(LinuxFileSystemTest, FileCreateTest) {
+  // Inputs/Outputs
+  const std::string filepath = "testdata/noexist.txt";
+  const unsigned int flags = kFlagCreate | kModeReadWrite;
+  const unsigned int mode = kModeReadWrite | S_IRWXU | S_IRWXG | S_IRWXO;
+
+  // Action
+  LinuxFileSystem fs;
+  Status<std::shared_ptr<File>> ret_1 = fs.Open(filepath, mode, flags);
+
+  // Test
+  EXPECT_TRUE(ret_1);
+
+  // Logging
+  LOG(DEBUG) << "\n" << fs;
+
+  // Action (Attempt to open the physical file)
+  int open_ret = ksys_open(filepath.c_str(), 0 /* flags */, O_RDWR);
+
+  // Test (The filepath specified must not exist in that directory)
+  EXPECT_EQ(-ENOENT, open_ret);
+
+  // Action (Attempt to open the file using the junction filesystem)
+  Status<std::shared_ptr<File>> ret_2 =
+      fs.Open(filepath, kModeReadWrite, 0 /* flags */);
+
+  // Logging
+  LOG(DEBUG) << "\n" << fs;
+
+  // Test (The junction filesystem should be able to open the file)
+  EXPECT_TRUE(ret_2);
+
+  // Inputs/Outputs
+  std::shared_ptr<File> f = *ret_2;
+  const std::string data = "foobar";
+  const size_t nbytes = data.size();
+
+  off_t offset{0};
+
+  // Action (Write)
+  auto write_ret = f->Write(writable_span(data.c_str(), nbytes), &offset);
+
+  // Test
+  EXPECT_TRUE(write_ret);
+  EXPECT_EQ(nbytes, write_ret.value());
+
+  // Inputs/Outputs
+  auto read_buf = std::make_unique<char[]>(nbytes);
+  offset = 0;
+
+  // Action (Read)
+  auto read_ret = f->Read(readable_span(read_buf.get(), nbytes), &offset);
+
+  // Test
+  EXPECT_TRUE(read_ret);
+  EXPECT_EQ(nbytes, read_ret.value());
+  EXPECT_EQ(nbytes, offset);
+  EXPECT_EQ(data, std::string(read_buf.get(), nbytes));
+  EXPECT_EQ(nbytes, offset);
 }
 
 TEST_F(LinuxFileSystemTest, MultipleDirectoriesTest) {
   // Inputs/Outputs
   const std::vector<std::string> filepaths(
       {"testdata/a/b/c/d/test.txt", "testdata/a/b/c/e/test.txt"});
-  const unsigned int flags = kFlagSync;
+  const unsigned int flags = 0;
   const unsigned int mode = kModeRead;
 
-  // Action
-  LinuxFileSystem fs;
+  // Prepare
+  auto manifest = std::make_shared<LinuxFileSystemManifest>();
   for (const std::string& filepath : filepaths) {
-    Status<std::shared_ptr<File>> file = fs.Open(filepath, mode, flags);
+    manifest->Insert(filepath, flags);
+  }
+  LinuxFileSystem fs(manifest);
+
+  // Action
+  for (const std::string& filepath : filepaths) {
+    Status<std::shared_ptr<File>> ret = fs.Open(filepath, mode, flags);
     // Test
-    EXPECT_TRUE(file);
+    EXPECT_TRUE(ret);
   }
 
   // Logging
@@ -54,7 +131,7 @@ class LinuxFileInodeTest : public ::testing::Test {};
 TEST_F(LinuxFileInodeTest, InodeFileOpenWithPathnameTest) {
   // Inputs/Outputs
   const std::string filepath = "testdata/test.txt";
-  const unsigned int flags = kFlagSync;
+  const unsigned int flags = 0;
   const unsigned int mode = kModeRead;
   const unsigned int file_type = kTypeRegularFile;
 
@@ -180,4 +257,25 @@ TEST_F(LinuxFileInodeTest, InodeLookupTest) {
 
   // Logging
   LOG(DEBUG) << "\n" << *dir;
+}
+
+TEST_F(LinuxFileSystemTest, OpenPageMapTest) {
+  // Inputs/Outputs
+  const std::string filepath = "/proc/self/pagemap";
+  const unsigned int flags = 0;
+  const unsigned int mode = kModeRead;
+
+  // Prepare
+  auto manifest = std::make_shared<LinuxFileSystemManifest>();
+  manifest->Insert(filepath, flags);
+  LinuxFileSystem fs(manifest);
+
+  // Action
+  Status<std::shared_ptr<File>> ret = fs.Open(filepath, mode, flags);
+
+  // Test
+  EXPECT_TRUE(ret);
+
+  // Logging
+  LOG(DEBUG) << "\n" << fs;
 }

@@ -4,20 +4,25 @@ getpid
 arch_prctl
 clone3
 set_tid_address
-#open
-#openat
+open
+openat
 exit_group
 exit
-#read
-#write
-#pwrite64
-#lseek
-#fsync
-#dup
-#dup2
-#close
+read
+write
+pwrite64
+pread64
+lseek
+close
 futex
 sched_yield
+mmap
+munmap
+newfstatat
+getdents
+getdents64
+dup
+dup2
 nanosleep
 
 # syscalls for which we return enosys

@@ -2,6 +2,7 @@
 
 extern "C" {
 #include <sys/mman.h>
+#include <sys/stat.h>
 }
 
 #include <cstddef>
@@ -31,6 +32,10 @@ ssize_t ksys_read(int fd, void *buf, size_t count);
 ssize_t ksys_write(int fd, const void *buf, size_t count);
 ssize_t ksys_pread(int fd, void *buf, size_t count, off_t offset);
 ssize_t ksys_pwrite(int fd, const void *buf, size_t count, off_t offset);
+int ksys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
+                    int flags);
+int ksys_getdents(unsigned int fd, void *dirp, unsigned int count);
+int ksys_getdents64(unsigned int fd, void *dirp, unsigned int count);
 void ksys_exit(int status) __attribute__((noreturn));
 }
 
