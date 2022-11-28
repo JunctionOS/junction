@@ -43,5 +43,8 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
 // Sched
 int usys_sched_yield();
 
+// Time
+long usys_nanosleep(const struct timespec *req, struct timespec *rem);
+
 }  // extern "C"
 }  // namespace junction

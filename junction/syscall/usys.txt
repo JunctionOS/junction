@@ -18,6 +18,7 @@ exit
 #close
 futex
 sched_yield
+nanosleep
 
 # syscalls for which we return enosys
 rseq:::enosys

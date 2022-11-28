@@ -7,6 +7,7 @@ set(SOURCES_C_CPP
   exec.cc
   futex.cc
   sched.cc
+  time.cc
 )
 
 set(SOURCES_ASM
