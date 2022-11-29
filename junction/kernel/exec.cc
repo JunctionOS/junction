@@ -3,6 +3,7 @@ extern "C" {
 #include <elf.h>
 #include <runtime/thread.h>
 #include <sys/auxv.h>
+
 #include "lib/caladan/runtime/defs.h"
 }
 
@@ -152,7 +153,7 @@ Status<thread_t *> Exec(std::string_view pathname,
 
   // remove the existing exit function pointer
   th->tf.rsp -= 8;
-  myproc()->ProcSetupNewThread(th);
+  myproc().CreateThread(th);
 
   SetupStack(&th->tf.rsp, argv, envp, *edata);
   return th;

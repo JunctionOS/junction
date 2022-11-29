@@ -114,7 +114,7 @@ static std::unique_ptr<FileSystem> fs_;
 void init_fs(FileSystem *fs) {
   // Set the filesystem.
   fs_.reset(fs);
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   // Create STDIN, STDOUT, STDERR files.
   std::shared_ptr<StdIOFile> fin =
       std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
@@ -133,7 +133,7 @@ long usys_open(const char *pathname, int flags, mode_t mode) {
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -ENOENT;
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   return ftbl.Insert(std::move(*f));
 }
 
@@ -143,7 +143,7 @@ long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   FileSystem *fs = get_fs();
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -ENOENT;
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   return ftbl.Insert(std::move(*f));
 }
 
@@ -154,7 +154,7 @@ void *usys_mmap(void *addr, size_t length, int prot, int flags, int fd,
     if (ret < 0) return MAP_FAILED;
     return reinterpret_cast<void *>(ret);
   }
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return MAP_FAILED;
   Status<void *> ret = f->MMap(addr, length, prot, flags, offset);
@@ -170,7 +170,7 @@ int usys_munmap(void *addr, size_t length) {
 }
 
 ssize_t usys_read(int fd, char *buf, size_t len) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
   Status<size_t> ret = f->Read(readable_span(buf, len), &f->get_off_ref());
@@ -179,7 +179,7 @@ ssize_t usys_read(int fd, char *buf, size_t len) {
 }
 
 ssize_t usys_write(int fd, const char *buf, size_t len) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
   Status<size_t> ret = f->Write(writable_span(buf, len), &f->get_off_ref());
@@ -188,7 +188,7 @@ ssize_t usys_write(int fd, const char *buf, size_t len) {
 }
 
 ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
   Status<size_t> ret = f->Read(readable_span(buf, len), &offset);
@@ -197,7 +197,7 @@ ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
 }
 
 ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
   Status<size_t> ret = f->Write(writable_span(buf, len), &offset);
@@ -207,7 +207,7 @@ ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
 
 off_t usys_lseek(int fd, off_t offset, int whence) {
   // TODO(amb): validate whence
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   Status<off_t> ret = f->Seek(offset, static_cast<SeekFrom>(whence));
@@ -217,7 +217,7 @@ off_t usys_lseek(int fd, off_t offset, int whence) {
 }
 
 int usys_fsync(int fd) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   Status<void> ret = f->Sync();
@@ -226,14 +226,14 @@ int usys_fsync(int fd) {
 }
 
 int usys_dup(int oldfd) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();;
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
   return ftbl.Insert(std::move(f));
 }
 
 int usys_dup2(int oldfd, int newfd) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();;
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
   ftbl.InsertAt(newfd, std::move(f));
@@ -241,7 +241,7 @@ int usys_dup2(int oldfd, int newfd) {
 }
 
 long usys_close(int fd) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();;
   if (!ftbl.Remove(fd)) return -EBADF;
   return 0;
 }
@@ -249,7 +249,7 @@ long usys_close(int fd) {
 long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                      int flags) {
   if (flags & AT_EMPTY_PATH) {
-    FileTable &ftbl = myproc()->ftable;
+    FileTable &ftbl = myproc().get_file_table();
     File *f = ftbl.Get(dirfd);
     if (unlikely(!f)) return -EBADF;
     Status<int> ret = f->Stat(statbuf, flags);
@@ -264,7 +264,7 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
 }
 
 long usys_getdents(unsigned int fd, void *dirp, unsigned int count) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   Status<int> ret = f->GetDents(dirp, count);
@@ -273,7 +273,7 @@ long usys_getdents(unsigned int fd, void *dirp, unsigned int count) {
 }
 
 long usys_getdents64(unsigned int fd, void *dirp, unsigned int count) {
-  FileTable &ftbl = myproc()->ftable;
+  FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   Status<int> ret = f->GetDents64(dirp, count);

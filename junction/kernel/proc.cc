@@ -26,6 +26,15 @@ extern "C" {
 
 namespace junction {
 
+Thread &Process::CreateThread(thread_t *th) {
+  // Store the Thread object on the stack
+  th->tf.rsp = AlignDown(th->tf.rsp - sizeof(Thread), 16);
+  __set_uthread_specific(th, th->tf.rsp);
+  Thread *tstate = reinterpret_cast<Thread *>(th->tf.rsp);
+  new (tstate) Thread(this, 1); // TODO: make PID unique?
+  return *tstate;
+}
+
 pid_t usys_getpid() { return 0; }
 
 int usys_arch_prctl(int code, unsigned long addr) {
@@ -37,19 +46,9 @@ int usys_arch_prctl(int code, unsigned long addr) {
 }
 
 pid_t usys_set_tid_address(int *tidptr) {
-  ThreadState *tstate = mystate();
-  tstate->child_tid = reinterpret_cast<uint32_t *>(tidptr);
-  return tstate->tid;
-}
-
-ThreadState *Proc::ProcSetupNewThread(thread_t *th) {
-  // Add a ThreadState to the stack
-  th->tf.rsp = AlignDown(th->tf.rsp - sizeof(ThreadState), 16);
-  __set_uthread_specific(th, th->tf.rsp);
-  ThreadState *tstate = reinterpret_cast<ThreadState *>(th->tf.rsp);
-  tstate->proc = this;
-  tstate->tid = 1;  // TODO: make unique?
-  return tstate;
+  Thread &tstate = mythread();
+  tstate.set_child_tid(reinterpret_cast<uint32_t *>(tidptr));
+  return tstate.get_tid();
 }
 
 #define REQUIRED_CLONE_FLAGS (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD)
@@ -78,7 +77,7 @@ long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
   }
 
   // Allocate some stack space for some of our thread-local data
-  ThreadState *tstate = myproc()->ProcSetupNewThread(th);
+  Thread &tstate = myproc().CreateThread(th);
 
   // New function expects stack to be aligned to 8 mod 16.
   assert(th->tf.rsp % 16 == 0);
@@ -89,26 +88,26 @@ long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
 
   // Write this thread's tid into
   if (cl_args->flags & CLONE_PARENT_SETTID)
-    *reinterpret_cast<uint32_t *>(cl_args->parent_tid) = tstate->tid;
+    *reinterpret_cast<uint32_t *>(cl_args->parent_tid) = tstate.get_tid();
 
   // Save a pointer to the child_tid address if requested, so it can later
   // notify the parent of the child's exit via futex.
   if (cl_args->flags & CLONE_CHILD_CLEARTID)
-    tstate->child_tid = reinterpret_cast<uint32_t *>(cl_args->child_tid);
+    tstate.set_child_tid(reinterpret_cast<uint32_t *>(cl_args->child_tid));
   else
-    tstate->child_tid = 0;
+    tstate.set_child_tid(nullptr);
 
   thread_ready(th);
-  return tstate->tid;
+  return tstate.get_tid();
 }
 
 void usys_exit(int status) {
-  ThreadState *ts = mystate();
-  if (ts->child_tid) {
-    *ts->child_tid = 0;
-    usys_futex(ts->child_tid, FUTEX_WAKE, 1, NULL, NULL, 0);
+  Thread &tstate = mythread();
+  uint32_t *child_tid = tstate.get_child_tid();
+  if (child_tid) {
+    *child_tid = 0;
+    tstate.get_process().get_futex_table().Wake(child_tid, 1);
   }
-
   rt::Exit();
 }
 
