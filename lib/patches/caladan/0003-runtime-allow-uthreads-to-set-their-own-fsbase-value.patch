@@ -1,18 +1,18 @@
-From 880a754c0d0d6c956292cdb77a5f5907fb31cce8 Mon Sep 17 00:00:00 2001
+From 76fba2b8ddcff08f7606ad922013c50c794d79b1 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 21 Nov 2022 01:11:21 -0500
-Subject: [PATCH 4/4] runtime: allow uthreads to set their own fsbase values
+Subject: [PATCH 3/4] runtime: allow uthreads to set their own fsbase values
 
 - each runtime kthread maintains its own fsbase that is used in the runtime context
 - if a thread sets its own fsbase, that will be loaded at each thread switch.
 otherwise the kthread-local fsbase value is used.
 ---
  build/shared.mk      |  2 +-
- inc/runtime/thread.h | 15 ++++++++++++---
+ inc/runtime/thread.h | 14 ++++++++++++--
  runtime/defs.h       | 10 ++++++----
- runtime/sched.c      | 38 ++++++++++++++++++++++++++++++--------
- runtime/switch.S     | 24 ++++++++++++++++++++++++
- 5 files changed, 73 insertions(+), 16 deletions(-)
+ runtime/sched.c      | 36 ++++++++++++++++++++++++++++--------
+ runtime/switch.S     | 17 +++++++++++++++++
+ 5 files changed, 64 insertions(+), 15 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
 index 1e087d8..8061a20 100644
@@ -28,14 +28,13 @@ index 1e087d8..8061a20 100644
  endif
  ifeq ($(CONFIG_MLX5),y)
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 2e626a8..421ab4a 100644
+index d71d30f..67dcceb 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -27,10 +27,13 @@ extern void thread_ready_head(thread_t *thread);
+@@ -26,9 +26,13 @@ extern void thread_ready(thread_t *thread);
+ extern void thread_ready_head(thread_t *thread);
  extern thread_t *thread_create(thread_fn_t fn, void *arg);
  extern thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t len);
- extern uint64_t *get_tf_rsp(thread_t *thread);
--
 +extern void __set_uthread_specific(thread_t *th, uint64_t val);
 +extern uint64_t __get_uthread_specific(thread_t *th);
 +extern void set_fsbase(thread_t *th, uint64_t fsbase);
@@ -46,7 +45,7 @@ index 2e626a8..421ab4a 100644
  
  static inline unsigned int get_current_affinity(void)
  {
-@@ -45,9 +48,15 @@ inline thread_t *thread_self(void)
+@@ -43,9 +47,15 @@ inline thread_t *thread_self(void)
  	return perthread_read_stable(__self);
  }
  
@@ -114,7 +113,7 @@ index 4c6d1ab..e6748e3 100644
  	hd_parity = !!(ACCESS_ONCE(*addr) & q->parity_bit_mask);
  
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f363a37..da1d7ef 100644
+index 2410edc..837359c 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -133,7 +132,7 @@ index f363a37..da1d7ef 100644
  /* a pointer to the bottom of the per-kthread (TLS) runtime stack */
  static DEFINE_PERTHREAD(void *, runtime_stack_base);
  
-@@ -45,16 +47,25 @@ static DEFINE_PERTHREAD(uint64_t, last_tsc);
+@@ -45,16 +47,23 @@ static DEFINE_PERTHREAD(uint64_t, last_tsc);
   */
  thread_t *thread_self(void);
  
@@ -155,17 +154,15 @@ index f363a37..da1d7ef 100644
 +
 +void set_fsbase(thread_t *th, uint64_t fsbase)
 +{
-+	preempt_disable();
++	th->tf.fsbase = fsbase;
++	barrier();
 +	th->has_fsbase = true;
 +	if (thread_self() == th)
 +		_writefsbase_u64(fsbase);
-+	else
-+		th->tf.fsbase = fsbase;
-+	preempt_enable();
  }
  
  /**
-@@ -87,6 +98,10 @@ static __noreturn void jmp_thread(thread_t *th)
+@@ -87,6 +96,10 @@ static __noreturn void jmp_thread(thread_t *th)
  		while (load_acquire(&th->thread_running))
  			cpu_relax();
  	}
@@ -176,7 +173,7 @@ index f363a37..da1d7ef 100644
  	th->thread_running = true;
  	__jmp_thread(&th->tf);
  }
-@@ -111,6 +126,10 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
+@@ -111,6 +124,10 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
  		while (load_acquire(&newth->thread_running))
  			cpu_relax();
  	}
@@ -187,7 +184,7 @@ index f363a37..da1d7ef 100644
  	newth->thread_running = true;
  	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
  }
-@@ -130,7 +149,7 @@ static void jmp_runtime(runtime_fn_t fn)
+@@ -130,7 +147,7 @@ static void jmp_runtime(runtime_fn_t fn)
  	assert_preempt_disabled();
  	assert(thread_self() != NULL);
  
@@ -196,7 +193,7 @@ index f363a37..da1d7ef 100644
  }
  
  /**
-@@ -142,7 +161,7 @@ static __noreturn void jmp_runtime_nosave(runtime_fn_t fn)
+@@ -142,7 +159,7 @@ static __noreturn void jmp_runtime_nosave(runtime_fn_t fn)
  {
  	assert_preempt_disabled();
  
@@ -205,7 +202,7 @@ index f363a37..da1d7ef 100644
  }
  
  static void drain_overflow(struct kthread *l)
-@@ -798,8 +817,10 @@ static __always_inline thread_t *__thread_create(void)
+@@ -798,8 +815,10 @@ static __always_inline thread_t *__thread_create(void)
  
  	th->stack = s;
  	th->main_thread = false;
@@ -216,7 +213,7 @@ index f363a37..da1d7ef 100644
  
  	return th;
  }
-@@ -988,6 +1009,7 @@ int sched_init_thread(void)
+@@ -976,6 +995,7 @@ int sched_init_thread(void)
  
  	perthread_store(runtime_stack_base, (void *)s);
  	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
@@ -225,7 +222,7 @@ index f363a37..da1d7ef 100644
  	return 0;
  }
 diff --git a/runtime/switch.S b/runtime/switch.S
-index c026907..893c5a1 100644
+index c026907..9377e0a 100644
 --- a/runtime/switch.S
 +++ b/runtime/switch.S
 @@ -35,6 +35,7 @@
@@ -247,17 +244,7 @@ index c026907..893c5a1 100644
  	/* set first argument (in case new thread) */
  	movq    RDI(%rdi), %rdi /* ARG0 */
  
-@@ -104,6 +109,9 @@ __jmp_thread_direct:
- 	leaq    8(%rsp), %r8
- 	movq    %r8, RSP(%rdi)
- 
-+	rdfsbase %r8
-+	movq %r8, FSBASE(%rdi)
-+
- 	/* save callee regs */
- 	movq    %rbx, RBX(%rdi)
- 	movq    %rbp, RBP(%rdi)
-@@ -127,6 +135,10 @@ __jmp_thread_direct:
+@@ -127,6 +132,10 @@ __jmp_thread_direct:
  	movq    R14(%rsi), %r14
  	movq    R15(%rsi), %r15
  
@@ -268,7 +255,7 @@ index c026907..893c5a1 100644
  	/* set first argument (in case new thread) */
  	movq    RDI(%rsi), %rdi /* ARG0 */
  
-@@ -157,6 +169,7 @@ __jmp_thread_direct:
+@@ -157,6 +166,7 @@ __jmp_thread_direct:
   * @tf: the struct thread_tf to save state (%rdi)
   * @fn: the function pointer to call (%rsi)
   * @stack: the start of the runtime stack (%rdx)
@@ -276,21 +263,17 @@ index c026907..893c5a1 100644
   *
   * This low-level variant isn't intended to be called directly.
   * Must be called with preemption disabled.
-@@ -180,6 +193,13 @@ __jmp_runtime:
+@@ -180,6 +190,9 @@ __jmp_runtime:
  	leaq    8(%rsp), %r8
  	movq    %r8, RSP(%rdi)
  
-+	/* save fs */
-+	rdfsbase %r8
-+	movq %r8, FSBASE(%rdi)
-+
 +	/* restore fs */
 +	wrfsbase %rcx
 +
  	/* jump into runtime function */
  	movq    %rdx, %rsp
  
-@@ -191,6 +211,7 @@ __jmp_runtime:
+@@ -191,6 +204,7 @@ __jmp_runtime:
   *			  current stack frame
   * @fn: the function pointer to call (%rdi)
   * @stack: the start of the runtime stack (%rsi)
@@ -298,7 +281,7 @@ index c026907..893c5a1 100644
   *
   * This low-level variant isn't intended to be called directly.
   * Must be called with preemption disabled.
-@@ -205,5 +226,8 @@ __jmp_runtime_nosave:
+@@ -205,5 +219,8 @@ __jmp_runtime_nosave:
  	movq    %rsi, %rsp
  	movq	%rdi, %rsi
  

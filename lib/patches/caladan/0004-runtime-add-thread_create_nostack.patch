@@ -1,7 +1,7 @@
-From 2d50944bcbaaeb1655fd082ac4dcaf358b29e434 Mon Sep 17 00:00:00 2001
+From cc5e4c6d774c078c8bf0878cb3962fd4fe3c3fc0 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 24 Nov 2022 21:55:35 -0500
-Subject: [PATCH 5/5] runtime: add thread_create_nostack
+Subject: [PATCH 4/4] runtime: add thread_create_nostack
 
 ---
  inc/runtime/thread.h |  1 +
@@ -9,7 +9,7 @@ Subject: [PATCH 5/5] runtime: add thread_create_nostack
  2 files changed, 48 insertions(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 421ab4a..119341d 100644
+index 67dcceb..ccc5380 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -26,6 +26,7 @@ extern void thread_ready(thread_t *thread);
@@ -17,14 +17,14 @@ index 421ab4a..119341d 100644
  extern thread_t *thread_create(thread_fn_t fn, void *arg);
  extern thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t len);
 +extern thread_t *thread_create_nostack(thread_fn_t fn, void *arg);
- extern uint64_t *get_tf_rsp(thread_t *thread);
  extern void __set_uthread_specific(thread_t *th, uint64_t val);
  extern uint64_t __get_uthread_specific(thread_t *th);
+ extern void set_fsbase(thread_t *th, uint64_t fsbase);
 diff --git a/runtime/sched.c b/runtime/sched.c
-index da1d7ef..d9bb3f3 100644
+index 837359c..a0a300b 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -794,6 +794,31 @@ void thread_yield(void)
+@@ -792,6 +792,31 @@ void thread_yield(void)
  	enter_schedule(curth);
  }
  
@@ -56,7 +56,7 @@ index da1d7ef..d9bb3f3 100644
  static __always_inline thread_t *__thread_create(void)
  {
  	struct thread *th;
-@@ -825,6 +850,26 @@ static __always_inline thread_t *__thread_create(void)
+@@ -823,6 +848,26 @@ static __always_inline thread_t *__thread_create(void)
  	return th;
  }
  
@@ -83,7 +83,7 @@ index da1d7ef..d9bb3f3 100644
  /**
   * thread_create - creates a new thread
   * @fn: a function pointer to the starting method of the thread
-@@ -930,7 +975,8 @@ static void thread_finish_exit(void)
+@@ -916,7 +961,8 @@ static void thread_finish_exit(void)
  	struct thread *th = thread_self();
  
  	gc_remove_thread(th);
