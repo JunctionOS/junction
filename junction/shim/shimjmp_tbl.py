@@ -95,7 +95,7 @@ with open(OUTPUT_FILE_SHIM, "w") as f:
 		errVal = "nullptr" if isPtrTyp else "-1"
 		castN = "reinterpret_cast<intptr_t>" if isPtrTyp else ""
 
-		f.write(f"\tif (__builtin_expect({castN}(ret) < 0, 0)) {'{'} errno = {castN}(ret); return {errVal}; {'}'}\n");
+		f.write(f"\tif (__builtin_expect({castN}(ret) < 0, 0)) {'{'} errno = -{castN}(ret); return {errVal}; {'}'}\n");
 		f.write("\treturn ret;\n}\n\n")
 
 	f.write("} // extern \"C\"")
