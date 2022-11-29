@@ -106,7 +106,7 @@ void usys_exit(int status) {
   uint32_t *child_tid = tstate.get_child_tid();
   if (child_tid) {
     *child_tid = 0;
-    tstate.get_process().get_futex_table().Wake(child_tid, 1);
+    FutexTable::GetFutexTable().Wake(child_tid, 1);
   }
   rt::Exit();
 }

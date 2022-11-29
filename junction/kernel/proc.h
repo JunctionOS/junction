@@ -50,7 +50,6 @@ class Process {
 
   [[nodiscard]] pid_t get_pid() const { return pid_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
-  [[nodiscard]] FutexTable &get_futex_table() { return futex_tbl_; }
 
   Thread &CreateThread(thread_t *th);
 
@@ -60,8 +59,7 @@ class Process {
   bool killed_{false};  // If non-zero, the process has been killed
 
   // per-process kernel subsystems
-  FileTable file_tbl_;    // file descriptor table
-  FutexTable futex_tbl_;  // futex table
+  FileTable file_tbl_;  // file descriptor table
 };
 
 // mythread returns the Thread object for the running thread.

@@ -42,8 +42,11 @@ class alignas(kCacheLineSize) FutexTable {
   // if @val doesn't match the value in the address.
   bool Wait(uint32_t *key, uint32_t val, uint32_t bitset = kFutexBitsetAny);
 
-  // Wake unblocks up to @n threads waiting on the address @key.
-  void Wake(uint32_t *key, int n = INT_MAX, uint32_t bitset = kFutexBitsetAny);
+  // Wake unblocks up to @n threads waiting on the address @key. Returns the
+  // number of threads woken.
+  int Wake(uint32_t *key, int n = INT_MAX, uint32_t bitset = kFutexBitsetAny);
+
+  static FutexTable &GetFutexTable();
 
  private:
   static constexpr size_t kBuckets = 16;  // TODO(amb): allocate dynamically?

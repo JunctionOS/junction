@@ -12,6 +12,11 @@ extern "C" {
 
 namespace junction {
 
+FutexTable &FutexTable::GetFutexTable() {
+  static FutexTable f;
+  return f;
+}
+
 bool FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset) {
   detail::futex_bucket &bucket = get_bucket(key);
   bucket.lock.Lock();
@@ -25,11 +30,12 @@ bool FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset) {
   return true;
 }
 
-void FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
-  if (unlikely(n == 0)) return;
+int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
+  if (unlikely(n == 0)) return 0;
   detail::futex_bucket &bucket = get_bucket(key);
   rt::SpinGuard(&bucket.lock);
   auto range = bucket.futexes.equal_range(key);
+  int i = 0;
   for (auto it = range.first; it != range.second;) {
     detail::futex_waiter &w = it->second;
     if (!(w.bitset & bitset)) {
@@ -38,8 +44,9 @@ void FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
     }
     thread_ready(w.th);
     it = bucket.futexes.erase(it);
-    if (--n <= 0) break;
+    if (++i >= n) break;
   }
+  return i;
 }
 
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
@@ -53,17 +60,14 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
     }
   }
 
-  if (unlikely(!(futex_op & FUTEX_PRIVATE_FLAG))) return -EINVAL;
   futex_op &= ~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME);
-  FutexTable &t = myproc().get_futex_table();
+  FutexTable &t = FutexTable::GetFutexTable();
 
   switch (futex_op) {
     case FUTEX_WAKE:
-      t.Wake(uaddr, val, kFutexBitsetAny);
-      break;
+      return t.Wake(uaddr, val, kFutexBitsetAny);
     case FUTEX_WAKE_BITSET:
-      t.Wake(uaddr, val, val3);
-      break;
+      return t.Wake(uaddr, val, val3);
     case FUTEX_WAIT:
       if (!t.Wait(uaddr, val, kFutexBitsetAny)) return -EAGAIN;
       break;
