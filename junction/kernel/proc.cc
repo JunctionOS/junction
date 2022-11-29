@@ -31,7 +31,7 @@ Thread &Process::CreateThread(thread_t *th) {
   th->tf.rsp = AlignDown(th->tf.rsp - sizeof(Thread), 16);
   __set_uthread_specific(th, th->tf.rsp);
   Thread *tstate = reinterpret_cast<Thread *>(th->tf.rsp);
-  new (tstate) Thread(this, 1); // TODO: make PID unique?
+  new (tstate) Thread(this, 1);  // TODO: make PID unique?
   return *tstate;
 }
 

@@ -44,7 +44,18 @@ std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap) {
 }  // namespace detail
 
 FileTable::FileTable()
-    : farr_(std::make_unique<FArr>(kInitialCap)), rcup_(farr_.get()) {}
+    : farr_(std::make_unique<FArr>(kInitialCap)), rcup_(farr_.get()) {
+  // Create STDIN, STDOUT, STDERR files.
+  std::shared_ptr<StdIOFile> fin =
+      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
+  std::shared_ptr<StdIOFile> fout =
+      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
+  std::shared_ptr<StdIOFile> ferr =
+      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
+  Insert(std::move(fin));
+  Insert(std::move(fout));
+  Insert(std::move(ferr));
+}
 
 FileTable::~FileTable() = default;
 
@@ -114,17 +125,6 @@ static std::unique_ptr<FileSystem> fs_;
 void init_fs(FileSystem *fs) {
   // Set the filesystem.
   fs_.reset(fs);
-  FileTable &ftbl = myproc().get_file_table();
-  // Create STDIN, STDOUT, STDERR files.
-  std::shared_ptr<StdIOFile> fin =
-      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
-  std::shared_ptr<StdIOFile> fout =
-      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
-  std::shared_ptr<StdIOFile> ferr =
-      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
-  ftbl.Insert(std::move(fin));
-  ftbl.Insert(std::move(fout));
-  ftbl.Insert(std::move(ferr));
 }
 inline FileSystem *get_fs() { return fs_.get(); }
 
@@ -226,14 +226,14 @@ int usys_fsync(int fd) {
 }
 
 int usys_dup(int oldfd) {
-  FileTable &ftbl = myproc().get_file_table();;
+  FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
   return ftbl.Insert(std::move(f));
 }
 
 int usys_dup2(int oldfd, int newfd) {
-  FileTable &ftbl = myproc().get_file_table();;
+  FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
   ftbl.InsertAt(newfd, std::move(f));
@@ -241,7 +241,7 @@ int usys_dup2(int oldfd, int newfd) {
 }
 
 long usys_close(int fd) {
-  FileTable &ftbl = myproc().get_file_table();;
+  FileTable &ftbl = myproc().get_file_table();
   if (!ftbl.Remove(fd)) return -EBADF;
   return 0;
 }

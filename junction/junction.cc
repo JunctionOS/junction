@@ -27,6 +27,8 @@ std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
 }
 
 Status<void> init() {
+  // Make sure any one-time routines in the logger get run now.
+  LOG(INFO) << "Initializing junction";
   std::shared_ptr<LinuxFileSystemManifest> manifest = init_fs_manifest();
   init_fs(new LinuxFileSystem(std::move(manifest)));
   init_seccomp();
