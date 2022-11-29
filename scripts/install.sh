@@ -8,7 +8,7 @@ ROOT_DIR=${SCRIPT_DIR}/../
 # Install Linux packages
 sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt update
-sudo apt install -y clang-format clang-tidy g++-11 perl
+sudo apt install -y clang-format clang-tidy g++-11 perl libboost-dev
 
 # Initialize submodules
 git submodule update --init --recursive

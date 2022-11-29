@@ -73,10 +73,10 @@ add_library(junction
 target_link_libraries(junction INTERFACE
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
   base
-  bindings
   filesystem
   kernel
   glibc_shim_backend
+  bindings
 )
 
 add_executable(junction_run

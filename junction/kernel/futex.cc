@@ -1,57 +1,93 @@
-// futex.cc - simple, low-performance futex implementation for FUTEX_WAIT and
+// futex.cc - simple incomplete futex implementation for FUTEX_WAIT and
 // FUTEX_WAKE.
 
 extern "C" {
 #include <linux/futex.h>
 }
 
+#include <boost/intrusive/list.hpp>
 #include <memory>
-#include <unordered_map>
 
+#include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/sync.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
 
-struct FutexKey {
-  rt::Mutex mtx;
-  rt::CondVar cv;
+constexpr size_t kNumBuckets = 1024;
+constexpr uint32_t kFutexBitsetAny = -1;
+
+using namespace boost::intrusive;
+
+struct FutexWaiter : list_base_hook<> {
+  rt::ThreadWaker w;
+  uint32_t *key;
+  uint32_t bitset;
 };
 
-// Global table of futex keys, protected by a spin lock.
-// Futex key entries are never deleted.
-static std::unordered_map<uint32_t *, std::shared_ptr<FutexKey>> keys;
-static rt::Spin futex_lock;
+typedef list<FutexWaiter> FutexList;
 
-std::shared_ptr<FutexKey> getKey(uint32_t *key, bool create) {
-  rt::SpinGuard lck(&futex_lock);
+FutexList waiter_list[kNumBuckets];
+rt::Spin bucket_locks[kNumBuckets];
 
-  auto it = keys.find(key);
-  if (it == keys.end()) {
-    if (!create) return nullptr;
-    auto fk = std::make_shared<FutexKey>();
-    keys[key] = fk;
-    return fk;
+inline size_t GetBucket(uint32_t *ptr) {
+  return (reinterpret_cast<uintptr_t>(ptr) >> 2) % kNumBuckets;
+}
+
+int FutexWait(uint32_t *key, uint32_t val, uint32_t bitset) {
+  if (rt::read_once(*key) != val) return -EAGAIN;
+
+  FutexWaiter fw;
+  fw.key = key;
+  fw.bitset = bitset;
+
+  size_t bucket = GetBucket(key);
+  rt::Spin &lck = bucket_locks[bucket];
+
+  lck.Lock();
+
+  // check with lock held to avoid missed wakeups
+  if (rt::read_once(*key) != val) {
+    lck.Unlock();
+    return 0;
   }
 
-  return it->second;
-}
+  // append ourselves to the waitlist
+  waiter_list[bucket].push_back(fw);
 
-int FutexBlock(uint32_t *key, uint32_t val) {
-  auto fk = getKey(key, true);
-  rt::MutexGuard g(&fk->mtx);
-  if (ACCESS_ONCE(*key) != val) return -EAGAIN;
-  fk->cv.Wait(&fk->mtx, [&] { return ACCESS_ONCE(*key) != val; });
+  // wait to be woken
+  fw.w.Arm();
+  lck.UnlockAndPark();
+
   return 0;
 }
 
-int FutexWake(uint32_t *key) {
-  auto fk = getKey(key, false);
-  if (!fk) return 0;
-  rt::MutexGuard g(&fk->mtx);
-  fk->cv.SignalAll();
-  return 0;
+int FutexWake(uint32_t *key, int n, uint32_t bitset) {
+  size_t bucket = GetBucket(key);
+  rt::SpinGuard lck(&bucket_locks[bucket]);
+  FutexList &l = waiter_list[bucket];
+
+  auto it = l.begin();
+  int i = 0;
+
+  while (i < n && it != l.end()) {
+    if (it->key != key || !(it->bitset & bitset)) {
+      it++;
+      continue;
+    }
+
+    // We can't wake the thread until we have removed the waiter from the list,
+    // since the waiter is stored on the sleeping thread's stack. move the
+    // threadwaker so we can safely remove the waiter from the list and then
+    // wake up the thread.
+    rt::ThreadWaker w = std::move(it->w);
+    it = l.erase(it);
+    w.Wake();
+    i++;
+  }
+
+  return i;
 }
 
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
@@ -69,11 +105,13 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
 
   switch (futex_op) {
     case FUTEX_WAKE:
+      val3 = kFutexBitsetAny;
     case FUTEX_WAKE_BITSET:
-      return FutexWake(uaddr);
+      return FutexWake(uaddr, val, val3);
     case FUTEX_WAIT:
+      val3 = kFutexBitsetAny;
     case FUTEX_WAIT_BITSET:
-      return FutexBlock(uaddr, val);
+      return FutexWait(uaddr, val, val3);
     default:
       return -ENOSYS;
   }
