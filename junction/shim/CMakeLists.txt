@@ -40,5 +40,5 @@ target_link_libraries(tbench_test
 
 add_test(
   NAME tbench_test_junction
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $<TARGET_FILE:tbench_test>"
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -- $<TARGET_FILE:tbench_test>"
 )
