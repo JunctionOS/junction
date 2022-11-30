@@ -2,6 +2,7 @@ extern "C" {
 #include <runtime/smalloc.h>
 }
 
+#include <boost/program_options.hpp>
 #include <memory>
 
 #include "junction/base/error.h"
@@ -14,6 +15,55 @@ extern "C" {
 #include "junction/syscall/syscall.h"
 
 namespace junction {
+
+JunctionCfg &GetCfg() {
+  static JunctionCfg cfg;
+  return cfg;
+}
+
+namespace po = boost::program_options;
+
+po::options_description JunctionCfg::GetOptions() {
+  po::options_description desc("Junction options");
+  desc.add_options()("help", "produce help message")(
+      "interpreter_path", po::value<std::string>()->implicit_value(""),
+      "use this custom interpreter for binaries")(
+      "ld_path", po::value<std::string>()->implicit_value(""),
+      "a path to include in LD_LIBRARY_PATH, use to inject a custom libc")(
+      "ld_preload", po::value<std::string>()->implicit_value(""),
+      "location of ld preload library");
+  return desc;
+}
+
+Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
+  po::options_description desc = GetOptions();
+  po::variables_map vm;
+
+  try {
+    po::store(po::parse_command_line(argc, argv, desc), vm);
+    po::notify(vm);
+  } catch (std::exception &e) {
+    std::cerr << "parse error: " << e.what() << std::endl;
+    return MakeError(-1);
+  }
+
+  if (vm.count("help")) return MakeError(0);
+
+  if (vm.count("interpreter_path"))
+    interp_path = vm["interpreter_path"].as<std::string>();
+
+  if (vm.count("ld_path")) ld_path = vm["ld_path"].as<std::string>();
+
+  if (vm.count("ld_preload")) preload_path = vm["ld_preload"].as<std::string>();
+
+  return {};
+}
+
+void JunctionCfg::Print() {
+  LOG(INFO) << "cfg: interpreter_path = " << interp_path;
+  LOG(INFO) << "cfg: ld_path = " << ld_path;
+  LOG(INFO) << "cfg: ld_preload = " << preload_path;
+}
 
 std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
   auto manifest = std::make_shared<LinuxFileSystemManifest>();
@@ -29,6 +79,7 @@ std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
 Status<void> init() {
   // Make sure any one-time routines in the logger get run now.
   LOG(INFO) << "Initializing junction";
+  GetCfg().Print();
   std::shared_ptr<LinuxFileSystemManifest> manifest = init_fs_manifest();
   init_fs(new LinuxFileSystem(std::move(manifest)));
   init_seccomp();
@@ -45,7 +96,7 @@ Status<void> init() {
 
 // Override global new and delete operators
 inline void *__new(size_t size) {
-  if (likely(thread_self()))
+  if (likely(base_init_done && thread_self()))
     return smalloc(size);
   else
     return malloc(size);
@@ -63,7 +114,7 @@ void *operator new(size_t size) throw() {
 
 void operator delete(void *ptr) noexcept {
   if (!ptr) return;
-  if (likely(thread_self()))
+  if (likely(base_init_done && thread_self()))
     sfree(ptr);
   else
     ;  // memory is being freed at teardown, probably ok to leak?

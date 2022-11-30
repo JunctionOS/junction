@@ -10,6 +10,7 @@
 #include "junction/base/error.h"
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
+#include "junction/junction.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 
@@ -218,13 +219,10 @@ Status<std::tuple<uintptr_t, size_t>> LoadSegments(
 }
 
 Status<elf_data::interp_data> LoadInterp(std::string_view path) {
-  DLOG(INFO) << "elf: loading interpreter ELF object file '" << path << "'";
+  if (junction::GetCfg().get_interp_path().size())
+    path = junction::GetCfg().get_interp_path();
 
-  // TODO(jfried): this path should be passed in at runtime
-#ifdef CUSTOM_GLIBC_INTERPRETER_PATH
-  if (path.ends_with("ld-linux-x86-64.so.2"))
-    path = CUSTOM_GLIBC_INTERPRETER_PATH;
-#endif
+  DLOG(INFO) << "elf: loading interpreter ELF object file '" << path << "'";
 
   // Open the file.
   Status<KernelFile> file = KernelFile::Open(path, 0, S_IRUSR | S_IXUSR);

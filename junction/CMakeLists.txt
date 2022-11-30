@@ -77,6 +77,7 @@ target_link_libraries(junction INTERFACE
   kernel
   glibc_shim_backend
   bindings
+  boost_program_options
 )
 
 add_executable(junction_run

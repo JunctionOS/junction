@@ -13,19 +13,23 @@ void JunctionMain(int argc, char *argv[]) {
   Status<void> ret = init();
   BUG_ON(!ret);
 
-  std::vector<std::string_view> envp = {
-#ifndef CUSTOM_GLIBC_DIR
-      "LD_LIBRARY_PATH=/lib/x86_64-linux-gnu/",
-#else
-      "LD_LIBRARY_PATH=" CUSTOM_GLIBC_DIR ":/lib/x86_64-linux-gnu/",
-      "LD_PRELOAD=" CUSTOM_GLIBC_PRELOAD,
-#endif  // CUSTOM_GLIBC_DIR
+  std::stringstream ld_path_s;
+  ld_path_s << "LD_LIBRARY_PATH=" << GetCfg().get_ld_path()
+            << ":/lib/x86_64-linux-gnu/";
+  std::string ld_path = ld_path_s.str();
+
+  std::stringstream preload_path_s;
+  preload_path_s << "LD_PRELOAD=" << GetCfg().get_preload_path();
+  std::string preload_path = preload_path_s.str();
+
+  std::vector<std::string_view> envp = {ld_path, preload_path,
 #ifdef DEBUG
-      "LD_DEBUG=all"
+                                        "LD_DEBUG=all"
 #endif  // DEBUG
   };
+
   std::vector<std::string_view> args = {};
-  for (int i = 2; i < argc; i++) args.emplace_back(argv[i]);
+  for (int i = 0; i < argc; i++) args.emplace_back(argv[i]);
 
   Status<thread_t *> th = Exec(args[0], args, envp);
   if (!th) {
@@ -42,20 +46,52 @@ void JunctionMain(int argc, char *argv[]) {
 
 }  // namespace junction
 
-int main(int argc, char *argv[]) {
-  int ret;
+void usage() {
+  std::cerr
+      << "usage: <cfg_file> [junction options]... -- <binary> [binary args]..."
+      << std::endl;
+  std::cerr << junction::GetCfg().GetOptions();
+}
 
+int main(int argc, char *argv[]) {
   if (argc < 3) {
-    std::cerr << "usage: [cfg_file] [binary] <args>" << std::endl;
+    usage();
     return -EINVAL;
   }
 
-  ret = junction::rt::RuntimeInit(std::string(argv[1]),
-                                  [=] { junction::JunctionMain(argc, argv); });
+  /* pick off runtime config file */
+  std::string cfg_file(argv[1]);
+  argv[1] = argv[0];
+  argc--;
+  argv++;
 
-  if (ret) {
+  int i;
+  for (i = 1; i < argc; i++)
+    if (std::string(argv[i]) == "--") break;
+
+  if (i >= argc - 1) {
+    std::cerr << "Missing binary to launch" << std::endl;
+    usage();
+    return -EINVAL;
+  }
+
+  char **binary_args = &argv[i + 1];
+  int binary_argc = argc - i - 1;
+  int junction_argc = i;
+
+  junction::Status<void> ret =
+      junction::GetCfg().FillFromArgs(junction_argc, argv);
+  if (!ret) {
+    usage();
+    return ret.error().code();
+  }
+
+  int rtret = junction::rt::RuntimeInit(
+      cfg_file, [=] { junction::JunctionMain(binary_argc, binary_args); });
+
+  if (rtret) {
     std::cerr << "runtime failed to start" << std::endl;
-    return ret;
+    return rtret;
   }
 
   return 0;
