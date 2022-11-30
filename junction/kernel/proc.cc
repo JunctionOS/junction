@@ -35,7 +35,7 @@ Thread &Process::CreateThread(thread_t *th) {
   return *tstate;
 }
 
-pid_t usys_getpid() { return 0; }
+pid_t usys_getpid() { return myproc().get_pid(); }
 
 int usys_arch_prctl(int code, unsigned long addr) {
   if (code != ARCH_SET_FS) return -EINVAL;
@@ -51,8 +51,6 @@ pid_t usys_set_tid_address(int *tidptr) {
   return tstate.get_tid();
 }
 
-#define REQUIRED_CLONE_FLAGS (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD)
-
 // Take advantage of the fact that glibc places func/arg in the 3rd/4th argument
 // register (SYS_clone3 only uses the first two arguments). The new
 // thread starts with the same RIP and registers but with a different return
@@ -61,9 +59,11 @@ pid_t usys_set_tid_address(int *tidptr) {
 // child directly at func. See __clone3 in clone3.S in glibc for reference.
 long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
                  void *arg) {
+  static constexpr uint64_t kRequiredFlags =
+      (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD);
+
   // Only support starting new threads in the same process
-  if ((cl_args->flags & REQUIRED_CLONE_FLAGS) != REQUIRED_CLONE_FLAGS)
-    return -ENOSYS;
+  if ((cl_args->flags & kRequiredFlags) != kRequiredFlags) return -ENOSYS;
 
   thread_t *th;
   if (cl_args->stack) {
