@@ -24,6 +24,7 @@ getdents64
 dup
 dup2
 nanosleep
+getcpu
 
 # syscalls for which we return enosys
 rseq:::enosys

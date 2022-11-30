@@ -48,7 +48,8 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 uint32_t val3);
 
 // Sched
-int usys_sched_yield();
+long usys_sched_yield();
+long usys_getcpu();
 
 // Time
 long usys_nanosleep(const struct timespec *req, struct timespec *rem);
