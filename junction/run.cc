@@ -28,6 +28,8 @@ void JunctionMain(int argc, char *argv[]) {
 #endif  // DEBUG
   };
 
+  for (const std::string &s : GetCfg().get_binary_envp()) envp.emplace_back(s);
+
   std::vector<std::string_view> args = {};
   for (int i = 0; i < argc; i++) args.emplace_back(argv[i]);
 

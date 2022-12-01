@@ -65,6 +65,13 @@ long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
   // Only support starting new threads in the same process
   if ((cl_args->flags & kRequiredFlags) != kRequiredFlags) return -ENOSYS;
 
+  // We may have entered here from either a patched glibc or from a syscall trap
+  // If we are in a syscall trap, we need to look elsewhere for @arg
+  // TODO: this really only works for glibc.
+  if (mythread().get_tf())
+    arg = reinterpret_cast<void *>(
+        mythread().get_tf()->uc_mcontext.gregs[REG_R8]);
+
   thread_t *th;
   if (cl_args->stack) {
     th = thread_create_nostack(reinterpret_cast<thread_fn_t>(func), arg);

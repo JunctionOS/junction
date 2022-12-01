@@ -1,0 +1,142 @@
+From e5ad75cf8415bbd0eb599b9db94dfbf2e22cf030 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Wed, 30 Nov 2022 23:53:24 -0500
+Subject: [PATCH 8/8] base: provide sigaction functionality for
+ runtime/junction
+
+---
+ base/signal.c     | 47 +++++++++++++++++++++++++++++++++++++++++++++++
+ inc/base/signal.h |  9 +++++++++
+ runtime/preempt.c | 27 +++------------------------
+ 3 files changed, 59 insertions(+), 24 deletions(-)
+ create mode 100644 base/signal.c
+ create mode 100644 inc/base/signal.h
+
+diff --git a/base/signal.c b/base/signal.c
+new file mode 100644
+index 0000000..5a9ece7
+--- /dev/null
++++ b/base/signal.c
+@@ -0,0 +1,47 @@
++/*
++ * signal.c - support for setting up signal handlers without using glibc
++ */
++
++#include <base/signal.h>
++#include <base/syscall.h>
++
++#include <asm/unistd_64.h>
++#include <errno.h>
++#include <string.h>
++
++#define SA_RESTORER 0x04000000
++
++/* copied from glibc sysdeps/unix/sysv/linux/kernel_sigaction.h */
++struct kernel_sigaction {
++	__sighandler_t k_sa_handler;
++	unsigned long sa_flags;
++	void (*sa_restorer) (void);
++	sigset_t sa_mask;
++};
++
++/* use our own sa_restorer instead of glibc's */
++int base_sigaction(int sig, const struct sigaction *act, struct sigaction *oact)
++{
++	long ret;
++	struct kernel_sigaction kact, okact;
++
++	kact.k_sa_handler = act->sa_handler;
++	memcpy(&kact.sa_mask, &act->sa_mask, sizeof(sigset_t));
++	kact.sa_flags = act->sa_flags | SA_RESTORER;
++	kact.sa_restorer = &syscall_rt_sigreturn;
++	ret = syscall(__NR_rt_sigaction, sig, &kact, oact ? &okact : NULL, 8);
++
++	if (ret < 0) {
++		errno = -ret;
++		return -1;
++	}
++
++	if (oact) {
++		oact->sa_handler = okact.k_sa_handler;
++		memcpy(&oact->sa_mask, &okact.sa_mask, sizeof(sigset_t));
++		oact->sa_flags = okact.sa_flags;
++		oact->sa_restorer = okact.sa_restorer;
++	}
++
++	return 0;
++}
+diff --git a/inc/base/signal.h b/inc/base/signal.h
+new file mode 100644
+index 0000000..b37c1c5
+--- /dev/null
++++ b/inc/base/signal.h
+@@ -0,0 +1,9 @@
++/*
++ * signal.h - support for setting up signal handlers without using glibc
++ */
++
++#pragma once
++
++#include <signal.h>
++
++extern int base_sigaction(int sig, const struct sigaction *act, struct sigaction *oact);
+diff --git a/runtime/preempt.c b/runtime/preempt.c
+index 78f6493..b49ab72 100644
+--- a/runtime/preempt.c
++++ b/runtime/preempt.c
+@@ -6,6 +6,7 @@
+ #include <string.h>
+ 
+ #include <base/log.h>
++#include <base/signal.h>
+ #include <base/syscall.h>
+ #include <runtime/thread.h>
+ #include <runtime/preempt.h>
+@@ -97,28 +98,6 @@ int preempt_init_thread(void)
+ 	return 0;
+ }
+ 
+-#define SA_RESTORER 0x04000000
+-
+-/* copied from glibc sysdeps/unix/sysv/linux/kernel_sigaction.h */
+-struct kernel_sigaction {
+-	__sighandler_t k_sa_handler;
+-	unsigned long sa_flags;
+-	void (*sa_restorer) (void);
+-	sigset_t sa_mask;
+-};
+-
+-
+-/* use our own sa_restorer instead of glibc's */
+-static int _sigaction(int sig, const struct sigaction *act)
+-{
+-	struct kernel_sigaction kact;
+-
+-	kact.k_sa_handler = act->sa_handler;
+-	memcpy(&kact.sa_mask, &act->sa_mask, sizeof(sigset_t));
+-	kact.sa_flags = act->sa_flags | SA_RESTORER;
+-	kact.sa_restorer = &syscall_rt_sigreturn;
+-	return syscall(__NR_rt_sigaction, sig, &kact, NULL, 8);
+-}
+ 
+ /**
+  * preempt_init - global initializer for preemption support
+@@ -137,13 +116,13 @@ int preempt_init(void)
+ 	}
+ 
+ 	act.sa_sigaction = handle_sigusr1;
+-	if (_sigaction(SIGUSR1, &act) < 0) {
++	if (base_sigaction(SIGUSR1, &act, NULL) < 0) {
+ 		log_err("couldn't register signal handler");
+ 		return -1;
+ 	}
+ 
+ 	act.sa_sigaction = handle_sigusr2;
+-	if (_sigaction(SIGUSR2, &act) < 0) {
++	if (base_sigaction(SIGUSR2, &act, NULL) < 0) {
+ 		log_err("couldn't register signal handler");
+ 		return -1;
+ 	}
+-- 
+2.34.1
+

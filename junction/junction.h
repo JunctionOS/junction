@@ -32,6 +32,10 @@ class JunctionCfg {
     return preload_path;
   }
 
+  [[nodiscard]] const std::vector<std::string> &get_binary_envp() const {
+    return binary_envp;
+  }
+
   [[nodiscard]] program_options GetOptions();
   Status<void> FillFromArgs(int argc, char *argv[]);
   void Print();
@@ -40,6 +44,7 @@ class JunctionCfg {
   std::string interp_path{CUSTOM_GLIBC_INTERPRETER_PATH};
   std::string ld_path{CUSTOM_GLIBC_DIR};
   std::string preload_path{CUSTOM_GLIBC_PRELOAD};
+  std::vector<std::string> binary_envp;
 };
 
 JunctionCfg &GetCfg();

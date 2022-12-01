@@ -4,6 +4,7 @@
 
 extern "C" {
 #include <sys/types.h>
+#include <ucontext.h>
 }
 
 #include <memory>
@@ -29,12 +30,15 @@ class Thread {
   [[nodiscard]] pid_t get_tid() const { return tid_; }
   [[nodiscard]] Process &get_process() { return *proc_; }
   [[nodiscard]] uint32_t *get_child_tid() { return child_tid_; }
+  [[nodiscard]] ucontext_t *get_tf() { return tf_; }
   void set_child_tid(uint32_t *tid) { child_tid_ = tid; }
+  void set_tf(ucontext_t *tf) { tf_ = tf; }
 
  private:
-  Process *proc_;        // the process this thread is associated with
-  uint32_t *child_tid_;  // Used for clone3/exit
-  pid_t tid_;            // the thread identifier
+  Process *proc_;            // the process this thread is associated with
+  uint32_t *child_tid_;      // Used for clone3/exit
+  pid_t tid_;                // the thread identifier
+  ucontext_t *tf_{nullptr};  // non-null when signal handler is used
 };
 
 // Process is a UNIX process object.

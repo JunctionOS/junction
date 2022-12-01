@@ -11,6 +11,10 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+extern "C" {
+#include <base/signal.h>
+}
+
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/syscall/seccomp_bpf.h"
@@ -22,7 +26,7 @@ namespace junction {
 /* Source: https://outflux.net/teach-seccomp/step-3/example.c
  * List of syscall numbers: https://filippo.io/linux-syscall-table/
  */
-int _install_seccomp_filter() {
+Status<void> _install_seccomp_filter() {
   struct sock_filter filter[] = {
       /* List allowed syscalls. */
       ALLOW_CALADAN_SYSCALL(ioctl),
@@ -36,19 +40,15 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(write),
       ALLOW_SYSCALL(writev),
       ALLOW_SYSCALL(fstat),
-      ALLOW_SYSCALL(exit),
       ALLOW_SYSCALL(stat),
       ALLOW_SYSCALL(accept),
       ALLOW_SYSCALL(recvfrom),
       ALLOW_SYSCALL(sendto),
-      ALLOW_SYSCALL(mprotect),
-      ALLOW_SYSCALL(rt_sigaction),
       ALLOW_SYSCALL(brk),
       ALLOW_SYSCALL(munmap),
       ALLOW_SYSCALL(getcwd),
       ALLOW_SYSCALL(readlink),
       ALLOW_SYSCALL(readlink),
-      ALLOW_SYSCALL(sigaltstack),
       ALLOW_SYSCALL(prlimit64),
       ALLOW_SYSCALL(sysinfo),
       ALLOW_SYSCALL(fcntl),
@@ -56,7 +56,6 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(getegid),
       ALLOW_SYSCALL(getgid),
       ALLOW_SYSCALL(uname),
-      ALLOW_SYSCALL(rt_sigreturn),
       ALLOW_SYSCALL(rename),
       ALLOW_SYSCALL(socket),
       ALLOW_SYSCALL(bind),
@@ -79,7 +78,6 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(gettid),
       ALLOW_SYSCALL(access),
       ALLOW_SYSCALL(time),
-      ALLOW_SYSCALL(mbind), /* caladan's slab allocator uses this */
 
       ALLOW_JUNCTION_SYSCALL(ioctl),
       ALLOW_JUNCTION_SYSCALL(prctl),
@@ -87,6 +85,7 @@ int _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(getdents64),
       ALLOW_JUNCTION_SYSCALL(newfstatat),
       ALLOW_JUNCTION_SYSCALL(mmap),
+      ALLOW_JUNCTION_SYSCALL(mprotect),
       ALLOW_JUNCTION_SYSCALL(openat),
       ALLOW_JUNCTION_SYSCALL(open),
       ALLOW_JUNCTION_SYSCALL(close),
@@ -110,17 +109,17 @@ int _install_seccomp_filter() {
     if (errno == EINVAL) {
       fprintf(stderr, "SECCOMP_FILTER is not available. :(\n");
     }
-    return 1;
+    return MakeError(-errno);
   }
 
   int rv = syscall(SYS_seccomp, SECCOMP_SET_MODE_FILTER,
                    SECCOMP_FILTER_FLAG_TSYNC, &prog);
   if (rv) {
     perror("syscall(SECCOMP_SET_MODE_FILTER)");
-    return rv;
+    return MakeError(rv);
   }
 
-  return 0;
+  return {};
 }
 
 void log_syscall_msg(const char* msg_needed, long sysn) {
@@ -172,39 +171,40 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
   log_syscall_msg("Trap handled syscall", sysn);
 #endif
 
+  /* set a pointer to the current trapframe */
+  mythread().set_tf(ctx);
+
   auto res = sys_dispatch(arg0, arg1, arg2, arg3, arg4, arg5, sysn);
+
+  /* clear the trapframe pointer */
+  mythread().set_tf(nullptr);
+
   ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
 
   // Restore the errno
   errno = old_errno;
 }
 
-int _install_signal_handler() {
+Status<void> _install_signal_handler() {
   struct sigaction act;
-  sigset_t mask;
-  memset(&act, 0, sizeof(act));
-  sigemptyset(&mask);
-  sigaddset(&mask, SIGSYS);
+
+  if (sigemptyset(&act.sa_mask) != 0) return MakeError(-errno);
 
   act.sa_sigaction = &__signal_handler;
-  act.sa_flags = SA_SIGINFO;
-  if (sigaction(SIGSYS, &act, NULL) < 0) {
+  act.sa_flags = SA_SIGINFO | SA_NODEFER;
+
+  if (base_sigaction(SIGSYS, &act, NULL) < 0) {
     perror("sigaction");
-    return -1;
+    return MakeError(-errno);
   }
-  if (sigprocmask(SIG_UNBLOCK, &mask, NULL)) {
-    perror("sigprocmask");
-    return -1;
-  }
-  return 0;
+
+  return {};
 }
 
-int init_seccomp() {
+Status<void> init_seccomp() {
   // Install signal handlers for syscalls
-  if (_install_signal_handler()) {
-    printf("Failed to install signal handler\n");
-    return -1;
-  }
+  Status<void> ret = _install_signal_handler();
+  if (!ret) return ret;
 
   // Install syscall filter.
   return _install_seccomp_filter();

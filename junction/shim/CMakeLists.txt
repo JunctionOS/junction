@@ -33,12 +33,29 @@ target_link_libraries(tbench_test
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,gtest_main>"
 )
 
-# add_test(
-#   NAME tbench_test_native
-#   COMMAND sh -c "$<TARGET_FILE:tbench_test>"
-# )
+set(MEASURE_ROUNDS "10000") # set higher for real benchmarking
 
 add_test(
-  NAME tbench_test_junction
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -- $<TARGET_FILE:tbench_test>"
+  NAME tbench_test_native
+  COMMAND sh -c "MEASURE_ROUNDS=${MEASURE_ROUNDS} $<TARGET_FILE:tbench_test>"
+)
+
+add_test(
+  NAME tbench_test_junction_all_optimization
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+)
+
+add_test(
+  NAME tbench_test_junction_no_optimization
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_path --interpreter_path --ld_preload -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+)
+
+add_test(
+  NAME tbench_test_junction_plus_custom_libc
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+)
+
+add_test(
+  NAME tbench_test_junction_plus_shim
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_path --interpreter_path -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
 )

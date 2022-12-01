@@ -1,7 +1,9 @@
 #pragma once
 
+#include "junction/base/error.h"
+
 namespace junction {
 
-int init_seccomp();
+Status<void> init_seccomp();
 
 }  // namespace junction

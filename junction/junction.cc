@@ -31,7 +31,9 @@ po::options_description JunctionCfg::GetOptions() {
       "ld_path", po::value<std::string>()->implicit_value(""),
       "a path to include in LD_LIBRARY_PATH, use to inject a custom libc")(
       "ld_preload", po::value<std::string>()->implicit_value(""),
-      "location of ld preload library");
+      "location of ld preload library")(
+      "env,E", po::value<std::vector<std::string>>()->multitoken(),
+      "environment flags for binary");
   return desc;
 }
 
@@ -56,6 +58,8 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 
   if (vm.count("ld_preload")) preload_path = vm["ld_preload"].as<std::string>();
 
+  if (vm.count("env")) binary_envp = vm["env"].as<std::vector<std::string>>();
+
   return {};
 }
 
@@ -63,6 +67,7 @@ void JunctionCfg::Print() {
   LOG(INFO) << "cfg: interpreter_path = " << interp_path;
   LOG(INFO) << "cfg: ld_path = " << ld_path;
   LOG(INFO) << "cfg: ld_preload = " << preload_path;
+  for (std::string &s : binary_envp) LOG(INFO) << "env: " << s;
 }
 
 std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
@@ -82,14 +87,14 @@ Status<void> init() {
   GetCfg().Print();
   std::shared_ptr<LinuxFileSystemManifest> manifest = init_fs_manifest();
   init_fs(new LinuxFileSystem(std::move(manifest)));
-  init_seccomp();
-  Status<void> ret = SyscallInit();
-  if (unlikely(!ret)) return MakeError(ret);
 
-  ret = ShimJmpInit();
-  if (unlikely(!ret)) return MakeError(ret);
+  Status<void> ret = init_seccomp();
+  if (unlikely(!ret)) return ret;
 
-  return {};
+  ret = SyscallInit();
+  if (unlikely(!ret)) return ret;
+
+  return ShimJmpInit();
 }
 
 }  // namespace junction
