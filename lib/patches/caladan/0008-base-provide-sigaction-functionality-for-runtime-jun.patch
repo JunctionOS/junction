@@ -1,23 +1,23 @@
-From e5ad75cf8415bbd0eb599b9db94dfbf2e22cf030 Mon Sep 17 00:00:00 2001
+From d9a7ce82407060c5d893a52d4810bd9ddc6b991b Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 30 Nov 2022 23:53:24 -0500
 Subject: [PATCH 8/8] base: provide sigaction functionality for
  runtime/junction
 
 ---
- base/signal.c     | 47 +++++++++++++++++++++++++++++++++++++++++++++++
+ base/signal.c     | 50 +++++++++++++++++++++++++++++++++++++++++++++++
  inc/base/signal.h |  9 +++++++++
- runtime/preempt.c | 27 +++------------------------
- 3 files changed, 59 insertions(+), 24 deletions(-)
+ runtime/preempt.c | 27 +++----------------------
+ 3 files changed, 62 insertions(+), 24 deletions(-)
  create mode 100644 base/signal.c
  create mode 100644 inc/base/signal.h
 
 diff --git a/base/signal.c b/base/signal.c
 new file mode 100644
-index 0000000..5a9ece7
+index 0000000..c8d998f
 --- /dev/null
 +++ b/base/signal.c
-@@ -0,0 +1,47 @@
+@@ -0,0 +1,50 @@
 +/*
 + * signal.c - support for setting up signal handlers without using glibc
 + */
@@ -45,11 +45,14 @@ index 0000000..5a9ece7
 +	long ret;
 +	struct kernel_sigaction kact, okact;
 +
-+	kact.k_sa_handler = act->sa_handler;
-+	memcpy(&kact.sa_mask, &act->sa_mask, sizeof(sigset_t));
-+	kact.sa_flags = act->sa_flags | SA_RESTORER;
-+	kact.sa_restorer = &syscall_rt_sigreturn;
-+	ret = syscall(__NR_rt_sigaction, sig, &kact, oact ? &okact : NULL, 8);
++	if (act) {
++		kact.k_sa_handler = act->sa_handler;
++		memcpy(&kact.sa_mask, &act->sa_mask, sizeof(sigset_t));
++		kact.sa_flags = act->sa_flags | SA_RESTORER;
++		kact.sa_restorer = &syscall_rt_sigreturn;
++	}
++
++	ret = syscall(__NR_rt_sigaction, sig, act ? &kact : NULL, oact ? &okact : NULL, 8);
 +
 +	if (ret < 0) {
 +		errno = -ret;
