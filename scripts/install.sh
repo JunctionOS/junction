@@ -8,7 +8,7 @@ ROOT_DIR=${SCRIPT_DIR}/../
 # Install Linux packages
 #sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt update
-sudo apt install -y clang-format clang-tidy g++-11 perl libboost-dev bison
+sudo apt install -y clang-format clang-tidy g++-11 perl libboost-dev libboost-program-options-dev bison
 # From caladan README
 sudo apt install -y make gcc cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev libncurses-dev meson python3-pyelftools
 
