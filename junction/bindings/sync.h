@@ -256,7 +256,9 @@ template <typename L>
 requires Lockable<L>
 class ScopedLock {
  public:
-  explicit ScopedLock(L *lock) noexcept : lock_(lock) { lock_->Lock(); }
+  [[nodiscard]] explicit ScopedLock(L *lock) noexcept : lock_(lock) {
+    lock_->Lock();
+  }
   ~ScopedLock() { lock_->Unlock(); }
 
   ScopedLock(ScopedLock &&) = delete;

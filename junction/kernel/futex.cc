@@ -34,7 +34,7 @@ bool FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset) {
 int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
   if (unlikely(n == 0)) return 0;
   detail::futex_bucket &bucket = get_bucket(key);
-  rt::SpinGuard(&bucket.lock);
+  rt::SpinGuard g(&bucket.lock);
   int i = 0;
   for (auto it = bucket.futexes.begin(); it != bucket.futexes.end();) {
     detail::futex_waiter &w = *it;
