@@ -2,9 +2,9 @@
 
 #pragma once
 
+#include <boost/intrusive/list.hpp>
 #include <climits>
 #include <functional>
-#include <unordered_map>
 
 #include "junction/base/arch.h"
 #include "junction/base/error.h"
@@ -14,13 +14,16 @@ namespace junction {
 
 namespace detail {
 
-struct futex_waiter {
+struct futex_waiter : boost::intrusive::list_base_hook<> {
   thread_t *th;
+  uint32_t *key;
   uint32_t bitset;
+  futex_waiter(thread_t *th, uint32_t *key, uint32_t bitset)
+      : th(th), key(key), bitset(bitset) {}
 };
 
 struct alignas(kCacheLineSize) futex_bucket {
-  std::unordered_multimap<uint32_t *, futex_waiter> futexes;
+  boost::intrusive::list<futex_waiter> futexes;
   rt::Spin lock;
 };
 

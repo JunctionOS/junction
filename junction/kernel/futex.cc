@@ -18,14 +18,15 @@ FutexTable &FutexTable::GetFutexTable() {
 }
 
 bool FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset) {
+  detail::futex_waiter waiter{thread_self(), key, bitset};
   detail::futex_bucket &bucket = get_bucket(key);
   bucket.lock.Lock();
   if (rt::read_once(*key) != val) {
     bucket.lock.Unlock();
     return false;
   }
-  bucket.futexes.insert(
-      std::pair(key, detail::futex_waiter{thread_self(), bitset}));
+
+  bucket.futexes.push_back(waiter);
   bucket.lock.UnlockAndPark();
   return true;
 }
@@ -34,16 +35,18 @@ int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
   if (unlikely(n == 0)) return 0;
   detail::futex_bucket &bucket = get_bucket(key);
   rt::SpinGuard(&bucket.lock);
-  auto range = bucket.futexes.equal_range(key);
   int i = 0;
-  for (auto it = range.first; it != range.second;) {
-    detail::futex_waiter &w = it->second;
-    if (!(w.bitset & bitset)) {
+  for (auto it = bucket.futexes.begin(); it != bucket.futexes.end();) {
+    detail::futex_waiter &w = *it;
+    if (w.key != key || !(w.bitset & bitset)) {
       ++it;
       continue;
     }
-    thread_ready(w.th);
+
+    // Must remove the waiter from the list *before* waking it
+    thread_t *th = w.th;
     it = bucket.futexes.erase(it);
+    thread_ready(th);
     if (++i >= n) break;
   }
   return i;
