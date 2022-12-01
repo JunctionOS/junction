@@ -13,9 +13,14 @@ CTEST=${BIN_DIR}/bin/ctest
 # Start Caladan
 cd $CALADAN_DIR
 sudo scripts/setup_machine.sh
-sudo ./iokerneld simple nobw noht no_hw_qdel -- --allow 00:00.0 --vdev=net_tap0 &
+(sudo pkill iokerneld && sleep 2) || true
+sudo ./iokerneld simple nobw noht no_hw_qdel -- --allow 00:00.0 --vdev=net_tap0 > /tmp/iokernel.log 2>&1 &
 iok_pid=$!
-sleep 3
+while ! grep -q 'running dataplan' /tmp/iokernel.log; do
+  sleep 0.3
+  # make sure it is still alive
+  pgrep iokerneld > /dev/null
+done
 reset
 
 # Prepare test environment

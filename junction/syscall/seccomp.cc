@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "junction/kernel/ksys.h"
+#include "junction/kernel/proc.h"
 #include "junction/syscall/seccomp_bpf.h"
 #include "junction/syscall/syscall.h"
 #include "junction/syscall/systbl.h"
@@ -23,15 +24,14 @@ namespace junction {
  */
 int _install_seccomp_filter() {
   struct sock_filter filter[] = {
-      /* Validate architecture. */
-      VALIDATE_ARCHITECTURE,
-      /* Grab the system call number. */
-      EXAMINE_SYSCALL,
       /* List allowed syscalls. */
-      ALLOW_SYSCALL(rt_sigreturn),
-#ifdef __NR_sigreturn
-      ALLOW_SYSCALL(sigreturn),
-#endif
+      ALLOW_CALADAN_SYSCALL(ioctl),
+      ALLOW_CALADAN_SYSCALL(rt_sigreturn),
+      ALLOW_CALADAN_SYSCALL(mmap),
+      ALLOW_CALADAN_SYSCALL(mbind),
+      ALLOW_CALADAN_SYSCALL(madvise),
+      ALLOW_CALADAN_SYSCALL(mprotect),
+      ALLOW_CALADAN_SYSCALL(exit_group),
 
       ALLOW_SYSCALL(write),
       ALLOW_SYSCALL(writev),
@@ -41,7 +41,6 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(accept),
       ALLOW_SYSCALL(recvfrom),
       ALLOW_SYSCALL(sendto),
-      ALLOW_SYSCALL(ioctl),
       ALLOW_SYSCALL(mprotect),
       ALLOW_SYSCALL(rt_sigaction),
       ALLOW_SYSCALL(brk),
@@ -82,6 +81,7 @@ int _install_seccomp_filter() {
       ALLOW_SYSCALL(time),
       ALLOW_SYSCALL(mbind), /* caladan's slab allocator uses this */
 
+      ALLOW_JUNCTION_SYSCALL(ioctl),
       ALLOW_JUNCTION_SYSCALL(prctl),
       ALLOW_JUNCTION_SYSCALL(getdents),
       ALLOW_JUNCTION_SYSCALL(getdents64),
@@ -123,33 +123,29 @@ int _install_seccomp_filter() {
   return 0;
 }
 
-#if 0
-/* Since "sprintf" is technically not signal-safe, reimplement %d here. */
-static void write_uint(char* buf, unsigned int val) {
-  int width = 0;
-  unsigned int tens;
-
-  if (val == 0) {
-    strcpy(buf, "0");
-    return;
-  }
-  for (tens = val; tens; tens /= 10) ++width;
-  buf[width] = '\0';
-  for (tens = val; tens; tens /= 10) buf[--width] = '0' + (tens % 10);
+void log_syscall_msg(const char* msg_needed, long sysn) {
+  char buf[128], *pos;
+  memcpy(buf, msg_needed, strlen(msg_needed));
+  pos = buf + strlen(msg_needed);
+  *pos++ = ' ';
+  *pos++ = '(';
+  size_t slen = strlen(syscall_names[sysn]);
+  // This will likely cause a segfault instead of printing
+  BUG_ON(pos - buf + slen + 2 > sizeof(buf));
+  memcpy(pos, syscall_names[sysn], slen);
+  pos += slen;
+  *pos++ = ')';
+  *pos++ = '\n';
+  ksys_write(STDOUT_FILENO, buf, pos - buf);
 }
-#endif  // _DEBUG
 
 static __attribute__((__optimize__("-fno-stack-protector"))) void
 __signal_handler(int nr, siginfo_t* info, void* void_context) {
   ucontext_t* ctx = (ucontext_t*)(void_context);
 
-  if (info->si_code != SYS_SECCOMP) {
-    return;
-  }
+  if (unlikely(info->si_code != SYS_SECCOMP)) return;
 
-  if (!ctx) {
-    return;
-  }
+  if (unlikely(!ctx)) return;
 
   // Preserve the old errno
   const int old_errno = errno;
@@ -162,24 +158,19 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
   long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
   long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
 
-#if 0
-  // Logging
-  const char* const msg_needed = "TRAP Handling SYSCALL: ";
+  if (unlikely(!thread_self())) {
+    log_syscall_msg("Unexpected syscall from Caladan", sysn);
+    BUG();
+  }
 
-  char buf[128], *pos;
-  memcpy(buf, msg_needed, strlen(msg_needed));
-  pos = buf + strlen(msg_needed);
-  *pos++ = '(';
-  size_t slen = strlen(syscall_names[sysn]);
-  // This will likely cause a segfault instead of printing
-  BUG_ON(pos - buf + slen + 2 > sizeof(buf));
-  memcpy(pos, syscall_names[sysn], slen);
-  pos += slen;
-  *pos++ = ')';
-  *pos++ = '\n';
+  if (unlikely(!get_uthread_specific())) {
+    log_syscall_msg("Intercepted syscall originating in junction", sysn);
+    BUG();
+  }
 
-  ksys_write(STDOUT_FILENO, buf, pos - buf);
-#endif  // _DEBUG
+#ifdef DEBUG
+  log_syscall_msg("Trap handled syscall", sysn);
+#endif
 
   auto res = sys_dispatch(arg0, arg1, arg2, arg3, arg4, arg5, sysn);
   ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);

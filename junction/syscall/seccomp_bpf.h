@@ -21,6 +21,10 @@
 #include <sys/prctl.h>
 #include <unistd.h>
 
+extern "C" {
+#include <base/syscall.h>
+}
+
 #include <cstdint>
 
 #ifndef PR_SET_NO_NEW_PRIVS
@@ -69,17 +73,10 @@ struct seccomp_data {
 #define ip_msb (offsetof(struct seccomp_data, instruction_pointer) + 4)
 #define ip_lsb (offsetof(struct seccomp_data, instruction_pointer) + 0)
 
-#if defined(__i386__)
-#define REG_RESULT REG_EAX
-#define REG_SYSCALL REG_EAX
-#define REG_ARG0 REG_EBX
-#define REG_ARG1 REG_ECX
-#define REG_ARG2 REG_EDX
-#define REG_ARG3 REG_ESI
-#define REG_ARG4 REG_EDI
-#define REG_ARG5 REG_EBP
-#define ARCH_NR AUDIT_ARCH_I386
-#elif defined(__x86_64__)
+#ifndef __x86_64__
+#error "Currently only supports x86-64"
+#endif
+
 #define REG_RESULT REG_RAX
 #define REG_SYSCALL REG_RAX
 #define REG_ARG0 REG_RDI
@@ -89,11 +86,6 @@ struct seccomp_data {
 #define REG_ARG4 REG_R8
 #define REG_ARG5 REG_R9
 #define ARCH_NR AUDIT_ARCH_X86_64
-#else
-#warning "Platform does not support seccomp filter yet"
-#define REG_SYSCALL 0
-#define ARCH_NR 0
-#endif
 
 #include "junction/kernel/ksys.h"
 
@@ -108,10 +100,25 @@ static uint32_t ksys_start_addr_hi =
 static uint32_t ksys_end_addr_low = static_cast<uint32_t>(ksys_end_addr);
 static uint32_t ksys_end_addr_hi = static_cast<uint32_t>(ksys_end_addr >> 32);
 
+static size_t base_syscall_start_addr =
+    reinterpret_cast<size_t>(base_syscall_start);
+static size_t base_syscall_end_addr =
+    reinterpret_cast<size_t>(base_syscall_end);
+
+static uint32_t base_start_lo = static_cast<uint32_t>(base_syscall_start_addr);
+static uint32_t base_start_hi =
+    static_cast<uint32_t>(base_syscall_start_addr >> 32);
+
+static uint32_t base_end_lo = static_cast<uint32_t>(base_syscall_end_addr);
+static uint32_t base_end_hi =
+    static_cast<uint32_t>(base_syscall_end_addr >> 32);
+
+#if 0
 #define VALIDATE_ARCHITECTURE                             \
   BPF_STMT(BPF_LD + BPF_W + BPF_ABS, arch_nr),            \
       BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ARCH_NR, 1, 0), \
       BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_KILL)
+#endif
 
 #define EXAMINE_SYSCALL BPF_STMT(BPF_LD + BPF_W + BPF_ABS, syscall_nr)
 
@@ -131,22 +138,36 @@ static uint32_t ksys_end_addr_hi = static_cast<uint32_t>(ksys_end_addr >> 32);
  *        address range is done in chunks of 32 bits since BPF does not deal
  *        with 64 bits.)
  */
-#define ALLOW_JUNCTION_SYSCALL(name)                                  \
-  BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_##name, 0, 11),            \
-      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                     \
-      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, ksys_start_addr_hi, 0, 9),  \
-      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                     \
-      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, ksys_start_addr_low, 0, 7), \
-      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                     \
-      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, ksys_end_addr_hi, 5, 0),    \
-      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ksys_end_addr_hi, 1, 0),    \
-      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW),                   \
-      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                     \
-      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, ksys_end_addr_low, 1, 0),   \
+#define ALLOW_JUNCTION_SYSCALL(name)                                        \
+  EXAMINE_SYSCALL, BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_##name, 0, 11), \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                           \
+      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, ksys_start_addr_hi, 0, 9),        \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                           \
+      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, ksys_start_addr_low, 0, 7),       \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                           \
+      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, ksys_end_addr_hi, 5, 0),          \
+      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ksys_end_addr_hi, 1, 0),          \
+      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW),                         \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                           \
+      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, ksys_end_addr_low, 1, 0),         \
       BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW)
 
-#define ALLOW_SYSCALL(name)                               \
-  BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_##name, 0, 1), \
+#define ALLOW_CALADAN_SYSCALL(name)                                         \
+  EXAMINE_SYSCALL, BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_##name, 0, 11), \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                           \
+      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, base_start_hi, 0, 9),             \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                           \
+      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, base_start_lo, 0, 7),             \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                           \
+      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, base_end_hi, 5, 0),               \
+      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, base_end_hi, 1, 0),               \
+      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW),                         \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                           \
+      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, base_end_lo, 1, 0),               \
+      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW)
+
+#define ALLOW_SYSCALL(name)                                                \
+  EXAMINE_SYSCALL, BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_##name, 0, 1), \
       BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW)
 
 #define KILL_PROCESS BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_KILL)

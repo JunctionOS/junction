@@ -65,6 +65,7 @@ class Process {
 // mythread returns the Thread object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.
 inline Thread &mythread() {
+  BUG_ON(!get_uthread_specific());  // TODO: change to assert.
   return *reinterpret_cast<Thread *>(get_uthread_specific());
 }
 
