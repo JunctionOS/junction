@@ -9,6 +9,8 @@ ROOT_DIR=${SCRIPT_DIR}/../
 #sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
 sudo apt update
 sudo apt install -y clang-format clang-tidy g++-11 perl libboost-dev bison
+# From caladan README
+sudo apt install -y make gcc cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev libncurses-dev meson python3-pyelftools
 
 # Initialize submodules
 git submodule update --init --recursive
