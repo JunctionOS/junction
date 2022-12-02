@@ -31,6 +31,12 @@ int getMeasureRounds() {
   return measure_rounds;
 }
 
+void BenchGetPid(int measure_rounds) {
+  for (int i = 0; i < measure_rounds; ++i) {
+    std::ignore = getpid();
+  }
+}
+
 void BenchSpawnJoin(int measure_rounds) {
   for (int i = 0; i < measure_rounds; ++i) {
     auto th = std::thread([]() { ; });
@@ -119,6 +125,8 @@ void Bench(std::string name, std::function<void(int)> fn) {
 }
 
 class ThreadingTest : public ::testing::Test {};
+
+TEST_F(ThreadingTest, GetPid) { Bench("GetPid", BenchGetPid); }
 
 TEST_F(ThreadingTest, SpawnJoin) { Bench("SpawnJoin", BenchSpawnJoin); }
 
