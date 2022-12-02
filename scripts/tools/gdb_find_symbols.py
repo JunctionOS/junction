@@ -21,7 +21,7 @@ def process_file(filename):
     return align_down(lowest_va), highest_va
 
 
-lines = check_output("cat /proc/$(pgrep junc)/maps", shell=True).splitlines()
+lines = check_output("cat /proc/$(pidof junction_run)/maps", shell=True).splitlines()
 
 open_files_ends = dict()
 
