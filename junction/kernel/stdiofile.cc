@@ -10,7 +10,9 @@
 
 namespace junction {
 
-StdIOFile::StdIOFile(int fd, unsigned int mode) : fd_(fd) { mode_ = mode; }
+// TODO(gohar): set file flags here too instead of 0
+StdIOFile::StdIOFile(int fd, unsigned int mode)
+    : fd_(fd), File(FileType::kNormal, 0, mode) {}
 
 StdIOFile::~StdIOFile() {}
 

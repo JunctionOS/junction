@@ -17,6 +17,16 @@ extern "C" {
 namespace junction {
 
 //
+// Types of files.
+//
+
+enum class FileType : int {
+  kNormal = 0,
+  kDirectory,
+  kSocket,
+};
+
+//
 // File flags (set by open() and fcntl()).
 //
 
@@ -56,7 +66,10 @@ enum class SeekFrom : int {
 // The base class for UNIX files.
 class File {
  public:
+  File(FileType type, unsigned int flags, unsigned int mode)
+      : type_(type), flags_(flags), mode_(mode) {}
   virtual ~File() = default;
+
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
     return MakeError(EINVAL);
   }
@@ -82,13 +95,16 @@ class File {
     return MakeError(EINVAL);
   }
 
+  [[nodiscard]] FileType get_type() const { return type_; }
   [[nodiscard]] unsigned int get_flags() const { return flags_; }
   [[nodiscard]] unsigned int get_mode() const { return mode_; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
+  void set_flags(unsigned int flags) { flags_ = flags; }
 
- protected:
-  unsigned int flags_{0};
-  unsigned int mode_{0};
+ private:
+  FileType type_;
+  unsigned int flags_;
+  unsigned int mode_;
   off_t off_{0};
 };
 

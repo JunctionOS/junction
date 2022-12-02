@@ -69,14 +69,17 @@ inline bool operator!=(int lhs, const Error& rhs) { return lhs != rhs.code(); }
 std::ostream& operator<<(std::ostream& os, const Error& x);
 
 // Returns an unexpected error object from an errno code.
-inline unexpected<Error> MakeError(int code) { return unexpected(Error(code)); }
+[[nodiscard]] inline unexpected<Error> MakeError(int code) {
+  return unexpected(Error(code));
+}
 
 // Returns an unexpected error propogated from another expected type.
 //
 // The other expected type can have a different value type but must have the
 // same error type.
 template <typename T>
-inline unexpected<Error> MakeError(const expected<T, Error>& ret) {
+[[nodiscard]] inline unexpected<Error> MakeError(
+    const expected<T, Error>& ret) {
   assert(!ret);
   return unexpected(ret.error());
 }

@@ -311,7 +311,9 @@ template <typename L>
 requires LockAndParkable<L>
 class ScopedLockAndPark {
  public:
-  explicit ScopedLockAndPark(L *lock) noexcept : lock_(lock) { lock_->Lock(); }
+  [[nodiscard]] explicit ScopedLockAndPark(L *lock) noexcept : lock_(lock) {
+    lock_->Lock();
+  }
   ~ScopedLockAndPark() { lock_->UnlockAndPark(); }
 
   ScopedLockAndPark(ScopedLockAndPark &&) = delete;

@@ -20,10 +20,8 @@ std::shared_ptr<LinuxFile> LinuxFile::Open(const std::string_view &pathname,
   return std::make_shared<MakeSharedEnabler>(fd, flags, mode);
 }
 
-LinuxFile::LinuxFile(int fd, int flags, mode_t mode) : fd_(fd) {
-  flags_ = flags;
-  mode_ = mode;
-}
+LinuxFile::LinuxFile(int fd, int flags, mode_t mode)
+    : File(FileType::kNormal, flags, mode), fd_(fd) {}
 
 LinuxFile::~LinuxFile() {}
 
@@ -45,7 +43,7 @@ Status<off_t> LinuxFile::Seek(off_t off, SeekFrom origin) {
   if (origin == SeekFrom::kStart)
     return off;
   else if (origin == SeekFrom::kCurrent)
-    return off_ + off;
+    return get_off_ref() + off;
   else
     return MakeError(EINVAL);
 }
