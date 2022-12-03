@@ -1,12 +1,12 @@
-From c9fe0cf65acba2fbb377573f199c8f63a6613977 Mon Sep 17 00:00:00 2001
+From 9ab6ca55c10131907db42bfc5c1864f26b570479 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 23:48:48 -0500
-Subject: [PATCH 6/6] base: don't track physical page numbers
+Subject: [PATCH 6/8] base: don't track physical page numbers
 
 ---
  base/page.c     |  9 ---------
- inc/base/page.h | 13 -------------
- 2 files changed, 22 deletions(-)
+ inc/base/page.h | 16 +++-------------
+ 2 files changed, 3 insertions(+), 22 deletions(-)
 
 diff --git a/base/page.c b/base/page.c
 index 4be2e5d..27dde0e 100644
@@ -50,18 +50,24 @@ index 4be2e5d..27dde0e 100644
  }
  
 diff --git a/inc/base/page.h b/inc/base/page.h
-index f5d61f9..38f145f 100644
+index f5d61f9..f4412a4 100644
 --- a/inc/base/page.h
 +++ b/inc/base/page.h
-@@ -19,7 +19,6 @@ struct page {
+@@ -19,10 +19,12 @@ struct page {
  	struct list_node	link;
  	struct slab_node 	*snode;
  	off_t			offset;
 -	physaddr_t		paddr;
++	long			pad;
  	long			item_count;
  };
  
-@@ -153,18 +152,6 @@ static inline void *page_to_addr(struct page *pg)
++BUILD_ASSERT(PGSIZE_2MB % sizeof(struct page) == 0);
++
+ #define PAGE_FLAG_LARGE		0x01 /* page is large */
+ #define PAGE_FLAG_IN_USE	0x02 /* page is allocated */
+ #define PAGE_FLAG_SLAB		0x04 /* page is used by SLAB */
+@@ -153,18 +155,6 @@ static inline void *page_to_addr(struct page *pg)
  	return smpage_to_addr(pg);
  }
  
