@@ -11,16 +11,18 @@ extern "C" {
 #include "junction/bindings/timer.h"
 #include "junction/shim/shim.h"
 
-#define INIT_MAGIC 0xDEADBEEF
-
 namespace junction {
 
+namespace {
+
+constexpr uint32_t kInitMagic = 0xDEADBEEF;
+
 struct ShimCondVar {
-  uint32_t init_magic{INIT_MAGIC};
+  uint32_t init_magic{kInitMagic};
   rt::CondVar cv;
   clockid_t clockid;
   static void InitCheck(ShimCondVar *cv) {
-    if (unlikely(cv->init_magic != INIT_MAGIC)) new (cv) ShimCondVar();
+    if (unlikely(cv->init_magic != kInitMagic)) new (cv) ShimCondVar();
   }
   static ShimCondVar *fromPthread(pthread_cond_t *m) {
     ShimCondVar *sm = reinterpret_cast<ShimCondVar *>(m);
@@ -30,10 +32,10 @@ struct ShimCondVar {
 };
 
 struct ShimMutex {
-  uint32_t init_magic{INIT_MAGIC};
+  uint32_t init_magic{kInitMagic};
   rt::Mutex mutex;
   static void InitCheck(ShimMutex *m) {
-    if (unlikely(m->init_magic != INIT_MAGIC)) new (m) ShimMutex();
+    if (unlikely(m->init_magic != kInitMagic)) new (m) ShimMutex();
   }
   static ShimMutex *fromPthread(pthread_mutex_t *m) {
     ShimMutex *sm = reinterpret_cast<ShimMutex *>(m);
@@ -43,10 +45,10 @@ struct ShimMutex {
 };
 
 struct ShimRWMutex {
-  uint32_t init_magic{INIT_MAGIC};
+  uint32_t init_magic{kInitMagic};
   rt::RWMutex rwmutex;
   static void InitCheck(ShimRWMutex *m) {
-    if (unlikely(m->init_magic != INIT_MAGIC)) new (m) ShimRWMutex();
+    if (unlikely(m->init_magic != kInitMagic)) new (m) ShimRWMutex();
   }
   static ShimRWMutex *fromPthread(pthread_rwlock_t *m) {
     ShimRWMutex *sm = reinterpret_cast<ShimRWMutex *>(m);
@@ -67,6 +69,8 @@ static_assert(sizeof(pthread_barrier_t) >= sizeof(ShimBarrier));
 static_assert(sizeof(pthread_mutex_t) >= sizeof(ShimMutex));
 static_assert(sizeof(pthread_cond_t) >= sizeof(ShimCondVar));
 static_assert(sizeof(pthread_rwlock_t) >= sizeof(ShimRWMutex));
+
+}  // namespace
 
 int shim_pthread_mutex_init(pthread_mutex_t *mutex,
                             const pthread_mutexattr_t *mutexattr) {

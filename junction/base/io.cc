@@ -56,7 +56,7 @@ Status<void> WritevFull(VectorIO* io, std::span<const iovec> iov) {
     s = PullIOV(s, *ret);
     if (s.empty()) break;
     ret = io->Writev(s);
-    if (!ret) MakeError(ret);
+    if (!ret) return MakeError(ret);
   }
 
   return {};
@@ -84,7 +84,7 @@ Status<void> ReadvFull(VectorIO* io, std::span<const iovec> iov) {
     s = PullIOV(s, *ret);
     if (s.empty()) break;
     ret = io->Readv(s);
-    if (!ret) MakeError(ret);
+    if (!ret) return MakeError(ret);
   }
 
   return {};

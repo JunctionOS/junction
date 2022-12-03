@@ -28,9 +28,9 @@ struct join_data {
   join_data() noexcept = default;
   virtual ~join_data() = default;
   virtual void Run() = 0;
-  rt::Spin lock_;
-  rt::ThreadWaker waker_;
-  std::atomic_bool done_{false};
+  rt::Spin lock;
+  rt::ThreadWaker waker;
+  std::atomic_bool done{false};
 };
 
 template <typename Data, typename Callable, typename... Args>

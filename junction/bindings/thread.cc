@@ -21,21 +21,21 @@ void ThreadTrampolineWithJoin(void* arg) {
   d->Run();
 
   // Hot path if the thread is already detached or joined.
-  if (d->done_.load(std::memory_order_acquire)) {
-    d->waker_.Wake();
+  if (d->done.load(std::memory_order_acquire)) {
+    d->waker.Wake();
     return;
   }
 
   // Cold path: Check again with the lock held.
-  d->lock_.Lock();
-  if (d->done_.load(std::memory_order_relaxed)) {
-    d->waker_.Wake();
-    d->lock_.Unlock();
+  d->lock.Lock();
+  if (d->done.load(std::memory_order_relaxed)) {
+    d->waker.Wake();
+    d->lock.Unlock();
     return;
   }
-  d->waker_.Arm();
-  d->done_.store(true, std::memory_order_release);
-  d->lock_.UnlockAndPark();
+  d->waker.Arm();
+  d->done.store(true, std::memory_order_release);
+  d->lock.UnlockAndPark();
 }
 
 }  // namespace thread_internal
@@ -46,19 +46,19 @@ void Thread::Detach() {
   auto f = finally([this] { join_data_ = nullptr; });
 
   // Hot path if the thread is already blocked.
-  if (d->done_.load(std::memory_order_acquire)) {
-    d->waker_.Wake();
+  if (d->done.load(std::memory_order_acquire)) {
+    d->waker.Wake();
     return;
   }
 
   // Cold path: The thread is not yet blocked.
   {
-    rt::SpinGuard g(&d->lock_);
-    if (d->done_.load(std::memory_order_relaxed)) {
-      d->waker_.Wake();
+    rt::SpinGuard g(&d->lock);
+    if (d->done.load(std::memory_order_relaxed)) {
+      d->waker.Wake();
       return;
     }
-    d->done_.store(true, std::memory_order_release);
+    d->done.store(true, std::memory_order_release);
   }
 }
 
@@ -68,21 +68,21 @@ void Thread::Join() {
   auto f = finally([this] { join_data_ = nullptr; });
 
   // Hot path if the thread is already blocked.
-  if (d->done_.load(std::memory_order_acquire)) {
-    d->waker_.Wake();
+  if (d->done.load(std::memory_order_acquire)) {
+    d->waker.Wake();
     return;
   }
 
   // Cold path: The thread is not yet blocked.
-  d->lock_.Lock();
-  if (d->done_.load(std::memory_order_relaxed)) {
-    d->lock_.Unlock();
-    d->waker_.Wake();
+  d->lock.Lock();
+  if (d->done.load(std::memory_order_relaxed)) {
+    d->lock.Unlock();
+    d->waker.Wake();
     return;
   }
-  d->waker_.Arm();
-  d->done_.store(true, std::memory_order_release);
-  d->lock_.UnlockAndPark();
+  d->waker.Arm();
+  d->done.store(true, std::memory_order_release);
+  d->lock.UnlockAndPark();
 }
 
 }  // namespace junction::rt

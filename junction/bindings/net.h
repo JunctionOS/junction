@@ -65,7 +65,7 @@ class UDPConn {
   // Adjusts the length of buffer limits.
   Status<void> SetBuffers(int read_mbufs, int write_mbufs) {
     int ret = udp_set_buffers(c_, read_mbufs, write_mbufs);
-    if (ret) MakeError(-ret);
+    if (ret) return MakeError(-ret);
     return {};
   }
 
@@ -127,7 +127,7 @@ class TCPConn : public VectorIO {
   static Status<TCPConn> Dial(netaddr laddr, netaddr raddr) {
     tcpconn_t *c;
     int ret = tcp_dial(laddr, raddr, &c);
-    if (ret) MakeError(-ret);
+    if (ret) return MakeError(-ret);
     return TCPConn(c);
   }
 
@@ -155,33 +155,33 @@ class TCPConn : public VectorIO {
   // Reads from the TCP stream.
   Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = tcp_read(c_, buf.data(), buf.size_bytes());
-    if (ret <= 0) MakeError(static_cast<int>(-ret));
+    if (ret <= 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes to the TCP stream.
   Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = tcp_write(c_, buf.data(), buf.size_bytes());
-    if (ret < 0) MakeError(static_cast<int>(-ret));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
 
   // Reads a vector from the TCP stream.
   Status<size_t> Readv(std::span<const iovec> iov) override {
     ssize_t ret = tcp_readv(c_, iov.data(), static_cast<int>(iov.size()));
-    if (ret <= 0) MakeError(static_cast<int>(-ret));
+    if (ret <= 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a vector to the TCP stream.
   Status<size_t> Writev(std::span<const iovec> iov) override {
     ssize_t ret = tcp_writev(c_, iov.data(), static_cast<int>(iov.size()));
-    if (ret < 0) MakeError(static_cast<int>(-ret));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
 
   // Gracefully shutdown the TCP connection.
   Status<void> Shutdown(int how) {
     int ret = tcp_shutdown(c_, how);
-    if (ret < 0) MakeError(-ret);
+    if (ret < 0) return MakeError(-ret);
     return {};
   }
   // Ungracefully force the TCP connection to shutdown.
@@ -222,7 +222,7 @@ class TCPQueue {
   Status<TCPConn> Accept() {
     tcpconn_t *c;
     int ret = tcp_accept(q_, &c);
-    if (ret) MakeError(-ret);
+    if (ret) return MakeError(-ret);
     return TCPConn(c);
   }
 
