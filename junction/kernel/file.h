@@ -102,9 +102,9 @@ class File {
   void set_flags(unsigned int flags) { flags_ = flags; }
 
  private:
-  FileType type_;
+  const FileType type_;
   unsigned int flags_;
-  unsigned int mode_;
+  const unsigned int mode_;
   off_t off_{0};
 };
 

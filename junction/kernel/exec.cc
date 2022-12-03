@@ -10,6 +10,8 @@ extern "C" {
 #include <cstring>
 
 #include "junction/base/arch.h"
+#include "junction/base/io.h"
+#include "junction/bindings/log.h"
 #include "junction/kernel/elf.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -68,7 +70,6 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
 void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
                 const std::vector<std::string_view> &envp, elf_data &edata) {
   size_t len = 0;
-  char *info_block_ptr, *random_ptr;
   const char *filename;
   uint64_t *arg_ptr;
 
@@ -76,12 +77,14 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
   len += VectorBytes(argv);
   len += VectorBytes(envp);
 
-  info_block_ptr = reinterpret_cast<char *>(*sp - len);
+  char *info_block_ptr = reinterpret_cast<char *>(*sp - len);
   filename = info_block_ptr;
 
-  // TODO: generate random data here
-  random_ptr = info_block_ptr - 16;
-  len += 16;  // random bytes
+  // Generate random bytes for aux vector. 
+  char *random_ptr = info_block_ptr - 16;
+  Status<size_t> ret = ReadRandom(readable_span(random_ptr, 16));
+  if (!ret) LOG(ERR) << "exec: failed to generate random bytes";
+  len += 16;
 
   // The System V AMD64 ABI requires a 16-byte stack
   // alignment. We go with 32-byte to be extra careful.

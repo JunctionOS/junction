@@ -47,12 +47,12 @@ class RuntimeLibcGuard {
  public:
   RuntimeLibcGuard() {
     preempt_disable();
-    _prev_fs_base = ReadFsBase();
-    SetFsBase(perthread_read(runtime_fsbase));
+    _prev_fs_base = GetFSBase();
+    SetFSBase(perthread_read(runtime_fsbase));
   }
 
   ~RuntimeLibcGuard() {
-    SetFsBase(_prev_fs_base);
+    SetFSBase(_prev_fs_base);
     preempt_enable();
   }
 

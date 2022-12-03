@@ -39,9 +39,7 @@ pid_t usys_getpid() { return myproc().get_pid(); }
 
 int usys_arch_prctl(int code, unsigned long addr) {
   if (code != ARCH_SET_FS) return -EINVAL;
-
   set_fsbase(thread_self(), addr);
-
   return 0;
 }
 
