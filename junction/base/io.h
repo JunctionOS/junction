@@ -53,8 +53,8 @@ inline std::span<const std::byte> writable_span(const char *buf, size_t len) {
 }
 
 // Reads the full span of bytes.
-template <typename T>
-Status<void> ReadFull(T *t, std::span<std::byte> buf) requires Reader<T> {
+template <Reader T>
+Status<void> ReadFull(T *t, std::span<std::byte> buf) {
   size_t n = 0;
   while (n < buf.size()) {
     Status<size_t> ret =
@@ -67,9 +67,8 @@ Status<void> ReadFull(T *t, std::span<std::byte> buf) requires Reader<T> {
 }
 
 // Writes the full span of bytes.
-template <typename T>
-Status<void> WriteFull(T *t,
-                       std::span<const std::byte> buf) requires Writer<T> {
+template <Writer T>
+Status<void> WriteFull(T *t, std::span<const std::byte> buf) {
   size_t n = 0;
   while (n < buf.size()) {
     Status<size_t> ret =

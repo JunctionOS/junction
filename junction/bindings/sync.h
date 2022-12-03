@@ -252,8 +252,7 @@ concept LockAndParkable = requires(T t) {
 };
 
 // RAII lock support (works with Spin, Preempt, and Mutex).
-template <typename L>
-requires Lockable<L>
+template <Lockable L>
 class ScopedLock {
  public:
   [[nodiscard]] explicit ScopedLock(L *lock) noexcept : lock_(lock) {
@@ -307,8 +306,7 @@ using MutexGuard = ScopedLock<Mutex>;
 using PreemptGuard = ScopedLock<Preempt>;
 
 // RAII lock and park support (works with both Spin and Preempt).
-template <typename L>
-requires LockAndParkable<L>
+template <LockAndParkable L>
 class ScopedLockAndPark {
  public:
   [[nodiscard]] explicit ScopedLockAndPark(L *lock) noexcept : lock_(lock) {

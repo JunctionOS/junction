@@ -19,6 +19,7 @@ namespace junction::rt {
 // UDP Connections.
 class UDPConn {
  public:
+  UDPConn() = default;
   ~UDPConn() {
     if (c_) udp_close(c_);
   }
@@ -53,6 +54,9 @@ class UDPConn {
     if (ret) return MakeError(-ret);
     return UDPConn(c);
   }
+
+  // Does this hold a valid UDP connection?
+  [[nodiscard]] bool Valid() const { return c_ != nullptr; }
 
   // Gets the MTU-limited payload size.
   static size_t PayloadSize() { return static_cast<size_t>(udp_payload_size); }
@@ -101,7 +105,7 @@ class UDPConn {
  private:
   explicit UDPConn(udpconn_t *c) noexcept : c_(c) {}
 
-  udpconn_t *c_;
+  udpconn_t *c_{nullptr};
 };
 
 // TCP connections.
@@ -109,6 +113,7 @@ class TCPConn : public VectorIO {
   friend class TCPQueue;
 
  public:
+  TCPConn() = default;
   ~TCPConn() override { tcp_close(c_); }
 
   // Move support.
@@ -146,6 +151,9 @@ class TCPConn : public VectorIO {
     if (ret) return MakeError(-ret);
     return TCPConn(c);
   }
+
+  // Does this hold a valid TCP connection?
+  [[nodiscard]] bool Valid() const { return c_ != nullptr; }
 
   // Gets the local TCP address.
   [[nodiscard]] netaddr LocalAddr() const { return tcp_local_addr(c_); }
@@ -190,12 +198,13 @@ class TCPConn : public VectorIO {
  private:
   explicit TCPConn(tcpconn_t *c) noexcept : c_(c) {}
 
-  tcpconn_t *c_;
+  tcpconn_t *c_{nullptr};
 };
 
 // TCP listener queues.
 class TCPQueue {
  public:
+  TCPQueue() = default;
   ~TCPQueue() { tcp_qclose(q_); }
 
   // Move support.
@@ -226,13 +235,16 @@ class TCPQueue {
     return TCPConn(c);
   }
 
+  // Does this hold a valid TCP listener queue?
+  [[nodiscard]] bool Valid() const { return q_ != nullptr; }
+
   // Shutdown the listener queue; any blocked Accept() returns a nullptr.
   void Shutdown() { tcp_qshutdown(q_); }
 
  private:
   explicit TCPQueue(tcpqueue_t *q) noexcept : q_(q) {}
 
-  tcpqueue_t *q_;
+  tcpqueue_t *q_{nullptr};
 };
 
 }  // namespace junction::rt

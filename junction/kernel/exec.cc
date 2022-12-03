@@ -80,7 +80,7 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
   char *info_block_ptr = reinterpret_cast<char *>(*sp - len);
   filename = info_block_ptr;
 
-  // Generate random bytes for aux vector. 
+  // Generate random bytes for aux vector.
   char *random_ptr = info_block_ptr - 16;
   Status<size_t> ret = ReadRandom(readable_span(random_ptr, 16));
   if (!ret) LOG(ERR) << "exec: failed to generate random bytes";
