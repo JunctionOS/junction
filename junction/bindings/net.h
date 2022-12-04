@@ -20,9 +20,7 @@ namespace junction::rt {
 class UDPConn {
  public:
   UDPConn() = default;
-  ~UDPConn() {
-    if (c_) udp_close(c_);
-  }
+  ~UDPConn() { if (Valid()) udp_close(c_); }
 
   // Move support.
   UDPConn(UDPConn &&c) noexcept : c_(c.c_) { c.c_ = nullptr; }
@@ -114,7 +112,7 @@ class TCPConn : public VectorIO {
 
  public:
   TCPConn() = default;
-  ~TCPConn() override { tcp_close(c_); }
+  ~TCPConn() override { if (Valid()) tcp_close(c_); }
 
   // Move support.
   TCPConn(TCPConn &&c) noexcept : c_(c.c_) { c.c_ = nullptr; }
@@ -205,7 +203,7 @@ class TCPConn : public VectorIO {
 class TCPQueue {
  public:
   TCPQueue() = default;
-  ~TCPQueue() { tcp_qclose(q_); }
+  ~TCPQueue() { if (Valid()) tcp_qclose(q_); }
 
   // Move support.
   TCPQueue(TCPQueue &&q) noexcept : q_(q.q_) { q.q_ = nullptr; }

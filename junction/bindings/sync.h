@@ -130,7 +130,7 @@ class Spin {
 
   // Locks the spin lock only if it is currently unlocked. Returns true if
   // successful.
-  bool TryLock() { return spin_try_lock_np(&lock_); }
+  [[nodiscard]] bool TryLock() { return spin_try_lock_np(&lock_); }
 
   // Returns true if the lock is currently held.
   [[nodiscard]] bool IsHeld() const { return spin_lock_held(&lock_); }
@@ -204,11 +204,11 @@ class RWMutex {
 
   // Locks the mutex for reading only if it is currently unlocked. Returns true
   // if successful.
-  bool TryRdLock() { return rwmutex_try_rdlock(&mu_); }
+  [[nodiscard]] bool TryRdLock() { return rwmutex_try_rdlock(&mu_); }
 
   // Locks the mutex for writing only if it is currently unlocked. Returns true
   // if successful.
-  bool TryWrLock() { return rwmutex_try_wrlock(&mu_); }
+  [[nodiscard]] bool TryWrLock() { return rwmutex_try_wrlock(&mu_); }
 
   // Returns true if the mutex is currently held.
   [[nodiscard]] bool IsHeld() const { return rwmutex_held(&mu_); }
@@ -288,9 +288,9 @@ class ScopedLock {
   //   rt::SpinGuard guard(l);
   //   guard.Park(&w, []{ return predicate; });
   template <typename Predicate>
-  void Park(ThreadWaker *w, Predicate p) requires LockAndParkable<L> {
+  void Park(ThreadWaker *w, Predicate stop) requires LockAndParkable<L> {
     assert(lock_->IsHeld());
-    while (!p()) {
+    while (!stop()) {
       w->Arm();
       lock_->UnlockAndPark();
       lock_->Lock();
@@ -341,16 +341,26 @@ class CondVar {
   // after wakeup, as no guarantees are made about preventing spurious wakeups.
   void Wait(Mutex *mu) { condvar_wait(&cv_, &mu->mu_); }
 
-  // Block until signaled. If timeout us elapses before a signal is generated,
-  // the function returns false.
-  bool WaitTimed(Mutex *mu, uint64_t timeout_us) {
+  // Block until a predicate is true.
+  template <typename Predicate>
+  void Wait(Mutex *mu, Predicate stop) {
+    while (!stop()) condvar_wait(&cv_, &mu->mu_);
+  }
+
+  // Block until the condition variable is signaled. If timeout us elapses
+  // before a signal is generated, the function returns false.
+  bool WaitFor(Mutex *mu, uint64_t timeout_us) {
     return condvar_wait_timed(&cv_, &mu->mu_, timeout_us);
   }
 
-  // Block until a predicate is true.
+  // Block until a predicate is true. If timeout us elapses before a signal
+  // is generated, the function returns false.
   template <typename Predicate>
-  void Wait(Mutex *mu, Predicate p) {
-    while (!p()) condvar_wait(&cv_, &mu->mu_);
+  bool WaitFor(Mutex *mu, uint64_t timeout_us, Predicate stop) {
+    while (!stop()) {
+      if (!condvar_wait_timed(&cv_, &mu->mu_, timeout_us)) return false;
+    }
+    return true;
   }
 
   // Wake up one waiter.
