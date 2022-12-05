@@ -73,14 +73,14 @@ void FileTable::Resize(size_t len) {
 
 std::shared_ptr<File> FileTable::Dup(int fd) {
   rt::RCURead l;
-  rt::RCUReadGuard g(&l);
+  rt::RCUReadGuard g(l);
   const FArr *tbl = rcup_.get();
   if (unlikely(static_cast<size_t>(fd) >= tbl->len)) return {};
   return tbl->files[fd];
 }
 
 int FileTable::Insert(std::shared_ptr<File> f) {
-  rt::SpinGuard g(&lock_);
+  rt::SpinGuard g(lock_);
 
   // Find the first empty slot to insert the file.
   size_t i;
@@ -99,13 +99,13 @@ int FileTable::Insert(std::shared_ptr<File> f) {
 }
 
 void FileTable::InsertAt(int fd, std::shared_ptr<File> f) {
-  rt::SpinGuard g(&lock_);
+  rt::SpinGuard g(lock_);
   if (static_cast<size_t>(fd) >= farr_->len) Resize(fd);
   farr_->files[fd] = std::move(f);
 }
 
 bool FileTable::Remove(int fd) {
-  rt::SpinGuard g(&lock_);
+  rt::SpinGuard g(lock_);
 
   // Check if the file is present.
   if (static_cast<size_t>(fd) >= farr_->len) return false;

@@ -148,7 +148,7 @@ int shim_pthread_cond_broadcast(pthread_cond_t *cond) {
 int shim_pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
   ShimCondVar *c = ShimCondVar::fromPthread(cond);
   ShimMutex *m = ShimMutex::fromPthread(mutex);
-  c->cv.Wait(&m->mutex);
+  c->cv.Wait(m->mutex);
   return 0;
 }
 
@@ -164,7 +164,7 @@ int shim_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex,
   uint64_t now_us = now_ts.tv_sec * rt::kSeconds + now_ts.tv_nsec / 1000;
 
   if (wait_us <= now_us) return ETIMEDOUT;
-  bool done = c->cv.WaitFor(&m->mutex, wait_us - now_us);
+  bool done = c->cv.WaitFor(m->mutex, wait_us - now_us);
   return done ? 0 : ETIMEDOUT;
 }
 

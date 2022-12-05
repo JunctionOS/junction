@@ -53,7 +53,7 @@ void Thread::Detach() {
 
   // Cold path: The thread is not yet blocked.
   {
-    rt::SpinGuard g(&d->lock);
+    rt::SpinGuard g(d->lock);
     if (d->done.load(std::memory_order_relaxed)) {
       d->waker.Wake();
       return;

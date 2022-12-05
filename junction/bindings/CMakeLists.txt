@@ -1,6 +1,7 @@
 message(STATUS "Building junction bindings")
 
 add_library(bindings
+  log.cc
   runtime.cc
   thread.cc
 )

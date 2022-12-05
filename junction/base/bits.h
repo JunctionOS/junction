@@ -11,6 +11,8 @@ extern "C" {
 
 namespace junction {
 
+constexpr size_t kBitsPerByte = 8;
+
 // AlignUp aligns the value up to a power of two alignment
 template <typename T>
 constexpr T AlignUp(T val,

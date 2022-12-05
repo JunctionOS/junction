@@ -56,7 +56,7 @@ class AsyncBase {
   // Wake up any blocking future.
   void Notify() {
     done_.store(true, std::memory_order_release);
-    rt::SpinGuard g(&lock_);
+    rt::SpinGuard g(lock_);
     waker_.Wake();
   }
 
@@ -66,8 +66,8 @@ class AsyncBase {
     if (done_.load(std::memory_order_acquire)) return;
 
     // slow path
-    rt::SpinGuard g(&lock_);
-    g.Park(&waker_, [this] { return done_.load(std::memory_order_relaxed); });
+    rt::SpinGuard g(lock_);
+    g.Park(waker_, [this] { return done_.load(std::memory_order_relaxed); });
   }
 
  private:

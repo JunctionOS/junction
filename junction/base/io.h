@@ -54,11 +54,11 @@ inline std::span<const std::byte> writable_span(const char *buf, size_t len) {
 
 // Reads the full span of bytes.
 template <Reader T>
-Status<void> ReadFull(T *t, std::span<std::byte> buf) {
+Status<void> ReadFull(T &t, std::span<std::byte> buf) {
   size_t n = 0;
   while (n < buf.size()) {
     Status<size_t> ret =
-        t->Read({buf.begin() + static_cast<ssize_t>(n), buf.end()});
+        t.Read({buf.begin() + static_cast<ssize_t>(n), buf.end()});
     if (!ret) return MakeError(ret);
     n += *ret;
   }
@@ -68,11 +68,11 @@ Status<void> ReadFull(T *t, std::span<std::byte> buf) {
 
 // Writes the full span of bytes.
 template <Writer T>
-Status<void> WriteFull(T *t, std::span<const std::byte> buf) {
+Status<void> WriteFull(T &t, std::span<const std::byte> buf) {
   size_t n = 0;
   while (n < buf.size()) {
     Status<size_t> ret =
-        t->Write({buf.begin() + static_cast<ssize_t>(n), buf.end()});
+        t.Write({buf.begin() + static_cast<ssize_t>(n), buf.end()});
     if (!ret) return MakeError(ret);
     n += *ret;
   }

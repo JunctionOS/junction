@@ -97,7 +97,7 @@ constexpr bool HeaderIsValid(const elf_header &hdr) {
 // ReadHeader reads and validates the header of the ELF file
 Status<elf_header> ReadHeader(KernelFile &f) {
   elf_header hdr;
-  Status<void> ret = ReadFull(&f, writable_byte_view(hdr));
+  Status<void> ret = ReadFull(f, writable_byte_view(hdr));
   if (!ret) return MakeError(ret);
   if (!HeaderIsValid(hdr)) {
     LOG(ERR) << "elf: invalid/unsupported ELF file.";
@@ -112,7 +112,7 @@ Status<std::vector<elf_phdr>> ReadPHDRs(KernelFile &f, const elf_header &hdr) {
 
   // Read the PHDRs into the vector.
   f.Seek(hdr.phoff);
-  Status<void> ret = ReadFull(&f, std::as_writable_bytes(std::span(phdrs)));
+  Status<void> ret = ReadFull(f, std::as_writable_bytes(std::span(phdrs)));
   if (!ret) return MakeError(ret);
 
   // Confirm that the PHDRs contain valid state.
@@ -142,7 +142,7 @@ Status<std::string> ReadInterp(KernelFile &f, const elf_phdr &phdr) {
                           '\0');  // Don't read the null terminator
   f.Seek(phdr.offset);
   Status<void> ret =
-      ReadFull(&f, std::as_writable_bytes(std::span(interp_path)));
+      ReadFull(f, std::as_writable_bytes(std::span(interp_path)));
   if (!ret) return MakeError(ret);
   return std::move(interp_path);
 }

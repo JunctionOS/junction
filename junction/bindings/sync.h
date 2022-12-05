@@ -255,10 +255,10 @@ concept LockAndParkable = requires(T t) {
 template <Lockable L>
 class ScopedLock {
  public:
-  [[nodiscard]] explicit ScopedLock(L *lock) noexcept : lock_(lock) {
-    lock_->Lock();
+  [[nodiscard]] explicit ScopedLock(L &lock) noexcept : lock_(lock) {
+    lock_.Lock();
   }
-  ~ScopedLock() { lock_->Unlock(); }
+  ~ScopedLock() { lock_.Unlock(); }
 
   ScopedLock(ScopedLock &&) = delete;
   ScopedLock &operator=(ScopedLock &&) = delete;
@@ -273,11 +273,11 @@ class ScopedLock {
   //   rt::SpinLock l;
   //   rt::SpinGuard guard(l);
   //   while (condition) guard.Park(&w);
-  void Park(ThreadWaker *w) requires LockAndParkable<L> {
-    assert(lock_->IsHeld());
-    w->Arm();
-    lock_->UnlockAndPark();
-    lock_->Lock();
+  void Park(ThreadWaker &w) requires LockAndParkable<L> {
+    assert(lock_.IsHeld());
+    w.Arm();
+    lock_.UnlockAndPark();
+    lock_.Lock();
   }
 
   // Blocks and waits for the predicate to become true.
@@ -288,17 +288,17 @@ class ScopedLock {
   //   rt::SpinGuard guard(l);
   //   guard.Park(&w, []{ return predicate; });
   template <typename Predicate>
-  void Park(ThreadWaker *w, Predicate stop) requires LockAndParkable<L> {
-    assert(lock_->IsHeld());
+  void Park(ThreadWaker &w, Predicate stop) requires LockAndParkable<L> {
+    assert(lock_.IsHeld());
     while (!stop()) {
-      w->Arm();
-      lock_->UnlockAndPark();
-      lock_->Lock();
+      w.Arm();
+      lock_.UnlockAndPark();
+      lock_.Lock();
     }
   }
 
  private:
-  L *const lock_;
+  L &lock_;
 };
 
 using SpinGuard = ScopedLock<Spin>;
@@ -309,10 +309,10 @@ using PreemptGuard = ScopedLock<Preempt>;
 template <LockAndParkable L>
 class ScopedLockAndPark {
  public:
-  [[nodiscard]] explicit ScopedLockAndPark(L *lock) noexcept : lock_(lock) {
-    lock_->Lock();
+  [[nodiscard]] explicit ScopedLockAndPark(L &lock) noexcept : lock_(lock) {
+    lock_.Lock();
   }
-  ~ScopedLockAndPark() { lock_->UnlockAndPark(); }
+  ~ScopedLockAndPark() { lock_.UnlockAndPark(); }
 
   ScopedLockAndPark(ScopedLockAndPark &&) = delete;
   ScopedLockAndPark &operator=(ScopedLockAndPark &&) = delete;
@@ -320,7 +320,7 @@ class ScopedLockAndPark {
   ScopedLockAndPark &operator=(const ScopedLockAndPark &) = delete;
 
  private:
-  L *const lock_;
+  L &lock_;
 };
 
 using SpinGuardAndPark = ScopedLockAndPark<Spin>;
@@ -339,26 +339,26 @@ class CondVar {
 
   // Block until the condition variable is signaled. Recheck the condition
   // after wakeup, as no guarantees are made about preventing spurious wakeups.
-  void Wait(Mutex *mu) { condvar_wait(&cv_, &mu->mu_); }
+  void Wait(Mutex &mu) { condvar_wait(&cv_, &mu.mu_); }
 
   // Block until a predicate is true.
   template <typename Predicate>
-  void Wait(Mutex *mu, Predicate stop) {
-    while (!stop()) condvar_wait(&cv_, &mu->mu_);
+  void Wait(Mutex &mu, Predicate stop) {
+    while (!stop()) condvar_wait(&cv_, &mu.mu_);
   }
 
   // Block until the condition variable is signaled. If timeout us elapses
   // before a signal is generated, the function returns false.
-  bool WaitFor(Mutex *mu, uint64_t timeout_us) {
-    return condvar_wait_timed(&cv_, &mu->mu_, timeout_us);
+  bool WaitFor(Mutex &mu, uint64_t timeout_us) {
+    return condvar_wait_timed(&cv_, &mu.mu_, timeout_us);
   }
 
   // Block until a predicate is true. If timeout us elapses before a signal
   // is generated, the function returns false.
   template <typename Predicate>
-  bool WaitFor(Mutex *mu, uint64_t timeout_us, Predicate stop) {
+  bool WaitFor(Mutex &mu, uint64_t timeout_us, Predicate stop) {
     while (!stop()) {
-      if (!condvar_wait_timed(&cv_, &mu->mu_, timeout_us)) return false;
+      if (!condvar_wait_timed(&cv_, &mu.mu_, timeout_us)) return false;
     }
     return true;
   }
@@ -408,7 +408,7 @@ class WaitGroup {
 // Blocks the thread forever (doesn't return).
 inline void WaitForever() {
   Preempt p;
-  PreemptGuardAndPark g(&p);
+  PreemptGuardAndPark g(p);
 }
 
 }  // namespace junction::rt

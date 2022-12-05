@@ -161,7 +161,7 @@ class FileTable {
 
 inline File *FileTable::Get(int fd) {
   rt::RCURead l;
-  rt::RCUReadGuard g(&l);
+  rt::RCUReadGuard g(l);
   const FArr *tbl = rcup_.get();
   if (unlikely(static_cast<size_t>(fd) >= tbl->len)) return nullptr;
   return tbl->files[fd].get();

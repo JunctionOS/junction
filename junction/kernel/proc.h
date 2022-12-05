@@ -9,6 +9,7 @@ extern "C" {
 
 #include <memory>
 
+#include "junction/base/uid.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/futex.h"
 

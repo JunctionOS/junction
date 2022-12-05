@@ -17,14 +17,10 @@ namespace junction::rt {
 class Logger {
  public:
   explicit Logger(int level) noexcept : level_(level) {}
-  ~Logger() {
-    RuntimeLibcGuard guard;
-    logk(level_, "%s", buf_.str().c_str());
-  }
+  ~Logger();
 
   template <typename T>
   Logger &operator<<(T const &value) {
-    RuntimeLibcGuard guard;
     buf_ << value;
     return *this;
   }
@@ -37,13 +33,15 @@ class Logger {
 // LOG appends a line to the log at the specified log level.
 // Example:
 //   LOG(INFO) << "system started";
-#define LOG(level) rt::Logger(LOG_##level)
+#define LOG(level) \
+  if (LOG_##level <= max_loglevel) rt::Logger(LOG_##level)
 
 // DLOG behaves like LOG in debug mode. Otherwise it compiles away to nothing.
 // Example:
 //  DLOG(INFO) << "system started";
 #ifdef DEBUG
-#define DLOG(level) rt::Logger(LOG_##level)
+#define DLOG(level) \
+  if (LOG_##level <= max_loglevel) rt::Logger(LOG_##level)
 #else  // DEBUG
 #define DLOG(level) \
   if (false) rt::Logger(LOG_##level)
