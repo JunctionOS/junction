@@ -45,7 +45,7 @@ inline unsigned int RuntimeGuaranteedCores() {
 // Will disable preemption and set the correct FS register
 class RuntimeLibcGuard {
  public:
-  RuntimeLibcGuard() {
+  [[nodiscard]] RuntimeLibcGuard() {
     preempt_disable();
     _prev_fs_base = GetFSBase();
     SetFSBase(perthread_read(runtime_fsbase));
