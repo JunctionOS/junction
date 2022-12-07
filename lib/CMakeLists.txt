@@ -1,13 +1,16 @@
 include(ExternalProject)
+include(ProcessorCount)
 
 message(STATUS "Building caladan")
 
 set(CALADAN_PATH ${CMAKE_SOURCE_DIR}/lib/caladan)
 
+ProcessorCount(NPROC)
+
 ExternalProject_Add(caladan_src
   SOURCE_DIR ${CALADAN_PATH}
   CONFIGURE_COMMAND ""
-  BUILD_COMMAND "make"
+  BUILD_COMMAND make -j ${NPROC}
   INSTALL_COMMAND ""
   BUILD_IN_SOURCE 1
   BUILD_ALWAYS 1

@@ -33,11 +33,16 @@ struct pthread_attr_internal {
 
 #define ATTR_FLAG_STACKADDR 0x0008
 
+extern "C" int pthread_detach(pthread_t thread) {
+  // TODO(jf): Fix.
+  return ENOTSUP;
+}
+
 extern "C" int pthread_join(pthread_t threadid, void **thread_return) {
   static typeof(pthread_join) *fn;
   if (unlikely(!fn)) {
     fn = (typeof(pthread_join) *)dlsym(RTLD_NEXT, "pthread_join");
-    if (!fn) return -ENOSYS;
+    if (!fn) return ENOSYS;
   }
 
   pthread_attr_t attr;
@@ -57,9 +62,9 @@ extern "C" int pthread_join(pthread_t threadid, void **thread_return) {
 
   static_assert(offsetof(stack, usable) == 0);
   stack *stk = reinterpret_cast<stack *>(stackaddr);
+  ret = fn(threadid, thread_return);
   free_stack(stk);
-
-  return fn(threadid, thread_return);
+  return ret;
 }
 
 extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *_attr,
@@ -74,7 +79,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *_attr,
   stack *stack = allocate_stack();
   if (unlikely(!stack)) {
     std::cerr << "failed to allocate stack" << std::endl;
-    return -ENOMEM;
+    return ENOMEM;
   }
 
   static_assert(offsetof(struct stack, usable) == 0);
@@ -89,7 +94,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *_attr,
     fn = (typeof(pthread_create) *)dlsym(RTLD_NEXT, "pthread_create");
     if (!fn) {
       std::cerr << "failed to find pthread_create" << std::endl;
-      return -ENOSYS;
+      return ENOSYS;
     }
   }
 
