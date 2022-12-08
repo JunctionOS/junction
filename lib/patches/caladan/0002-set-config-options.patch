@@ -1,0 +1,36 @@
+From 6651fac7c1e9040c57360d25b866156fb829a946 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Mon, 21 Nov 2022 00:00:45 -0500
+Subject: [PATCH 2/8] set config options
+
+---
+ build/config | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/build/config b/build/config
+index 023e2e1..3e741d8 100644
+--- a/build/config
++++ b/build/config
+@@ -1,7 +1,7 @@
+ # build configuration options (set to y for "yes", n for "no")
+ 
+ # Enable Mellanox ConnectX-4,5 NIC Support
+-CONFIG_MLX5=n
++CONFIG_MLX5=y
+ # Enable Mellanox ConnectX-3 NIC Support
+ CONFIG_MLX4=n
+ # Enable SPDK NVMe support
+@@ -9,8 +9,8 @@ CONFIG_SPDK=n
+ # Enable debug build mode (slower but enables several runtime checks)
+ CONFIG_DEBUG=n
+ # Enable additional compiler optimizations (may reduce compatibility)
+-CONFIG_OPTIMIZE=n
++CONFIG_OPTIMIZE=y
+ # Allow runtimes to access Mellanox ConnectX-5 NICs directly (kernel bypass)
+-CONFIG_DIRECTPATH=n
++CONFIG_DIRECTPATH=y
+ # Build with clang instead of gcc
+ CONFIG_CLANG=n
+-- 
+2.34.1
+
