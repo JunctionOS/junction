@@ -60,8 +60,8 @@ extern "C" int pthread_join(pthread_t threadid, void **thread_return) {
     return ret;
   }
 
-  static_assert(offsetof(stack, usable) == 0);
-  stack *stk = reinterpret_cast<stack *>(stackaddr);
+  auto uptr = reinterpret_cast<uintptr_t (*)[STACK_PTR_SIZE]>(stackaddr);
+  stack *stk = container_of(uptr, stack, usable);
   ret = fn(threadid, thread_return);
   free_stack(stk);
   return ret;
@@ -82,9 +82,7 @@ extern "C" int pthread_create(pthread_t *thread, const pthread_attr_t *_attr,
     return ENOMEM;
   }
 
-  static_assert(offsetof(struct stack, usable) == 0);
-
-  iattr.stackaddr = (unsigned char *)stack + RUNTIME_STACK_SIZE;
+  iattr.stackaddr = (unsigned char *)stack->usable + RUNTIME_STACK_SIZE;
   iattr.stacksize = RUNTIME_STACK_SIZE;
   iattr.guardsize = RUNTIME_GUARD_SIZE;
   iattr.flags = ATTR_FLAG_STACKADDR;

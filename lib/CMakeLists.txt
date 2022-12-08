@@ -43,7 +43,7 @@ target_link_options(caladan_runtime INTERFACE "${CALADAN_RUNTIME_LDFLAGS}")
 ExternalProject_Add(caladan_shim_src
   SOURCE_DIR ${CALADAN_PATH}/shim
   CONFIGURE_COMMAND ""
-  BUILD_COMMAND "make"
+  BUILD_COMMAND make -j ${NPROC}
   INSTALL_COMMAND ""
   BUILD_IN_SOURCE 1
   BUILD_ALWAYS 1
