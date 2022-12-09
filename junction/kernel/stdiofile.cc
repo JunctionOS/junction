@@ -1,18 +1,20 @@
-#include "junction/kernel/stdiofile.h"
-
+extern "C" {
 #include <syscall.h>
+#include <unistd.h>
+}
 
 #include <string>
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/kernel/ksys.h"
+#include "junction/kernel/stdiofile.h"
 
 namespace junction {
 
 // TODO(gohar): set file flags here too instead of 0
 StdIOFile::StdIOFile(int fd, unsigned int mode)
-    : fd_(fd), File(FileType::kNormal, 0, mode) {}
+    : File(FileType::kNormal, 0, mode), fd_(fd) {}
 
 StdIOFile::~StdIOFile() {}
 
@@ -38,6 +40,12 @@ Status<int> StdIOFile::Stat(struct stat *statbuf, int flags) {
   int ret = ksys_newfstatat(fd_, empty.c_str() /* pathname */, statbuf, flags);
   if (ret < 0) return MakeError(-ret);
   return ret;
+}
+
+Status<void> StdIOFile::Sync() {
+  int ret = fsync(fd_);
+  if (ret) return MakeError(-ret);
+  return {};
 }
 
 }  // namespace junction

@@ -1,6 +1,7 @@
 #pragma once
 
 extern "C" {
+#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 struct clone_args;
@@ -32,6 +33,20 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                      int flags);
 long usys_getdents(unsigned int fd, void *dirp, unsigned int count);
 long usys_getdents64(unsigned int fd, void *dirp, unsigned int count);
+
+// Net
+long usys_socket(int domain, int type, int protocol);
+long usys_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+long usys_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+long usys_setsockopt(int socket, int level, int option_name,
+                     const void *option_value, socklen_t option_len);
+ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
+                      struct sockaddr *src_addr, socklen_t *addrlen);
+ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
+                    const struct sockaddr *dest_addr, socklen_t addrlen);
+long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+long usys_shutdown(int sockfd, int how);
+long usys_listen(int sockfd, int backlog);
 
 // Proc
 pid_t usys_getpid();

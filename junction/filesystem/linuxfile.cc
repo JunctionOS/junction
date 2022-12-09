@@ -4,6 +4,7 @@ extern "C" {
 
 #include <syscall.h>
 
+#include <memory>
 #include <string>
 
 #include "junction/base/error.h"
@@ -20,7 +21,7 @@ std::shared_ptr<LinuxFile> LinuxFile::Open(const std::string_view &pathname,
   return std::make_shared<MakeSharedEnabler>(fd, flags, mode);
 }
 
-LinuxFile::LinuxFile(int fd, int flags, mode_t mode)
+LinuxFile::LinuxFile(int fd, int flags, mode_t mode) noexcept
     : File(FileType::kNormal, flags, mode), fd_(fd) {}
 
 LinuxFile::~LinuxFile() {}

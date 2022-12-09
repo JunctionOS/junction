@@ -13,6 +13,7 @@ write
 pwrite64
 pread64
 lseek
+fsync
 close
 futex
 sched_yield
@@ -25,6 +26,15 @@ dup
 dup2
 nanosleep
 getcpu
+socket
+bind
+connect
+setsockopt
+recvfrom
+sendto
+accept
+shutdown
+listen
 
 # syscalls for which we return enosys
 rseq:::enosys

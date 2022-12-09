@@ -33,16 +33,16 @@ class LinuxFile : public File {
   [[nodiscard]] int get_fd() const { return fd_; }
 
  private:
-  LinuxFile(int fd, int flags, mode_t mode);
+  LinuxFile(int fd, int flags, mode_t mode) noexcept;
 
   int fd_{-1};
 
   struct MakeSharedEnabler;
 };
 
-/* This is needed to support std::make_shared in LinuxFile::Open. */
+/* This is needed to support std::make_shared for LinuxFile. */
 struct LinuxFile::MakeSharedEnabler : public LinuxFile {
-  MakeSharedEnabler(int fd, int flags, mode_t mode)
+  MakeSharedEnabler(int fd, int flags, mode_t mode) noexcept
       : LinuxFile(fd, flags, mode) {}
 };
 

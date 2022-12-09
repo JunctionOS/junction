@@ -51,8 +51,8 @@ class LinuxFileInode : public Inode,
  private:
   const std::string name_;
   // file associated with this node (in the case of file type); does not keep
-  // ownership, the FileTable can take a reference to this so it can manage the
-  // file's lifetime
+  // ownership, the FileTable can take an owning reference to this so it can
+  // manage the file's lifetime and we don't prevent it from being destroyed
   std::weak_ptr<File> file_;
   // child nodes (in the case of directory type inode)
   string_unordered_map<std::shared_ptr<Inode>> children_;

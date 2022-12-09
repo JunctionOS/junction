@@ -67,7 +67,12 @@ class FileSystem {
   std::shared_ptr<Inode> cwd_;   // the current working directory
 };
 
+// Currently in-use filesystem.
+static std::unique_ptr<FileSystem> fs_;
+
 // Use the provided filesystem and perform initialization steps.
 void init_fs(FileSystem *fs);
+
+inline FileSystem *get_fs() { return fs_.get(); }
 
 }  // namespace junction

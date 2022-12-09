@@ -1,4 +1,3 @@
-
 # Outputs shimjmp_tbl.cpp to build/junction/shim/shimjmp_tbl.cpp
 add_custom_command(
     OUTPUT  shimjmp_tbl.cpp intercept.cc

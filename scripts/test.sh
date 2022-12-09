@@ -1,5 +1,5 @@
 #!/bin/bash
-set -xe
+set -x
 
 # Globals
 SCRIPT_DIR=$(dirname $(readlink -f $0))

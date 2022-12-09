@@ -61,6 +61,7 @@ endif()
 add_subdirectory(base)
 add_subdirectory(bindings)
 add_subdirectory(filesystem)
+add_subdirectory(net)
 add_subdirectory(syscall)
 add_subdirectory(kernel)
 add_subdirectory(samples)
@@ -74,6 +75,7 @@ target_link_libraries(junction INTERFACE
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
   base
   filesystem
+  net
   kernel
   glibc_shim_backend
   bindings

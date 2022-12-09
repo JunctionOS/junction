@@ -21,12 +21,13 @@ class StdIOFile : public File {
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
   virtual Status<size_t> Write(std::span<const std::byte> buf,
                                off_t *off) override;
-  virtual Status<int> Stat(struct stat *statbuf, int flags);
+  virtual Status<int> Stat(struct stat *statbuf, int flags) override;
+  virtual Status<void> Sync() override;
 
   [[nodiscard]] int get_fd() const { return fd_; }
 
  private:
-  int fd_{-1};
+  int fd_;
 };
 
 }  // namespace junction

@@ -120,13 +120,10 @@ bool FileTable::Remove(int fd) {
 // System call implementations
 //
 
-// Currently used FileSystem.
-static std::unique_ptr<FileSystem> fs_;
 void init_fs(FileSystem *fs) {
   // Set the filesystem.
   fs_.reset(fs);
 }
-inline FileSystem *get_fs() { return fs_.get(); }
 
 long usys_open(const char *pathname, int flags, mode_t mode) {
   const std::string_view path(pathname);

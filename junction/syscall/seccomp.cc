@@ -37,6 +37,7 @@ Status<void> _install_seccomp_filter() {
       ALLOW_CALADAN_SYSCALL(mprotect),
       ALLOW_CALADAN_SYSCALL(exit_group),
 
+      ALLOW_SYSCALL(gettimeofday),
       ALLOW_SYSCALL(write),
       ALLOW_SYSCALL(writev),
       ALLOW_SYSCALL(fstat),
@@ -71,6 +72,7 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(newfstatat),
       ALLOW_JUNCTION_SYSCALL(mmap),
       ALLOW_JUNCTION_SYSCALL(mprotect),
+      ALLOW_JUNCTION_SYSCALL(fsync),
       ALLOW_JUNCTION_SYSCALL(openat),
       ALLOW_JUNCTION_SYSCALL(open),
       ALLOW_JUNCTION_SYSCALL(close),
