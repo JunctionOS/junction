@@ -1,8 +1,4 @@
 // tcp_socket.h - TCP socket in a connected state
-extern "C" {
-#include <sys/socket.h>
-}
-
 #pragma once
 
 #include <memory>
@@ -30,6 +26,8 @@ class TCPSocket : public Socket {
   virtual Status<void> Shutdown(int how) override {
     return conn_.Shutdown(how);
   }
+
+  virtual Status<netaddr> RemoteAddr() override { return conn_.RemoteAddr(); }
 
  private:
   rt::TCPConn conn_;

@@ -1,7 +1,4 @@
-extern "C" {
-#include <netinet/in.h>
-#include <sys/socket.h>
-}
+#include "junction/bindings/net.h"
 
 #include <memory>
 
@@ -13,7 +10,26 @@ extern "C" {
 #include "junction/net/socket.h"
 #include "junction/net/socket_placeholder.h"
 
+// Define inet address struct to avoid pulling in system headers.
+struct sockaddr_in {
+  short sin_family;
+  unsigned short sin_port;
+  struct {
+    unsigned int s_addr;
+  } sin_addr;
+  char sin_zero[8];
+};
+
 namespace junction {
+
+Status<netaddr> ParseSockAddr(const sockaddr *addr, socklen_t addrlen) {
+  if (unlikely(!addr || addr->sa_family != AF_INET ||
+               addrlen < sizeof(sockaddr_in)))
+    return MakeError(EINVAL);
+
+  const sockaddr_in *sin = reinterpret_cast<const sockaddr_in *>(addr);
+  return netaddr{ntoh32(sin->sin_addr.s_addr), ntoh16(sin->sin_port)};
+}
 
 // TODO(girfan): Fix the "restrict" keyword for all the net syscalls.
 long usys_socket(int domain, int type, int protocol) {
@@ -24,33 +40,30 @@ long usys_socket(int domain, int type, int protocol) {
   return ftbl.Insert(std::move(*ret));
 }
 
-long usys_bind(int sockfd, const struct sockaddr *addr,
-               [[maybe_unused]] socklen_t addrlen) {
+long usys_bind(int sockfd, const struct sockaddr *addr_in, socklen_t addrlen) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(sockfd);
   if (unlikely(!f)) return -EBADF;
   if (unlikely(f->get_type() != FileType::kSocket)) return -ENOTSOCK;
   Socket *s = static_cast<Socket *>(f);
-  const struct sockaddr_in *addr_in =
-      reinterpret_cast<const struct sockaddr_in *>(addr);
-  Status<std::shared_ptr<Socket>> ret =
-      s->Bind(addr_in->sin_addr.s_addr, addr_in->sin_port);
+  Status<netaddr> addr = ParseSockAddr(addr_in, addrlen);
+  if (!addr) return -addr.error().code();
+  Status<std::shared_ptr<Socket>> ret = s->Bind(*addr);
   if (!ret) return -ret.error().code();
   ftbl.InsertAt(sockfd, std::move(*ret));
   return 0;
 }
 
-long usys_connect(int sockfd, const struct sockaddr *addr,
-                  [[maybe_unused]] socklen_t addrlen) {
+long usys_connect(int sockfd, const struct sockaddr *addr_in,
+                  socklen_t addrlen) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(sockfd);
   if (unlikely(!f)) return -EBADF;
   if (unlikely(f->get_type() != FileType::kSocket)) return -ENOTSOCK;
   Socket *s = static_cast<Socket *>(f);
-  const struct sockaddr_in *addr_in =
-      reinterpret_cast<const struct sockaddr_in *>(addr);
-  Status<std::shared_ptr<Socket>> ret =
-      s->Connect(addr_in->sin_addr.s_addr, addr_in->sin_port);
+  Status<netaddr> addr = ParseSockAddr(addr_in, addrlen);
+  if (!addr) return -addr.error().code();
+  Status<std::shared_ptr<Socket>> ret = s->Connect(*addr);
   if (!ret) return -ret.error().code();
   ftbl.InsertAt(sockfd, std::move(*ret));
   return 0;
@@ -103,14 +116,18 @@ long usys_accept(int sockfd, struct sockaddr *addr,
   if (unlikely(!f)) return -EBADF;
   if (unlikely(f->get_type() != FileType::kSocket)) return -ENOTSOCK;
   Socket *s = static_cast<Socket *>(f);
-  Status<std::shared_ptr<File>> ret;
-  if (addr && addrlen) {
-    struct sockaddr_in *addr_in = reinterpret_cast<struct sockaddr_in *>(addr);
-    ret = s->Accept(&(addr_in->sin_addr.s_addr), &(addr_in->sin_port));
-  } else {
-    ret = s->Accept(std::nullopt, std::nullopt);
-  }
+  Status<std::shared_ptr<Socket>> ret = s->Accept();
   if (!ret) return -ret.error().code();
+  if (addr) {
+    if (!addrlen || *addrlen < sizeof(sockaddr_in)) return -EINVAL;
+    Status<netaddr> na = (*ret)->RemoteAddr();
+    if (!na) return -na.error().code();
+    sockaddr_in *addr_in = reinterpret_cast<sockaddr_in *>(addr);
+    addr_in->sin_family = AF_INET;
+    addr_in->sin_port = hton16(na->port);
+    addr_in->sin_addr.s_addr = hton32(na->ip);
+    *addrlen = sizeof(sockaddr_in);
+  }
   return ftbl.Insert(std::move(*ret));
 }
 

@@ -23,10 +23,8 @@ class SocketPlaceholder : public Socket {
 
   static Status<std::shared_ptr<SocketPlaceholder>> Create(int domain, int type,
                                                            int protocol);
-  virtual Status<std::shared_ptr<Socket>> Bind(uint32_t ip,
-                                               uint16_t port) override;
-  virtual Status<std::shared_ptr<Socket>> Connect(uint32_t ip,
-                                                  uint16_t port) override;
+  virtual Status<std::shared_ptr<Socket>> Bind(netaddr addr) override;
+  virtual Status<std::shared_ptr<Socket>> Connect(netaddr addr) override;
 
  private:
   int domain_;

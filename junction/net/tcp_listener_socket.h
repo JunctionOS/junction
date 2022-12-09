@@ -1,10 +1,7 @@
 // tcp_listener_socket.h - TCP socket for listening to incoming connections
-extern "C" {
-#include <sys/socket.h>
-}
-
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <span>
@@ -18,19 +15,16 @@ namespace junction {
 // TODO(girfan): Prevent these classes from being copied and write move ctors.
 class TCPListenerSocket : public Socket {
  public:
-  TCPListenerSocket(uint32_t ip, uint16_t port) noexcept
-      : Socket(), ip_(ip), port_(port) {}
+  TCPListenerSocket(netaddr addr) noexcept : Socket(), addr_(addr) {}
   virtual ~TCPListenerSocket() {}
 
   virtual Status<void> Listen(int backlog) override;
-  virtual Status<std::shared_ptr<Socket>> Accept(
-      std::optional<uint32_t *> ip, std::optional<uint16_t *> port) override;
+  virtual Status<std::shared_ptr<Socket>> Accept() override;
   virtual Status<void> Shutdown(int how) override;
 
  private:
-  uint32_t ip_;
-  uint16_t port_;
-  bool is_listening_{false};
+  netaddr addr_;
+  std::atomic_bool is_shut_{false};
   rt::TCPQueue listen_q_;
 };
 
