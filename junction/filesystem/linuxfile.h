@@ -15,11 +15,19 @@ extern "C" {
 namespace junction {
 
 class LinuxFile : public File {
+  class Token {
+    // https://abseil.io/tips/134
+   private:
+    explicit Token() = default;
+    friend LinuxFile;
+  };
+
  public:
+  LinuxFile(Token, int fd, int flags, mode_t mode) noexcept;
+  virtual ~LinuxFile() {}
+
   static std::shared_ptr<LinuxFile> Open(const std::string_view &pathname,
                                          int flags, mode_t mode);
-
-  virtual ~LinuxFile();
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
   virtual Status<size_t> Write(std::span<const std::byte> buf,
                                off_t *off) override;
@@ -33,17 +41,7 @@ class LinuxFile : public File {
   [[nodiscard]] int get_fd() const { return fd_; }
 
  private:
-  LinuxFile(int fd, int flags, mode_t mode) noexcept;
-
   int fd_{-1};
-
-  struct MakeSharedEnabler;
-};
-
-/* This is needed to support std::make_shared for LinuxFile. */
-struct LinuxFile::MakeSharedEnabler : public LinuxFile {
-  MakeSharedEnabler(int fd, int flags, mode_t mode) noexcept
-      : LinuxFile(fd, flags, mode) {}
 };
 
 }  // namespace junction

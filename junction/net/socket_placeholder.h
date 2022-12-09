@@ -10,10 +10,19 @@
 namespace junction {
 
 class SocketPlaceholder : public Socket {
+  class Token {
+    // https://abseil.io/tips/134
+   private:
+    explicit Token() = default;
+    friend SocketPlaceholder;
+  };
+
  public:
+  SocketPlaceholder(Token, int domain, int type, int protocol) noexcept;
+  virtual ~SocketPlaceholder() {}
+
   static Status<std::shared_ptr<SocketPlaceholder>> Create(int domain, int type,
                                                            int protocol);
-  virtual ~SocketPlaceholder() {}
   virtual Status<std::shared_ptr<Socket>> Bind(uint32_t ip,
                                                uint16_t port) override;
   virtual Status<std::shared_ptr<Socket>> Connect(uint32_t ip,
@@ -23,16 +32,6 @@ class SocketPlaceholder : public Socket {
   int domain_;
   int type_;
   int protocol_;
-
-  SocketPlaceholder(int domain, int type, int protocol) noexcept;
-
-  struct MakeSharedEnabler;
-};
-
-/* This is needed to support std::make_shared for SocketPlaceholder. */
-struct SocketPlaceholder::MakeSharedEnabler : public SocketPlaceholder {
-  MakeSharedEnabler(int domain, int type, int protocol) noexcept
-      : SocketPlaceholder(domain, type, protocol){};
 };
 
 }  // namespace junction

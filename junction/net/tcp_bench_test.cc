@@ -16,9 +16,10 @@ extern "C" {
 #include <unistd.h>
 }
 
-#include <thread>
-#include <future>
 #include <gtest/gtest.h>
+
+#include <future>
+#include <thread>
 
 const int SIZE = 4096;
 const int COUNT = 10000;

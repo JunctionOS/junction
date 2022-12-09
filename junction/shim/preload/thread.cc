@@ -60,7 +60,7 @@ extern "C" int pthread_join(pthread_t threadid, void **thread_return) {
     return ret;
   }
 
-  auto uptr = reinterpret_cast<uintptr_t (*)[STACK_PTR_SIZE]>(stackaddr);
+  auto uptr = reinterpret_cast<uintptr_t(*)[STACK_PTR_SIZE]>(stackaddr);
   stack *stk = container_of(uptr, stack, usable);
   ret = fn(threadid, thread_return);
   free_stack(stk);

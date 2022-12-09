@@ -13,7 +13,7 @@ extern "C" {
 
 namespace junction {
 
-SocketPlaceholder::SocketPlaceholder(int domain, int type,
+SocketPlaceholder::SocketPlaceholder(Token, int domain, int type,
                                      int protocol) noexcept
     : Socket(), domain_(domain), type_(type), protocol_(protocol) {}
 
@@ -21,7 +21,7 @@ Status<std::shared_ptr<SocketPlaceholder>> SocketPlaceholder::Create(
     int domain, int type, int protocol) {
   if (unlikely(domain != AF_INET || type != SOCK_STREAM))
     return MakeError(EINVAL);
-  return std::make_shared<MakeSharedEnabler>(domain, type, protocol);
+  return std::make_shared<SocketPlaceholder>(Token{}, domain, type, protocol);
 }
 
 Status<std::shared_ptr<Socket>> SocketPlaceholder::Bind(uint32_t ip,

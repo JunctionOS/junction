@@ -14,17 +14,15 @@ extern "C" {
 
 namespace junction {
 
+LinuxFile::LinuxFile(Token, int fd, int flags, mode_t mode) noexcept
+    : File(FileType::kNormal, flags, mode), fd_(fd) {}
+
 std::shared_ptr<LinuxFile> LinuxFile::Open(const std::string_view &pathname,
                                            int flags, mode_t mode) {
   int fd = ksys_open(pathname.data(), flags, mode);
   if (fd < 0) return nullptr;
-  return std::make_shared<MakeSharedEnabler>(fd, flags, mode);
+  return std::make_shared<LinuxFile>(Token{}, fd, flags, mode);
 }
-
-LinuxFile::LinuxFile(int fd, int flags, mode_t mode) noexcept
-    : File(FileType::kNormal, flags, mode), fd_(fd) {}
-
-LinuxFile::~LinuxFile() {}
 
 Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {
   ssize_t ret = ksys_pread(fd_, buf.data(), buf.size_bytes(), *off);
