@@ -18,7 +18,7 @@ Status<void> TCPListenerSocket::Listen(int backlog) {
 }
 
 Status<std::shared_ptr<Socket>> TCPListenerSocket::Accept() {
-  if (unlikely(!listen_q_.Valid())) return MakeError(EINVAL);
+  if (unlikely(!listen_q_.is_valid())) return MakeError(EINVAL);
   Status<rt::TCPConn> ret = listen_q_.Accept();
   if (!ret) return MakeError(ret);
   return std::make_shared<TCPSocket>(std::move(*ret));

@@ -88,7 +88,7 @@ class VectorIO {
   virtual Status<size_t> Writev(std::span<const iovec> iov) = 0;
 };
 
-Status<void> ReadvFull(VectorIO *io, std::span<const iovec> iov);
-Status<void> WritevFull(VectorIO *io, std::span<const iovec> iov);
+Status<void> ReadvFull(VectorIO &io, std::span<const iovec> iov);
+Status<void> WritevFull(VectorIO &io, std::span<const iovec> iov);
 
 }  // namespace junction

@@ -21,14 +21,14 @@ class UDPConn {
  public:
   UDPConn() = default;
   ~UDPConn() {
-    if (Valid()) udp_close(c_);
+    if (is_valid()) udp_close(c_);
   }
 
   // Move support.
-  UDPConn(UDPConn &&c) noexcept : c_(c.c_) { c.c_ = nullptr; }
+  UDPConn(UDPConn &&c) noexcept : c_(std::exchange(c.c_, nullptr)) {}
   UDPConn &operator=(UDPConn &&c) noexcept {
-    c_ = c.c_;
-    c.c_ = nullptr;
+    if (is_valid()) udp_close(c_);
+    c_ = std::exchange(c.c_, nullptr);
     return *this;
   }
 
@@ -56,7 +56,7 @@ class UDPConn {
   }
 
   // Does this hold a valid UDP connection?
-  [[nodiscard]] bool Valid() const { return c_ != nullptr; }
+  [[nodiscard]] bool is_valid() const { return c_ != nullptr; }
 
   // Gets the MTU-limited payload size.
   static size_t PayloadSize() { return static_cast<size_t>(udp_payload_size); }
@@ -115,14 +115,14 @@ class TCPConn : public VectorIO {
  public:
   TCPConn() = default;
   ~TCPConn() override {
-    if (Valid()) tcp_close(c_);
+    if (is_valid()) tcp_close(c_);
   }
 
   // Move support.
-  TCPConn(TCPConn &&c) noexcept : c_(c.c_) { c.c_ = nullptr; }
+  TCPConn(TCPConn &&c) noexcept : c_(std::exchange(c.c_, nullptr)) {}
   TCPConn &operator=(TCPConn &&c) noexcept {
-    c_ = c.c_;
-    c.c_ = nullptr;
+    if (is_valid()) tcp_close(c_);
+    c_ = std::exchange(c.c_, nullptr);
     return *this;
   }
 
@@ -155,7 +155,7 @@ class TCPConn : public VectorIO {
   }
 
   // Does this hold a valid TCP connection?
-  [[nodiscard]] bool Valid() const { return c_ != nullptr; }
+  [[nodiscard]] bool is_valid() const { return c_ != nullptr; }
 
   // Gets the local TCP address.
   [[nodiscard]] netaddr LocalAddr() const { return tcp_local_addr(c_); }
@@ -208,14 +208,14 @@ class TCPQueue {
  public:
   TCPQueue() = default;
   ~TCPQueue() {
-    if (Valid()) tcp_qclose(q_);
+    if (is_valid()) tcp_qclose(q_);
   }
 
   // Move support.
-  TCPQueue(TCPQueue &&q) noexcept : q_(q.q_) { q.q_ = nullptr; }
+  TCPQueue(TCPQueue &&q) noexcept : q_(std::exchange(q.q_, nullptr)) {}
   TCPQueue &operator=(TCPQueue &&q) noexcept {
-    q_ = q.q_;
-    q.q_ = nullptr;
+    if (is_valid()) tcp_qclose(q_);
+    q_ = std::exchange(q.q_, nullptr);
     return *this;
   }
 
@@ -240,7 +240,7 @@ class TCPQueue {
   }
 
   // Does this hold a valid TCP listener queue?
-  [[nodiscard]] bool Valid() const { return q_ != nullptr; }
+  [[nodiscard]] bool is_valid() const { return q_ != nullptr; }
 
   // Shutdown the listener queue; any blocked Accept() returns a nullptr.
   void Shutdown() { tcp_qshutdown(q_); }
