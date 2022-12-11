@@ -109,8 +109,7 @@ ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
   return static_cast<ssize_t>(*ret);
 }
 
-long usys_accept(int sockfd, struct sockaddr *addr,
-                 [[maybe_unused]] socklen_t *addrlen) {
+long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(sockfd);
   if (unlikely(!f)) return -EBADF;
