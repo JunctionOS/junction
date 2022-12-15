@@ -25,7 +25,7 @@ Status<std::shared_ptr<Socket>> TCPListenerSocket::Accept() {
 }
 
 Status<void> TCPListenerSocket::Shutdown([[maybe_unused]] int how) {
-  if (!listen_q_.Valid()) return MakeError(ENOTCONN);
+  if (!listen_q_.is_valid()) return MakeError(ENOTCONN);
   bool shutdown = false;
   if (is_shut_.compare_exchange_strong(shutdown, true)) listen_q_.Shutdown();
   return {};
