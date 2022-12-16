@@ -84,6 +84,13 @@ template <typename T>
   return unexpected(ret.error());
 }
 
+// Returns a C errno code as a negative int.
+template <typename T>
+[[nodiscard]] inline int MakeCError(const expected<T, Error>& ret) {
+  assert(!ret);
+  return -ret.error().code();
+}
+
 // A shorthand for making an expected with a value type 'T' and an error type
 // 'Error'. This is convenient because 'Error' is the default error type
 // throughout this project.

@@ -171,7 +171,7 @@ ssize_t usys_read(int fd, char *buf, size_t len) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
   Status<size_t> ret = f->Read(readable_span(buf, len), &f->get_off_ref());
-  if (!ret) return -ret.error().code();
+  if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }
 
@@ -180,7 +180,7 @@ ssize_t usys_write(int fd, const char *buf, size_t len) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
   Status<size_t> ret = f->Write(writable_span(buf, len), &f->get_off_ref());
-  if (!ret) return -ret.error().code();
+  if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }
 
@@ -189,7 +189,7 @@ ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
   Status<size_t> ret = f->Read(readable_span(buf, len), &offset);
-  if (!ret) return -ret.error().code();
+  if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }
 
@@ -198,7 +198,7 @@ ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
   Status<size_t> ret = f->Write(writable_span(buf, len), &offset);
-  if (!ret) return -ret.error().code();
+  if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }
 
@@ -208,7 +208,7 @@ off_t usys_lseek(int fd, off_t offset, int whence) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   Status<off_t> ret = f->Seek(offset, static_cast<SeekFrom>(whence));
-  if (!ret) return -ret.error().code();
+  if (!ret) return MakeCError(ret);
   f->get_off_ref() = *ret;
   return static_cast<off_t>(*ret);
 }
@@ -218,7 +218,7 @@ int usys_fsync(int fd) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   Status<void> ret = f->Sync();
-  if (!ret) return -ret.error().code();
+  if (!ret) return MakeCError(ret);
   return 0;
 }
 
@@ -250,7 +250,7 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
     File *f = ftbl.Get(dirfd);
     if (unlikely(!f)) return -EBADF;
     Status<int> ret = f->Stat(statbuf, flags);
-    if (!ret) return -ret.error().code();
+    if (!ret) return MakeCError(ret);
     return static_cast<long>(*ret);
   } else {
     // TODO(girfan): Eventually we should not allow this. Only files from the
@@ -265,7 +265,7 @@ long usys_getdents(unsigned int fd, void *dirp, unsigned int count) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   Status<int> ret = f->GetDents(dirp, count);
-  if (!ret) return -ret.error().code();
+  if (!ret) return MakeCError(ret);
   return static_cast<long>(*ret);
 }
 
@@ -274,7 +274,7 @@ long usys_getdents64(unsigned int fd, void *dirp, unsigned int count) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   Status<int> ret = f->GetDents64(dirp, count);
-  if (!ret) return -ret.error().code();
+  if (!ret) return MakeCError(ret);
   return static_cast<long>(*ret);
 }
 

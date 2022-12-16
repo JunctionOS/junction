@@ -85,7 +85,7 @@ int main(int argc, char *argv[]) {
       junction::GetCfg().FillFromArgs(junction_argc, argv);
   if (!ret) {
     usage();
-    return ret.error().code();
+    return MakeCError(ret);
   }
 
   int rtret = junction::rt::RuntimeInit(
