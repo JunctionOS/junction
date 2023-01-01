@@ -19,12 +19,12 @@ class SocketPlaceholder : public Socket {
 
  public:
   SocketPlaceholder(Token, int domain, int type, int protocol) noexcept;
-  virtual ~SocketPlaceholder() {}
+  ~SocketPlaceholder() override = default;
 
   static Status<std::shared_ptr<SocketPlaceholder>> Create(int domain, int type,
                                                            int protocol);
-  virtual Status<std::shared_ptr<Socket>> Bind(netaddr addr) override;
-  virtual Status<std::shared_ptr<Socket>> Connect(netaddr addr) override;
+  Status<std::shared_ptr<Socket>> Bind(netaddr addr) override;
+  Status<std::shared_ptr<Socket>> Connect(netaddr addr) override;
 
  private:
   int domain_;

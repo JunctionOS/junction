@@ -14,7 +14,7 @@ namespace junction {
 class Socket : public File {
  public:
   Socket() : File(FileType::kSocket, 0 /* flags */, kModeReadWrite) {}
-  virtual ~Socket() {}
+  ~Socket() override = default;
 
   // Returns a shared pointer to a specialized socket that is bound; a
   // specialized socket in this case is TCPListenerSocket.

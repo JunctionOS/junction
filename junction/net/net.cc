@@ -34,9 +34,9 @@ Status<std::reference_wrapper<Socket>> FDToSocket(int fd) {
 
 Status<netaddr> ParseSockAddr(const sockaddr *addr, socklen_t addrlen) {
   if (unlikely(!addr || addr->sa_family != AF_INET ||
-               addrlen < sizeof(sockaddr_in)))
+               addrlen < sizeof(sockaddr_in))) {
     return MakeError(EINVAL);
-
+  }
   const sockaddr_in *sin = reinterpret_cast<const sockaddr_in *>(addr);
   return netaddr{ntoh32(sin->sin_addr.s_addr), ntoh16(sin->sin_port)};
 }

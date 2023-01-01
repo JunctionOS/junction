@@ -16,11 +16,11 @@ namespace junction {
 class TCPListenerSocket : public Socket {
  public:
   TCPListenerSocket(netaddr addr) noexcept : Socket(), addr_(addr) {}
-  virtual ~TCPListenerSocket() {}
+  ~TCPListenerSocket() override = default;
 
-  virtual Status<void> Listen(int backlog) override;
-  virtual Status<std::shared_ptr<Socket>> Accept() override;
-  virtual Status<void> Shutdown(int how) override;
+  Status<void> Listen(int backlog) override;
+  Status<std::shared_ptr<Socket>> Accept() override;
+  Status<void> Shutdown(int how) override;
 
  private:
   netaddr addr_;

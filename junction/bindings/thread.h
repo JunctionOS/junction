@@ -169,7 +169,7 @@ class Future {
 
   Future() noexcept = default;
   ~Future() {
-    if (Valid()) Wait();
+    if (is_valid()) Wait();
   }
 
   // disable copy.
@@ -198,7 +198,7 @@ class Future {
   }
 
   // Checks if the future is attached to a promised value.
-  [[nodiscard]] bool Valid() const { return !!state_; }
+  [[nodiscard]] bool is_valid() const { return !!state_; }
 
   // Blocks and waits for the future's value to be ready.
   void Wait() { state_->base_.Wait(); }
