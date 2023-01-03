@@ -24,6 +24,8 @@ getdents
 getdents64
 dup
 dup2
+pipe
+pipe2
 nanosleep
 getcpu
 socket

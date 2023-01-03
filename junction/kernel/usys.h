@@ -33,6 +33,8 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                      int flags);
 long usys_getdents(unsigned int fd, void *dirp, unsigned int count);
 long usys_getdents64(unsigned int fd, void *dirp, unsigned int count);
+int usys_pipe(int pipefd[2]);
+int usys_pipe2(int pipefd[2], int flags);
 
 // Net
 long usys_socket(int domain, int type, int protocol);

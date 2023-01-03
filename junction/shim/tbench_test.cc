@@ -8,6 +8,7 @@
 
 extern "C" {
 #include <semaphore.h>
+#include <unistd.h>
 }
 
 #include <gtest/gtest.h>
@@ -110,6 +111,30 @@ void BenchCondvarPingPong(int measure_rounds) {
   th.join();
 }
 
+void BenchPipe(int measure_rounds) {
+  static constexpr size_t kBufSize = 4096;
+  int fds[2];
+  int ret = pipe(fds);
+  EXPECT_EQ(ret, 0);
+  auto th = std::thread([out_fd = fds[1], measure_rounds]() {
+    char buf[kBufSize];
+    for (int i = 0; i < measure_rounds; i++) {
+      ssize_t n = write(out_fd, buf, kBufSize);
+      EXPECT_EQ(n, kBufSize);
+    }
+  });
+
+  int in_fd = fds[0];
+  char buf[kBufSize];
+  for (int i = 0; i < measure_rounds; i++) {
+    ssize_t n = read(in_fd, buf, kBufSize);
+    EXPECT_EQ(n, kBufSize);
+  }
+  th.join();
+  close(fds[0]);
+  close(fds[1]);
+}
+
 void PrintResult(std::string name, us time) {
   time /= getMeasureRounds();
   std::cout << "test '" << name << "' took " << time.count() << " us."
@@ -141,3 +166,5 @@ TEST_F(ThreadingTest, CondvarPingPong) {
 }
 
 TEST_F(ThreadingTest, SemPingPong) { Bench("SemPingPong", BenchSemPingPong); }
+
+TEST_F(ThreadingTest, Pipe) { Bench("Pipe", BenchPipe); }

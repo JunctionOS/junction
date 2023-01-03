@@ -8,6 +8,7 @@
 #include "junction/base/byte_channel.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
+#include "junction/kernel/usys.h"
 
 namespace junction {
 
@@ -141,6 +142,14 @@ std::tuple<int, int> CreatePipe() {
 }  // namespace
 
 int usys_pipe(int pipefd[2]) {
+  auto [read_fd, write_fd] = CreatePipe();
+  pipefd[0] = read_fd;
+  pipefd[1] = write_fd;
+  return 0;
+}
+
+int usys_pipe2(int pipefd[2], int flags) {
+  // TODO(amb): Handle nonblock flag
   auto [read_fd, write_fd] = CreatePipe();
   pipefd[0] = read_fd;
   pipefd[1] = write_fd;
