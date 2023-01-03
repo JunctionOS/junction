@@ -4,6 +4,7 @@ set(SOURCES_C_CPP
   elf.cc
   file.cc
   stdiofile.cc
+  pipe.cc
   proc.cc
   exec.cc
   futex.cc

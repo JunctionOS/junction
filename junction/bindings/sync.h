@@ -272,7 +272,7 @@ class ScopedLock {
   //   rt::ThreadWaker w;
   //   rt::SpinLock l;
   //   rt::SpinGuard guard(l);
-  //   while (condition) guard.Park(&w);
+  //   while (condition) guard.Park(w);
   void Park(ThreadWaker &w) requires LockAndParkable<L> {
     assert(lock_.IsHeld());
     w.Arm();
@@ -286,7 +286,7 @@ class ScopedLock {
   //   rt::ThreadWaker w;
   //   rt::SpinLock l;
   //   rt::SpinGuard guard(l);
-  //   guard.Park(&w, []{ return predicate; });
+  //   guard.Park(w, []{ return predicate; });
   template <typename Predicate>
   void Park(ThreadWaker &w, Predicate stop) requires LockAndParkable<L> {
     assert(lock_.IsHeld());

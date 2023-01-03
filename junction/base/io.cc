@@ -46,7 +46,7 @@ Status<void> DoFull(VectorIO &io, std::span<const iovec> iov) {
   std::unique_ptr<iovec[]> vheap;
   iovec *v = vstack;
   if (iov.size() > kStackSlots) {
-    vheap = std::unique_ptr<iovec[]>{new iovec[iov.size()]};
+    vheap = std::make_unique_for_overwrite<iovec[]>(iov.size());
     v = vheap.get();
   }
   std::copy(iov.begin(), iov.end(), v);
