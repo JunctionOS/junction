@@ -43,8 +43,8 @@ class ByteChannel {
  private:
   std::atomic_size_t in_{0};
   std::atomic_size_t out_{0};
-  size_t size_;
-  size_t mask_;
+  const size_t size_;
+  const size_t mask_;
   std::vector<std::byte> buf_;
 };
 
