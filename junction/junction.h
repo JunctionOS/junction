@@ -50,5 +50,6 @@ class JunctionCfg {
 JunctionCfg &GetCfg();
 
 Status<void> init();
+Status<void> InitTestProc();
 
 }  // namespace junction

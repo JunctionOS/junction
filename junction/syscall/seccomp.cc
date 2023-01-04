@@ -36,10 +36,9 @@ Status<void> _install_seccomp_filter() {
       ALLOW_CALADAN_SYSCALL(madvise),
       ALLOW_CALADAN_SYSCALL(mprotect),
       ALLOW_CALADAN_SYSCALL(exit_group),
+      ALLOW_CALADAN_SYSCALL(write),
 
       ALLOW_SYSCALL(gettimeofday),
-      ALLOW_SYSCALL(write),
-      ALLOW_SYSCALL(writev),
       ALLOW_SYSCALL(fstat),
       ALLOW_SYSCALL(stat),
       ALLOW_SYSCALL(brk),
@@ -146,12 +145,12 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
 
   if (unlikely(!thread_self())) {
     log_syscall_msg("Unexpected syscall from Caladan", sysn);
-    BUG();
+    syscall_exit(-1);
   }
 
   if (unlikely(!get_uthread_specific())) {
     log_syscall_msg("Intercepted syscall originating in junction", sysn);
-    BUG();
+    syscall_exit(-1);
   }
 
 #ifdef DEBUG

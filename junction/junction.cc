@@ -10,6 +10,7 @@ extern "C" {
 #include "junction/filesystem/linuxfs.h"
 #include "junction/junction.h"
 #include "junction/kernel/fs.h"
+#include "junction/kernel/proc.h"
 #include "junction/shim/backend/init.h"
 #include "junction/syscall/seccomp.h"
 #include "junction/syscall/syscall.h"
@@ -79,6 +80,13 @@ std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
     manifest->Insert(filepath, flags);
   }
   return manifest;
+}
+
+Status<void> InitTestProc() {
+  // Intentionally leak this memory
+  Process *p = new Process(2);
+  p->CreateTestThread();
+  return {};
 }
 
 Status<void> init() {

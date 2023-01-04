@@ -57,6 +57,7 @@ class Process {
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
 
   Thread &CreateThread(thread_t *th);
+  Thread &CreateTestThread();
 
  private:
   const pid_t pid_;     // the process identifier

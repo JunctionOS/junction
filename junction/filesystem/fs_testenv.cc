@@ -8,7 +8,7 @@
 class FileSystemTestEnvironment : public ::testing::Environment {
  public:
   void SetUp() override {
-    if (!junction::init()) {
+    if (!junction::init() || !junction::InitTestProc()) {
       throw std::runtime_error("Cannot initialize junction");
     }
   };

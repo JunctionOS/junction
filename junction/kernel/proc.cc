@@ -26,6 +26,14 @@ extern "C" {
 
 namespace junction {
 
+// Attach calling thread to this process; used for testing.
+Thread &Process::CreateTestThread() {
+  // Intentionally leak this memory
+  Thread *tstate = new Thread(this, 1);
+  __set_uthread_specific(thread_self(), reinterpret_cast<uintptr_t>(tstate));
+  return *tstate;
+}
+
 Thread &Process::CreateThread(thread_t *th) {
   // Store the Thread object on the stack
   th->tf.rsp = AlignDown(th->tf.rsp - sizeof(Thread), 16);
