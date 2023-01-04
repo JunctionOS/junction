@@ -23,8 +23,8 @@ set(CMAKE_CXX_FLAGS_DEBUG "-DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3 -march=native -flto=auto -ffast-math")
 
 include_directories(
-  SYSTEM ${CMAKE_SOURCE_DIR}
-  ${CMAKE_SOURCE_DIR}/lib/caladan/inc
+  ${CMAKE_SOURCE_DIR}
+  SYSTEM ${CMAKE_SOURCE_DIR}/lib/caladan/inc
 )
 
 add_subdirectory(lib)
