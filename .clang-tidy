@@ -13,6 +13,7 @@ Checks: >
   -google-readability-namespace-comments,
   -google-runtime-references,
   -misc-non-private-member-variables-in-classes,
+  -misc-const-correctness,
   -modernize-return-braced-init-list,
   -modernize-use-trailing-return-type,
   -modernize-avoid-c-arrays,
