@@ -2,28 +2,30 @@
 
 #pragma once
 
-#include <boost/intrusive/list.hpp>
 #include <climits>
 #include <functional>
 
 #include "junction/base/arch.h"
 #include "junction/base/error.h"
+#include "junction/base/intrusive_list.h"
 #include "junction/bindings/sync.h"
 
 namespace junction {
 
 namespace detail {
 
-struct futex_waiter : boost::intrusive::list_base_hook<> {
+struct futex_waiter {
+  futex_waiter(thread_t *th, uint32_t *key, uint32_t bitset)
+      : th(th), key(key), bitset(bitset) {}
+
   thread_t *th;
   uint32_t *key;
   uint32_t bitset;
-  futex_waiter(thread_t *th, uint32_t *key, uint32_t bitset)
-      : th(th), key(key), bitset(bitset) {}
+  IntrusiveListNode node;
 };
 
 struct alignas(kCacheLineSize) futex_bucket {
-  boost::intrusive::list<futex_waiter> futexes;
+  IntrusiveList<futex_waiter, &futex_waiter::node> futexes;
   rt::Spin lock;
 };
 

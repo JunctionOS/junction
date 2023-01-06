@@ -16,10 +16,10 @@ class bitmap {
   ~bitmap() = default;
 
   // size returns the number of bits
-  size_t size() const { return N; }
+  [[nodiscard]] size_t size() const { return N; }
 
   // test returns true if the bit @pos is set.
-  bool test(size_t pos) const {
+  [[nodiscard]] bool test(size_t pos) const {
     return bits_[get_idx(pos)] & (1UL << get_shift(pos)) != 0;
   }
 
@@ -30,12 +30,12 @@ class bitmap {
   void reset(size_t pos) { bits_[get_idx(pos)] &= ~(1UL << get_shift(pos)); }
 
   // find_next_set finds the next set bit starting at @pos, if it exists
-  std::optional<size_t> find_next_set(size_t pos) const {
+  [[nodiscard]] std::optional<size_t> find_next_set(size_t pos) const {
     return find_next<false>(pos);
   }
 
   // find_next_clear finds the next clear bit starting at @pos, if it exists
-  std::optional<size_t> find_next_clear(size_t pos) const {
+  [[nodiscard]] std::optional<size_t> find_next_clear(size_t pos) const {
     return find_next<true>(pos);
   }
 

@@ -29,10 +29,10 @@ class Pipe {
   void CloseWriter();
 
  private:
-  bool reader_is_closed() {
+  bool reader_is_closed() const {
     return reader_closed_.load(std::memory_order_acquire);
   }
-  bool writer_is_closed() {
+  bool writer_is_closed() const {
     return writer_closed_.load(std::memory_order_acquire);
   }
 
@@ -130,7 +130,7 @@ class PipeReaderFile : public File {
 
   Status<size_t> Read(std::span<std::byte> buf,
                       [[maybe_unused]] off_t *off) override {
-    return pipe_->Read(buf, get_flags() & kFlagNonblock);
+    return pipe_->Read(buf, (get_flags() & kFlagNonblock) != 0);
   }
 
  private:
@@ -146,7 +146,7 @@ class PipeWriterFile : public File {
 
   Status<size_t> Write(std::span<const std::byte> buf,
                        [[maybe_unused]] off_t *off) override {
-    return pipe_->Write(buf, get_flags() & kFlagNonblock);
+    return pipe_->Write(buf, (get_flags() & kFlagNonblock) != 0);
   }
 
  private:
@@ -172,6 +172,8 @@ int usys_pipe(int pipefd[2]) {
 }
 
 int usys_pipe2(int pipefd[2], int flags) {
+  // check for supported flags.
+  if ((flags & ~kFlagNonblock) != 0) return -EINVAL;
   auto [read_fd, write_fd] = CreatePipe(flags);
   pipefd[0] = read_fd;
   pipefd[1] = write_fd;

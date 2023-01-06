@@ -28,11 +28,11 @@ class ByteChannel {
   ByteChannel(ByteChannel&& c) = delete;
   ByteChannel& operator=(ByteChannel&& c) = delete;
 
-  bool is_empty() const;
+  [[nodiscard]] bool is_empty() const;
   // Returns true if the channel is full. Should only be called by the writer.
-  bool is_full() const;
+  [[nodiscard]] bool is_full() const;
   // Returns true if the byte channel is initialized and usable.
-  bool is_valid() const { return !buf_.empty(); }
+  [[nodiscard]] bool is_valid() const { return !buf_.empty(); }
 
   // Reads bytes out of the channel. May return less than the bytes available.
   Status<size_t> Read(std::span<std::byte> buf);
