@@ -1,34 +1,50 @@
-From 6669ac2997b95caea7bf6a941f8b3b98962171f0 Mon Sep 17 00:00:00 2001
+From 1fdf4a9f0eb704a2cd7136f439d8b6da5cff1ded Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 4 Jan 2023 14:08:00 -0500
 Subject: [PATCH 09/10] base: use write syscall directly for logging
 
 ---
- base/log.c         | 5 ++++-
- base/syscall.S     | 8 ++++++++
- inc/base/syscall.h | 3 ++-
- 3 files changed, 14 insertions(+), 2 deletions(-)
+ base/log.c         | 13 ++++++++++---
+ base/syscall.S     |  8 ++++++++
+ inc/base/syscall.h |  3 ++-
+ 3 files changed, 20 insertions(+), 4 deletions(-)
 
 diff --git a/base/log.c b/base/log.c
-index 4cf2dfa..19c229e 100644
+index 4cf2dfa..c5eeeb9 100644
 --- a/base/log.c
 +++ b/base/log.c
-@@ -24,6 +24,7 @@ void logk(int level, const char *fmt, ...)
+@@ -11,6 +11,7 @@
+ #include <base/stddef.h>
+ #include <base/log.h>
+ #include <base/time.h>
++#include <base/syscall.h>
+ #include <asm/ops.h>
+ 
+ #define MAX_LOG_LEN 4096
+@@ -23,7 +24,7 @@ void logk(int level, const char *fmt, ...)
+ 	char buf[MAX_LOG_LEN];
  	va_list ptr;
  	off_t off;
- 	int cpu;
-+	size_t len;
+-	int cpu;
++	int cpu, ret;
  
  	if (level > max_loglevel)
  		return;
-@@ -43,7 +44,9 @@ void logk(int level, const char *fmt, ...)
+@@ -41,9 +42,15 @@ void logk(int level, const char *fmt, ...)
+ 
+ 	off = strlen(buf);
  	va_start(ptr, fmt);
- 	vsnprintf(buf + off, MAX_LOG_LEN - off, fmt, ptr);
+-	vsnprintf(buf + off, MAX_LOG_LEN - off, fmt, ptr);
++	ret = vsnprintf(buf + off, MAX_LOG_LEN - off, fmt, ptr);
  	va_end(ptr);
 -	puts(buf);
 +
-+	len = strlen(buf);
-+	syscall_write(1, buf, len);
++	if (unlikely(ret < 0))
++		ret = 0;
++
++	off = MIN(MAX_LOG_LEN - 1, off + ret);
++	buf[off] = '\n';
++	syscall_write(1, buf, off + 1);
  
  	if (level <= LOG_ERR)
  		fflush(stdout);
