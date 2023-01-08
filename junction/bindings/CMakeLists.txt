@@ -4,6 +4,7 @@ add_library(bindings
   log.cc
   runtime.cc
   thread.cc
+  timer.cc
 )
 
 target_link_libraries(bindings
