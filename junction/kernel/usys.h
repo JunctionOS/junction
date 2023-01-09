@@ -71,5 +71,8 @@ long usys_getcpu();
 // Time
 long usys_nanosleep(const struct timespec *req, struct timespec *rem);
 
+// Misc
+ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);
+
 }  // extern "C"
 }  // namespace junction

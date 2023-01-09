@@ -57,7 +57,6 @@ Status<void> _install_seccomp_filter() {
       ALLOW_SYSCALL(madvise),
       ALLOW_SYSCALL(restart_syscall),
       ALLOW_SYSCALL(clock_nanosleep),
-      ALLOW_SYSCALL(getrandom),
       ALLOW_SYSCALL(getppid),
       ALLOW_SYSCALL(getuid),
       ALLOW_SYSCALL(gettid),

@@ -37,6 +37,7 @@ sendto
 accept
 shutdown
 listen
+getrandom
 
 # syscalls for which we return enosys
 rseq:::enosys
