@@ -13,7 +13,6 @@ set(CMAKE_ASM_FLAGS "${CMAKE_ASM_FLAGS} -Wa,--noexecstack")
 
 # Preload library for glibc.
 add_library(shim_preload SHARED
-  preload/thread.cc
   intercept.cc
 )
 

@@ -19,8 +19,9 @@ namespace junction {
 
 struct CallNumber {
   enum : size_t {
-    allocate_stack = 0,
-    free_stack,
+    allocate_stack = 0,     /* KEEP AT 0 */
+    free_stack = 1,         /* KEEP AT 1 */
+    free_stack_on_exit = 2, /* KEEP AT 2 */
     pthread_rwlock_destroy,
     pthread_rwlock_init,
     pthread_rwlock_rdlock,
@@ -58,12 +59,10 @@ struct CallNumber {
 
 extern "C" {
 
-// function calls
-extern stack *allocate_stack();
-extern void free_stack(stack *stack);
-
-extern stack *shim_allocate_stack();
-extern void shim_free_stack(stack *stack);
+int shim_allocate_stack(void **stack_bottom_out, size_t *stack_size_out,
+                        size_t *guard_size_out);
+void shim_free_stack(void *stack_top);
+void shim_free_stack_on_exit(void *stack_top);
 
 int shim_pthread_mutex_init(pthread_mutex_t *mutex,
                             const pthread_mutexattr_t *mutexattr);
