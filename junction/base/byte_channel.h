@@ -28,6 +28,7 @@ class ByteChannel {
   ByteChannel(ByteChannel&& c) = delete;
   ByteChannel& operator=(ByteChannel&& c) = delete;
 
+  // Returns true if the channel is empty. Should only be called by the reader.
   [[nodiscard]] bool is_empty() const;
   // Returns true if the channel is full. Should only be called by the writer.
   [[nodiscard]] bool is_full() const;
@@ -38,7 +39,6 @@ class ByteChannel {
   Status<size_t> Read(std::span<std::byte> buf);
   // Writes bytes in to the channel. May return less than the bytes available.
   Status<size_t> Write(std::span<const std::byte> buf);
-  // Returns true if the channel is empty. Should only be called by the reader.
 
  private:
   std::atomic_size_t in_{0};
