@@ -7,6 +7,8 @@
 #include <thread>
 
 extern "C" {
+#include <fcntl.h>
+#include <poll.h>
 #include <semaphore.h>
 #include <unistd.h>
 }
@@ -135,6 +137,64 @@ void BenchPipe(int measure_rounds) {
   close(fds[1]);
 }
 
+void BenchPoll(int measure_rounds) {
+  static constexpr size_t kBufSize = 4;
+  static constexpr size_t kPollThreads = 100;
+  size_t bytes_to_write = kBufSize * measure_rounds / kPollThreads;
+  std::vector<pollfd> pfds(kPollThreads);
+
+  for (size_t i = 0; i < kPollThreads; i++) {
+    int pipefds[2];
+    int ret = pipe2(pipefds, O_NONBLOCK);
+    EXPECT_EQ(ret, 0);
+    pfds[i].fd = pipefds[0];
+    pfds[i].events = POLLIN;
+    pfds[i].revents = 0;
+
+    // Spawn a writer thread for this pipe.
+    std::thread([out_fd = pipefds[1], bytes_to_write] {
+      struct pollfd pfd;
+      pfd.fd = out_fd;
+      pfd.events = POLLOUT;
+      pfd.revents = 0;
+      char buf[kBufSize];
+      size_t bytes_written = 0;
+      while (bytes_written < bytes_to_write) {
+        int ret = poll(&pfd, 1, -1);
+        EXPECT_EQ(ret, 1);
+        if ((pfd.revents & POLLOUT) == 0) continue;
+        ssize_t n = write(out_fd, buf, kBufSize);
+        EXPECT_GT(n, 0);
+        bytes_written += n;
+      }
+      close(out_fd);
+    }).detach();
+  }
+
+  // Now poll() and read() all the bytes written into the pipes.
+  char buf[kBufSize];
+  while (!pfds.empty()) {
+    int ret = poll(pfds.data(), pfds.size(), -1);
+    EXPECT_GE(ret, 1);
+    for (auto it = pfds.begin(); it != pfds.end();) {
+      const pollfd &pfd = *it;
+      EXPECT_FALSE((pfd.revents & (POLLNVAL | POLLERR)) != 0);
+      if (pfd.revents & POLLIN) {
+        ssize_t n = read(pfd.fd, buf, kBufSize);
+        EXPECT_GT(n, 0);
+        ++it;
+        continue;
+      }
+      if (pfd.revents & POLLHUP) {
+        close(pfd.fd);
+        it = pfds.erase(it);
+        continue;
+      }
+      ++it;
+    }
+  }
+}
+
 void PrintResult(std::string name, us time) {
   time /= getMeasureRounds();
   std::cout << "test '" << name << "' took " << time.count() << " us."
@@ -168,3 +228,5 @@ TEST_F(ThreadingTest, CondvarPingPong) {
 TEST_F(ThreadingTest, SemPingPong) { Bench("SemPingPong", BenchSemPingPong); }
 
 TEST_F(ThreadingTest, Pipe) { Bench("Pipe", BenchPipe); }
+
+TEST_F(ThreadingTest, Poll) { Bench("Poll", BenchPoll); }

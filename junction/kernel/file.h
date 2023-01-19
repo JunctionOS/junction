@@ -13,6 +13,7 @@ extern "C" {
 #include "junction/base/error.h"
 #include "junction/bindings/rcu.h"
 #include "junction/bindings/sync.h"
+#include "junction/kernel/poll.h"
 
 namespace junction {
 
@@ -100,12 +101,14 @@ class File {
   [[nodiscard]] unsigned int get_mode() const { return mode_; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
   void set_flags(unsigned int flags) { flags_ = flags; }
+  [[nodiscard]] PollSource &get_poll_source() { return poll_; }
 
  private:
   const FileType type_;
   unsigned int flags_;
   const unsigned int mode_;
   off_t off_{0};
+  PollSource poll_;
 };
 
 namespace detail {

@@ -20,6 +20,8 @@ constexpr size_t kPipeSize = 16 * kPageSize;  // same default as Linux
 
 class Pipe {
  public:
+  friend std::tuple<int, int> CreatePipe(int flags);
+
   explicit Pipe(size_t size) noexcept : chan_(size) {}
   ~Pipe() = default;
 
@@ -37,11 +39,13 @@ class Pipe {
   }
 
   rt::Spin lock_;
+  ByteChannel chan_;
   std::atomic<bool> reader_closed_{false};
   std::atomic<bool> writer_closed_{false};
   rt::ThreadWaker read_waker_;
   rt::ThreadWaker write_waker_;
-  ByteChannel chan_;
+  PollSource *read_poll_{nullptr};
+  PollSource *write_poll_{nullptr};
 };
 
 Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
@@ -68,10 +72,13 @@ Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
     if (writer_is_closed()) return 0;
   }
 
-  // Wake the writer if it's blocked on a full channel.
+  // Wake the writer and any pollers.
   {
     rt::SpinGuard guard(lock_);
+    if (chan_.is_empty()) read_poll_->Clear(kPollIn);
+    if (writer_is_closed()) return n;
     write_waker_.Wake();
+    write_poll_->Set(kPollOut);
   }
   return n;
 }
@@ -100,11 +107,13 @@ Status<size_t> Pipe::Write(std::span<const std::byte> buf, bool nonblocking) {
     if (reader_is_closed()) return MakeError(EPIPE);
   }
 
-  // Wake the reader if it's blocked on an empty channel.
+  // Wake the reader and any pollers.
   {
     rt::SpinGuard guard(lock_);
+    if (chan_.is_full()) write_poll_->Clear(kPollOut);
     if (reader_is_closed()) return MakeError(EPIPE);
     read_waker_.Wake();
+    read_poll_->Set(kPollIn);
   }
   return n;
 }
@@ -113,12 +122,14 @@ void Pipe::CloseReader() {
   rt::SpinGuard guard(lock_);
   reader_closed_.store(true, std::memory_order_release);
   write_waker_.Wake();
+  write_poll_->Set(kPollErr);  // POSIX requires this for pipe, not kPollRdHUp
 }
 
 void Pipe::CloseWriter() {
   rt::SpinGuard guard(lock_);
   writer_closed_.store(true, std::memory_order_release);
   read_waker_.Wake();
+  read_poll_->Set(kPollHUp);
 }
 
 class PipeReaderFile : public File {
@@ -154,11 +165,22 @@ class PipeWriterFile : public File {
 };
 
 std::tuple<int, int> CreatePipe(int flags = 0) {
+  // Create the pipe (shared between the reader and writer file).
   auto pipe = std::make_shared<Pipe>(kPipeSize);
+
+  // Create the reader file.
+  auto reader = std::make_shared<PipeReaderFile>(pipe, flags);
+  pipe->read_poll_ = &reader->get_poll_source();
+
+  // Create the writer file.
+  auto writer = std::make_shared<PipeWriterFile>(pipe, flags);
+  pipe->write_poll_ = &writer->get_poll_source();
+  pipe->write_poll_->Set(kPollOut);
+
+  // Insert both files into the file table.
   FileTable &ftbl = myproc().get_file_table();
-  int read_fd = ftbl.Insert(std::make_shared<PipeReaderFile>(pipe, flags));
-  int write_fd =
-      ftbl.Insert(std::make_shared<PipeWriterFile>(std::move(pipe), flags));
+  int read_fd = ftbl.Insert(std::move(reader));
+  int write_fd = ftbl.Insert(std::move(writer));
   return std::make_tuple(read_fd, write_fd);
 }
 

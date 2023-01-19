@@ -1,4 +1,4 @@
-
+// time.cc - support for time keeping functions
 #include "junction/bindings/timer.h"
 #include "junction/kernel/usys.h"
 

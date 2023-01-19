@@ -8,6 +8,7 @@ set(SOURCES_C_CPP
   proc.cc
   exec.cc
   futex.cc
+  poll.cc
   random.cc
   sched.cc
   time.cc

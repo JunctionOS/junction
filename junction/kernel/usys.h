@@ -1,6 +1,8 @@
 #pragma once
 
 extern "C" {
+#include <poll.h>
+#include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -49,7 +51,9 @@ ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
 long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 long usys_shutdown(int sockfd, int how);
 long usys_listen(int sockfd, int backlog);
-
+int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout);
+int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p,
+               const sigset_t *sigmask, size_t sigsetsize);
 // Proc
 pid_t usys_getpid();
 pid_t usys_set_tid_address(int *tidptr);

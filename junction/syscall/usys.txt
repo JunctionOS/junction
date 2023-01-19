@@ -38,6 +38,8 @@ accept
 shutdown
 listen
 getrandom
+poll
+ppoll
 
 # syscalls for which we return enosys
 rseq:::enosys
