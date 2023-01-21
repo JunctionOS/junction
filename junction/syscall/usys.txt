@@ -40,6 +40,8 @@ listen
 getrandom
 poll
 ppoll
+select
+pselect6
 
 # syscalls for which we return enosys
 rseq:::enosys

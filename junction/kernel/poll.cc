@@ -67,101 +67,141 @@ int DoPoll(struct pollfd *fds, nfds_t nfds,
   });
   if (timeout_us) timeout_trigger.Start(*timeout_us);
 
-  do {
-    std::vector<Poller> triggers;
-    triggers.reserve(nfds);
+  std::vector<Poller> triggers;
+  triggers.reserve(nfds);
 
-    // Setup a trigger for each file.
-    for (nfds_t i = 0; i < nfds; i++) {
-      File *f = ftbl.Get(fds[i].fd);
-      assert(f != nullptr);
-      triggers.emplace_back(
-          [&lock, &th, &nevents, &entry = fds[i]](unsigned long ev) {
-            int delta = entry.revents > 0 ? -1 : 0;
-            short events = static_cast<short>(ev);
-            entry.revents = events & (entry.events | kPollErr | kPollHUp);
-            delta += entry.revents > 0 ? 1 : 0;
-            if (delta != 0) {
-              rt::SpinGuard g(lock);
-              nevents += delta;
-              if (nevents > 0) th.Wake();
-            }
-          });
-      PollSource &src = f->get_poll_source();
-      src.Attach(triggers.back());
-    }
+  // Setup a trigger for each file.
+  for (nfds_t i = 0; i < nfds; i++) {
+    triggers.emplace_back(
+        [&lock, &th, &nevents, &entry = fds[i]](unsigned int pev) {
+          int delta = entry.revents > 0 ? -1 : 0;
+          short events = static_cast<short>(pev);
+          entry.revents = events & (entry.events | kPollErr | kPollHUp);
+          delta += entry.revents > 0 ? 1 : 0;
+          if (delta != 0) {
+            rt::SpinGuard g(lock);
+            nevents += delta;
+            if (nevents > 0) th.Wake();
+          }
+        });
+    File *f = ftbl.Get(fds[i].fd);
+    assert(f != nullptr);
+    PollSource &src = f->get_poll_source();
+    src.Attach(triggers.back());
+  }
 
+  while (true) {
     // Block until an event has triggered.
     {
       rt::SpinGuard g(lock);
       g.Park(th, [&nevents, &timed_out] { return nevents > 0 || timed_out; });
     }
 
+    for (auto &p : triggers) p.Detach();
+
     // There's a tiny chance events will get cleared, causing zero @nevents.
-  } while (nevents == 0 && !timed_out);
+    if (likely(nevents > 0 || timed_out)) break;
+
+    for (nfds_t i = 0; i < nfds; i++) {
+      File *f = ftbl.Get(fds[i].fd);
+      assert(f != nullptr);
+      PollSource &src = f->get_poll_source();
+      src.Attach(triggers[i]);
+    }
+  }
 
   if (timeout_us) timeout_trigger.Cancel();
   return nevents;
 }
 
-#if 0
-int select(int nfds, fd_set *readfds, fd_set *writefds,
-           fd_set *exceptfds, std::optional<uint64_t> timeout_us) {
-  if (nfds > FD_SETSIZE) return -EINVAL;
+struct select_fd {
+  int fd;
+  short events;
+  short revents;
+  Poller p;
+};
 
-  static constexpr short kSelectIn = (kPollIn | kPollHup | kPollErr);
-  static constexpr short kSelectOut = (kPollOut | kPollErr);
-  static constexpr short kSelectExcept = kPollPrio;
+constexpr short kSelectIn = (kPollIn | kPollHUp | kPollErr);
+constexpr short kSelectOut = (kPollOut | kPollErr);
+constexpr short kSelectExcept = kPollPrio;
 
-  struct select_data {
-    int fd;
-    short events;
-    short revents;
-    Poller p; 
-  }
+std::vector<select_fd> DecodeSelectFDs(int nfds, fd_set *readfds,
+                                       fd_set *writefds, fd_set *exceptfds) {
+  std::vector<select_fd> sfds;
 
-  std::vector<select_data> evtbl;
-  int nevents;
-
-  // Parse input event bit vectors.
   for (int i = 0; i < nfds; i++) {
-    File *f = ftbl.Get(i);
-    if (unlikely(!f)) return -EBADF;
-    PollSource &src = f->get_poll_source();
-    short pending_events = static_cast<short>(src.get_events());
     short events = 0;
 
     if (readfds && FD_ISSET(i, readfds)) {
-      if ((pending_events & kSelectIn) != 0) {
-        nevents++;
-      } else {
-        events |= kSelectIn;
-        FD_CLR(i, readfds);
-      }
+      events |= kSelectIn;
+      FD_CLR(i, readfds);
     }
     if (writefds && FD_ISSET(i, writefds)) {
-      if ((pending_events & kSelectOut) != 0) {
-        nevents++;
-      } else {
-        events |= kSelectOut;
-        FD_CLR(i, writefds);
-      }
+      events |= kSelectOut;
+      FD_CLR(i, writefds);
     }
     if (exceptfds && FD_ISSET(i, exceptfds)) {
-      if ((pending_events & kSelectExcept) != 0) {
-        nevents++;
-      } else {
-        events |= kSelectExcept;
-        FD_CLR(i, exceptfds);
-      }
+      events |= kSelectExcept;
+      FD_CLR(i, exceptfds);
     }
 
-    if (!events || nevents > 0) continue;
-    evtbl.emplace_back({.fd = i, .events = events, .revents = 0, .p = {}}); 
+    if (!events) continue;
+    sfds.emplace_back(
+        select_fd{.fd = i, .events = events, .revents = 0, .p = {}});
+  }
+
+  return sfds;
+}
+
+int EncodeSelectFDs(const std::vector<select_fd> &sfds, fd_set *readfds,
+                    fd_set *writefds, fd_set *exceptfds) {
+  int count = 0;
+  for (const auto &sfd : sfds) {
+    if ((sfd.events & kSelectIn) == kSelectIn &&
+        (sfd.revents & kSelectIn) != 0) {
+      FD_SET(sfd.fd, readfds);
+      count++;
+    }
+    if ((sfd.events & kSelectOut) == kSelectOut &&
+        (sfd.revents & kSelectOut) != 0) {
+      FD_SET(sfd.fd, writefds);
+      count++;
+    }
+    if ((sfd.events & kSelectExcept) == kSelectExcept &&
+        (sfd.revents & kSelectExcept) != 0) {
+      FD_SET(sfd.fd, exceptfds);
+      count++;
+    }
+  }
+  return count;
+}
+
+int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+             std::optional<uint64_t> timeout_us) {
+  if (nfds > FD_SETSIZE) return -EINVAL;
+
+  // Decode the events into a more convenient format.
+  std::vector<select_fd> sfds =
+      DecodeSelectFDs(nfds, readfds, writefds, exceptfds);
+  if (sfds.empty()) return 0;
+
+  // Check whether events are pending before blocking.
+  FileTable &ftbl = myproc().get_file_table();
+  int nevents = 0;
+  for (auto &sfd : sfds) {
+    File *f = ftbl.Get(sfd.fd);
+    if (unlikely(!f)) return -EBADF;
+    PollSource &src = f->get_poll_source();
+    short pev = static_cast<short>(src.get_events());
+    if ((pev & sfd.events) != 0) {
+      sfd.revents = pev & sfd.events;
+      nevents++;
+    }
   }
 
   // Fast path: Return without blocking.
-  if (nevents > 0 || (timeout_us && *timeout_us == 0)) return nevents;
+  if (nevents > 0) return EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
+  if (timeout_us && *timeout_us == 0) return 0;
 
   // Otherwise, init state to block on the FDs and timeout.
   rt::Spin lock;
@@ -177,26 +217,46 @@ int select(int nfds, fd_set *readfds, fd_set *writefds,
   if (timeout_us) timeout_trigger.Start(*timeout_us);
 
   // Setup a trigger for each file.
-  for (auto &ev : evtbl) {
-      File *f = ftbl.Get(fds[i].fd);
-      assert(f != nullptr);
-      triggers.emplace_back(
-          [&lock, &th, &nevents, &entry = fds[i]](unsigned long ev) {
-            int delta = entry.revents > 0 ? -1 : 0;
-            short events = static_cast<short>(ev);
-            entry.revents = events & (entry.events | kPollErr | kPollHUp);
-            delta += entry.revents > 0 ? 1 : 0;
-            if (delta != 0) {
-              rt::SpinGuard g(lock);
-              nevents += delta;
-              if (nevents > 0) th.Wake();
-            }
-          });
-      PollSource &src = f->get_poll_source();
-      src.Attach(triggers.back());
+  for (auto &sfd : sfds) {
+    sfd.p = Poller([&lock, &th, &nevents, &entry = sfd](unsigned int pev) {
+      int delta = entry.revents > 0 ? -1 : 0;
+      entry.revents = (static_cast<short>(pev) & entry.events);
+      delta += entry.revents > 0 ? 1 : 0;
+      if (delta != 0) {
+        rt::SpinGuard g(lock);
+        nevents += delta;
+        if (nevents > 0) th.Wake();
+      }
+    });
+    File *f = ftbl.Get(sfd.fd);
+    assert(f != nullptr);
+    PollSource &src = f->get_poll_source();
+    src.Attach(sfd.p);
+  }
+
+  while (true) {
+    // Block until an event has triggered.
+    {
+      rt::SpinGuard g(lock);
+      g.Park(th, [&nevents, &timed_out] { return nevents > 0 || timed_out; });
     }
+
+    for (auto &sfd : sfds) sfd.p.Detach();
+
+    // There's a tiny chance events will get cleared, causing zero @nevents.
+    if (likely(nevents > 0 || timed_out)) break;
+
+    for (auto &sfd : sfds) {
+      File *f = ftbl.Get(sfd.fd);
+      assert(f != nullptr);
+      PollSource &src = f->get_poll_source();
+      src.Attach(sfd.p);
+    }
+  }
+
+  if (timeout_us) timeout_trigger.Cancel();
+  return EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
 }
-#endif
 
 }  // namespace
 
@@ -216,6 +276,22 @@ int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *ts,
   if (!ts) return DoPoll(fds, nfds, {});
   uint64_t timeout_us = ts->tv_sec * rt::kSeconds + ts->tv_nsec / 1000;
   return DoPoll(fds, nfds, timeout_us);
+}
+
+int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+                struct timeval *tv) {
+  // TODO(amb): On linux, @tv is modified to reflect the time left.
+  if (!tv) return DoSelect(nfds, readfds, writefds, exceptfds, {});
+  uint64_t timeout_us = tv->tv_sec * rt::kSeconds + tv->tv_usec;
+  return DoSelect(nfds, readfds, writefds, exceptfds, timeout_us);
+}
+
+int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+                 const struct timespec *ts) {
+  // TODO(amb): support signal masking
+  if (!ts) return DoSelect(nfds, readfds, writefds, exceptfds, {});
+  uint64_t timeout_us = ts->tv_sec * rt::kSeconds + ts->tv_nsec / 1000;
+  return DoSelect(nfds, readfds, writefds, exceptfds, timeout_us);
 }
 
 #if 0

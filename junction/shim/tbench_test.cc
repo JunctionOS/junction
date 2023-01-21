@@ -138,7 +138,7 @@ void BenchPipe(int measure_rounds) {
 }
 
 void BenchPoll(int measure_rounds) {
-  static constexpr size_t kBufSize = 4;
+  static constexpr size_t kBufSize = 64;
   static constexpr size_t kPollThreads = 100;
   size_t bytes_to_write = kBufSize * measure_rounds / kPollThreads;
   std::vector<pollfd> pfds(kPollThreads);
