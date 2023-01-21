@@ -56,8 +56,8 @@ int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p,
                const sigset_t *sigmask, size_t sigsetsize);
 int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                 struct timeval *tv);
-int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-                 const struct timespec *ts);
+int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
+                  fd_set *exceptfds, const struct timespec *ts);
 
 // Proc
 pid_t usys_getpid();

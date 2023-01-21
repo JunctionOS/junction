@@ -286,8 +286,8 @@ int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   return DoSelect(nfds, readfds, writefds, exceptfds, timeout_us);
 }
 
-int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-                 const struct timespec *ts) {
+int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
+                  fd_set *exceptfds, const struct timespec *ts) {
   // TODO(amb): support signal masking
   if (!ts) return DoSelect(nfds, readfds, writefds, exceptfds, {});
   uint64_t timeout_us = ts->tv_sec * rt::kSeconds + ts->tv_nsec / 1000;
