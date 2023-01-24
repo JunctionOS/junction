@@ -234,9 +234,13 @@ class ThreadingTest : public ::testing::Test {
   }
 
   static void PrintAllResults() {
-    for (const auto& [k, v] : results_) { std::cout << k << ","; }
+    for (const auto &[k, v] : results_) {
+      std::cout << k << ",";
+    }
     std::cout << std::endl;
-    for (const auto& [k, v] : results_) { std::cout << v.count() << ","; }
+    for (const auto &[k, v] : results_) {
+      std::cout << v.count() << ",";
+    }
     std::cout << std::endl;
   }
 };
