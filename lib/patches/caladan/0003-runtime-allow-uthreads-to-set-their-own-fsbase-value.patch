@@ -1,29 +1,38 @@
-From 5757086b36b01e45aa7970adae629e015ecd85ee Mon Sep 17 00:00:00 2001
+From c0c8d0d8bf8f36e5f790a44acf4c5c969e417596 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
-Subject: [PATCH 3/8] runtime: allow uthreads to set their own fsbase values
+Subject: [PATCH 03/11] runtime: allow uthreads to set their own fsbase values
 
 ---
- build/shared.mk      |  2 +-
+ build/shared.mk      |  4 ++--
  inc/runtime/thread.h | 14 ++++++++++++--
  runtime/defs.h       | 14 ++++++++------
  runtime/sched.c      | 37 ++++++++++++++++++++++++++++---------
  runtime/switch.S     | 17 +++++++++++++++++
- 5 files changed, 66 insertions(+), 18 deletions(-)
+ 5 files changed, 67 insertions(+), 19 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
-index 1e087d8..8061a20 100644
+index 1e087d8..22e2d92 100644
 --- a/build/shared.mk
 +++ b/build/shared.mk
-@@ -57,7 +57,7 @@ ifeq ($(CONFIG_CLANG),y)
+@@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
+ 
+ # shared toolchain definitions
+ INC = -I$(ROOT_PATH)/inc
+-FLAGS  = -g -Wall -D_GNU_SOURCE $(INC)
++FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -mfsgsbase
+ LDFLAGS = -T $(ROOT_PATH)/base/base.ld
+ LD      = gcc
+ CC      = gcc
+@@ -52,7 +52,7 @@ LDFLAGS += -rdynamic
+ else
+ FLAGS += -DNDEBUG -O3
+ ifeq ($(CONFIG_OPTIMIZE),y)
+-FLAGS += -march=native -flto -ffast-math
++FLAGS += -march=native  -ffast-math
+ ifeq ($(CONFIG_CLANG),y)
  LDFLAGS += -flto
  endif
- else
--FLAGS += -mssse3
-+FLAGS += -mssse3 -mfsgsbase
- endif
- endif
- ifeq ($(CONFIG_MLX5),y)
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index d71d30f..67dcceb 100644
 --- a/inc/runtime/thread.h
