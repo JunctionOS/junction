@@ -1,5 +1,8 @@
+// glibc uses a very expensive way to check bounds in FD sets, so disable it.
+#undef _FORTIFY_SOURCE
+#define _FORTIFY_SOURCE 0
+
 #include "junction/base/intrusive_list.h"
-#include "junction/bindings/log.h"
 #include "junction/bindings/timer.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
@@ -14,20 +17,21 @@ constexpr unsigned int kPollInval = POLLNVAL;
 #if 0
 class PollTrigger : public PollObserver {};
 
-class EPollNotifier : boost::intrusive::list_base_hook<> {
+class EPollNotifier {
  private:
   bool edge_triggered_;
   bool one_shot_;
   uint32_t events_;
   uint64_t user_data_;
+  IntrusiveListNode node_;
 };
 
 class EPollFile : public File {
  private:
   rt::Spin lock_;
   rt::ThreadWaker waker_;
-  boost::intrusive::list<EPollNotifier> triggered_events_;
-  boost::intrusive::list<EPollNotifier> all_events_;
+  IntrusiveList<EPollNotifier, &EPollNotifier::node_> triggered_events_;
+  IntrusiveList<EPollNotifier, &EPollNotifier::node_> all_events_;
 };
 #endif
 
@@ -128,6 +132,7 @@ constexpr short kSelectExcept = kPollPrio;
 std::vector<select_fd> DecodeSelectFDs(int nfds, fd_set *readfds,
                                        fd_set *writefds, fd_set *exceptfds) {
   std::vector<select_fd> sfds;
+  sfds.reserve(nfds);
 
   for (int i = 0; i < nfds; i++) {
     short events = 0;
@@ -242,10 +247,8 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     }
 
     for (auto &sfd : sfds) sfd.p.Detach();
-
     // There's a tiny chance events will get cleared, causing zero @nevents.
     if (likely(nevents > 0 || timed_out)) break;
-
     for (auto &sfd : sfds) {
       File *f = ftbl.Get(sfd.fd);
       assert(f != nullptr);
