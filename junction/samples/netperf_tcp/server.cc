@@ -44,6 +44,7 @@ int ReadFull(const int fd, char *buf, const int size) {
     if (ret == 0) {
       break;
     } else if (ret == -1) {
+      if (errno == EAGAIN) continue;
       perror("read");
       return -1;
     } else {
