@@ -159,14 +159,12 @@ void BenchPoll(int measure_rounds) {
     EXPECT_EQ(ret, 0);
     pfds[i].fd = pipefds[0];
     pfds[i].events = POLLIN;
-    pfds[i].revents = 0;
 
     // Spawn a writer thread for this pipe.
     std::thread([out_fd = pipefds[1], bytes_to_write] {
       struct pollfd pfd;
       pfd.fd = out_fd;
       pfd.events = POLLOUT;
-      pfd.revents = 0;
       char buf[kBufSize];
       size_t bytes_written = 0;
       while (bytes_written < bytes_to_write) {
@@ -185,7 +183,7 @@ void BenchPoll(int measure_rounds) {
   char buf[kBufSize];
   while (!pfds.empty()) {
     int ret = poll(pfds.data(), pfds.size(), -1);
-    EXPECT_GE(ret, 1);
+    EXPECT_GT(ret, 0);
     for (auto it = pfds.begin(); it != pfds.end();) {
       const pollfd &pfd = *it;
       EXPECT_FALSE((pfd.revents & (POLLNVAL | POLLERR)) != 0);
@@ -198,6 +196,64 @@ void BenchPoll(int measure_rounds) {
       if (pfd.revents & POLLHUP) {
         close(pfd.fd);
         it = pfds.erase(it);
+        continue;
+      }
+      ++it;
+    }
+  }
+}
+
+void BenchSelect(int measure_rounds) {
+  static constexpr size_t kBufSize = 64;
+  static constexpr size_t kPollThreads = 100;
+  size_t bytes_to_write = kBufSize * measure_rounds / kPollThreads;
+  std::vector<int> fds(kPollThreads);
+
+  for (size_t i = 0; i < kPollThreads; i++) {
+    int pipefds[2];
+    int ret = pipe2(pipefds, O_NONBLOCK);
+    EXPECT_EQ(ret, 0);
+    fds[i] = pipefds[0];
+
+    // Spawn a writer thread for this pipe.
+    std::thread([out_fd = pipefds[1], bytes_to_write] {
+      char buf[kBufSize];
+      size_t bytes_written = 0;
+      fd_set rfds;
+      FD_ZERO(&rfds);
+      while (bytes_written < bytes_to_write) {
+        FD_SET(out_fd, &rfds);
+        int ret = select(out_fd + 1, nullptr, &rfds, nullptr, nullptr);
+        EXPECT_EQ(ret, 1);
+        EXPECT_TRUE(FD_ISSET(out_fd, &rfds));
+        ssize_t n = write(out_fd, buf, kBufSize);
+        EXPECT_GT(n, 0);
+        bytes_written += n;
+      }
+      close(out_fd);
+    }).detach();
+  }
+
+  // Now select() and read() all the bytes written into the pipes.
+  char buf[kBufSize];
+  fd_set rfds;
+  FD_ZERO(&rfds);
+  while (!fds.empty()) {
+    for (int fd : fds) FD_SET(fd, &rfds);
+    int ret = select(fds.back() + 1, &rfds, nullptr, nullptr, nullptr);
+    EXPECT_GT(ret, 0);
+    for (auto it = fds.begin(); it != fds.end();) {
+      int fd = *it;
+      if (!FD_ISSET(fd, &rfds)) {
+        ++it;
+        continue;
+      }
+      ssize_t n = read(fd, buf, kBufSize);
+      EXPECT_GE(n, 0);
+      if (n == 0) {
+        close(fd);
+        it = fds.erase(it);
+        FD_CLR(fd, &rfds);
         continue;
       }
       ++it;
@@ -266,5 +322,7 @@ TEST_F(ThreadingTest, SemPingPong) { Bench("SemPingPong", BenchSemPingPong); }
 TEST_F(ThreadingTest, Pipe) { Bench("Pipe", BenchPipe); }
 
 TEST_F(ThreadingTest, Poll) { Bench("Poll", BenchPoll); }
+
+TEST_F(ThreadingTest, Select) { Bench("Select", BenchSelect); }
 
 TEST_F(ThreadingTest, Mmap) { Bench("Mmap", BenchMMAP); }

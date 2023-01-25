@@ -122,14 +122,16 @@ void Pipe::CloseReader() {
   rt::SpinGuard guard(lock_);
   reader_closed_.store(true, std::memory_order_release);
   write_waker_.Wake();
-  write_poll_->Set(kPollErr);  // POSIX requires this for pipe, not kPollRdHUp
+  if (!writer_is_closed())
+    write_poll_->Set(kPollErr);  // POSIX requires this for pipe, not kPollRdHUp
 }
 
 void Pipe::CloseWriter() {
   rt::SpinGuard guard(lock_);
   writer_closed_.store(true, std::memory_order_release);
   read_waker_.Wake();
-  read_poll_->Set(kPollHUp);
+  if (!reader_is_closed())
+    read_poll_->Set(kPollHUp);
 }
 
 class PipeReaderFile : public File {

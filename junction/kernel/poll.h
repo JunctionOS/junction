@@ -134,9 +134,7 @@ class Poller : public PollObserver {
   Poller() noexcept = default;
   explicit Poller(std::function<void(unsigned int)> func) noexcept
       : func_(func) {}
-  ~Poller() {
-    if (is_attached()) Detach();
-  }
+  ~Poller() = default;
 
   Poller(const Poller &p) noexcept : func_(p.func_) {}
   Poller &operator=(const Poller &p) {
