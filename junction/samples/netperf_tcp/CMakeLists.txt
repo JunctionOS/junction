@@ -11,7 +11,7 @@ runtime_priority lc
 runtime_quantum_us 0
 enable_directpath 1
 host_mtu 9000
-host_addr 192.168.127.7"
+host_addr 192.168.127.9"
 )
 
 set(caladan_server_config_path
