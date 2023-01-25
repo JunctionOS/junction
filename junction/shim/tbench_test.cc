@@ -10,6 +10,7 @@ extern "C" {
 #include <fcntl.h>
 #include <poll.h>
 #include <semaphore.h>
+#include <sys/mman.h>
 #include <unistd.h>
 }
 
@@ -44,6 +45,15 @@ void BenchSpawnJoin(int measure_rounds) {
   for (int i = 0; i < measure_rounds; ++i) {
     auto th = std::thread([]() { ; });
     th.join();
+  }
+}
+
+void BenchMMAP(int measure_rounds) {
+  for (int i = 0; i < measure_rounds; ++i) {
+    void *addr = mmap(NULL, 1 << 20, PROT_READ | PROT_WRITE,
+                      MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    EXPECT_FALSE(addr == MAP_FAILED);
+    munmap(addr, 1 << 20);
   }
 }
 
@@ -257,15 +267,41 @@ void PrintResult(std::string name, us time) {
             << std::endl;
 }
 
-void Bench(std::string name, std::function<void(int)> fn) {
-  int measure_rounds = getMeasureRounds();
-  auto start = std::chrono::steady_clock::now();
-  fn(measure_rounds);
-  auto finish = std::chrono::steady_clock::now();
-  PrintResult(name, std::chrono::duration_cast<us>(finish - start));
-}
+class ThreadingTest : public ::testing::Test {
+ protected:
+  // All tests add their timing measurements to this data structure.
+  static std::vector<std::pair<const std::string, us>> results_;
 
-class ThreadingTest : public ::testing::Test {};
+  static void TearDownTestSuite() { PrintAllResults(); }
+
+  void Bench(std::string name, std::function<void(int)> fn) {
+    int measure_rounds = getMeasureRounds();
+    auto start = std::chrono::steady_clock::now();
+    fn(measure_rounds);
+    auto finish = std::chrono::steady_clock::now();
+    auto t = std::chrono::duration_cast<us>(finish - start);
+    PrintResult(name, t);
+    StoreResult(name, t);
+  }
+
+  static void StoreResult(std::string name, us time) {
+    time /= getMeasureRounds();
+    results_.push_back({name, time});
+  }
+
+  static void PrintAllResults() {
+    for (const auto &[k, v] : results_) {
+      std::cout << k << ",";
+    }
+    std::cout << std::endl;
+    for (const auto &[k, v] : results_) {
+      std::cout << v.count() << ",";
+    }
+    std::cout << std::endl;
+  }
+};
+
+std::vector<std::pair<const std::string, us>> ThreadingTest::results_({});
 
 TEST_F(ThreadingTest, GetPid) { Bench("GetPid", BenchGetPid); }
 
@@ -288,3 +324,5 @@ TEST_F(ThreadingTest, Pipe) { Bench("Pipe", BenchPipe); }
 TEST_F(ThreadingTest, Poll) { Bench("Poll", BenchPoll); }
 
 TEST_F(ThreadingTest, Select) { Bench("Select", BenchSelect); }
+
+TEST_F(ThreadingTest, Mmap) { Bench("Mmap", BenchMMAP); }

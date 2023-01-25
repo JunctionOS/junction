@@ -1,0 +1,25 @@
+From ad5c660b48267e1b832603f09c8986539197cf90 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Tue, 24 Jan 2023 22:54:00 -0500
+Subject: [PATCH 12/12] tcp: increase window size
+
+---
+ runtime/net/tcp.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/runtime/net/tcp.h b/runtime/net/tcp.h
+index 7f6457b..48c7784 100644
+--- a/runtime/net/tcp.h
++++ b/runtime/net/tcp.h
+@@ -17,7 +17,7 @@
+ 
+ /* adjustable constants */
+ #define TCP_MIN_MSS		88
+-#define TCP_WIN			0x1FFFF
++#define TCP_WIN			0x7FFFF
+ #define TCP_ACK_TIMEOUT		(10 * ONE_MS)
+ #define TCP_CONNECT_TIMEOUT	(5 * ONE_SECOND) /* FIXME */
+ #define TCP_OOQ_ACK_TIMEOUT	(300 * ONE_MS)
+-- 
+2.34.1
+
