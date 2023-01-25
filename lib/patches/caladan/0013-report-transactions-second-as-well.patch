@@ -1,0 +1,27 @@
+From 4fb59251966a7201dd9421bcf869925422e71030 Mon Sep 17 00:00:00 2001
+From: "girfan@mit.edu" <girfan@mit.edu>
+Date: Wed, 25 Jan 2023 10:49:05 -0500
+Subject: [PATCH 1/13] report transactions/second as well
+
+---
+ apps/bench/netperf.cc | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/apps/bench/netperf.cc b/apps/bench/netperf.cc
+index 008aa13..cd413ab 100644
+--- a/apps/bench/netperf.cc
++++ b/apps/bench/netperf.cc
+@@ -146,7 +146,10 @@ void RunClient(netaddr raddr, int threads, int samples, size_t buflen,
+   double seconds = duration_cast<sec>(finish - start).count();
+   size_t mbytes = buflen * samples * threads / 1000 / 1000;
+   double mbytes_per_second = static_cast<double>(mbytes) / seconds;
++  double transactions_per_second = static_cast<double>(samples) / seconds;
+   std::cout << "transferred " << mbytes_per_second << " MB/s" << std::endl;
++  std::cout << "transactions rate " << transactions_per_second << " transactions/s" << std::endl;
++  std::cout << "request/response size " << buflen << " bytes" << std::endl;
+ }
+ 
+ int StringToAddr(const char *str, uint32_t *addr) {
+-- 
+2.34.1
+
