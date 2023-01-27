@@ -160,13 +160,25 @@ void RunServer() {
   }
 }
 
+static void WaitForButtonPress() {
+  // Check if the env variable is set to wait for button press before start
+  // and stop. This is useful for tracing program execution (e.e., trace-cmd).
+  static char *env = getenv("WAIT_START_STOP");
+  if (!env) return;
+  std::cout << "ppid: " << getppid() << ", pid: " << getpid() << std::endl;
+  std::cout << "Press ENTER to proceed..." << std::endl;
+  getchar();
+}
+
 int main(int argc, char *argv[]) {
   if (argc != 1) {
     std::cerr << "usage: ./netperf_server" << std::endl;
     return 1;
   }
 
+  WaitForButtonPress();
   RunServer();
+  WaitForButtonPress();
 
   return 0;
 }

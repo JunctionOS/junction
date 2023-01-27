@@ -272,7 +272,22 @@ class ThreadingTest : public ::testing::Test {
   // All tests add their timing measurements to this data structure.
   static std::vector<std::pair<const std::string, us>> results_;
 
-  static void TearDownTestSuite() { PrintAllResults(); }
+  static void WaitForButtonPress() {
+    // Check if the env variable is set to wait for button press before start
+    // and stop. This is useful for tracing program execution (e.e., trace-cmd).
+    static char *env = getenv("WAIT_START_STOP");
+    if (!env) return;
+    std::cout << "ppid: " << getppid() << ", pid: " << getpid() << std::endl;
+    std::cout << "Press ENTER to proceed..." << std::endl;
+    getchar();
+  }
+
+  static void SetUpTestSuite() { WaitForButtonPress(); }
+
+  static void TearDownTestSuite() {
+    PrintAllResults();
+    WaitForButtonPress();
+  }
 
   void Bench(std::string name, std::function<void(int)> fn) {
     int measure_rounds = getMeasureRounds();

@@ -130,8 +130,7 @@ void Pipe::CloseWriter() {
   rt::SpinGuard guard(lock_);
   writer_closed_.store(true, std::memory_order_release);
   read_waker_.Wake();
-  if (!reader_is_closed())
-    read_poll_->Set(kPollHUp);
+  if (!reader_is_closed()) read_poll_->Set(kPollHUp);
 }
 
 class PipeReaderFile : public File {
