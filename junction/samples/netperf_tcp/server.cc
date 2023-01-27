@@ -165,6 +165,13 @@ static void WaitForButtonPress() {
   // and stop. This is useful for tracing program execution (e.e., trace-cmd).
   static char *env = getenv("WAIT_START_STOP");
   if (!env) return;
+
+  const std::string env_str(env);
+  if (env_str.empty() || env_str == "0" || env_str == "false" ||
+      env_str == "False")
+    return;
+  if (env_str != "1" || env_str != "true" || env_str != "True") return;
+
   std::cout << "ppid: " << getppid() << ", pid: " << getpid() << std::endl;
   std::cout << "Press ENTER to proceed..." << std::endl;
   getchar();
