@@ -30,7 +30,7 @@ int getMeasureRounds() {
   else
     measure_rounds = std::stoi(std::string(env));
 
-  std::cerr << "Measure rounds: " << measure_rounds << std::endl;
+  std::cout << "Measure rounds: " << measure_rounds << std::endl;
 
   return measure_rounds;
 }
@@ -282,7 +282,7 @@ class ThreadingTest : public ::testing::Test {
     if (env_str.empty() || env_str == "0" || env_str == "false" ||
         env_str == "False")
       return;
-    if (env_str != "1" || env_str != "true" || env_str != "True") return;
+    if (env_str != "1" && env_str != "true" && env_str != "True") return;
 
     std::cout << "ppid: " << getppid() << ", pid: " << getpid() << std::endl;
     std::cout << "Press ENTER to proceed..." << std::endl;
@@ -313,13 +313,13 @@ class ThreadingTest : public ::testing::Test {
 
   static void PrintAllResults() {
     for (const auto &[k, v] : results_) {
-      std::cout << k << ",";
+      std::cerr << k << ",";
     }
-    std::cout << std::endl;
+    std::cerr << std::endl;
     for (const auto &[k, v] : results_) {
-      std::cout << v.count() << ",";
+      std::cerr << v.count() << ",";
     }
-    std::cout << std::endl;
+    std::cerr << std::endl;
   }
 };
 
