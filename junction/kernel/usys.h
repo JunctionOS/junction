@@ -6,6 +6,7 @@ extern "C" {
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <time.h>
 struct clone_args;
 }
 
@@ -79,6 +80,7 @@ long usys_getcpu();
 
 // Time
 long usys_nanosleep(const struct timespec *req, struct timespec *rem);
+long usys_clock_gettime(clockid_t clk_id, struct timespec *tp);
 
 // Misc
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);

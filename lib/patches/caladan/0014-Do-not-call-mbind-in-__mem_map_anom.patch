@@ -1,0 +1,29 @@
+From 83860e80cf35626cb4f7ff91a407388a5469d242 Mon Sep 17 00:00:00 2001
+From: "girfan@mit.edu" <girfan@mit.edu>
+Date: Tue, 31 Jan 2023 13:12:33 -0500
+Subject: [PATCH] Do not call mbind in __mem_map_anom
+
+---
+ base/mem.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/base/mem.c b/base/mem.c
+index 8e1314a..14b28f6 100644
+--- a/base/mem.c
++++ b/base/mem.c
+@@ -83,10 +83,12 @@ __mem_map_anom(void *base, size_t len, size_t pgsize,
+ 	if ((intptr_t)addr < 0)
+ 		return MAP_FAILED;
+ 
++  /*
+ 	BUILD_ASSERT(sizeof(unsigned long) * 8 >= NNUMA);
+ 	if (syscall_mbind(addr, len, numa_policy, mask ? mask : NULL,
+ 		  mask ? NNUMA + 1 : 0, MPOL_MF_STRICT | MPOL_MF_MOVE))
+ 		goto fail;
++  */
+ 
+ 	touch_mapping(addr, len, pgsize);
+ 	return addr;
+-- 
+2.34.1
+

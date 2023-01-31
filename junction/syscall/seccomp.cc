@@ -32,7 +32,6 @@ Status<void> _install_seccomp_filter() {
       ALLOW_CALADAN_SYSCALL(ioctl),
       ALLOW_CALADAN_SYSCALL(rt_sigreturn),
       ALLOW_CALADAN_SYSCALL(mmap),
-      ALLOW_CALADAN_SYSCALL(mbind),
       ALLOW_CALADAN_SYSCALL(madvise),
       ALLOW_CALADAN_SYSCALL(mprotect),
       ALLOW_CALADAN_SYSCALL(exit_group),

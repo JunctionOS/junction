@@ -10,4 +10,9 @@ long usys_nanosleep(const struct timespec *req, struct timespec *rem) {
   return 0;
 }
 
+long usys_clock_gettime(clockid_t clk_id, struct timespec *tp) {
+  // TODO(girfan): no-op for now, handle properly by passing to vDSO
+  return 0;
+}
+
 }  // namespace junction
