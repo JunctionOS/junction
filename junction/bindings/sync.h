@@ -173,7 +173,7 @@ class Mutex {
 
   // Locks the mutex only if it is currently unlocked. Returns true if
   // successful.
-  bool TryLock() { return mutex_try_lock(&mu_); }
+  [[nodiscard]] bool TryLock() { return mutex_try_lock(&mu_); }
 
   // Returns true if the mutex is currently held.
   [[nodiscard]] bool IsHeld() const { return mutex_held(&mu_); }
