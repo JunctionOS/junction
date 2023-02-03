@@ -42,6 +42,7 @@ poll
 ppoll
 select
 pselect6
+clock_gettime
 
 # syscalls for which we return enosys
 rseq:::enosys
