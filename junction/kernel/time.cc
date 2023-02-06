@@ -1,4 +1,5 @@
 // time.cc - support for time keeping functions
+
 #include "junction/bindings/timer.h"
 #include "junction/kernel/usys.h"
 
@@ -11,8 +12,8 @@ long usys_nanosleep(const struct timespec *req, struct timespec *rem) {
 }
 
 long usys_clock_gettime(clockid_t clk_id, struct timespec *tp) {
-  // TODO(girfan): no-op for now, handle properly by passing to vDSO
-  return 0;
+  // TODO(girfan): handle properly by passing to vDSO
+  return clock_gettime(clk_id, tp);
 }
 
 }  // namespace junction
