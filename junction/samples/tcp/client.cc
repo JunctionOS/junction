@@ -1,7 +1,9 @@
 extern "C" {
 #include <arpa/inet.h>
+#include <assert.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,7 +24,17 @@ double GetElapsed(struct timeval *begin, struct timeval *end) {
 
 int WriteFull(const int fd, const unsigned char *buf, const int size) {
   ssize_t n = 0;
+
+  pollfd pfd = {
+      .fd = fd,
+      .events = POLLOUT,
+  };
+
   while (n < size) {
+    int pret = poll(&pfd, 1, -1);
+    assert(pret == 1);
+    assert(pret.revents == POLLOUT);
+
     ssize_t ret = write(fd, buf + n, size - n);
     if (ret == 0) {
       break;

@@ -1,7 +1,9 @@
 extern "C" {
 #include <arpa/inet.h>
+#include <assert.h>
 #include <fcntl.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,7 +19,14 @@ const int PORT = 15000;
 
 int ReadFull(const int fd, unsigned char *buf, const int size) {
   ssize_t n = 0;
+
+  pollfd pfd = {.fd = fd, .events = POLLIN};
+
   while (n < size) {
+    int pret = poll(&pfd, 1, -1);
+    assert(pret == 1);
+    assert(pret.revents == POLLIN);
+
     ssize_t ret = read(fd, (void *)(buf + n), size - n);
     if (ret == 0) {
       break;

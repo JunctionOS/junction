@@ -6,13 +6,18 @@
 
 #include "junction/base/error.h"
 #include "junction/bindings/net.h"
+#include "junction/net/caladan_poll.h"
 #include "junction/net/socket.h"
 
 namespace junction {
 
 class TCPSocket : public Socket {
  public:
-  TCPSocket(rt::TCPConn conn) : Socket(), conn_(std::move(conn)) {}
+  TCPSocket(rt::TCPConn conn) : Socket(), conn_(std::move(conn)) {
+    conn_.InstallPollSource(
+        PollSourceSet, PollSourceClear,
+        reinterpret_cast<unsigned long>(&get_poll_source()));
+  }
   ~TCPSocket() override = default;
 
   Status<size_t> Read(std::span<std::byte> buf,

@@ -41,6 +41,16 @@ Status<netaddr> ParseSockAddr(const sockaddr *addr, socklen_t addrlen) {
   return netaddr{ntoh32(sin->sin_addr.s_addr), ntoh16(sin->sin_port)};
 }
 
+void PollSourceClear(unsigned long poller_data, unsigned int event_mask) {
+  PollSource *src = reinterpret_cast<PollSource *>(poller_data);
+  src->Clear(event_mask);
+}
+
+void PollSourceSet(unsigned long poller_data, unsigned int event_mask) {
+  PollSource *src = reinterpret_cast<PollSource *>(poller_data);
+  src->Set(event_mask);
+}
+
 }  // namespace
 
 // TODO(girfan): Fix the "restrict" keyword for all the net syscalls.

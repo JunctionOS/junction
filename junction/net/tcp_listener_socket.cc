@@ -5,6 +5,7 @@
 
 #include "junction/base/error.h"
 #include "junction/bindings/net.h"
+#include "junction/net/caladan_poll.h"
 #include "junction/net/socket.h"
 #include "junction/net/tcp_socket.h"
 
@@ -14,6 +15,9 @@ Status<void> TCPListenerSocket::Listen(int backlog) {
   Status<rt::TCPQueue> ret = rt::TCPQueue::Listen(addr_, backlog);
   if (!ret) return MakeError(ret);
   listen_q_ = std::move(*ret);
+  listen_q_.InstallPollSource(
+      PollSourceSet, PollSourceClear,
+      reinterpret_cast<unsigned long>(&get_poll_source()));
   return {};
 }
 

@@ -5,6 +5,7 @@ add_library(net
   socket_placeholder.cc
   tcp_listener_socket.cc
   net.cc
+  caladan_poll.cc
 )
 
 target_link_libraries(net

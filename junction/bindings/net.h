@@ -102,6 +102,11 @@ class UDPConn {
   // Shutdown the socket (no more receives).
   void Shutdown() { udp_shutdown(c_); }
 
+  void InstallPollSource(poll_notif_fn_t set, poll_notif_fn_t clear,
+                         unsigned long data) {
+    udp_poll_install_cb(c_, set, clear, data);
+  }
+
  private:
   explicit UDPConn(udpconn_t *c) noexcept : c_(c) {}
 
@@ -197,6 +202,11 @@ class TCPConn : public VectorIO {
   // Ungracefully force the TCP connection to shutdown.
   void Abort() { tcp_abort(c_); }
 
+  void InstallPollSource(poll_notif_fn_t set, poll_notif_fn_t clear,
+                         unsigned long data) {
+    tcp_poll_install_cb(c_, set, clear, data);
+  }
+
  private:
   explicit TCPConn(tcpconn_t *c) noexcept : c_(c) {}
 
@@ -244,6 +254,11 @@ class TCPQueue {
 
   // Shutdown the listener queue; any blocked Accept() returns a nullptr.
   void Shutdown() { tcp_qshutdown(q_); }
+
+  void InstallPollSource(poll_notif_fn_t set, poll_notif_fn_t clear,
+                         unsigned long data) {
+    tcpq_poll_install_cb(q_, set, clear, data);
+  }
 
  private:
   explicit TCPQueue(tcpqueue_t *q) noexcept : q_(q) {}
