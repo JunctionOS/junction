@@ -41,16 +41,6 @@ Status<netaddr> ParseSockAddr(const sockaddr *addr, socklen_t addrlen) {
   return netaddr{ntoh32(sin->sin_addr.s_addr), ntoh16(sin->sin_port)};
 }
 
-void PollSourceClear(unsigned long poller_data, unsigned int event_mask) {
-  PollSource *src = reinterpret_cast<PollSource *>(poller_data);
-  src->Clear(event_mask);
-}
-
-void PollSourceSet(unsigned long poller_data, unsigned int event_mask) {
-  PollSource *src = reinterpret_cast<PollSource *>(poller_data);
-  src->Set(event_mask);
-}
-
 }  // namespace
 
 // TODO(girfan): Fix the "restrict" keyword for all the net syscalls.
@@ -122,7 +112,7 @@ ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
   return static_cast<ssize_t>(*ret);
 }
 
-long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
+long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
@@ -138,7 +128,18 @@ long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
     addr_in->sin_addr.s_addr = hton32(na->ip);
     *addrlen = sizeof(sockaddr_in);
   }
+  if (flags & kSockNonblock) LOG_ONCE(WARN) << "Ignoring nonblocking flag";
   return myproc().get_file_table().Insert(std::move(*ret));
+}
+
+long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
+  return DoAccept(sockfd, addr, addrlen);
+}
+
+long usys_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
+                  int flags) {
+  if ((flags & ~(kSockNonblock | kSockCloseOnExec)) != 0) return -EINVAL;
+  return DoAccept(sockfd, addr, addrlen, flags & kSockNonblock);
 }
 
 long usys_shutdown(int sockfd, int how) {

@@ -1,17 +1,17 @@
-From 4fcaf9b07277ef519459bb267cb75aec7b962d1c Mon Sep 17 00:00:00 2001
+From 6ab390a777f4a4f77f6de88214666f6087f6b08c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 7 Feb 2023 20:02:54 -0500
 Subject: [PATCH 15/15] support external polling for tcp/udp sockets
 
 ---
- inc/runtime/poll.h   | 23 ++++++++++++++++
- inc/runtime/tcp.h    |  7 +++++
+ inc/runtime/poll.h   | 23 ++++++++++++
+ inc/runtime/tcp.h    |  7 ++++
  inc/runtime/udp.h    |  4 +++
- runtime/net/tcp.c    | 52 ++++++++++++++++++++++++++++++++++++
+ runtime/net/tcp.c    | 83 ++++++++++++++++++++++++++++++++++++++++++++
  runtime/net/tcp.h    |  2 ++
- runtime/net/tcp_in.c | 11 ++++++--
- runtime/net/udp.c    | 63 +++++++++++++++++++++++++++++++++++++++-----
- 7 files changed, 154 insertions(+), 8 deletions(-)
+ runtime/net/tcp_in.c | 11 ++++--
+ runtime/net/udp.c    | 73 ++++++++++++++++++++++++++++++++++----
+ 7 files changed, 195 insertions(+), 8 deletions(-)
 
 diff --git a/inc/runtime/poll.h b/inc/runtime/poll.h
 index 8658690..86046ef 100644
@@ -92,7 +92,7 @@ index 2d3b336..31df911 100644
  /*
   * UDP Parallel API
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index 9480d4d..2c23d38 100644
+index 9480d4d..766e679 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
 @@ -3,6 +3,7 @@
@@ -145,7 +145,7 @@ index 9480d4d..2c23d38 100644
  	c = list_pop(&q->conns, tcpconn_t, queue_link);
  	assert(c != NULL);
 +
-+	if (list_empty(&q->conns))
++	if (list_empty(&q->conns) && !q->shutdown)
 +		poll_clear(&q->poll_src, POLLIN);
 +
  	spin_unlock_np(&q->l);
@@ -159,7 +159,17 @@ index 9480d4d..2c23d38 100644
  	spin_unlock_np(&q->l);
  
  	/* prevent ingress receive and error dispatch (after RCU period) */
-@@ -784,6 +799,10 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
+@@ -577,6 +592,9 @@ void tcp_qclose(tcpqueue_t *q)
+ 		tcp_conn_destroy(c);
+ 	}
+ 
++	q->poll_src.set_fn = NULL;
++	q->poll_src.clear_fn = NULL;
++
+ 	kref_put(&q->ref, tcp_queue_release_ref);
+ }
+ 
+@@ -784,6 +802,10 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
  		      c->tx_last_ack + c->tx_last_win + c->winmax / 4)) {
  		do_ack = true;
  	}
@@ -170,7 +180,7 @@ index 9480d4d..2c23d38 100644
  	spin_unlock_np(&c->lock);
  
  	if (do_ack)
-@@ -1009,6 +1028,10 @@ static void tcp_write_finish(tcpconn_t *c)
+@@ -1009,6 +1031,10 @@ static void tcp_write_finish(tcpconn_t *c)
  
  	tcp_timer_update(c);
  	waitq_release_start(&c->tx_wq, &waiters);
@@ -181,7 +191,7 @@ index 9480d4d..2c23d38 100644
  	spin_unlock_np(&c->lock);
  
  	tcp_tx_fast_retransmit_finish(c, retransmit);
-@@ -1123,6 +1146,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
+@@ -1123,6 +1149,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
  	if (!c->tx_closed) {
  		c->tx_closed = true;
  		waitq_release(&c->tx_wq);
@@ -189,7 +199,7 @@ index 9480d4d..2c23d38 100644
  	}
  
  	/* will be freed by the writer if one is busy */
-@@ -1154,6 +1178,7 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
+@@ -1154,6 +1181,7 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
  	if (c->rx_closed)
  		return;
  
@@ -197,7 +207,7 @@ index 9480d4d..2c23d38 100644
  	c->rx_closed = true;
  	waitq_release(&c->rx_wq);
  }
-@@ -1180,6 +1205,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
+@@ -1180,6 +1208,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
  	else
  		WARN();
  
@@ -205,7 +215,16 @@ index 9480d4d..2c23d38 100644
  	c->tx_closed = true;
  	waitq_release(&c->tx_wq);
  
-@@ -1269,6 +1295,32 @@ void tcp_close(tcpconn_t *c)
+@@ -1264,11 +1293,65 @@ void tcp_close(tcpconn_t *c)
+ 	if (ret)
+ 		tcp_conn_fail(c, -ret);
+ 	tcp_conn_shutdown_rx(c);
++
++	c->poll_src.set_fn = NULL;
++	c->poll_src.clear_fn = NULL;
++
+ 	spin_unlock_np(&c->lock);
+ 
  	tcp_conn_put(c);
  }
  
@@ -213,13 +232,26 @@ index 9480d4d..2c23d38 100644
 +void tcp_poll_install_cb(tcpconn_t *c, poll_notif_fn_t setfn,
 +			                    poll_notif_fn_t clearfn, unsigned long data)
 +{
++	unsigned int flags = 0;
++
 +	spin_lock_np(&c->lock);
 +	c->poll_src.set_fn = setfn;
 +	c->poll_src.clear_fn = clearfn;
 +	c->poll_src.poller_data = data;
 +
 +	if (!tcp_is_snd_full(c))
-+		poll_set(&c->poll_src, POLLOUT);
++		flags |= POLLOUT;
++
++	if (!list_empty(&c->rxq))
++		flags |= POLLIN;
++
++	if (c->rx_closed)
++		flags |= POLLRDHUP;
++
++	if (c->tx_closed)
++		flags |= POLLHUP;
++
++	poll_set(&c->poll_src, flags);
 +
 +	spin_unlock_np(&c->lock);
 +}
@@ -227,10 +259,21 @@ index 9480d4d..2c23d38 100644
 +void tcpq_poll_install_cb(tcpqueue_t *q, poll_notif_fn_t setfn,
 +			                    poll_notif_fn_t clearfn, unsigned long data)
 +{
++	unsigned int flags = 0;
++
 +	spin_lock_np(&q->l);
 +	q->poll_src.set_fn = setfn;
 +	q->poll_src.clear_fn = clearfn;
 +	q->poll_src.poller_data = data;
++
++	if (!list_empty(&q->conns))
++		flags |= POLLIN;
++
++	if (q->shutdown)
++		flags |= POLLIN | POLLRDHUP | POLLHUP;
++
++	poll_set(&q->poll_src, flags);
++
 +	spin_unlock_np(&q->l);
 +}
 +
@@ -297,7 +340,7 @@ index f76a7a1..cacf73d 100644
  		if (++c->acks_delayed_cnt >= 2) {
  			do_ack = true;
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index 8074d28..2a359ac 100644
+index 8074d28..9eaaf64 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -3,6 +3,7 @@
@@ -437,20 +480,30 @@ index 8074d28..2a359ac 100644
  	spin_lock_np(&c->outq_lock);
  	free_conn = c->outq_len == 0;
  	c->outq_free = true;
-@@ -534,6 +571,20 @@ void udp_close(udpconn_t *c)
+@@ -534,6 +571,30 @@ void udp_close(udpconn_t *c)
  		udp_conn_put(c);
  }
  
 +void udp_poll_install_cb(udpconn_t *c, poll_notif_fn_t setfn,
 +			                    poll_notif_fn_t clearfn, unsigned long data)
 +{
++	unsigned int flags = 0;
++
 +	spin_lock_np(&c->inq_lock);
 +	c->poll_src.set_fn = setfn;
 +	c->poll_src.clear_fn = clearfn;
 +	c->poll_src.poller_data = data;
 +
 +	if (c->outq_len < c->outq_cap)
-+		poll_set(&c->poll_src, POLLOUT);
++		flags |= POLLOUT;
++
++	if (c->inq_len)
++		flags |= POLLIN;
++
++	if (c->shutdown)
++		flags |= POLLHUP | POLLRDHUP;
++
++	poll_set(&c->poll_src, flags);
 +
 +	spin_unlock_np(&c->inq_lock);
 +}

@@ -35,6 +35,7 @@ setsockopt
 recvfrom
 sendto
 accept
+accept4
 shutdown
 listen
 getrandom

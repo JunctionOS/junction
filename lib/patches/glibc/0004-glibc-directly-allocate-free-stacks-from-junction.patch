@@ -1,4 +1,4 @@
-From ab45f79a596f2523bfcc9d9dc768899ab34762f6 Mon Sep 17 00:00:00 2001
+From 9c14516c0116bd2863d2332bf18fedc981aa9f9e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 15 Jan 2023 16:14:12 -0500
 Subject: [PATCH 4/4] glibc: directly allocate/free stacks from junction
@@ -7,10 +7,10 @@ Subject: [PATCH 4/4] glibc: directly allocate/free stacks from junction
  nptl/allocatestack.c | 50 +++++++++++++++++++++++++++++++-------------
  nptl/descr.h         |  2 ++
  nptl/nptl-stack.c    | 16 ++++++++++++++
- 3 files changed, 53 insertions(+), 15 deletions(-)
+ 3 files changed, 54 insertions(+), 14 deletions(-)
 
 diff --git a/nptl/allocatestack.c b/nptl/allocatestack.c
-index 219854f2cb..e5a029275b 100644
+index 219854f2cb..26df1f3e6e 100644
 --- a/nptl/allocatestack.c
 +++ b/nptl/allocatestack.c
 @@ -215,6 +215,7 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
@@ -86,7 +86,7 @@ index 219854f2cb..e5a029275b 100644
        /* This is at least the second thread.  */
        pd->header.multiple_threads = 1;
  
-@@ -309,14 +328,15 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
+@@ -309,14 +328,17 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
  	  return errno;
  	}
  
@@ -101,14 +101,15 @@ index 219854f2cb..e5a029275b 100644
  
 -      /* And add to the list of stacks in use.  */
 -      list_add (&pd->list, &GL (dl_stack_user));
--
--      lll_unlock (GL (dl_stack_cache_lock), LLL_PRIVATE);
 +        lll_unlock (GL (dl_stack_cache_lock), LLL_PRIVATE);
 +      }
++      pd->reported_guardsize = attr_guardsize;
+ 
+-      lll_unlock (GL (dl_stack_cache_lock), LLL_PRIVATE);
      }
    else
      {
-@@ -340,11 +360,11 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
+@@ -340,11 +362,11 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
  	 before POSIX 2008 the guardsize was specified to be one page
  	 by default which is observable via pthread_attr_getguardsize
  	 and pthread_getattr_np.  */

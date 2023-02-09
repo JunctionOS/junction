@@ -11,7 +11,6 @@ extern "C" {
 
 #include "junction/base/uid.h"
 #include "junction/kernel/file.h"
-#include "junction/kernel/futex.h"
 
 namespace junction {
 

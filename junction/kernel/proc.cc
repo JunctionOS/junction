@@ -20,6 +20,7 @@ extern "C" {
 #include "junction/bindings/runtime.h"
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
+#include "junction/kernel/futex.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"

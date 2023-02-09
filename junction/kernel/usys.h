@@ -50,6 +50,8 @@ ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
 ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
                     const struct sockaddr *dest_addr, socklen_t addrlen);
 long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+long usys_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
+                  int flags);
 long usys_shutdown(int sockfd, int how);
 long usys_listen(int sockfd, int backlog);
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout);
