@@ -8,8 +8,10 @@ extern "C" {
 }
 
 #include <functional>
+#include <vector>
 
 #include "junction/base/arch.h"
+#include "junction/base/finally.h"
 #include "junction/base/intrusive_list.h"
 #include "junction/bindings/sync.h"
 
@@ -31,6 +33,9 @@ constexpr unsigned int kPollRDHUp = EPOLLRDHUP;  // reader closed
 constexpr unsigned int kPollHUp = EPOLLHUP;      // writer closed
 constexpr unsigned int kPollPrio = EPOLLPRI;     // priority event (TCP URG)
 
+namespace detail {
+class EPollFile;
+}
 class PollSource;
 
 // PollObserver provides a notification for each event from a PollSource.
@@ -39,7 +44,7 @@ class PollObserver {
   friend class PollSource;
 
   PollObserver() noexcept = default;
-  ~PollObserver() { assert(!is_attached()); }
+  virtual ~PollObserver() { assert(!is_attached()); }
 
   PollObserver(const PollObserver &o) noexcept : src_(nullptr) {}
   PollObserver &operator=(const PollObserver &o) {
@@ -71,6 +76,8 @@ class PollObserver {
 // PollSource generates events and delivers them to each PollObserver.
 class alignas(kCacheLineSize) PollSource {
  public:
+  friend detail::EPollFile;
+
   PollSource() noexcept = default;
   ~PollSource() { assert(observers_.empty()); }
 
@@ -94,6 +101,7 @@ class alignas(kCacheLineSize) PollSource {
   rt::Spin lock_;
   unsigned int event_mask_{0};
   IntrusiveList<PollObserver, &PollObserver::node_> observers_;
+  IntrusiveList<PollObserver, &PollObserver::node_> epoll_observers_;
 };
 
 inline void PollSource::Set(unsigned int event_mask) {

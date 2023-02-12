@@ -25,6 +25,7 @@ enum class FileType : int {
   kNormal = 0,
   kDirectory,
   kSocket,
+  kSpecial,
 };
 
 //

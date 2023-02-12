@@ -1,11 +1,17 @@
+// poll.cc - support for poll(), select(), and epoll()
+
 // glibc uses a very expensive way to check bounds in FD sets, so disable it.
 #undef _FORTIFY_SOURCE
 #define _FORTIFY_SOURCE 0
 
+#include <memory>
+
+#include "junction/base/compiler.h"
 #include "junction/base/intrusive_list.h"
 #include "junction/bindings/timer.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
+#include "junction/kernel/time.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
@@ -13,27 +19,8 @@ namespace junction {
 namespace {
 
 constexpr unsigned int kPollInval = POLLNVAL;
-
-#if 0
-class PollTrigger : public PollObserver {};
-
-class EPollNotifier {
- private:
-  bool edge_triggered_;
-  bool one_shot_;
-  uint32_t events_;
-  uint64_t user_data_;
-  IntrusiveListNode node_;
-};
-
-class EPollFile : public File {
- private:
-  rt::Spin lock_;
-  rt::ThreadWaker waker_;
-  IntrusiveList<EPollNotifier, &EPollNotifier::node_> triggered_events_;
-  IntrusiveList<EPollNotifier, &EPollNotifier::node_> all_events_;
-};
-#endif
+constexpr unsigned int kEPollEdgeTriggered = EPOLLET;
+constexpr unsigned int kEPollOneShot = EPOLLONESHOT;
 
 int DoPoll(struct pollfd *fds, nfds_t nfds,
            std::optional<uint64_t> timeout_us) {
@@ -71,23 +58,28 @@ int DoPoll(struct pollfd *fds, nfds_t nfds,
   });
   if (timeout_us) timeout_trigger.Start(*timeout_us);
 
-  std::vector<Poller> triggers;
-  triggers.reserve(nfds);
+  // Pack args to avoid heap allocations.
+  struct {
+    rt::Spin &lock;
+    rt::ThreadWaker &th;
+    int &nevents;
+  } args = {lock, th, nevents};
 
   // Setup a trigger for each file.
+  std::vector<Poller> triggers;
+  triggers.reserve(nfds);
   for (nfds_t i = 0; i < nfds; i++) {
-    triggers.emplace_back(
-        [&lock, &th, &nevents, &entry = fds[i]](unsigned int pev) {
-          int delta = entry.revents > 0 ? -1 : 0;
-          short events = static_cast<short>(pev);
-          entry.revents = events & (entry.events | kPollErr | kPollHUp);
-          delta += entry.revents > 0 ? 1 : 0;
-          if (delta != 0) {
-            rt::SpinGuard g(lock);
-            nevents += delta;
-            if (nevents > 0) th.Wake();
-          }
-        });
+    triggers.emplace_back([&args, &entry = fds[i]](unsigned int pev) {
+      int delta = entry.revents > 0 ? -1 : 0;
+      short events = static_cast<short>(pev);
+      entry.revents = events & (entry.events | kPollErr | kPollHUp);
+      delta += entry.revents > 0 ? 1 : 0;
+      if (delta != 0) {
+        rt::SpinGuard g(args.lock);
+        args.nevents += delta;
+        if (args.nevents > 0) args.th.Wake();
+      }
+    });
     File *f = ftbl.Get(fds[i].fd);
     assert(f != nullptr);
     PollSource &src = f->get_poll_source();
@@ -151,8 +143,7 @@ std::vector<select_fd> DecodeSelectFDs(int nfds, fd_set *readfds,
     }
 
     if (!events) continue;
-    sfds.emplace_back(
-        select_fd{.fd = i, .events = events, .revents = 0, .p = {}});
+    sfds.push_back(select_fd{.fd = i, .events = events, .revents = 0, .p = {}});
   }
 
   return sfds;
@@ -161,6 +152,7 @@ std::vector<select_fd> DecodeSelectFDs(int nfds, fd_set *readfds,
 int EncodeSelectFDs(const std::vector<select_fd> &sfds, fd_set *readfds,
                     fd_set *writefds, fd_set *exceptfds) {
   int count = 0;
+
   for (const auto &sfd : sfds) {
     if ((sfd.events & kSelectIn) == kSelectIn &&
         (sfd.revents & kSelectIn) != 0) {
@@ -178,6 +170,7 @@ int EncodeSelectFDs(const std::vector<select_fd> &sfds, fd_set *readfds,
       count++;
     }
   }
+
   return count;
 }
 
@@ -188,7 +181,6 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   // Decode the events into a more convenient format.
   std::vector<select_fd> sfds =
       DecodeSelectFDs(nfds, readfds, writefds, exceptfds);
-  if (sfds.empty()) return 0;
 
   // Check whether events are pending before blocking.
   FileTable &ftbl = myproc().get_file_table();
@@ -221,16 +213,23 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   });
   if (timeout_us) timeout_trigger.Start(*timeout_us);
 
+  // Pack args to avoid heap allocations.
+  struct {
+    rt::Spin &lock;
+    rt::ThreadWaker &th;
+    int &nevents;
+  } args = {lock, th, nevents};
+
   // Setup a trigger for each file.
   for (auto &sfd : sfds) {
-    sfd.p = Poller([&lock, &th, &nevents, &entry = sfd](unsigned int pev) {
+    sfd.p = Poller([&args, &entry = sfd](unsigned int pev) {
       int delta = entry.revents > 0 ? -1 : 0;
       entry.revents = (static_cast<short>(pev) & entry.events);
       delta += entry.revents > 0 ? 1 : 0;
       if (delta != 0) {
-        rt::SpinGuard g(lock);
-        nevents += delta;
-        if (nevents > 0) th.Wake();
+        rt::SpinGuard g(args.lock);
+        args.nevents += delta;
+        if (args.nevents > 0) args.th.Wake();
       }
     });
     File *f = ftbl.Get(sfd.fd);
@@ -247,8 +246,10 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     }
 
     for (auto &sfd : sfds) sfd.p.Detach();
+
     // There's a tiny chance events will get cleared, causing zero @nevents.
     if (likely(nevents > 0 || timed_out)) break;
+
     for (auto &sfd : sfds) {
       File *f = ftbl.Get(sfd.fd);
       assert(f != nullptr);
@@ -263,9 +264,169 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 
 }  // namespace
 
+namespace detail {
+
+class EPollObserver : public PollObserver {
+ public:
+  friend EPollFile;
+
+  EPollObserver(EPollFile &epollf, File &f, int32_t watched_events,
+                uint64_t user_data)
+      : epollf_(&epollf),
+        f_(&f),
+        watched_events_(watched_events),
+        user_data_(user_data) {}
+  ~EPollObserver() = default;
+
+  EPollObserver(const EPollObserver &o) noexcept = delete;
+  EPollObserver &operator=(const EPollObserver &o) = delete;
+  EPollObserver(EPollObserver &&o) noexcept = delete;
+  EPollObserver &operator=(EPollObserver &&o) = delete;
+
+ private:
+  void Notify(unsigned int event_mask) override;
+
+  bool attached_{false};  // TODO(amb): switch to better intrusive list?
+  EPollFile *epollf_;
+  File *f_;
+  uint32_t watched_events_;
+  uint32_t triggered_events_{0};
+  uint64_t user_data_;
+  IntrusiveListNode node_;
+};
+
+class EPollFile : public File {
+ public:
+  EPollFile() = default;
+  ~EPollFile();
+
+  bool Add(File &f, uint32_t events, uint64_t user_data);
+  bool Modify(File &f, uint32_t events, uint64_t user_data);
+  bool Delete(File &f);
+  int Wait(std::span<epoll_event> events, std::optional<uint64_t> timeout);
+
+  void AddEvent(EPollObserver &o) {
+    if (std::exchange(o.attached_, true)) return;
+    rt::SpinGuard g(lock_);
+    events_.push_back(o);
+    waker_.Wake();
+  }
+
+  void RemoveEvent(EPollObserver &o) {
+    if (!std::exchange(o.attached_, false)) return;
+    rt::SpinGuard g(lock_);
+    events_.erase(decltype(events_)::s_iterator_to(o));
+  }
+
+ private:
+  rt::Spin lock_;
+  rt::ThreadWaker waker_;
+  IntrusiveList<EPollObserver, &EPollObserver::node_> events_;
+};
+
+EPollFile::~EPollFile() {}
+
+bool EPollFile::Add(File &f, uint32_t events, uint64_t user_data) {
+  auto o = std::make_unique<EPollObserver>(*this, f, events, user_data);
+  PollSource &src = f.get_poll_source();
+  rt::SpinGuard guard(src.lock_);
+  for (const auto &o : src.epoll_observers_)
+    if (unlikely(static_cast<const EPollObserver &>(o).f_ == &f)) return false;
+  src.epoll_observers_.push_back(*o);
+  o->Notify(src.get_events());
+  o.release();
+  return true;
+}
+
+bool EPollFile::Modify(File &f, uint32_t events, uint64_t user_data) {
+  PollSource &src = f.get_poll_source();
+  rt::SpinGuard guard(src.lock_);
+  for (auto &o : src.epoll_observers_) {
+    auto &oe = static_cast<EPollObserver &>(o);
+    if (oe.epollf_ != this) continue;
+    oe.watched_events_ = events;
+    oe.user_data_ = user_data;
+    oe.Notify(oe.triggered_events_);
+    return true;
+  }
+  return false;
+}
+
+bool EPollFile::Delete(File &f) {
+  PollSource &src = f.get_poll_source();
+  rt::SpinGuard guard(src.lock_);
+  auto it = src.epoll_observers_.begin();
+  while (it != src.epoll_observers_.end()) {
+    auto &oe = static_cast<EPollObserver &>(*it);
+    if (oe.epollf_ == this) {
+      RemoveEvent(oe);
+      src.epoll_observers_.erase_and_dispose(it,
+                                             [](PollObserver *o) { delete o; });
+      return true;
+    }
+    ++it;
+  }
+  return false;
+}
+
+int EPollFile::Wait(std::span<epoll_event> events_out,
+                    std::optional<uint64_t> timeout_us) {
+  // Setup a trigger for the timeout (if needed).
+  bool timed_out = false;
+  rt::Timer timeout_trigger([this, &timed_out] {
+    timed_out = true;
+    rt::SpinGuard g(lock_);
+    waker_.Wake();
+  });
+  if (timeout_us && *timeout_us > 0) timeout_trigger.Start(*timeout_us);
+
+  // Block until an event has triggered.
+  auto it = events_out.begin();
+  {
+    rt::SpinGuard g(lock_);
+
+    // Wait for events to be ready.
+    if (!timeout_us || *timeout_us > 0) {
+      g.Park(waker_, [this, timeout_us, &timed_out] {
+        return !events_.empty() || timed_out;
+      });
+    }
+
+    // Generate an array of events to report to the caller.
+    IntrusiveList<EPollObserver, &EPollObserver::node_> tmp;
+    while (!events_.empty() && it != events_out.end()) {
+      EPollObserver &o = events_.front();
+      it->events = o.triggered_events_ & o.watched_events_;
+      it->data.u64 = o.user_data_;
+      ++it;
+      events_.pop_front();
+      if ((o.watched_events_ & kEPollEdgeTriggered) != 0) {
+        o.attached_ = false;
+        continue;
+      }
+      tmp.push_back(o);
+    }
+
+    // Put events that were delivered at the end for better fairness next time.
+    events_.splice(events_.end(), tmp, tmp.begin());
+  }
+
+  if (timeout_us && *timeout_us > 0) timeout_trigger.Cancel();
+  return std::distance(events_out.begin(), it);
+}
+
+void EPollObserver::Notify(uint32_t events) {
+  triggered_events_ = events;
+  if ((triggered_events_ & watched_events_) != 0) epollf_->AddEvent(*this);
+  if ((triggered_events_ & watched_events_) == 0) epollf_->RemoveEvent(*this);
+}
+
+}  // namespace detail
+
 void PollSource::Notify() {
   rt::SpinGuard guard(lock_);
   for (auto &o : observers_) o.Notify(event_mask_);
+  for (auto &o : epoll_observers_) o.Notify(event_mask_);
 }
 
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
@@ -277,33 +438,68 @@ int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *ts,
                const sigset_t *sigmask, size_t sigsetsize) {
   // TODO(amb): support signal masking
   if (!ts) return DoPoll(fds, nfds, {});
-  uint64_t timeout_us = ts->tv_sec * rt::kSeconds + ts->tv_nsec / 1000;
-  return DoPoll(fds, nfds, timeout_us);
+  return DoPoll(fds, nfds, timespec_to_us(*ts));
 }
 
 int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                 struct timeval *tv) {
   // TODO(amb): On linux, @tv is modified to reflect the time left.
   if (!tv) return DoSelect(nfds, readfds, writefds, exceptfds, {});
-  uint64_t timeout_us = tv->tv_sec * rt::kSeconds + tv->tv_usec;
-  return DoSelect(nfds, readfds, writefds, exceptfds, timeout_us);
+  return DoSelect(nfds, readfds, writefds, exceptfds, timeval_to_us(*tv));
 }
 
 int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, const struct timespec *ts) {
   // TODO(amb): support signal masking
   if (!ts) return DoSelect(nfds, readfds, writefds, exceptfds, {});
-  uint64_t timeout_us = ts->tv_sec * rt::kSeconds + ts->tv_nsec / 1000;
-  return DoSelect(nfds, readfds, writefds, exceptfds, timeout_us);
+  return DoSelect(nfds, readfds, writefds, exceptfds, timespec_to_us(*ts));
 }
 
-#if 0
-int usys_epoll_create1(int flags) {}
+int usys_epoll_create1(int flags) { return 0; }
 
-int usys_epoll_ctl(int epfd, int op, int fd, struct epoll_event *event) {}
+int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event) {
+  // get the epoll file
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(epfd);
+  if (unlikely(!f)) return -EBADF;
+  auto *epf = most_derived_cast<detail::EPollFile>(f);
+  if (unlikely(!epf)) return -EINVAL;
+
+  // parse the remaining arguments
+  f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+  int32_t events = event->events;
+  uint64_t data = event->data.u64;
+
+  // handle the operation
+  switch (op) {
+    case EPOLL_CTL_ADD:
+      if (!epf->Add(*f, events, data)) return -EEXIST;
+      break;
+    case EPOLL_CTL_MOD:
+      if (!epf->Modify(*f, events, data)) return -ENOENT;
+      break;
+    case EPOLL_CTL_DEL:
+      if (!epf->Delete(*f)) return -ENOENT;
+      break;
+    default:
+      return -EINVAL;
+  }
+
+  return 0;
+}
 
 int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
-                    int timeout) {}
-#endif
+                    int timeout) {
+  if (unlikely(maxevents < 0)) return -EINVAL;
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(epfd);
+  if (unlikely(!f)) return -EBADF;
+  auto *epf = most_derived_cast<detail::EPollFile>(f);
+  if (unlikely(!epf)) return -EINVAL;
+  auto len = static_cast<size_t>(maxevents);
+  if (timeout < 0) return epf->Wait({events, len}, {});
+  return epf->Wait({events, len}, timeout);
+}
 
 }  // namespace junction
