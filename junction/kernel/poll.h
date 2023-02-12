@@ -8,10 +8,8 @@ extern "C" {
 }
 
 #include <functional>
-#include <vector>
 
 #include "junction/base/arch.h"
-#include "junction/base/finally.h"
 #include "junction/base/intrusive_list.h"
 #include "junction/bindings/sync.h"
 
