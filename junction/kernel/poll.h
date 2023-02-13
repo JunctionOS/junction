@@ -40,6 +40,7 @@ class PollSource;
 class PollObserver {
  public:
   friend class PollSource;
+  friend detail::EPollFile;
 
   PollObserver() noexcept = default;
   virtual ~PollObserver() { assert(!is_attached()); }

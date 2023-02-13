@@ -288,6 +288,7 @@ class EPollObserver : public PollObserver {
   void Notify(unsigned int event_mask) override;
 
   bool attached_{false};  // TODO(amb): switch to better intrusive list?
+  bool one_shot_triggered_{false};
   EPollFile *epollf_;
   File *f_;
   uint32_t watched_events_;
@@ -300,6 +301,8 @@ class EPollFile : public File {
  public:
   EPollFile() : File(FileType::kSpecial, 0, 0) {}
   ~EPollFile();
+
+  static void Notify(PollSource &s);
 
   bool Add(File &f, uint32_t events, uint64_t user_data);
   bool Modify(File &f, uint32_t events, uint64_t user_data);
@@ -327,6 +330,16 @@ class EPollFile : public File {
 
 EPollFile::~EPollFile() {}
 
+void EPollFile::Notify(PollSource &s) {
+  for (auto &o : s.epoll_observers_) {
+    auto &oe = static_cast<EPollObserver &>(o);
+    if ((oe.watched_events_ & kEPollOneShot) != 0) {
+      if (std::exchange(oe.one_shot_triggered_, true)) continue;
+    }
+    oe.Notify(s.get_events());
+  }
+}
+
 bool EPollFile::Add(File &f, uint32_t events, uint64_t user_data) {
   auto o = std::make_unique<EPollObserver>(*this, f, events, user_data);
   PollSource &src = f.get_poll_source();
@@ -347,6 +360,7 @@ bool EPollFile::Modify(File &f, uint32_t events, uint64_t user_data) {
     if (oe.epollf_ != this) continue;
     oe.watched_events_ = events;
     oe.user_data_ = user_data;
+    oe.one_shot_triggered_ = false;
     oe.Notify(oe.triggered_events_);
     return true;
   }
@@ -449,7 +463,7 @@ int DoEPollWait(int epfd, struct epoll_event *events, int maxevents,
 void PollSource::Notify() {
   rt::SpinGuard guard(lock_);
   for (auto &o : observers_) o.Notify(event_mask_);
-  for (auto &o : epoll_observers_) o.Notify(event_mask_);
+  detail::EPollFile::Notify(*this);
 }
 
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
