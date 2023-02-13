@@ -3,10 +3,9 @@
 
 extern "C" {
 #include <arpa/inet.h>
-#include <assert.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <netinet/in.h>
-#include <poll.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,24 +24,16 @@ double GetElapsed(struct timeval *begin, struct timeval *end) {
          (begin->tv_sec + begin->tv_usec * 1.0 / 1000000);
 }
 
-int WriteFull(const int fd, const unsigned char *buf, const int size) {
+int Send(const int fd, const unsigned char *buf, const int size,
+         const struct sockaddr *dest_addr, const socklen_t addrlen) {
   ssize_t n = 0;
-
-  pollfd pfd = {
-      .fd = fd,
-      .events = POLLOUT,
-  };
-
+  constexpr int flags = 0;
   while (n < size) {
-    int pret = poll(&pfd, 1, -1);
-    assert(pret == 1);
-    assert(pret.revents == POLLOUT);
-
-    ssize_t ret = write(fd, buf + n, size - n);
-    if (ret == 0) {
-      break;
-    } else if (ret == -1) {
-      perror("write");
+    const auto len = size - n;
+    ssize_t ret = sendto(fd, buf + n, len, flags, dest_addr, addrlen);
+    if (ret != len) {
+      if (ret == -EPIPE) break;
+      perror("sendto");
       return -1;
     } else {
       n += ret;
@@ -67,14 +58,19 @@ int main(int argc, char *argv[]) {
   size = atoi(argv[1]);
   count = atoi(argv[2]);
   remote_ip = argv[3];
+
   buf = (unsigned char *)malloc(size);
+  if (buf == NULL) {
+    fprintf(stderr, "Cannot allocate buffer\n");
+    return 1;
+  }
 
   printf("Client (size: %d, count: %d)\n", size, count);
 
   memset(&in, 0, sizeof(in));
   sleep(1);
 
-  fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd == -1) {
     perror("socket");
     return 1;
@@ -91,30 +87,27 @@ int main(int argc, char *argv[]) {
   if (inet_ntop(AF_INET, &(in.sin_addr), str, INET_ADDRSTRLEN) == NULL) {
     perror("inet_ntop");
     close(fd);
-  }
-
-  printf("Connecting to IP: %s\n", str);
-
-  if (connect(fd, (struct sockaddr *)&in, sizeof(in)) == -1) {
-    perror("connect");
-    close(fd);
     return 1;
   }
 
+  printf("Sending to IP: %s\n", str);
+
   gettimeofday(&begin, NULL);
 
+  auto sent = 0;
   for (i = 0; i < count; i++) {
-    if (WriteFull(fd, buf, size) == -1) {
-      close(fd);
-      return 1;
-    }
+    auto n = Send(fd, buf, size, (struct sockaddr *)&in, sizeof(in));
+    // Count only messages that were fully sent
+    if (n == size) sent++;
   }
 
   gettimeofday(&end, NULL);
 
+  printf("Sent %d messages\n", sent);
+
   double tm = GetElapsed(&begin, &end);
-  printf("%.0fMB/s %.0fmsg/s\n", count * size * 1.0 / (tm * 1024 * 1024),
-         count * 1.0 / tm);
+  printf("%.0fMB/s %.0fmsg/s\n", sent * size * 1.0 / (tm * 1024 * 1024),
+         sent * 1.0 / tm);
 
   close(fd);
 

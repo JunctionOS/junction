@@ -50,6 +50,8 @@ epoll_wait
 epoll_pwait
 epoll_pwait2
 clock_gettime
+getpeername
+getsockname
 
 # syscalls for which we return enosys
 rseq:::enosys

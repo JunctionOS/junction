@@ -1,0 +1,24 @@
+From 0e67f50e0a6cdcb2212ed19cbe0a991312c8b8fc Mon Sep 17 00:00:00 2001
+From: Gohar Irfan Chaudhry <girfan@mit.edu>
+Date: Mon, 16 Jan 2023 13:53:49 -0500
+Subject: [PATCH 11/11] udp: ensure remote_addr is 0 for 3 tuple connections
+
+---
+ runtime/net/defs.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/runtime/net/defs.h b/runtime/net/defs.h
+index 07efdbf..c666346 100644
+--- a/runtime/net/defs.h
++++ b/runtime/net/defs.h
+@@ -129,6 +129,7 @@ static inline void trans_init_3tuple(struct trans_entry *e, uint8_t proto,
+ 	e->proto = proto;
+ 	e->laddr = laddr;
+ 	e->ops = ops;
++	memset(&e->raddr, 0, sizeof(e->raddr));
+ }
+ 
+ /**
+-- 
+2.34.1
+

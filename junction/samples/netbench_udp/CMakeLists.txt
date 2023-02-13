@@ -1,10 +1,10 @@
-message(STATUS "Building junction sample: tcp")
+message(STATUS "Building junction sample: netbench_udp")
 
 # Generate test configurations
 set(caladan_config_common
 "host_netmask 255.255.255.0
 host_gateway 192.168.127.1
-runtime_kthreads 1
+runtime_kthreads 10
 runtime_spinning_kthreads 0
 runtime_guaranteed_kthreads 1
 runtime_priority lc
@@ -31,12 +31,8 @@ set(caladan_client_config_path
 )
 file(WRITE ${caladan_client_config_path} ${caladan_client_config})
 
-# server
-add_executable(tcp_server
-  server.cc
-)
-
-# client
-add_executable(tcp_client
-  client.cc
+add_executable(netbench_udp
+  timing.cc
+  fake_worker.cc
+  netbench_udp.cc
 )

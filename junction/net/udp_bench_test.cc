@@ -21,25 +21,27 @@ extern "C" {
 #include <future>
 #include <thread>
 
-const int SIZE = 4096;
-const int COUNT = 10000;
+const int SIZE = 1024;
+const int COUNT = 5000;
 
 const char IP[] = "127.0.0.1";
-const int PORT = 2227;
+const int PORT = 2237;
 
 double GetElapsed(struct timeval *begin, struct timeval *end) {
   return (end->tv_sec + end->tv_usec * 1.0 / 1000000) -
          (begin->tv_sec + begin->tv_usec * 1.0 / 1000000);
 }
 
-int WriteFull(const int fd, const unsigned char *buf, const int size) {
+int Send(const int fd, const unsigned char *buf, const int size,
+         const struct sockaddr *dest_addr, const socklen_t addrlen) {
   ssize_t n = 0;
+  constexpr int flags = 0;
   while (n < size) {
-    ssize_t ret = write(fd, buf + n, size - n);
-    if (ret == 0) {
-      break;
-    } else if (ret == -1) {
-      perror("write");
+    const auto len = size - n;
+    ssize_t ret = sendto(fd, buf + n, len, flags, dest_addr, addrlen);
+    if (ret != len) {
+      if (ret == -EPIPE) break;
+      perror("sendto");
       return -1;
     } else {
       n += ret;
@@ -48,14 +50,15 @@ int WriteFull(const int fd, const unsigned char *buf, const int size) {
   return n;
 }
 
-int ReadFull(const int fd, unsigned char *buf, const int size) {
+int Receive(const int fd, unsigned char *buf, const int size) {
   ssize_t n = 0;
+  constexpr int flags = 0;
   while (n < size) {
-    ssize_t ret = read(fd, (void *)(buf + n), size - n);
-    if (ret == 0) {
-      break;
-    } else if (ret == -1) {
-      perror("read");
+    const auto len = size - n;
+    ssize_t ret = recv(fd, (void *)(buf + n), len, flags);
+    if (ret != len) {
+      if (ret == 0) break;
+      perror("recv");
       return -1;
     } else {
       n += ret;
@@ -65,8 +68,8 @@ int ReadFull(const int fd, unsigned char *buf, const int size) {
 }
 
 int Server() {
-  int fd, nfd, yes;
-  int sum, n;
+  int fd, yes;
+  int i, sum, n;
   unsigned char *buf;
   struct sockaddr_in in;
 
@@ -76,8 +79,7 @@ int Server() {
     return 1;
   }
 
-  memset(&in, 0, sizeof(in));
-  fd = socket(AF_INET, SOCK_STREAM, 0);
+  fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd == -1) {
     perror("socket");
     return 1;
@@ -94,7 +96,7 @@ int Server() {
     return 1;
   }
 
-  printf("Listening on IP: %s\n", str);
+  printf("Waiting on IP: %s\n", str);
 
   yes = 1;
   if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int))) {
@@ -109,40 +111,22 @@ int Server() {
     return 1;
   }
 
-  if (listen(fd, 128) == -1) {
-    perror("listen");
-    close(fd);
-    return 1;
-  }
-
-  if ((nfd = accept(fd, NULL, NULL)) == -1) {
-    perror("accept");
-    close(fd);
-    return 1;
-  }
-
   sum = 0;
-  for (;;) {
-    n = ReadFull(nfd, buf, SIZE);
-    if (n == 0) {
-      break;
-    } else if (n == -1) {
-      perror("read");
-      close(nfd);
-      close(fd);
-      return 1;
-    }
+  auto received = 0;
+  for (i = 0; i < COUNT; i++) {
+    n = Receive(fd, buf, SIZE);
     sum += n;
+    if (n == SIZE) received++;
   }
+
+  printf("Received %d messages\n", received);
 
   if (sum != COUNT * SIZE) {
     fprintf(stderr, "sum error: %d != %d\n", sum, COUNT * SIZE);
-    close(nfd);
     close(fd);
     return 1;
   }
 
-  close(nfd);
   close(fd);
 
   return 0;
@@ -163,7 +147,7 @@ int Client() {
   memset(&in, 0, sizeof(in));
   sleep(1);
 
-  fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd == -1) {
     perror("socket");
     return 1;
@@ -183,38 +167,34 @@ int Client() {
     return 1;
   }
 
-  printf("Connecting to IP: %s\n", str);
-
-  if (connect(fd, (struct sockaddr *)&in, sizeof(in)) == -1) {
-    perror("connect");
-    close(fd);
-    return 1;
-  }
+  printf("Sending to IP: %s\n", str);
 
   gettimeofday(&begin, NULL);
 
+  auto sent = 0;
   for (i = 0; i < COUNT; i++) {
-    if (WriteFull(fd, buf, SIZE) == -1) {
-      close(fd);
-      return 1;
-    }
+    auto n = Send(fd, buf, SIZE, (struct sockaddr *)&in, sizeof(in));
+    // Count only messages that were fully sent
+    if (n == SIZE) sent++;
   }
 
   gettimeofday(&end, NULL);
 
+  printf("Sent %d messages\n", sent);
+
   double tm = GetElapsed(&begin, &end);
-  printf("%.0fMB/s %.0fmsg/s\n", COUNT * SIZE * 1.0 / (tm * 1024 * 1024),
-         COUNT * 1.0 / tm);
+  printf("%.0fMB/s %.0fmsg/s\n", sent * SIZE * 1.0 / (tm * 1024 * 1024),
+         sent * 1.0 / tm);
 
   close(fd);
 
   return 0;
 }
 
-class TCPTest : public ::testing::Test {};
+class UDPTest : public ::testing::Test {};
 
-TEST_F(TCPTest, ReadWrite) {
-  printf("TCP (size: %d, count: %d)\n", SIZE, COUNT);
+TEST_F(UDPTest, ReadWrite) {
+  printf("UDP (size: %d, count: %d)\n", SIZE, COUNT);
 
   auto server = std::async(std::launch::async, Server);
   auto client = std::async(std::launch::async, Client);

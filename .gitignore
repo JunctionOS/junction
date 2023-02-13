@@ -10,3 +10,4 @@ Testing/**
 .cproject
 .project
 .vscode
+**/*.DS_Store

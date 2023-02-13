@@ -54,6 +54,8 @@ long usys_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
                   int flags);
 long usys_shutdown(int sockfd, int how);
 long usys_listen(int sockfd, int backlog);
+long usys_getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+long usys_getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 
 // Poll
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout);

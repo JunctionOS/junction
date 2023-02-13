@@ -4,7 +4,6 @@
 #include <atomic>
 #include <memory>
 #include <optional>
-#include <span>
 
 #include "junction/base/error.h"
 #include "junction/bindings/net.h"
@@ -12,15 +11,32 @@
 
 namespace junction {
 
-// TODO(girfan): Prevent these classes from being copied and write move ctors.
 class TCPListenerSocket : public Socket {
  public:
   TCPListenerSocket(netaddr addr) noexcept : Socket(), addr_(addr) {}
   ~TCPListenerSocket() override = default;
 
-  Status<void> Listen(int backlog) override;
-  Status<std::shared_ptr<Socket>> Accept() override;
-  Status<void> Shutdown(int how) override;
+  Status<void> Listen(int backlog) override {
+    Status<rt::TCPQueue> ret = rt::TCPQueue::Listen(addr_, backlog);
+    if (unlikely(!ret)) return MakeError(ret);
+    listen_q_ = std::move(*ret);
+    listen_q_.InstallPollSource(
+        PollSourceSet, PollSourceClear,
+        reinterpret_cast<unsigned long>(&get_poll_source()));
+    return {};
+  }
+  Status<std::shared_ptr<Socket>> Accept() override {
+    if (unlikely(!listen_q_.is_valid())) return MakeError(EINVAL);
+    Status<rt::TCPConn> ret = listen_q_.Accept();
+    if (unlikely(!ret)) return MakeError(ret);
+    return std::make_shared<TCPEstablishedSocket>(std::move(*ret));
+  }
+  Status<void> Shutdown(int how) override {
+    if (unlikely(!listen_q_.is_valid())) return MakeError(ENOTCONN);
+    bool shutdown = false;
+    if (is_shut_.compare_exchange_strong(shutdown, true)) listen_q_.Shutdown();
+    return {};
+  }
 
  private:
   netaddr addr_;
