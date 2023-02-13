@@ -433,6 +433,17 @@ int CreateEPollFile() {
   return myproc().get_file_table().Insert(std::move(f));
 }
 
+int DoEPollWait(int epfd, struct epoll_event *events, int maxevents,
+                std::optional<uint64_t> timeout_us) {
+  if (unlikely(maxevents < 0)) return -EINVAL;
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(epfd);
+  if (unlikely(!f)) return -EBADF;
+  auto *epf = most_derived_cast<detail::EPollFile>(f);
+  if (unlikely(!epf)) return -EINVAL;
+  return epf->Wait({events, static_cast<size_t>(maxevents)}, timeout_us);
+}
+
 }  // namespace
 
 void PollSource::Notify() {
@@ -507,15 +518,25 @@ int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event) {
 
 int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
                     int timeout) {
-  if (unlikely(maxevents < 0)) return -EINVAL;
-  FileTable &ftbl = myproc().get_file_table();
-  File *f = ftbl.Get(epfd);
-  if (unlikely(!f)) return -EBADF;
-  auto *epf = most_derived_cast<detail::EPollFile>(f);
-  if (unlikely(!epf)) return -EINVAL;
-  auto len = static_cast<size_t>(maxevents);
-  if (timeout < 0) return epf->Wait({events, len}, {});
-  return epf->Wait({events, len}, timeout);
+  std::optional<uint64_t> timeout_us{};
+  if (timeout >= 0) timeout_us = static_cast<uint64_t>(timeout);
+  return DoEPollWait(epfd, events, maxevents, timeout_us);
+}
+
+int usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
+                     int timeout, const sigset_t *sigmask) {
+  // TODO(amb): support signal masking
+  std::optional<uint64_t> timeout_us{};
+  if (timeout >= 0) timeout_us = static_cast<uint64_t>(timeout);
+  return DoEPollWait(epfd, events, maxevents, timeout_us);
+}
+
+int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
+                      const struct timespec *timeout, const sigset_t *sigmask) {
+  // TODO(amb): support signal masking
+  std::optional<uint64_t> timeout_us{};
+  if (timeout) timeout_us = timespec_to_us(*timeout);
+  return DoEPollWait(epfd, events, maxevents, timeout_us);
 }
 
 }  // namespace junction
