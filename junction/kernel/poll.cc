@@ -21,6 +21,7 @@ namespace {
 constexpr unsigned int kPollInval = POLLNVAL;
 constexpr unsigned int kEPollEdgeTriggered = EPOLLET;
 constexpr unsigned int kEPollOneShot = EPOLLONESHOT;
+constexpr unsigned int kEpollExclusive = EPOLLEXCLUSIVE;
 
 int DoPoll(struct pollfd *fds, nfds_t nfds,
            std::optional<uint64_t> timeout_us) {
@@ -297,7 +298,7 @@ class EPollObserver : public PollObserver {
 
 class EPollFile : public File {
  public:
-  EPollFile() = default;
+  EPollFile() : File(FileType::kSpecial, 0, 0) {}
   ~EPollFile();
 
   bool Add(File &f, uint32_t events, uint64_t user_data);
@@ -378,7 +379,8 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     rt::SpinGuard g(lock_);
     waker_.Wake();
   });
-  if (timeout_us && *timeout_us > 0) timeout_trigger.Start(*timeout_us);
+  bool should_use_timer = timeout_us && *timeout_us > 0;
+  if (should_use_timer) timeout_trigger.Start(*timeout_us);
 
   // Block until an event has triggered.
   auto it = events_out.begin();
@@ -407,11 +409,11 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
       tmp.push_back(o);
     }
 
-    // Put events that were delivered at the end for better fairness next time.
+    // Put the events that were delivered at the end for better fairness.
     events_.splice(events_.end(), tmp, tmp.begin());
   }
 
-  if (timeout_us && *timeout_us > 0) timeout_trigger.Cancel();
+  if (should_use_timer) timeout_trigger.Cancel();
   return std::distance(events_out.begin(), it);
 }
 
@@ -422,6 +424,16 @@ void EPollObserver::Notify(uint32_t events) {
 }
 
 }  // namespace detail
+
+namespace {
+
+// Creates a new EPoll file.
+int CreateEPollFile() {
+  auto f = std::make_shared<detail::EPollFile>();
+  return myproc().get_file_table().Insert(std::move(f));
+}
+
+}  // namespace
 
 void PollSource::Notify() {
   rt::SpinGuard guard(lock_);
@@ -455,7 +467,11 @@ int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
   return DoSelect(nfds, readfds, writefds, exceptfds, timespec_to_us(*ts));
 }
 
-int usys_epoll_create1(int flags) { return 0; }
+// This variant is deprecated, and size is ignored.
+int usys_epoll_create(int size) { return CreateEPollFile(); }
+
+// TODO(amb): support FD_CLOEXEC flag
+int usys_epoll_create1(int flags) { return CreateEPollFile(); }
 
 int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event) {
   // get the epoll file
