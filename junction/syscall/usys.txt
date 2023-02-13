@@ -43,6 +43,12 @@ poll
 ppoll
 select
 pselect6
+epoll_create
+epoll_create1
+epoll_ctl
+epoll_wait
+epoll_pwait
+epoll_pwait2
 clock_gettime
 
 # syscalls for which we return enosys

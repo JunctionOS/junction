@@ -54,6 +54,8 @@ long usys_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
                   int flags);
 long usys_shutdown(int sockfd, int how);
 long usys_listen(int sockfd, int backlog);
+
+// Poll
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout);
 int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p,
                const sigset_t *sigmask, size_t sigsetsize);
@@ -61,6 +63,15 @@ int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                 struct timeval *tv);
 int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, const struct timespec *ts);
+int usys_epoll_create(int size);
+int usys_epoll_create1(int flags);
+int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event);
+int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
+                    int timeout);
+int usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
+                     int timeout, const sigset_t *sigmask);
+int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
+                      const struct timespec *timeout, const sigset_t *sigmask);
 
 // Proc
 pid_t usys_getpid();
@@ -68,10 +79,8 @@ pid_t usys_set_tid_address(int *tidptr);
 void usys_exit_group(int status);
 void usys_exit(int status);
 int usys_arch_prctl(int code, unsigned long addr);
-
 long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
                  void *arg);
-
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 const struct timespec *timeout, uint32_t *uaddr2,
                 uint32_t val3);
