@@ -97,6 +97,9 @@ class File {
     return MakeError(EINVAL);
   }
 
+  // Default writev implementation that falls back to write internally
+  virtual Status<size_t> Writev(std::span<const iovec> vec, off_t *off);
+
   [[nodiscard]] FileType get_type() const { return type_; }
   [[nodiscard]] unsigned int get_flags() const { return flags_; }
   [[nodiscard]] unsigned int get_mode() const { return mode_; }

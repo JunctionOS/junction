@@ -38,6 +38,12 @@ class TCPEstablishedSocket : public Socket {
     if (raddr) return MakeError(EISCONN);
     return Write(buf);
   }
+
+  Status<size_t> Writev(std::span<const iovec> iov,
+                        [[maybe_unused]] off_t *off = nullptr) override {
+    return conn_.Writev(iov);
+  }
+
   Status<void> Shutdown(int how) override { return conn_.Shutdown(how); }
   Status<netaddr> RemoteAddr() override { return conn_.RemoteAddr(); }
   Status<netaddr> LocalAddr() override { return conn_.LocalAddr(); }

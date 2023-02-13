@@ -27,6 +27,11 @@ ssize_t usys_read(int fd, char *buf, size_t len);
 ssize_t usys_write(int fd, const char *buf, size_t len);
 ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset);
 ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset);
+ssize_t usys_writev(int fd, const iovec *iov, int iovcnt);
+ssize_t usys_pwritev(int fd, const iovec *iov, int iovcnt, off_t offset);
+ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
+                      int flags);
+
 off_t usys_lseek(int fd, off_t offset, int whence);
 int usys_fsync(int fd);
 int usys_dup(int oldfd);

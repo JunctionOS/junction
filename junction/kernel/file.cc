@@ -196,6 +196,54 @@ ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
   return static_cast<ssize_t>(*ret);
 }
 
+Status<size_t> File::Writev(std::span<const iovec> vec, off_t *off) {
+  ssize_t total_bytes = 0;
+  Status<size_t> ret;
+  for (auto &v : vec) {
+    ret = Write(
+        writable_span(reinterpret_cast<const char *>(v.iov_base), v.iov_len),
+        off);
+    if (!ret) break;
+    total_bytes += *ret;
+  }
+  if (total_bytes) return total_bytes;
+  return ret;
+}
+
+ssize_t usys_writev(int fd, const iovec *iov, int iovcnt) {
+  if (iovcnt <= 0) return -EINVAL;
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  Status<size_t> ret =
+      f->Writev({iov, static_cast<size_t>(iovcnt)}, &f->get_off_ref());
+  if (!ret) return MakeCError(ret);
+  return static_cast<ssize_t>(*ret);
+}
+
+ssize_t usys_pwritev(int fd, const iovec *iov, int iovcnt, off_t offset) {
+  if (iovcnt <= 0) return -EINVAL;
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  Status<size_t> ret = f->Writev({iov, static_cast<size_t>(iovcnt)}, &offset);
+  if (!ret) return MakeCError(ret);
+  return static_cast<ssize_t>(*ret);
+}
+
+ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
+                      int flags) {
+  // TODO(jf): fix flags
+  if (flags) LOG_ONCE(WARN) << "pwritev2 flags ignored " << flags;
+  if (iovcnt <= 0) return -EINVAL;
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  Status<size_t> ret = f->Writev({iov, static_cast<size_t>(iovcnt)}, &offset);
+  if (!ret) return MakeCError(ret);
+  return static_cast<ssize_t>(*ret);
+}
+
 ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);

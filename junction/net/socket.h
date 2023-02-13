@@ -14,6 +14,8 @@ namespace junction {
 constexpr unsigned int kSockNonblock = SOCK_NONBLOCK;
 constexpr unsigned int kSockCloseOnExec = SOCK_CLOEXEC;
 
+constexpr unsigned int kMsgNoSignal = MSG_NOSIGNAL;
+
 class Socket : public File {
  public:
   Socket() : File(FileType::kSocket, 0 /* flags */, kModeReadWrite) {}

@@ -108,13 +108,14 @@ long usys_setsockopt(int sockfd, [[maybe_unused]] int level,
                      [[maybe_unused]] socklen_t option_len) {
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
-  LOG(WARN) << "Unsupported: setsockopt";
+  LOG_ONCE(WARN) << "Unsupported: setsockopt";
   return 0;
 }
 
 ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
                       struct sockaddr *src_addr, socklen_t *addrlen) {
-  if (flags != 0) return -EINVAL;
+  flags = flags & ~kMsgNoSignal;
+  if (unlikely(flags != 0)) return -EINVAL;
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
@@ -131,7 +132,8 @@ ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
 
 ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
                     const struct sockaddr *dest_addr, socklen_t addrlen) {
-  if (flags != 0) return -EINVAL;
+  flags = flags & ~kMsgNoSignal;
+  if (unlikely(flags != 0)) return -EINVAL;
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
