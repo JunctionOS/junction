@@ -1,18 +1,18 @@
-From c0c8d0d8bf8f36e5f790a44acf4c5c969e417596 Mon Sep 17 00:00:00 2001
+From af16c541122d083fb258f6fad678ec04fbaac119 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
-Subject: [PATCH 03/11] runtime: allow uthreads to set their own fsbase values
+Subject: [PATCH 03/16] runtime: allow uthreads to set their own fsbase values
 
 ---
- build/shared.mk      |  4 ++--
+ build/shared.mk      |  2 +-
  inc/runtime/thread.h | 14 ++++++++++++--
  runtime/defs.h       | 14 ++++++++------
  runtime/sched.c      | 37 ++++++++++++++++++++++++++++---------
  runtime/switch.S     | 17 +++++++++++++++++
- 5 files changed, 67 insertions(+), 19 deletions(-)
+ 5 files changed, 66 insertions(+), 18 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
-index 1e087d8..22e2d92 100644
+index 1e087d8..1d5bc4e 100644
 --- a/build/shared.mk
 +++ b/build/shared.mk
 @@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
@@ -24,15 +24,6 @@ index 1e087d8..22e2d92 100644
  LDFLAGS = -T $(ROOT_PATH)/base/base.ld
  LD      = gcc
  CC      = gcc
-@@ -52,7 +52,7 @@ LDFLAGS += -rdynamic
- else
- FLAGS += -DNDEBUG -O3
- ifeq ($(CONFIG_OPTIMIZE),y)
--FLAGS += -march=native -flto -ffast-math
-+FLAGS += -march=native  -ffast-math
- ifeq ($(CONFIG_CLANG),y)
- LDFLAGS += -flto
- endif
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index d71d30f..67dcceb 100644
 --- a/inc/runtime/thread.h
@@ -70,7 +61,7 @@ index d71d30f..67dcceb 100644
  
  /*
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 6b36747..40240db 100644
+index 3dbb57d..295fce9 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -72,6 +72,7 @@ struct thread_tf {
@@ -114,7 +105,7 @@ index 6b36747..40240db 100644
  }
  
  /**
-@@ -255,7 +257,7 @@ static inline bool hardware_q_pending(struct hardware_q *q)
+@@ -258,7 +260,7 @@ static inline bool hardware_q_pending(struct hardware_q *q)
  	tail = ACCESS_ONCE(*q->consumer_idx);
  	idx = tail & (q->nr_descriptors - 1);
  	parity = !!(tail & q->nr_descriptors);
@@ -124,7 +115,7 @@ index 6b36747..40240db 100644
  	hd_parity = !!(ACCESS_ONCE(*addr) & q->parity_bit_mask);
  
 diff --git a/runtime/sched.c b/runtime/sched.c
-index bbb497b..eff7262 100644
+index 48c74c0..7a9f903 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -214,7 +205,7 @@ index bbb497b..eff7262 100644
  }
  
  static void drain_overflow(struct kthread *l)
-@@ -796,8 +812,10 @@ static __always_inline thread_t *__thread_create(void)
+@@ -799,8 +815,10 @@ static __always_inline thread_t *__thread_create(void)
  
  	th->stack = s;
  	th->main_thread = false;
@@ -225,7 +216,7 @@ index bbb497b..eff7262 100644
  
  	return th;
  }
-@@ -973,6 +991,7 @@ int sched_init_thread(void)
+@@ -976,6 +994,7 @@ int sched_init_thread(void)
  		return -ENOMEM;
  
  	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
@@ -234,10 +225,10 @@ index bbb497b..eff7262 100644
  	return 0;
  }
 diff --git a/runtime/switch.S b/runtime/switch.S
-index c026907..9377e0a 100644
+index fbca860..1ccab11 100644
 --- a/runtime/switch.S
 +++ b/runtime/switch.S
-@@ -35,6 +35,7 @@
+@@ -36,6 +36,7 @@
  #define RAX	(112)	/* return code */
  #define RIP	(120)	/* instruction pointer */
  #define RSP	(128)	/* stack pointer */
@@ -245,7 +236,7 @@ index c026907..9377e0a 100644
  
  /**
   * __jmp_thread - executes a thread from the runtime
-@@ -60,6 +61,10 @@ __jmp_thread:
+@@ -61,6 +62,10 @@ __jmp_thread:
  	movq    R14(%rdi), %r14
  	movq    R15(%rdi), %r15
  
@@ -256,7 +247,7 @@ index c026907..9377e0a 100644
  	/* set first argument (in case new thread) */
  	movq    RDI(%rdi), %rdi /* ARG0 */
  
-@@ -127,6 +132,10 @@ __jmp_thread_direct:
+@@ -128,6 +133,10 @@ __jmp_thread_direct:
  	movq    R14(%rsi), %r14
  	movq    R15(%rsi), %r15
  
@@ -267,7 +258,7 @@ index c026907..9377e0a 100644
  	/* set first argument (in case new thread) */
  	movq    RDI(%rsi), %rdi /* ARG0 */
  
-@@ -157,6 +166,7 @@ __jmp_thread_direct:
+@@ -158,6 +167,7 @@ __jmp_thread_direct:
   * @tf: the struct thread_tf to save state (%rdi)
   * @fn: the function pointer to call (%rsi)
   * @stack: the start of the runtime stack (%rdx)
@@ -275,7 +266,7 @@ index c026907..9377e0a 100644
   *
   * This low-level variant isn't intended to be called directly.
   * Must be called with preemption disabled.
-@@ -180,6 +190,9 @@ __jmp_runtime:
+@@ -181,6 +191,9 @@ __jmp_runtime:
  	leaq    8(%rsp), %r8
  	movq    %r8, RSP(%rdi)
  
@@ -285,7 +276,7 @@ index c026907..9377e0a 100644
  	/* jump into runtime function */
  	movq    %rdx, %rsp
  
-@@ -191,6 +204,7 @@ __jmp_runtime:
+@@ -192,6 +205,7 @@ __jmp_runtime:
   *			  current stack frame
   * @fn: the function pointer to call (%rdi)
   * @stack: the start of the runtime stack (%rsi)
@@ -293,7 +284,7 @@ index c026907..9377e0a 100644
   *
   * This low-level variant isn't intended to be called directly.
   * Must be called with preemption disabled.
-@@ -205,5 +219,8 @@ __jmp_runtime_nosave:
+@@ -206,5 +220,8 @@ __jmp_runtime_nosave:
  	movq    %rsi, %rsp
  	movq	%rdi, %rsi
  
@@ -303,5 +294,5 @@ index c026907..9377e0a 100644
  	/* jump into runtime code */
  	jmpq    *%rsi
 -- 
-2.34.1
+2.37.2
 
