@@ -1,23 +1,23 @@
-From 93610b6b706eaed1cc854acc88c2d753626b05f8 Mon Sep 17 00:00:00 2001
+From 843c2d31a6407410666ae768e52376e4082cbee0 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 15:59:55 -0500
-Subject: [PATCH 5/5] base/runtime - make all runtime syscalls from a set
+Subject: [PATCH 05/15] base/runtime - make all runtime syscalls from a set
  instruction range
 
 ---
  Makefile           |  5 +++--
  base/mem.c         | 22 ++++---------------
- base/syscall.S     | 53 ++++++++++++++++++++++++++++++++++++++++++++++
+ base/syscall.S     | 54 ++++++++++++++++++++++++++++++++++++++++++++++
  inc/base/syscall.h | 21 ++++++++++++++++++
  runtime/kthread.c  |  5 +++--
- runtime/preempt.c  | 38 +++++++++++++++++++++++++++------
+ runtime/preempt.c  | 38 ++++++++++++++++++++++++++------
  runtime/stack.c    |  7 +++---
- 7 files changed, 119 insertions(+), 32 deletions(-)
+ 7 files changed, 120 insertions(+), 32 deletions(-)
  create mode 100644 base/syscall.S
  create mode 100644 inc/base/syscall.h
 
 diff --git a/Makefile b/Makefile
-index c62bdf1..53f6208 100644
+index e3370e7..1b7b8fa 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -11,7 +11,8 @@ endif
@@ -102,13 +102,14 @@ index 2781799..8e1314a 100644
  
 diff --git a/base/syscall.S b/base/syscall.S
 new file mode 100644
-index 0000000..002c6af
+index 0000000..d98d2e4
 --- /dev/null
 +++ b/base/syscall.S
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,54 @@
 +
 +#include <asm/unistd_64.h>
 +
++.section        .note.GNU-stack,"",@progbits
 +.text
 +.globl base_syscall_start
 +base_syscall_start:
@@ -188,7 +189,7 @@ index 0000000..c10f9fb
 +extern int syscall_mprotect(void *addr, size_t len, int prot);
 \ No newline at end of file
 diff --git a/runtime/kthread.c b/runtime/kthread.c
-index 18f3fee..a49fb66 100644
+index 3ca9cc3..2a76890 100644
 --- a/runtime/kthread.c
 +++ b/runtime/kthread.c
 @@ -13,6 +13,7 @@
@@ -208,7 +209,7 @@ index 18f3fee..a49fb66 100644
  	} while (unlikely(s < 0 || preempt_cede_needed(k)));
  
  	k->curr_cpu = s;
-@@ -240,7 +241,7 @@ void kthread_wait_to_attach(void)
+@@ -271,7 +272,7 @@ void kthread_wait_to_attach(void)
  	int s;
  
  	do {
@@ -286,7 +287,7 @@ index 98c4ea3..78f6493 100644
  
  	return 0;
 diff --git a/runtime/stack.c b/runtime/stack.c
-index b2d558a..deb435a 100644
+index da6c3e9..787bdb7 100644
 --- a/runtime/stack.c
 +++ b/runtime/stack.c
 @@ -10,6 +10,7 @@
@@ -323,5 +324,5 @@ index b2d558a..deb435a 100644
  }
  
 -- 
-2.34.1
+2.37.2
 

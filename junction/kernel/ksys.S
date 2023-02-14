@@ -4,6 +4,7 @@
 
 #include <asm/unistd_64.h>
 
+.section        .note.GNU-stack,"",@progbits
 .text
 
 .globl ksys_start
