@@ -11,6 +11,9 @@ exit
 read
 write
 pwrite64
+writev
+pwritev
+pwritev2
 pread64
 lseek
 fsync
