@@ -10,7 +10,7 @@ OUTPUT_DIR="perf_$(date '+%Y-%m-%d_%H-%M-%S')"
 mkdir ${OUTPUT_DIR}
 
 # Record
-sudo perf record -F 1000 --call-graph dwarf -o ${OUTPUT_DIR}/perf.data ${1+"$@"}
+sudo perf record -F 1000 --buildid-mmap --call-graph dwarf -o ${OUTPUT_DIR}/perf.data ${1+"$@"}
 sudo chmod 777 ${OUTPUT_DIR}/perf.data
 
 # Generate flamegraph
