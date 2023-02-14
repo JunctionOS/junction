@@ -10,6 +10,7 @@ extern "C" {
 #include <fcntl.h>
 #include <poll.h>
 #include <semaphore.h>
+#include <sys/epoll.h>
 #include <sys/mman.h>
 #include <unistd.h>
 }
@@ -261,6 +262,71 @@ void BenchSelect(int measure_rounds) {
   }
 }
 
+void BenchEPoll(int measure_rounds) {
+  static constexpr size_t kBufSize = 64;
+  static constexpr size_t kPollThreads = 100;
+  size_t bytes_to_write = kBufSize * measure_rounds / kPollThreads;
+  std::vector<int> pfds(kPollThreads);
+
+  for (size_t i = 0; i < kPollThreads; i++) {
+    int pipefds[2];
+    int ret = pipe2(pipefds, O_NONBLOCK);
+    EXPECT_EQ(ret, 0);
+    pfds[i] = pipefds[0];
+
+    // Spawn a writer thread for this pipe.
+    std::thread([out_fd = pipefds[1], bytes_to_write] {
+      struct pollfd pfd;
+      pfd.fd = out_fd;
+      pfd.events = POLLOUT;
+      char buf[kBufSize];
+      size_t bytes_written = 0;
+      while (bytes_written < bytes_to_write) {
+        int ret = poll(&pfd, 1, -1);
+        EXPECT_EQ(ret, 1);
+        if ((pfd.revents & POLLOUT) == 0) continue;
+        ssize_t n = write(out_fd, buf, kBufSize);
+        EXPECT_GT(n, 0);
+        bytes_written += n;
+      }
+      close(out_fd);
+    }).detach();
+  }
+
+  // create the epoll file and set up a poll set
+  int epfd = epoll_create1(0);
+  EXPECT_GE(epfd, 0);
+  for (int fd : pfds) {
+    struct epoll_event ev;
+    ev.events = EPOLLIN;
+    ev.data.u64 = fd;
+    int ret = epoll_ctl(epfd, EPOLL_CTL_ADD, fd, &ev);
+    EXPECT_EQ(ret, 0);
+  }
+
+  // wait for events and process them
+  char buf[kBufSize];
+  struct epoll_event events[kPollThreads];
+  size_t open_count = kPollThreads;
+  while (open_count > 0) {
+    int nfds = epoll_wait(epfd, events, kPollThreads, -1);
+    for (int i = 0; i < nfds; ++i) {
+      int fd = events[i].data.u64;
+      if (events[i].events & EPOLLIN) {
+        ssize_t n = read(fd, buf, kBufSize);
+        EXPECT_GT(n, 0);
+        continue;
+      }
+      if (events[i].events & EPOLLHUP) {
+        epoll_ctl(epfd, EPOLL_CTL_DEL, fd, nullptr);
+        close(fd);
+        open_count--;
+      }
+    }
+  }
+  close(epfd);
+}
+
 void PrintResult(std::string name, us time) {
   time /= getMeasureRounds();
   std::cout << "test '" << name << "' took " << time.count() << " us."
@@ -346,5 +412,7 @@ TEST_F(ThreadingTest, Pipe) { Bench("Pipe", BenchPipe); }
 TEST_F(ThreadingTest, Poll) { Bench("Poll", BenchPoll); }
 
 TEST_F(ThreadingTest, Select) { Bench("Select", BenchSelect); }
+
+TEST_F(ThreadingTest, EPoll) { Bench("EPoll", BenchEPoll); }
 
 TEST_F(ThreadingTest, Mmap) { Bench("Mmap", BenchMMAP); }

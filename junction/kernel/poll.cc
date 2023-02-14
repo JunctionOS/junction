@@ -345,7 +345,7 @@ void EPollFile::Notify(PollSource &s) {
 }
 
 bool EPollFile::Add(File &f, uint32_t events, uint64_t user_data) {
-  events |= (kPollHUp | kPollErr); // can't be ignored
+  events |= (kPollHUp | kPollErr);  // can't be ignored
   auto o = std::make_unique<EPollObserver>(*this, f, events, user_data);
   PollSource &src = f.get_poll_source();
   rt::SpinGuard guard(src.lock_);
@@ -358,7 +358,7 @@ bool EPollFile::Add(File &f, uint32_t events, uint64_t user_data) {
 }
 
 bool EPollFile::Modify(File &f, uint32_t events, uint64_t user_data) {
-  events |= (kPollHUp | kPollErr); // can't be ignored
+  events |= (kPollHUp | kPollErr);  // can't be ignored
   PollSource &src = f.get_poll_source();
   rt::SpinGuard guard(src.lock_);
   for (auto &o : src.epoll_observers_) {
@@ -430,7 +430,7 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     }
 
     // Put the events that were delivered at the end for better fairness.
-    events_.splice(events_.end(), tmp, tmp.begin());
+    events_.splice(events_.end(), tmp);
   }
 
   if (should_use_timer) timeout_trigger.Cancel();
@@ -515,16 +515,14 @@ int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event) {
   // parse the remaining arguments
   f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
-  int32_t events = event->events;
-  uint64_t data = event->data.u64;
 
   // handle the operation
   switch (op) {
     case EPOLL_CTL_ADD:
-      if (!epf->Add(*f, events, data)) return -EEXIST;
+      if (!epf->Add(*f, event->events, event->data.u64)) return -EEXIST;
       break;
     case EPOLL_CTL_MOD:
-      if (!epf->Modify(*f, events, data)) return -ENOENT;
+      if (!epf->Modify(*f, event->events, event->data.u64)) return -ENOENT;
       break;
     case EPOLL_CTL_DEL:
       if (!epf->Delete(*f)) return -ENOENT;
