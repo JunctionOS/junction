@@ -55,13 +55,13 @@ epoll_pwait2
 clock_gettime
 getpeername
 getsockname
+rt_sigaction
+rt_sigprocmask
 
 # syscalls for which we return enosys
 rseq:::enosys
 set_robust_list:::enosys
 get_robust_list:::enosys
-rt_sigprocmask:::enosys
-rt_sigaction:::enosys
 tgkill:::enosys
 sched_setaffinity:::enosys
 sched_getaffinity:::enosys

@@ -11,6 +11,7 @@ set(SOURCES_C_CPP
   poll.cc
   random.cc
   sched.cc
+  signal.cc
   time.cc
 )
 

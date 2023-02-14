@@ -103,5 +103,11 @@ long usys_clock_gettime(clockid_t clk_id, struct timespec *tp);
 // Misc
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);
 
+// Signals
+long usys_rt_sigaction(int sig, const struct sigaction *action,
+                       struct sigaction *oact, size_t sigsetsize);
+long usys_rt_sigprocmask(int how, sigset_t *nset, sigset *oset,
+                         size_t sigsetsize);
+
 }  // extern "C"
 }  // namespace junction
