@@ -20,9 +20,7 @@ class TCPListenerSocket : public Socket {
     Status<rt::TCPQueue> ret = rt::TCPQueue::Listen(addr_, backlog);
     if (unlikely(!ret)) return MakeError(ret);
     listen_q_ = std::move(*ret);
-    listen_q_.InstallPollSource(
-        PollSourceSet, PollSourceClear,
-        reinterpret_cast<unsigned long>(&get_poll_source()));
+    if (IsPollSourceSetup()) SetupPollSource();
     return {};
   }
   Status<std::shared_ptr<Socket>> Accept() override {
@@ -39,6 +37,12 @@ class TCPListenerSocket : public Socket {
   }
 
  private:
+  virtual void SetupPollSource() override {
+    if (!listen_q_.is_valid()) return;
+    listen_q_.InstallPollSource(PollSourceSet, PollSourceClear,
+                                reinterpret_cast<unsigned long>(&poll_));
+  }
+
   netaddr addr_;
   std::atomic_bool is_shut_{false};
   rt::TCPQueue listen_q_;

@@ -13,11 +13,7 @@ namespace junction {
 class TCPEstablishedSocket : public Socket {
  public:
   TCPEstablishedSocket(rt::TCPConn conn) noexcept
-      : Socket(), conn_(std::move(conn)) {
-    conn_.InstallPollSource(
-        PollSourceSet, PollSourceClear,
-        reinterpret_cast<unsigned long>(&get_poll_source()));
-  }
+      : Socket(), conn_(std::move(conn)) {}
   ~TCPEstablishedSocket() override = default;
 
   Status<size_t> Read(std::span<std::byte> buf,
@@ -49,6 +45,11 @@ class TCPEstablishedSocket : public Socket {
   Status<netaddr> LocalAddr() override { return conn_.LocalAddr(); }
 
  private:
+  virtual void SetupPollSource() override {
+    conn_.InstallPollSource(PollSourceSet, PollSourceClear,
+                            reinterpret_cast<unsigned long>(&poll_));
+  }
+
   rt::TCPConn conn_;
 };
 

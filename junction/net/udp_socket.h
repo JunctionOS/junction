@@ -35,6 +35,10 @@ class UDPSocket : public Socket {
     }
     Status<rt::UDPConn> ret = rt::UDPConn::Dial(laddr, addr);
     if (unlikely(!ret)) return MakeError(ret);
+
+    if (IsPollSourceSetup() && conn_.is_valid())
+      conn_.InstallPollSource(nullptr, nullptr, 0);
+
     return std::make_shared<UDPSocket>(std::move(*ret));
   }
 
@@ -61,6 +65,7 @@ class UDPSocket : public Socket {
       Status<rt::UDPConn> ret = rt::UDPConn::Listen({0, 0});
       if (unlikely(!ret)) return MakeError(ret);
       conn_ = std::move(*ret);
+      if (IsPollSourceSetup()) SetupPollSource();
     }
     return conn_.WriteTo(buf, raddr);
   }
@@ -83,6 +88,12 @@ class UDPSocket : public Socket {
   }
 
  private:
+  virtual void SetupPollSource() override {
+    if (!conn_.is_valid()) return;
+    conn_.InstallPollSource(PollSourceSet, PollSourceClear,
+                            reinterpret_cast<unsigned long>(&poll_));
+  }
+
   // This may or may not be valid. If UDPSocket is created without a rt::UDPConn
   // then this will be invalid until WriteTo is called.
   // Otherwise, UDPSocket will be created with a valid rt::UDPConn which will be

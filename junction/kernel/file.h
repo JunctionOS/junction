@@ -105,14 +105,27 @@ class File {
   [[nodiscard]] unsigned int get_mode() const { return mode_; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
   void set_flags(unsigned int flags) { flags_ = flags; }
-  [[nodiscard]] PollSource &get_poll_source() { return poll_; }
+  [[nodiscard]] PollSource &get_poll_source() {
+    if (unlikely(!IsPollSourceSetup())) {
+      poll_source_setup_ = true;
+      SetupPollSource();
+    }
+    return poll_;
+  }
+
+ protected:
+  [[nodiscard]] bool IsPollSourceSetup() { return poll_source_setup_; }
+
+  PollSource poll_;
 
  private:
+  virtual void SetupPollSource() {}
+
   const FileType type_;
   unsigned int flags_;
   const unsigned int mode_;
   off_t off_{0};
-  PollSource poll_;
+  bool poll_source_setup_{false};
 };
 
 namespace detail {
