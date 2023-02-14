@@ -5,8 +5,6 @@
 extern "C" {
 #include <sys/types.h>
 #include <ucontext.h>
-
-#include "lib/caladan/runtime/defs.h"
 }
 
 #include <memory>
@@ -72,7 +70,7 @@ class Process {
 // mythread returns the Thread object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.
 inline Thread &mythread() {
-  uint64_t ts = perthread_read_stable(__self)->tlsvar;
+  uint64_t ts = get_uthread_specific();
   assert(ts);
   return *reinterpret_cast<Thread *>(ts);
 }

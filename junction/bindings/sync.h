@@ -32,6 +32,48 @@ void write_once(T &p, const T &val) requires std::is_integral_v<T> {
   static_cast<T volatile &>(p) = val;
 }
 
+// WaitQueue is used to wake a group of threads.
+class WaitQueue {
+ public:
+  WaitQueue() { list_head_init(&waiters_); };
+  ~WaitQueue() { assert(list_empty(&waiters_)); }
+
+  // disable copy and move.
+  WaitQueue(const WaitQueue &) = delete;
+  WaitQueue &operator=(const WaitQueue &) = delete;
+  WaitQueue(const WaitQueue &&) = delete;
+  WaitQueue &operator=(const WaitQueue &&) = delete;
+
+  // Prepares the running thread to block. Can only be called once,
+  // must be synchronized by caller.
+  void Arm() { list_add_tail(&waiters_, &thread_self()->link); }
+
+  // Wake up to one thread waiter (must be synchronized by caller)
+  void WakeOne(bool head = false) {
+    thread_t *th = list_pop(&waiters_, thread_t, link);
+    if (th == nullptr) return;
+    if (head)
+      thread_ready_head(th);
+    else
+      thread_ready(th);
+  }
+
+  // Wake all thread waiters (must be synchronized by caller)
+  void WakeAll(bool head = false) {
+    while (true) {
+      thread_t *th = list_pop(&waiters_, thread_t, link);
+      if (th == nullptr) return;
+      if (head)
+        thread_ready_head(th);
+      else
+        thread_ready(th);
+    }
+  }
+
+ private:
+  list_head waiters_;
+};
+
 // ThreadWaker is used to wake the current thread after it parks.
 class ThreadWaker {
  public:
@@ -273,7 +315,8 @@ class ScopedLock {
   //   rt::SpinLock l;
   //   rt::SpinGuard guard(l);
   //   while (condition) guard.Park(w);
-  void Park(ThreadWaker &w) requires LockAndParkable<L> {
+  template <typename Waker>
+  void Park(Waker &w) requires LockAndParkable<L> {
     assert(lock_.IsHeld());
     w.Arm();
     lock_.UnlockAndPark();
@@ -287,8 +330,8 @@ class ScopedLock {
   //   rt::SpinLock l;
   //   rt::SpinGuard guard(l);
   //   guard.Park(w, []{ return predicate; });
-  template <typename Predicate>
-  void Park(ThreadWaker &w, Predicate stop) requires LockAndParkable<L> {
+  template <typename Waker, typename Predicate>
+  void Park(Waker &w, Predicate stop) requires LockAndParkable<L> {
     assert(lock_.IsHeld());
     while (!stop()) {
       w.Arm();
