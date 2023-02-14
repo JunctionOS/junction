@@ -13,10 +13,9 @@ extern "C" {
 #include "base/stddef.h"
 }
 
+#include <expected>
 #include <string_view>
 #include <utility>
-
-#include "junction/base/expected.h"
 
 namespace junction {
 
@@ -69,8 +68,8 @@ inline bool operator!=(int lhs, const Error& rhs) { return lhs != rhs.code(); }
 std::ostream& operator<<(std::ostream& os, const Error& x);
 
 // Returns an unexpected error object from an errno code.
-[[nodiscard]] inline unexpected<Error> MakeError(int code) {
-  return unexpected(Error(code));
+[[nodiscard]] inline std::unexpected<Error> MakeError(int code) {
+  return std::unexpected(Error(code));
 }
 
 // Returns an unexpected error propogated from another expected type.
@@ -78,15 +77,15 @@ std::ostream& operator<<(std::ostream& os, const Error& x);
 // The other expected type can have a different value type but must have the
 // same error type.
 template <typename T>
-[[nodiscard]] inline unexpected<Error> MakeError(
-    const expected<T, Error>& ret) {
+[[nodiscard]] inline std::unexpected<Error> MakeError(
+    const std::expected<T, Error>& ret) {
   assert(!ret);
-  return unexpected(ret.error());
+  return std::unexpected(ret.error());
 }
 
 // Returns a C errno code as a negative int.
 template <typename T>
-[[nodiscard]] inline int MakeCError(const expected<T, Error>& ret) {
+[[nodiscard]] inline int MakeCError(const std::expected<T, Error>& ret) {
   assert(!ret);
   return -ret.error().code();
 }
@@ -103,6 +102,6 @@ template <typename T>
 //  if (!ret) return MakeError(ret);
 //  // success, inspect *ret to get the length
 template <typename T>
-using Status = expected<T, Error>;
+using Status = std::expected<T, Error>;
 
 }  // namespace junction

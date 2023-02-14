@@ -6,8 +6,8 @@
 #include <atomic>
 #include <bit>
 #include <cstddef>
-#include <memory>
 #include <span>
+#include <vector>
 
 #include "junction/base/error.h"
 
