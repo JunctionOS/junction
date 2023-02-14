@@ -67,6 +67,22 @@ Status<std::shared_ptr<Socket>> CreateSocket(int domain, int type) {
     return MakeError(EINVAL);
 }
 
+long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
+  auto sock_ret = FDToSocket(sockfd);
+  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  Socket &s = sock_ret.value().get();
+  Status<std::shared_ptr<Socket>> ret = s.Accept();
+  if (unlikely(!ret)) return MakeCError(ret);
+  if (addr) {
+    Status<netaddr> na = (*ret)->RemoteAddr();
+    if (!na) return MakeCError(na);
+    auto conv_ret = NetAddrToSockAddr(*na, addr, addrlen);
+    if (unlikely(!conv_ret)) return MakeCError(conv_ret);
+  }
+  if (flags & kSockNonblock) LOG_ONCE(WARN) << "Ignoring nonblocking flag";
+  return myproc().get_file_table().Insert(std::move(*ret));
+}
+
 }  // namespace
 
 // TODO(girfan): Fix the "restrict" keyword for all the net syscalls.
@@ -147,22 +163,6 @@ ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
                 dest_addr ? &(*addr) : nullptr);
   if (unlikely(!ret)) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
-}
-
-long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
-  auto sock_ret = FDToSocket(sockfd);
-  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
-  Socket &s = sock_ret.value().get();
-  Status<std::shared_ptr<Socket>> ret = s.Accept();
-  if (unlikely(!ret)) return MakeCError(ret);
-  if (addr) {
-    Status<netaddr> na = (*ret)->RemoteAddr();
-    if (!na) return MakeCError(na);
-    auto conv_ret = NetAddrToSockAddr(*na, addr, addrlen);
-    if (unlikely(!conv_ret)) return MakeCError(conv_ret);
-  }
-  if (flags & kSockNonblock) LOG_ONCE(WARN) << "Ignoring nonblocking flag";
-  return myproc().get_file_table().Insert(std::move(*ret));
 }
 
 long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {

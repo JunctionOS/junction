@@ -21,7 +21,7 @@ namespace {
 constexpr unsigned int kPollInval = POLLNVAL;
 constexpr unsigned int kEPollEdgeTriggered = EPOLLET;
 constexpr unsigned int kEPollOneShot = EPOLLONESHOT;
-constexpr unsigned int kEpollExclusive = EPOLLEXCLUSIVE;
+constexpr unsigned int kEPollExclusive = EPOLLEXCLUSIVE;
 
 int DoPoll(struct pollfd *fds, nfds_t nfds,
            std::optional<uint64_t> timeout_us) {
@@ -331,16 +331,21 @@ class EPollFile : public File {
 EPollFile::~EPollFile() {}
 
 void EPollFile::Notify(PollSource &s) {
+  bool exclusive = false;
   for (auto &o : s.epoll_observers_) {
     auto &oe = static_cast<EPollObserver &>(o);
     if ((oe.watched_events_ & kEPollOneShot) != 0) {
       if (std::exchange(oe.one_shot_triggered_, true)) continue;
+    }
+    if ((oe.watched_events_ & kEPollExclusive) != 0) {
+      if (std::exchange(exclusive, true)) continue;
     }
     oe.Notify(s.get_events());
   }
 }
 
 bool EPollFile::Add(File &f, uint32_t events, uint64_t user_data) {
+  events |= (kPollHUp | kPollErr); // can't be ignored
   auto o = std::make_unique<EPollObserver>(*this, f, events, user_data);
   PollSource &src = f.get_poll_source();
   rt::SpinGuard guard(src.lock_);
@@ -353,6 +358,7 @@ bool EPollFile::Add(File &f, uint32_t events, uint64_t user_data) {
 }
 
 bool EPollFile::Modify(File &f, uint32_t events, uint64_t user_data) {
+  events |= (kPollHUp | kPollErr); // can't be ignored
   PollSource &src = f.get_poll_source();
   rt::SpinGuard guard(src.lock_);
   for (auto &o : src.epoll_observers_) {
