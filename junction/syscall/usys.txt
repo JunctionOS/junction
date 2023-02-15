@@ -31,6 +31,7 @@ dup
 dup2
 pipe
 pipe2
+clock_nanosleep
 nanosleep
 getcpu
 socket
@@ -55,6 +56,7 @@ epoll_wait
 epoll_pwait
 epoll_pwait2
 clock_gettime
+gettimeofday
 getpeername
 getsockname
 rt_sigaction
