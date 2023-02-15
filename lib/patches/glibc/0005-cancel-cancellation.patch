@@ -1,0 +1,33 @@
+From 73624992a176d6beaacd129795552b6e72a0d486 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Mon, 13 Feb 2023 21:28:53 -0500
+Subject: [PATCH 5/5] cancel cancellation
+
+---
+ nptl/cancellation.c | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/nptl/cancellation.c b/nptl/cancellation.c
+index f4b08902b2..04a52ad964 100644
+--- a/nptl/cancellation.c
++++ b/nptl/cancellation.c
+@@ -29,6 +29,7 @@
+ int
+ __pthread_enable_asynccancel (void)
+ {
++  return 0;
+   struct pthread *self = THREAD_SELF;
+   int oldval = atomic_load_relaxed (&self->cancelhandling);
+ 
+@@ -61,6 +62,8 @@ libc_hidden_def (__pthread_enable_asynccancel)
+ void
+ __pthread_disable_asynccancel (int oldtype)
+ {
++  return;
++
+   /* If asynchronous cancellation was enabled before we do not have
+      anything to do.  */
+   if (oldtype & CANCELTYPE_BITMASK)
+-- 
+2.34.1
+
