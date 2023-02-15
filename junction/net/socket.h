@@ -30,6 +30,12 @@ class Socket : public File {
                                  const netaddr *raddr) {
     return MakeError(ENOTCONN);
   }
+
+  virtual Status<size_t> WritevTo(std::span<const iovec> iov,
+                                  const netaddr *raddr) {
+    return MakeError(ENOTCONN);
+  }
+
   virtual Status<std::shared_ptr<Socket>> Accept(int flags = 0) {
     return MakeError(ENOTCONN);
   }

@@ -19,7 +19,7 @@ class TCPSocket : public Socket {
   };
 
  public:
-  TCPSocket() noexcept : Socket() {}
+  TCPSocket() noexcept : Socket(), state_(SocketState::kSockUnbound) {}
   TCPSocket(rt::TCPConn conn, int flags = 0) noexcept
       : Socket(flags),
         state_(SocketState::kSockConnected),
@@ -124,6 +124,14 @@ class TCPSocket : public Socket {
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
     return Write(buf);
+  }
+
+  Status<size_t> WritevTo(std::span<const iovec> iov,
+                          const netaddr *raddr) override {
+    if (unlikely(state_ != SocketState::kSockConnected))
+      return MakeError(EINVAL);
+    if (raddr) return MakeError(EISCONN);
+    return Writev(iov);
   }
 
   Status<size_t> Writev(std::span<const iovec> iov,

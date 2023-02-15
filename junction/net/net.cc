@@ -166,6 +166,28 @@ ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
   return static_cast<ssize_t>(*ret);
 }
 
+ssize_t usys_sendmsg(int sockfd, const struct msghdr *msg, int flags) {
+  if (flags) LOG_ONCE(WARN) << "sendmsg ignoring flags " << flags;
+  if (msg->msg_control || msg->msg_controllen)
+    LOG_ONCE(WARN) << "sendmsg: ignoring control message";
+  auto sock_ret = FDToSocket(sockfd);
+  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  Socket &s = sock_ret.value().get();
+
+  netaddr addr;
+  if (msg->msg_name) {
+    Status<netaddr> naddr = SockAddrToNetAddr(
+        reinterpret_cast<const sockaddr *>(msg->msg_name), msg->msg_namelen);
+    if (unlikely(!naddr)) return MakeCError(naddr);
+    addr = *naddr;
+  }
+
+  Status<size_t> ret = s.WritevTo({msg->msg_iov, msg->msg_iovlen},
+                                  msg->msg_name ? &addr : nullptr);
+  if (unlikely(!ret)) return MakeCError(ret);
+  return static_cast<ssize_t>(*ret);
+}
+
 long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
   return DoAccept(sockfd, addr, addrlen);
 }

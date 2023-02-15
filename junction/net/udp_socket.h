@@ -7,6 +7,7 @@
 
 #include "junction/base/error.h"
 #include "junction/bindings/net.h"
+#include "junction/net/caladan_poll.h"
 #include "junction/net/socket.h"
 
 namespace junction {
@@ -90,6 +91,8 @@ class UDPSocket : public Socket {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
     return conn_.LocalAddr();
   }
+
+  // TODO(jsf): Writev, WritevTo
 
  private:
   void SetupPollSource() override {

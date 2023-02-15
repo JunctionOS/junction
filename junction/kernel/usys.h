@@ -59,6 +59,7 @@ ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
                       struct sockaddr *src_addr, socklen_t *addrlen);
 ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
                     const struct sockaddr *dest_addr, socklen_t addrlen);
+ssize_t usys_sendmsg(int sockfd, const struct msghdr *msg, int flags);
 long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 long usys_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
                   int flags);

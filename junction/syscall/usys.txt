@@ -40,6 +40,7 @@ connect
 setsockopt
 recvfrom
 sendto
+sendmsg
 accept
 accept4
 shutdown
