@@ -147,28 +147,6 @@ long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   return ftbl.Insert(std::move(*f));
 }
 
-void *usys_mmap(void *addr, size_t length, int prot, int flags, int fd,
-                off_t offset) {
-  if (fd < 0) {
-    intptr_t ret = ksys_mmap(addr, length, prot, flags, fd, offset);
-    if (ret < 0) return MAP_FAILED;
-    return reinterpret_cast<void *>(ret);
-  }
-  FileTable &ftbl = myproc().get_file_table();
-  File *f = ftbl.Get(fd);
-  if (unlikely(!f)) return MAP_FAILED;
-  Status<void *> ret = f->MMap(addr, length, prot, flags, offset);
-  if (!ret) return MAP_FAILED;
-  return static_cast<void *>(*ret);
-}
-
-int usys_munmap(void *addr, size_t length) {
-  if (unlikely(addr == nullptr)) return -EINVAL;
-  // TODO(girfan): Track the addresses when they were mmaped; this is just a bad
-  // hack.
-  return ksys_munmap(addr, length);
-}
-
 ssize_t usys_read(int fd, char *buf, size_t len) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);

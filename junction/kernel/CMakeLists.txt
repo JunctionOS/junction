@@ -15,6 +15,7 @@ set(SOURCES_C_CPP
   signal.cc
   time.cc
   misc.cc
+  mm.cc
 )
 
 set(SOURCES_ASM

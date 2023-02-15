@@ -25,9 +25,4 @@ unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
   return sys_tbl[syscall](arg0, arg1, arg2, arg3, arg4, arg5);
 }
 
-long usys_enosys(...) {
-  DLOG(INFO) << "usys enosys";
-  return -ENOSYS;
-}
-
 }  // namespace junction

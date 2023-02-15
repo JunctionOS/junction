@@ -20,7 +20,9 @@ fsync
 close
 futex
 sched_yield
+brk
 mmap
+mprotect
 munmap
 newfstatat
 getdents
@@ -57,15 +59,7 @@ getpeername
 getsockname
 rt_sigaction
 rt_sigprocmask
+sigaltstack
 sched_getaffinity
 eventfd
 eventfd2
-
-# syscalls for which we return enosys
-rseq:::enosys
-set_robust_list:::enosys
-get_robust_list:::enosys
-tgkill:::enosys
-sched_setaffinity:::enosys
-prctl:::enosys
-clone:::enosys

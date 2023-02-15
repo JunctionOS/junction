@@ -58,7 +58,8 @@ for i, entry in enumerate(defined_syscalls):
 	name = syscall_nr_to_name.get(i, str(i)) 
 	fn = f"""
 extern "C" {'{'} long usys_{name}_fwd(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
-  return ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, {i});
+  LOG_ONCE(ERR) << "Unsupported system call {i}:{name}";
+  return -ENOSYS;
 {'}'}{'}'}"""
 	dispatch_file.append(fn)
 

@@ -10,7 +10,6 @@ namespace junction {
 
 int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) {
   // Fake response that can be used by programs to detect the number of cores
-  constexpr size_t kBitsPerSet = sizeof(cpu_set_t) * kBitsPerByte;
   size_t cores = rt::RuntimeMaxCores();
   if (cores / kBitsPerByte > cpusetsize) return -EPERM;
   std::memset(mask, 0, cpusetsize);

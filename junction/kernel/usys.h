@@ -7,6 +7,7 @@ extern "C" {
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
+#include <signal.h>
 #include <sched.h>
 struct clone_args;
 }
@@ -16,14 +17,9 @@ struct clone_args;
 namespace junction {
 extern "C" {
 
-long usys_enosys(...);  // Always returns -ENOSYS
-
 // File
 long usys_open(const char *pathname, int flags, mode_t mode);
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode);
-void *usys_mmap(void *addr, size_t length, int prot, int flags, int fd,
-                off_t offset);
-int usys_munmap(void *addr, size_t length);
 ssize_t usys_read(int fd, char *buf, size_t len);
 ssize_t usys_write(int fd, const char *buf, size_t len);
 ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset);
@@ -32,7 +28,6 @@ ssize_t usys_writev(int fd, const iovec *iov, int iovcnt);
 ssize_t usys_pwritev(int fd, const iovec *iov, int iovcnt, off_t offset);
 ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
                       int flags);
-
 off_t usys_lseek(int fd, off_t offset, int whence);
 int usys_fsync(int fd);
 int usys_dup(int oldfd);
@@ -44,6 +39,13 @@ long usys_getdents(unsigned int fd, void *dirp, unsigned int count);
 long usys_getdents64(unsigned int fd, void *dirp, unsigned int count);
 int usys_pipe(int pipefd[2]);
 int usys_pipe2(int pipefd[2], int flags);
+
+// Memory
+int usys_brk(void *addr);
+void *usys_mmap(void *addr, size_t length, int prot, int flags, int fd,
+                off_t offset);
+int usys_mprotect(void *addr, size_t len, int prot);
+int usys_munmap(void *addr, size_t length);
 
 // Net
 long usys_socket(int domain, int type, int protocol);
@@ -110,6 +112,7 @@ long usys_rt_sigaction(int sig, const struct sigaction *action,
                        struct sigaction *oact, size_t sigsetsize);
 long usys_rt_sigprocmask(int how, sigset_t *nset, sigset_t *oset,
                          size_t sigsetsize);
+long usys_sigaltstack(const stack_t *ss, stack_t *old_ss);
 
 // Eventfd
 long usys_eventfd2(unsigned int initval, int flags);

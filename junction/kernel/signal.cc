@@ -16,4 +16,8 @@ long usys_rt_sigprocmask(int how, sigset_t *nset, sigset_t *oset,
   return 0;
 }
 
+long usys_sigaltstack(const stack_t *ss, stack_t *old_ss) {
+  return 0;
+}
+
 }  // namespace junction
