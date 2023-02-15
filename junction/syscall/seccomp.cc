@@ -130,9 +130,6 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
 
   if (unlikely(!ctx)) return;
 
-  // Preserve the old errno
-  const int old_errno = errno;
-
   long sysn = static_cast<long>(ctx->uc_mcontext.gregs[REG_SYSCALL]);
   long arg0 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG0]);
   long arg1 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG1]);
@@ -164,9 +161,6 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
   mythread().set_tf(nullptr);
 
   ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
-
-  // Restore the errno
-  errno = old_errno;
 }
 
 Status<void> _install_signal_handler() {
