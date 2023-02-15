@@ -31,10 +31,11 @@ constexpr unsigned int kPollRDHUp = EPOLLRDHUP;  // reader closed
 constexpr unsigned int kPollHUp = EPOLLHUP;      // writer closed
 constexpr unsigned int kPollPrio = EPOLLPRI;     // priority event (TCP URG)
 
+class PollSource;
+
 namespace detail {
 class EPollFile;
-}
-class PollSource;
+}  // namespace detail
 
 // PollObserver provides a notification for each event from a PollSource.
 class PollObserver {
@@ -78,8 +79,12 @@ class alignas(kCacheLineSize) PollSource {
   friend detail::EPollFile;
 
   PollSource() noexcept = default;
-  ~PollSource() { assert(observers_.empty()); }
+  ~PollSource() {
+    assert(observers_.empty());
+    assert(epoll_observers_.empty());
+  }
 
+  // Gets the current mask of set events
   unsigned int get_events() { return rt::read_once(event_mask_); }
 
   // Sets a mask of events and notifies (must be synchronized by caller).

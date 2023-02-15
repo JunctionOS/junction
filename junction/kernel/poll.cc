@@ -328,7 +328,10 @@ class EPollFile : public File {
   IntrusiveList<EPollObserver, &EPollObserver::node_> events_;
 };
 
-EPollFile::~EPollFile() {}
+EPollFile::~EPollFile() {
+  FileTable &ftbl = myproc().get_file_table();
+  ftbl.ForEach([this](File &f) { Delete(f); });
+}
 
 void EPollFile::Notify(PollSource &s) {
   bool exclusive = false;

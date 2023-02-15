@@ -177,6 +177,11 @@ class FileTable {
   // if successful.
   bool Remove(int fd);
 
+  // Runs a function on each file descriptor in the table. Preemption is
+  // disabled during each call to the function.
+  template <typename F>
+  void ForEach(F func);
+
  private:
   using FArr = detail::file_array;
 
@@ -194,6 +199,20 @@ inline File *FileTable::Get(int fd) {
   const FArr *tbl = rcup_.get();
   if (unlikely(static_cast<size_t>(fd) >= tbl->len)) return nullptr;
   return tbl->files[fd].get();
+}
+
+template <typename F>
+void FileTable::ForEach(F func) {
+  rt::RCURead l;
+  int fd = 0;
+  while (true) {
+    rt::RCUReadGuard g(l);
+    const FArr *tbl = rcup_.get();
+    if (unlikely(static_cast<size_t>(fd) >= tbl->len)) break;
+    File *f = tbl->files[fd++].get();
+    if (!f) continue;
+    func(*f);
+  }
 }
 
 }  // namespace junction
