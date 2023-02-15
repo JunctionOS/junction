@@ -12,11 +12,12 @@ namespace junction {
 
 namespace {
 
-constexpr unsigned int kEventFdCloseOnExec = EFD_CLOEXEC;
-constexpr unsigned int kEventFdNonBlock = EFD_NONBLOCK;
+static_assert(EFD_CLOEXEC == kFlagCloseExec);
+static_assert(EFD_NONBLOCK == kFlagNonblock);
+
 constexpr unsigned int kEventFdSemaphore = EFD_SEMAPHORE;
 constexpr unsigned int kEventFdSupportedFlags =
-    (kEventFdNonBlock | kEventFdSemaphore);
+    (kFlagNonblock | kEventFdSemaphore);
 
 constexpr size_t kEventFdValSize = 8;
 
@@ -36,7 +37,7 @@ class EventFdFile : public File {
                        [[maybe_unused]] off_t *off) override;
 
  private:
-  inline bool is_nonblocking() const { return get_flags() & kEventFdNonBlock; }
+  inline bool is_nonblocking() const { return get_flags() & kFlagNonblock; }
 
   inline bool is_semaphore() const { return get_flags() & kEventFdSemaphore; }
 

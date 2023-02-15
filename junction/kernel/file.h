@@ -106,7 +106,10 @@ class File {
   [[nodiscard]] unsigned int get_flags() const { return flags_; }
   [[nodiscard]] unsigned int get_mode() const { return mode_; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
-  void set_flags(unsigned int flags) { flags_ = flags; }
+  void set_flags(unsigned int flags) {
+    NotifyFlagsChanging(flags_, flags);
+    flags_ = flags;
+  }
   [[nodiscard]] PollSource &get_poll_source() {
     if (unlikely(!IsPollSourceSetup())) {
       poll_source_setup_ = true;
@@ -117,6 +120,10 @@ class File {
 
  protected:
   [[nodiscard]] bool IsPollSourceSetup() { return poll_source_setup_; }
+
+  // File implementations can override this method to subscribe to flag changes
+  virtual void NotifyFlagsChanging(unsigned int oldflags,
+                                   unsigned int newflags) {}
 
   PollSource poll_;
 

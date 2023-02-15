@@ -107,6 +107,10 @@ class UDPConn {
     udp_poll_install_cb(c_, set, clear, data);
   }
 
+  void SetNonBlocking(bool nonblocking) {
+    udp_set_nonblocking(c_, nonblocking);
+  }
+
  private:
   explicit UDPConn(udpconn_t *c) noexcept : c_(c) {}
 
@@ -139,6 +143,14 @@ class TCPConn : public VectorIO {
   static Status<TCPConn> Dial(netaddr laddr, netaddr raddr) {
     tcpconn_t *c;
     int ret = tcp_dial(laddr, raddr, &c);
+    if (ret) return MakeError(-ret);
+    return TCPConn(c);
+  }
+
+  // Creates a TCP connection between a local and remote address.
+  static Status<TCPConn> DialNonBlocking(netaddr laddr, netaddr raddr) {
+    tcpconn_t *c;
+    int ret = tcp_dial_nonblocking(laddr, raddr, &c);
     if (ret) return MakeError(-ret);
     return TCPConn(c);
   }
@@ -207,6 +219,10 @@ class TCPConn : public VectorIO {
     tcp_poll_install_cb(c_, set, clear, data);
   }
 
+  void SetNonBlocking(bool nonblocking) {
+    tcp_set_nonblocking(c_, nonblocking);
+  }
+
  private:
   explicit TCPConn(tcpconn_t *c) noexcept : c_(c) {}
 
@@ -258,6 +274,10 @@ class TCPQueue {
   void InstallPollSource(poll_notif_fn_t set, poll_notif_fn_t clear,
                          unsigned long data) {
     tcpq_poll_install_cb(q_, set, clear, data);
+  }
+
+  void SetNonBlocking(bool nonblocking) {
+    tcpq_set_nonblocking(q_, nonblocking);
   }
 
  private:

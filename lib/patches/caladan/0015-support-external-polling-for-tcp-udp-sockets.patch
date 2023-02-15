@@ -1,7 +1,7 @@
-From 6ab390a777f4a4f77f6de88214666f6087f6b08c Mon Sep 17 00:00:00 2001
+From 123294ed45a322bdc55bd0dcd556f50836ff3a32 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 7 Feb 2023 20:02:54 -0500
-Subject: [PATCH 15/15] support external polling for tcp/udp sockets
+Subject: [PATCH 15/17] support external polling for tcp/udp sockets
 
 ---
  inc/runtime/poll.h   | 23 ++++++++++++
@@ -10,8 +10,8 @@ Subject: [PATCH 15/15] support external polling for tcp/udp sockets
  runtime/net/tcp.c    | 83 ++++++++++++++++++++++++++++++++++++++++++++
  runtime/net/tcp.h    |  2 ++
  runtime/net/tcp_in.c | 11 ++++--
- runtime/net/udp.c    | 73 ++++++++++++++++++++++++++++++++++----
- 7 files changed, 195 insertions(+), 8 deletions(-)
+ runtime/net/udp.c    | 70 +++++++++++++++++++++++++++++++++----
+ 7 files changed, 192 insertions(+), 8 deletions(-)
 
 diff --git a/inc/runtime/poll.h b/inc/runtime/poll.h
 index 8658690..86046ef 100644
@@ -340,7 +340,7 @@ index f76a7a1..cacf73d 100644
  		if (++c->acks_delayed_cnt >= 2) {
  			do_ack = true;
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index 8074d28..9eaaf64 100644
+index 994de6e..c9868fc 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -3,6 +3,7 @@
@@ -382,27 +382,17 @@ index 8074d28..9eaaf64 100644
  	spin_unlock_np(&c->inq_lock);
  
  	if (do_release)
-@@ -200,6 +209,9 @@ int udp_dial(struct netaddr laddr, struct netaddr raddr, udpconn_t **c_out)
- 		return ret;
- 	}
+@@ -140,6 +149,9 @@ static void udp_init_conn(udpconn_t *c)
+ 	waitq_init(&c->outq_wq);
  
+ 	kref_init(&c->ref);
++
 +	c->poll_src.set_fn = NULL;
 +	c->poll_src.clear_fn = NULL;
-+
- 	*c_out = c;
- 	return 0;
  }
-@@ -244,6 +256,9 @@ int udp_listen(struct netaddr laddr, udpconn_t **c_out)
- 	c->flow.release = udp_release_conn_ref;
- 	register_flow(&c->flow);
  
-+	c->poll_src.set_fn = NULL;
-+	c->poll_src.clear_fn = NULL;
-+
- 	*c_out = c;
- 	return 0;
- }
-@@ -282,6 +297,15 @@ int udp_set_buffers(udpconn_t *c, int read_mbufs, int write_mbufs)
+ static void udp_finish_release_conn(struct rcu_head *h)
+@@ -282,6 +294,15 @@ int udp_set_buffers(udpconn_t *c, int read_mbufs, int write_mbufs)
  	c->inq_cap = read_mbufs;
  	c->outq_cap = write_mbufs;
  
@@ -418,7 +408,7 @@ index 8074d28..9eaaf64 100644
  	/* TODO: free mbufs that go over new limits? */
  	return 0;
  }
-@@ -325,7 +349,8 @@ ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
+@@ -325,7 +346,8 @@ ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
  
  	/* pop an mbuf and deliver the payload */
  	m = mbufq_pop_head(&c->inq);
@@ -428,7 +418,7 @@ index 8074d28..9eaaf64 100644
  	spin_unlock_np(&c->inq_lock);
  
  	ret = MIN(len, mbuf_length(m));
-@@ -351,7 +376,11 @@ static void udp_tx_release_mbuf(struct mbuf *m)
+@@ -351,7 +373,11 @@ static void udp_tx_release_mbuf(struct mbuf *m)
  	bool free_conn;
  
  	spin_lock_np(&c->outq_lock);
@@ -441,7 +431,7 @@ index 8074d28..9eaaf64 100644
  	free_conn = (c->outq_free && c->outq_len == 0);
  	if (!c->shutdown)
  		th = waitq_signal(&c->outq_wq, &c->outq_lock);
-@@ -409,7 +438,11 @@ ssize_t udp_write_to(udpconn_t *c, const void *buf, size_t len,
+@@ -409,7 +435,11 @@ ssize_t udp_write_to(udpconn_t *c, const void *buf, size_t len,
  		return -EPIPE;
  	}
  
@@ -454,7 +444,7 @@ index 8074d28..9eaaf64 100644
  	spin_unlock_np(&c->outq_lock);
  
  	m = net_tx_alloc_mbuf();
-@@ -469,12 +502,13 @@ ssize_t udp_write(udpconn_t *c, const void *buf, size_t len)
+@@ -469,12 +499,13 @@ ssize_t udp_write(udpconn_t *c, const void *buf, size_t len)
  
  static void __udp_shutdown(udpconn_t *c)
  {
@@ -470,7 +460,7 @@ index 8074d28..9eaaf64 100644
  
  	/* prevent ingress receive and error dispatch (after RCU period) */
  	trans_table_remove(&c->e);
-@@ -522,6 +556,9 @@ void udp_close(udpconn_t *c)
+@@ -522,6 +553,9 @@ void udp_close(udpconn_t *c)
  		mbuf_free(m);
  	}
  
@@ -480,7 +470,7 @@ index 8074d28..9eaaf64 100644
  	spin_lock_np(&c->outq_lock);
  	free_conn = c->outq_len == 0;
  	c->outq_free = true;
-@@ -534,6 +571,30 @@ void udp_close(udpconn_t *c)
+@@ -534,6 +568,30 @@ void udp_close(udpconn_t *c)
  		udp_conn_put(c);
  }
  
@@ -512,5 +502,5 @@ index 8074d28..9eaaf64 100644
  /*
   * Parallel API
 -- 
-2.34.1
+2.37.2
 

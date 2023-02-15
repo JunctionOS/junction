@@ -32,52 +32,11 @@ double GetElapsed(struct timeval *begin, struct timeval *end) {
          (begin->tv_sec + begin->tv_usec * 1.0 / 1000000);
 }
 
-int Send(const int fd, const unsigned char *buf, const int size,
-         const struct sockaddr *dest_addr, const socklen_t addrlen) {
-  ssize_t n = 0;
-  constexpr int flags = 0;
-  while (n < size) {
-    const auto len = size - n;
-    ssize_t ret = sendto(fd, buf + n, len, flags, dest_addr, addrlen);
-    if (ret != len) {
-      if (ret == -EPIPE) break;
-      perror("sendto");
-      return -1;
-    } else {
-      n += ret;
-    }
-  }
-  return n;
-}
-
-int Receive(const int fd, unsigned char *buf, const int size) {
-  ssize_t n = 0;
-  constexpr int flags = 0;
-  while (n < size) {
-    const auto len = size - n;
-    ssize_t ret = recv(fd, (void *)(buf + n), len, flags);
-    if (ret != len) {
-      if (ret == 0) break;
-      perror("recv");
-      return -1;
-    } else {
-      n += ret;
-    }
-  }
-  return n;
-}
-
 int Server() {
   int fd, yes;
-  int i, sum, n;
-  unsigned char *buf;
+  int i;
+  unsigned char buf[SIZE];
   struct sockaddr_in in;
-
-  buf = (unsigned char *)malloc(SIZE);
-  if (buf == NULL) {
-    fprintf(stderr, "Cannot allocate buffer\n");
-    return 1;
-  }
 
   fd = socket(AF_INET, SOCK_DGRAM, 0);
   if (fd == -1) {
@@ -111,21 +70,23 @@ int Server() {
     return 1;
   }
 
-  sum = 0;
-  auto received = 0;
+  sockaddr_in recv;
+  unsigned int socklen = sizeof(recv);
   for (i = 0; i < COUNT; i++) {
-    n = Receive(fd, buf, SIZE);
-    sum += n;
-    if (n == SIZE) received++;
+    ssize_t ret = recvfrom(fd, buf, SIZE, 0, (sockaddr *)&recv, &socklen);
+    if (ret != SIZE) {
+      perror("recvfrom");
+      EXPECT_EQ(ret, SIZE);
+    }
+
+    ssize_t wret = sendto(fd, buf, SIZE, 0, (sockaddr *)&recv, sizeof(recv));
+    if (wret != SIZE) {
+      perror("sendto");
+      EXPECT_EQ(wret, SIZE);
+    }
   }
 
-  printf("Received %d messages\n", received);
-
-  if (sum != COUNT * SIZE) {
-    fprintf(stderr, "sum error: %d != %d\n", sum, COUNT * SIZE);
-    close(fd);
-    return 1;
-  }
+  printf("Ping ponged %d messages\n", COUNT);
 
   close(fd);
 
@@ -134,15 +95,9 @@ int Server() {
 
 int Client() {
   int fd, i;
-  unsigned char *buf;
+  unsigned char buf[SIZE];
   struct timeval begin, end;
   struct sockaddr_in in;
-
-  buf = (unsigned char *)malloc(SIZE);
-  if (buf == NULL) {
-    fprintf(stderr, "Cannot allocate buffer\n");
-    return 1;
-  }
 
   memset(&in, 0, sizeof(in));
   sleep(1);
@@ -171,20 +126,25 @@ int Client() {
 
   gettimeofday(&begin, NULL);
 
-  auto sent = 0;
   for (i = 0; i < COUNT; i++) {
-    auto n = Send(fd, buf, SIZE, (struct sockaddr *)&in, sizeof(in));
-    // Count only messages that were fully sent
-    if (n == SIZE) sent++;
+    ssize_t wret = sendto(fd, buf, SIZE, 0, (sockaddr *)&in, sizeof(in));
+    if (wret != SIZE) {
+      perror("wret");
+      EXPECT_EQ(wret, SIZE);
+    }
+
+    ssize_t rret = recv(fd, buf, SIZE, 0);
+    if (rret != SIZE) {
+      perror("rret");
+      EXPECT_EQ(rret, SIZE);
+    }
   }
 
   gettimeofday(&end, NULL);
 
-  printf("Sent %d messages\n", sent);
-
   double tm = GetElapsed(&begin, &end);
-  printf("%.0fMB/s %.0fmsg/s\n", sent * SIZE * 1.0 / (tm * 1024 * 1024),
-         sent * 1.0 / tm);
+  printf("%.0fMB/s %.0fmsg/s\n", COUNT * SIZE * 1.0 / (tm * 1024 * 1024),
+         COUNT * 1.0 / tm);
 
   close(fd);
 

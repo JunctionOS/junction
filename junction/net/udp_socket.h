@@ -14,17 +14,17 @@ namespace junction {
 class UDPSocket : public Socket {
  public:
   UDPSocket() noexcept : Socket() {}
-  UDPSocket(rt::UDPConn conn) noexcept : Socket(), conn_(std::move(conn)) {}
   ~UDPSocket() override = default;
 
-  Status<std::shared_ptr<Socket>> Bind(netaddr addr) override {
+  Status<void> Bind(netaddr addr) override {
     if (unlikely(conn_.is_valid())) return MakeError(EINVAL);
     Status<rt::UDPConn> ret = rt::UDPConn::Listen(addr);
     if (unlikely(!ret)) return MakeError(ret);
-    return std::make_shared<UDPSocket>(std::move(*ret));
+    conn_ = std::move(*ret);
+    return {};
   }
 
-  Status<std::shared_ptr<Socket>> Connect(netaddr addr) override {
+  Status<void> Connect(netaddr addr) override {
     netaddr laddr;
     if (conn_.is_valid()) {
       netaddr remote = conn_.RemoteAddr();
@@ -36,10 +36,13 @@ class UDPSocket : public Socket {
     Status<rt::UDPConn> ret = rt::UDPConn::Dial(laddr, addr);
     if (unlikely(!ret)) return MakeError(ret);
 
-    if (IsPollSourceSetup() && conn_.is_valid())
+    if (conn_.is_valid() && IsPollSourceSetup())
       conn_.InstallPollSource(nullptr, nullptr, 0);
 
-    return std::make_shared<UDPSocket>(std::move(*ret));
+    conn_ = std::move(*ret);
+    if (get_flags() & kFlagNonblock) conn_.SetNonBlocking(true);
+    if (IsPollSourceSetup()) SetupPollSource();
+    return {};
   }
 
   Status<size_t> Read(std::span<std::byte> buf,
@@ -65,6 +68,7 @@ class UDPSocket : public Socket {
       Status<rt::UDPConn> ret = rt::UDPConn::Listen({0, 0});
       if (unlikely(!ret)) return MakeError(ret);
       conn_ = std::move(*ret);
+      if (get_flags() & kFlagNonblock) conn_.SetNonBlocking(true);
       if (IsPollSourceSetup()) SetupPollSource();
     }
     return conn_.WriteTo(buf, raddr);
@@ -88,10 +92,17 @@ class UDPSocket : public Socket {
   }
 
  private:
-  virtual void SetupPollSource() override {
+  void SetupPollSource() override {
     if (!conn_.is_valid()) return;
     conn_.InstallPollSource(PollSourceSet, PollSourceClear,
                             reinterpret_cast<unsigned long>(&poll_));
+  }
+
+  void NotifyFlagsChanging(unsigned int oldflags,
+                           unsigned int newflags) override {
+    if (!conn_.is_valid()) return;
+    if ((oldflags & kFlagNonblock) == (newflags & kFlagNonblock)) return;
+    conn_.SetNonBlocking((newflags & kFlagNonblock) > 0);
   }
 
   // This may or may not be valid. If UDPSocket is created without a rt::UDPConn

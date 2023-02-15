@@ -9,7 +9,7 @@
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/net/socket.h"
-#include "junction/net/tcp_unestablished_socket.h"
+#include "junction/net/tcp_socket.h"
 #include "junction/net/udp_socket.h"
 
 namespace junction {
@@ -62,7 +62,7 @@ Status<std::shared_ptr<Socket>> CreateSocket(int domain, int type) {
   if (unlikely(domain != AF_INET)) return MakeError(EINVAL);
   type &= ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
   if (type == SOCK_STREAM)
-    return std::make_shared<TCPUnestablishedSocket>();
+    return std::make_shared<TCPSocket>();
   else if (type == SOCK_DGRAM)
     return std::make_shared<UDPSocket>();
   else
@@ -73,7 +73,7 @@ long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
-  Status<std::shared_ptr<Socket>> ret = s.Accept();
+  Status<std::shared_ptr<Socket>> ret = s.Accept(flags);
   if (unlikely(!ret)) return MakeCError(ret);
   if (addr) {
     Status<netaddr> na = (*ret)->RemoteAddr();
@@ -81,7 +81,6 @@ long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
     auto conv_ret = NetAddrToSockAddr(*na, addr, addrlen);
     if (unlikely(!conv_ret)) return MakeCError(conv_ret);
   }
-  if (flags & kSockNonblock) LOG_ONCE(WARN) << "Ignoring nonblocking flag";
   return myproc().get_file_table().Insert(std::move(*ret));
 }
 
@@ -100,9 +99,8 @@ long usys_bind(int sockfd, const struct sockaddr *addr_in, socklen_t addrlen) {
   Socket &s = sock_ret.value().get();
   Status<netaddr> addr = SockAddrToNetAddr(addr_in, addrlen);
   if (unlikely(!addr)) return MakeCError(addr);
-  Status<std::shared_ptr<Socket>> ret = s.Bind(*addr);
+  Status<void> ret = s.Bind(*addr);
   if (unlikely(!ret)) return MakeCError(ret);
-  myproc().get_file_table().InsertAt(sockfd, std::move(*ret));
   return 0;
 }
 
@@ -113,9 +111,8 @@ long usys_connect(int sockfd, const struct sockaddr *addr_in,
   Socket &s = sock_ret.value().get();
   Status<netaddr> addr = SockAddrToNetAddr(addr_in, addrlen);
   if (unlikely(!addr)) return MakeCError(addr);
-  Status<std::shared_ptr<Socket>> ret = s.Connect(*addr);
+  Status<void> ret = s.Connect(*addr);
   if (unlikely(!ret)) return MakeCError(ret);
-  myproc().get_file_table().InsertAt(sockfd, std::move(*ret));
   return 0;
 }
 
@@ -155,14 +152,16 @@ ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
-  Status<netaddr> addr;
+  netaddr addr;
   if (dest_addr) {
-    Status<netaddr> addr = SockAddrToNetAddr(dest_addr, addrlen);
-    if (unlikely(!addr)) return MakeCError(addr);
+    Status<netaddr> naddr = SockAddrToNetAddr(dest_addr, addrlen);
+    if (unlikely(!naddr)) return MakeCError(naddr);
+    addr = *naddr;
   }
+
   Status<size_t> ret =
       s.WriteTo(writable_span(static_cast<const char *>(buf), len),
-                dest_addr ? &(*addr) : nullptr);
+                dest_addr ? &addr : nullptr);
   if (unlikely(!ret)) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }
@@ -173,8 +172,8 @@ long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
 
 long usys_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
                   int flags) {
-  if ((flags & ~(kSockNonblock | kSockCloseOnExec)) != 0) return -EINVAL;
-  return DoAccept(sockfd, addr, addrlen, flags & kSockNonblock);
+  if ((flags & ~(kFlagNonblock | kFlagCloseExec)) != 0) return -EINVAL;
+  return DoAccept(sockfd, addr, addrlen, flags & kFlagNonblock);
 }
 
 long usys_shutdown(int sockfd, int how) {
