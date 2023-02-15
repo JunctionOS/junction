@@ -11,7 +11,7 @@ long usys_rt_sigaction(int sig, const struct sigaction *action,
   return 0;
 }
 
-long usys_rt_sigprocmask(int how, sigset_t *nset, sigset *oset,
+long usys_rt_sigprocmask(int how, sigset_t *nset, sigset_t *oset,
                          size_t sigsetsize) {
   return 0;
 }
