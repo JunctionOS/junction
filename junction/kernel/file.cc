@@ -79,12 +79,12 @@ std::shared_ptr<File> FileTable::Dup(int fd) {
   return tbl->files[fd];
 }
 
-int FileTable::Insert(std::shared_ptr<File> f) {
+int FileTable::Insert(std::shared_ptr<File> f, size_t lowest) {
   rt::SpinGuard g(lock_);
 
   // Find the first empty slot to insert the file.
   size_t i;
-  for (i = 0; i < farr_->len; ++i) {
+  for (i = lowest; i < farr_->len; ++i) {
     if (!farr_->files[i]) {
       farr_->files[i] = std::move(f);
       return static_cast<int>(i);
@@ -305,6 +305,41 @@ long usys_getdents64(unsigned int fd, void *dirp, unsigned int count) {
   Status<int> ret = f->GetDents64(dirp, count);
   if (!ret) return MakeCError(ret);
   return static_cast<long>(*ret);
+}
+
+long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+
+  switch (cmd) {
+    case F_DUPFD_CLOEXEC:
+      LOG_ONCE(WARN) << "fcntl ignoring cloexec";
+      /* fallthrough */
+    case F_DUPFD: {
+      std::shared_ptr<File> fdup;
+      fdup = ftbl.Dup(fd);
+      if (!fdup) return -EBADF;
+      return ftbl.Insert(std::move(fdup), arg);
+    }
+    case F_GETFD:
+      /* fallthrough */
+    case F_SETFD:
+      LOG_ONCE(WARN) << "fcntl: F_GET/SETFD not implemented";
+      return -EINVAL;
+    case F_GETFL:
+      return f->get_mode() | f->get_flags();
+    case F_SETFL:
+      arg &= ~(O_RDONLY | O_WRONLY | O_RDWR | O_CREAT | O_EXCL | O_NOCTTY |
+               O_TRUNC);
+      if (arg & ~kFlagNonblock)
+        LOG_ONCE(WARN) << "fcntl: F_SETFL ignoring some flags " << arg;
+      f->set_flags((f->get_flags() & ~kFlagNonblock) | (arg & kFlagNonblock));
+      return 0;
+    default:
+      LOG_ONCE(WARN) << "Unsupported fcntl cmd " << cmd;
+      return -EINVAL;
+  }
 }
 
 }  // namespace junction

@@ -40,6 +40,7 @@ long usys_getdents(unsigned int fd, void *dirp, unsigned int count);
 long usys_getdents64(unsigned int fd, void *dirp, unsigned int count);
 int usys_pipe(int pipefd[2]);
 int usys_pipe2(int pipefd[2], int flags);
+long usys_fcntl(int fd, unsigned int cmd, unsigned long arg);
 
 // Memory
 int usys_brk(void *addr);

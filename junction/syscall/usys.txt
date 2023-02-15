@@ -66,3 +66,4 @@ sched_getaffinity
 eventfd
 eventfd2
 getcwd
+fcntl
