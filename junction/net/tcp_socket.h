@@ -25,12 +25,7 @@ class TCPSocket : public Socket {
         state_(SocketState::kSockConnected),
         conn_(std::move(conn)) {}
 
-  ~TCPSocket() override {
-    if (state_ == SocketState::kSockConnected)
-      conn_.~TCPConn();
-    else if (state_ == SocketState::kSockListening)
-      listen_q_.~TCPQueue();
-  }
+  ~TCPSocket() override = default;
 
   Status<void> Bind(netaddr addr) override {
     // TODO(jsf): this should in theory reserve a port in the socket table
@@ -164,10 +159,8 @@ class TCPSocket : public Socket {
   SocketState state_;
   netaddr addr_;
   std::atomic_bool is_shut_{false};
-  union {
-    rt::TCPConn conn_;
-    rt::TCPQueue listen_q_;
-  };
+  rt::TCPConn conn_;
+  rt::TCPQueue listen_q_;
 };
 
 }  // namespace junction
