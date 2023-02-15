@@ -58,6 +58,8 @@ getsockname
 rt_sigaction
 rt_sigprocmask
 sched_getaffinity
+eventfd
+eventfd2
 
 # syscalls for which we return enosys
 rseq:::enosys

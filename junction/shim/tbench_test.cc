@@ -11,6 +11,7 @@ extern "C" {
 #include <poll.h>
 #include <semaphore.h>
 #include <sys/epoll.h>
+#include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <unistd.h>
 }
@@ -98,6 +99,42 @@ void BenchSemPingPong(int measure_rounds) {
   th.join();
   sem_destroy(&sem1);
   sem_destroy(&sem2);
+}
+
+void BenchEventFdPingPong(int measure_rounds) {
+  int efd1 = eventfd(0, 0);
+  EXPECT_GE(efd1, 0);
+
+  int efd2 = eventfd(0, 0);
+  EXPECT_GE(efd2, 0);
+
+  auto th = std::thread([&]() {
+    uint64_t val = UINT64_MAX;
+    for (int i = 0; i < measure_rounds / 2; ++i) {
+      ssize_t rret = read(efd1, &val, sizeof(val));
+      EXPECT_EQ(rret, 8);
+      EXPECT_EQ(val, i + 1);
+
+      ssize_t wret = write(efd2, &val, sizeof(val));
+      EXPECT_EQ(wret, 8);
+    }
+  });
+
+  uint64_t val;
+  for (int i = 0; i < measure_rounds / 2; ++i) {
+    val = i + 1;
+    ssize_t wret = write(efd1, &val, sizeof(val));
+    EXPECT_EQ(wret, 8);
+
+    val = UINT64_MAX;
+    ssize_t rret = read(efd2, &val, sizeof(val));
+    EXPECT_EQ(rret, 8);
+    EXPECT_EQ(val, i + 1);
+  }
+
+  th.join();
+  close(efd1);
+  close(efd2);
 }
 
 void BenchCondvarPingPong(int measure_rounds) {
@@ -416,3 +453,7 @@ TEST_F(ThreadingTest, Select) { Bench("Select", BenchSelect); }
 TEST_F(ThreadingTest, EPoll) { Bench("EPoll", BenchEPoll); }
 
 TEST_F(ThreadingTest, Mmap) { Bench("Mmap", BenchMMAP); }
+
+TEST_F(ThreadingTest, EventFd) {
+  Bench("EventFdPingPong", BenchEventFdPingPong);
+}
