@@ -109,5 +109,9 @@ long usys_rt_sigaction(int sig, const struct sigaction *action,
 long usys_rt_sigprocmask(int how, sigset_t *nset, sigset_t *oset,
                          size_t sigsetsize);
 
+// Eventfd
+long usys_eventfd2(unsigned int initval, int flags);
+long usys_eventfd(unsigned int initval);
+
 }  // extern "C"
 }  // namespace junction

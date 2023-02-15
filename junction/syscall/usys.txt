@@ -57,6 +57,8 @@ getpeername
 getsockname
 rt_sigaction
 rt_sigprocmask
+eventfd
+eventfd2
 
 # syscalls for which we return enosys
 rseq:::enosys
