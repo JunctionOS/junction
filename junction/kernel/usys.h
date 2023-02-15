@@ -7,6 +7,7 @@ extern "C" {
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
+#include <sched.h>
 struct clone_args;
 }
 
@@ -102,6 +103,7 @@ long usys_clock_gettime(clockid_t clk_id, struct timespec *tp);
 
 // Misc
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);
+int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask);
 
 // Signals
 long usys_rt_sigaction(int sig, const struct sigaction *action,

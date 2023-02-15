@@ -13,6 +13,7 @@ set(SOURCES_C_CPP
   sched.cc
   signal.cc
   time.cc
+  misc.cc
 )
 
 set(SOURCES_ASM

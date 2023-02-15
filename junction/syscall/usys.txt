@@ -57,6 +57,7 @@ getpeername
 getsockname
 rt_sigaction
 rt_sigprocmask
+sched_getaffinity
 
 # syscalls for which we return enosys
 rseq:::enosys

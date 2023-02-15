@@ -512,7 +512,7 @@ int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event) {
   auto *epf = most_derived_cast<detail::EPollFile>(f);
   if (unlikely(!epf)) return -EINVAL;
 
-  // parse the remaining arguments
+  // get the monitored file
   f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
 
