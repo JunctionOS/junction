@@ -4,6 +4,7 @@
 
 #include <climits>
 #include <functional>
+#include <optional>
 
 #include "junction/base/arch.h"
 #include "junction/base/error.h"
@@ -43,15 +44,12 @@ class alignas(kCacheLineSize) FutexTable {
   FutexTable(const FutexTable &) = delete;
   FutexTable &operator=(const FutexTable &) = delete;
 
-  // Wait blocks on the address @key, returning true. However, it returns false
-  // if @val doesn't match the value in the address.
-  bool Wait(uint32_t *key, uint32_t val, uint32_t bitset = kFutexBitsetAny);
-
   // WaitOrTimeout blocks on the address @key. However, it returns ETIMEDOUT if
   // the timeout expires, or EAGAIN if @val doesn't match the value in the
   // address.
-  Status<void> WaitOrTimeout(uint32_t *key, uint32_t val, uint32_t bitset,
-                             uint64_t timeout_us);
+  Status<void> Wait(uint32_t *key, uint32_t val,
+                    uint32_t bitset = kFutexBitsetAny,
+                    std::optional<uint64_t> timeout_us = {});
 
   // Wake unblocks up to @n threads waiting on the address @key. Returns the
   // number of threads woken.

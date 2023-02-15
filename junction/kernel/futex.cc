@@ -18,26 +18,12 @@ FutexTable &FutexTable::GetFutexTable() {
   return f;
 }
 
-bool FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset) {
-  detail::futex_waiter waiter{thread_self(), key, bitset};
-  detail::futex_bucket &bucket = get_bucket(key);
-  bucket.lock.Lock();
-  if (rt::read_once(*key) != val) {
-    bucket.lock.Unlock();
-    return false;
-  }
-
-  bucket.futexes.push_back(waiter);
-  bucket.lock.UnlockAndPark();
-  return true;
-}
-
-Status<void> FutexTable::WaitOrTimeout(uint32_t *key, uint32_t val,
-                                       uint32_t bitset, uint64_t timeout_us) {
+Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
+                              std::optional<uint64_t> timeout_us) {
   detail::futex_waiter waiter{thread_self(), key, bitset};
   detail::futex_bucket &bucket = get_bucket(key);
 
-  // Setup a timeout (if needed).
+  // Setup a timer for the timeout (if needed).
   rt::Timer timer([&bucket, &waiter] {
     rt::SpinGuard g(bucket.lock);
     if (waiter.th) {
@@ -46,22 +32,21 @@ Status<void> FutexTable::WaitOrTimeout(uint32_t *key, uint32_t val,
       thread_ready(waiter.th);
     }
   });
-  timer.Start(timeout_us);
+  if (timeout_us) timer.Start(*timeout_us);
 
+  // Wait for a wakeup.
   bucket.lock.Lock();
   if (rt::read_once(*key) != val) {
     bucket.lock.Unlock();
     return MakeError(EAGAIN);
   }
-
   bucket.futexes.push_back(waiter);
   bucket.lock.UnlockAndPark();
 
-  if (!waiter.th) {
-    timer.Cancel();
-    return {};
-  }
-  return MakeError(ETIMEDOUT);
+  // Cancel the timer if pending and return.
+  if (waiter.th) return MakeError(ETIMEDOUT);
+  if (timeout_us) timer.Cancel();
+  return {};
 }
 
 int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
@@ -90,6 +75,9 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 uint32_t val3) {
   futex_op &= ~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME);
   FutexTable &t = FutexTable::GetFutexTable();
+  std::optional<uint64_t> timeout_us;
+  if (timeout) timeout_us = timespec_to_us(*timeout);
+  Status<void> ret;
 
   switch (futex_op) {
     case FUTEX_WAKE:
@@ -97,22 +85,12 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
     case FUTEX_WAKE_BITSET:
       return t.Wake(uaddr, val, val3);
     case FUTEX_WAIT:
-      if (timeout) {
-        Status<void> ret = t.WaitOrTimeout(uaddr, val, kFutexBitsetAny,
-                                           timespec_to_us(*timeout));
-        if (!ret) return MakeCError(ret);
-        break;
-      }
-      if (!t.Wait(uaddr, val, kFutexBitsetAny)) return -EAGAIN;
+      ret = t.Wait(uaddr, val, kFutexBitsetAny, timeout_us);
+      if (!ret) return MakeCError(ret);
       break;
     case FUTEX_WAIT_BITSET:
-      if (timeout) {
-        Status<void> ret =
-            t.WaitOrTimeout(uaddr, val, val3, timespec_to_us(*timeout));
-        if (!ret) return MakeCError(ret);
-        break;
-      }
-      if (!t.Wait(uaddr, val, val3)) return -EAGAIN;
+      ret = t.Wait(uaddr, val, val3, timeout_us);
+      if (!ret) return MakeCError(ret);
       break;
     default:
       return -ENOSYS;
