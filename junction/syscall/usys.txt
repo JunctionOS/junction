@@ -67,6 +67,5 @@ set_robust_list:::enosys
 get_robust_list:::enosys
 tgkill:::enosys
 sched_setaffinity:::enosys
-sched_getaffinity:::enosys
 prctl:::enosys
 clone:::enosys
