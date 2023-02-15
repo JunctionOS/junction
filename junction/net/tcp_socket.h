@@ -115,7 +115,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) *raddr = TcpConn().RemoteAddr();
-    return Read(buf);
+    return TcpConn().Read(buf);
   }
 
   virtual Status<size_t> WriteTo(std::span<const std::byte> buf,
@@ -123,7 +123,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
-    return Write(buf);
+    return TcpConn().Write(buf);
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov,
@@ -131,7 +131,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
-    return Writev(iov);
+    return TcpConn().Writev(iov);
   }
 
   Status<size_t> Writev(std::span<const iovec> iov,
