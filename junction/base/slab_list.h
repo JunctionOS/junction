@@ -14,9 +14,9 @@ class SlabList {
   struct iterator {
     using iterator_category = std::random_access_iterator_tag;
     using difference_type = ssize_t;
-    using value_type = char;
-    using pointer = char*;
-    using reference = char&;
+    using value_type = std::byte;
+    using pointer = std::byte*;
+    using reference = std::byte&;
 
     iterator() {}
     explicit iterator(SlabList *sl, size_t idx) : sl_(sl), idx_(idx) {}
@@ -77,9 +77,9 @@ class SlabList {
   struct const_iterator {
     using iterator_category = std::random_access_iterator_tag;
     using difference_type = ssize_t;
-    using value_type = const char;
-    using pointer = const char*;
-    using reference = const char&;
+    using value_type = const std::byte;
+    using pointer = const std::byte*;
+    using reference = const std::byte&;
 
     const_iterator() {}
     explicit const_iterator(SlabList *sl, size_t idx) : sl_(sl), idx_(idx) {}
@@ -101,7 +101,7 @@ class SlabList {
     }
 
     // Increment
-    const_iterator operator+(difference_type i) { return idx_ + i; }
+    const_iterator operator+(difference_type i) { return const_iterator(sl_, idx_ + i); }
     difference_type operator+(const const_iterator other) const {
       return idx_ + other;
     }
@@ -176,14 +176,14 @@ class SlabList {
     size_ = size;
   }
 
-  char& operator[](int idx) {
+  std::byte& operator[](int idx) {
     return *(get_ptr(idx));
   }
 
-  char* get_ptr(size_t idx) {
+  std::byte* get_ptr(size_t idx) {
     // Note: No bounds checks are performed.
     const size_t block = std::floor(idx / BlockSize);
-    return reinterpret_cast<char*>(block_ptrs_[block]) + (idx % BlockSize);
+    return reinterpret_cast<std::byte*>(block_ptrs_[block]) + (idx % BlockSize);
   }
 
   size_t size() const { return size_; }

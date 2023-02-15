@@ -25,43 +25,49 @@ TEST_F(SlabListTest, CreateSlabListTest) {
 TEST_F(SlabListTest, SetValuesMultipleBlocksTest) {
   // List of some values to choose from when assigning.
   const std::vector<char> vals({'a', 'b', 'c', 'd', 'e'});
-
   const size_t size = kBlockSize * 5;
+
   SlabList<kBlockSize, kMaxBlocks> sl(size);
 
   // Assign values.
   for (size_t i = 0; i < size; i++) {
-    sl[i] = vals[i % vals.size()];
+    sl[i] = static_cast<std::byte>(vals[i % vals.size()]);
   }
 
   // Read back assigned values.
   for (size_t i = 0; i < size; i++) {
-    EXPECT_EQ(sl[i], vals[i % vals.size()]);
+    EXPECT_EQ(static_cast<char>(sl[i]), vals[i % vals.size()]);
   }
 }
 
 TEST_F(SlabListTest, FillTest) {
   const size_t size = kBlockSize * 5;
-  const char val = 'x';
+  const std::byte val = static_cast<std::byte>('x');
+
   SlabList<kBlockSize, kMaxBlocks> sl(size);
 
   // Fill values.
   std::fill(sl.begin(), sl.end(), val);
 
   // Read back filled values.
-  for (const char& v : sl) {
+  for (const std::byte& v : sl) {
     EXPECT_EQ(v, val);
   }
 }
 
 TEST_F(SlabListTest, ShiftRightTest) {
   // List of some values to choose from when assigning.
-  const std::vector<char> vals({'a', 'b', 'c', 'd', 'e'});
+  std::vector<char> vals_char({'a', 'b', 'c', 'd', 'e'});
+  std::vector<std::byte> vals(vals_char.size());
+  for (size_t i = 0; i < vals_char.size(); i++) {
+    vals[i] = static_cast<std::byte>(vals_char[i]);
+  }
+
   const size_t size = kBlockSize * 5;
   SlabList<kBlockSize, kMaxBlocks> sl(size);
 
   // Use this to compare with a std::vector implementation.
-  std::vector<char> truth(size);
+  std::vector<std::byte> truth(size);
 
   const size_t shift_by = 4;
 
