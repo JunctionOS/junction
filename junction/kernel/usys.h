@@ -2,13 +2,13 @@
 
 extern "C" {
 #include <poll.h>
+#include <sched.h>
+#include <signal.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <time.h>
-#include <signal.h>
-#include <sched.h>
 struct clone_args;
 }
 

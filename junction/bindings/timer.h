@@ -55,7 +55,7 @@ class Timer : private timer_internal::timer_node {
   Timer &operator=(const Timer &t) { func_ = t.func_; }
 
   // Arms the timer to fire after a microsecond duration.
-  void Start(uint64_t us) { timer_start(&entry_, us); }
+  void Start(uint64_t us) { timer_start(&entry_, microtime() + us); }
 
   // Cancels the timer after it was armed. Returns true if the cancellation was
   // successful (i.e., the timer did not already fire).

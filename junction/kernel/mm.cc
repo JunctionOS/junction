@@ -7,8 +7,8 @@ extern "C" {
 }
 
 #include "junction/kernel/file.h"
-#include "junction/kernel/proc.h"
 #include "junction/kernel/ksys.h"
+#include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
@@ -40,8 +40,6 @@ int usys_mprotect(void *addr, size_t len, int prot) {
   return ksys_mprotect(addr, len, prot);
 }
 
-int usys_munmap(void *addr, size_t length) {
-  return ksys_munmap(addr, length);
-}
+int usys_munmap(void *addr, size_t length) { return ksys_munmap(addr, length); }
 
 }  // namespace junction
