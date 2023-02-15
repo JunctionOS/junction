@@ -58,7 +58,9 @@ Status<void> NetAddrToSockAddr(const netaddr &naddr, sockaddr *saddr,
 }
 
 Status<std::shared_ptr<Socket>> CreateSocket(int domain, int type) {
+  // TODO(amb): must support SOCKNONBLOCK
   if (unlikely(domain != AF_INET)) return MakeError(EINVAL);
+  type &= ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
   if (type == SOCK_STREAM)
     return std::make_shared<TCPUnestablishedSocket>();
   else if (type == SOCK_DGRAM)

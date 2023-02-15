@@ -46,6 +46,8 @@ constexpr unsigned int kFlagDirectory = O_DIRECTORY;
 constexpr unsigned int kFlagNonblock = O_NONBLOCK;
 // Write operations will flush to disk.
 constexpr unsigned int kFlagSync = O_SYNC;
+// Close this FD on exec().
+constexpr unsigned int kFlagCloseExec = O_CLOEXEC;
 
 //
 // File permission modes.

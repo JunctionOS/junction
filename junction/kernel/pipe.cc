@@ -196,7 +196,7 @@ int usys_pipe(int pipefd[2]) {
 
 int usys_pipe2(int pipefd[2], int flags) {
   // check for supported flags.
-  if ((flags & ~kFlagNonblock) != 0) return -EINVAL;
+  if ((flags & ~(kFlagNonblock | kFlagCloseExec)) != 0) return -EINVAL;
   auto [read_fd, write_fd] = CreatePipe(flags);
   pipefd[0] = read_fd;
   pipefd[1] = write_fd;
