@@ -540,7 +540,8 @@ int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event) {
 int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
                     int timeout) {
   std::optional<uint64_t> timeout_us{};
-  if (timeout >= 0) timeout_us = static_cast<uint64_t>(timeout);
+  if (timeout >= 0)
+    timeout_us = static_cast<uint64_t>(timeout * rt::kMilliseconds);
   return DoEPollWait(epfd, events, maxevents, timeout_us);
 }
 
@@ -548,7 +549,8 @@ int usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
                      int timeout, const sigset_t *sigmask) {
   // TODO(amb): support signal masking
   std::optional<uint64_t> timeout_us{};
-  if (timeout >= 0) timeout_us = static_cast<uint64_t>(timeout);
+  if (timeout >= 0)
+    timeout_us = static_cast<uint64_t>(timeout * rt::kMilliseconds);
   return DoEPollWait(epfd, events, maxevents, timeout_us);
 }
 
