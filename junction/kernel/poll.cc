@@ -395,27 +395,32 @@ bool EPollFile::Delete(File &f) {
 
 int EPollFile::Wait(std::span<epoll_event> events_out,
                     std::optional<uint64_t> timeout_us) {
-  // Setup a trigger for the timeout (if needed).
+  // Setup a timer for timeouts.
+  bool timer_armed = false;
   bool timed_out = false;
-  rt::Timer timeout_trigger([this, &timed_out] {
+  rt::Timer timer([this, &timed_out] {
     timed_out = true;
     rt::SpinGuard g(lock_);
     waker_.Wake();
   });
-  bool should_use_timer = timeout_us && *timeout_us > 0;
-  if (should_use_timer) timeout_trigger.Start(*timeout_us);
 
   // Block until an event has triggered.
   auto it = events_out.begin();
   {
     rt::SpinGuard g(lock_);
 
-    // Wait for events to be ready.
-    if (!timeout_us || *timeout_us > 0) {
-      g.Park(waker_, [this, timeout_us, &timed_out] {
-        return !events_.empty() || timed_out;
-      });
+    // Arm the timer if needed.
+    if (events_.empty() && timeout_us) {
+      lock_.Unlock();
+      if (*timeout_us == 0) return 0;
+      timer.Start(*timeout_us);
+      timer_armed = true;
+      lock_.Lock();
     }
+
+    // Wait for events to be ready.
+    g.Park(waker_,
+           [this, &timed_out] { return !events_.empty() || timed_out; });
 
     // Generate an array of events to report to the caller.
     IntrusiveList<EPollObserver, &EPollObserver::node_> tmp;
@@ -436,7 +441,7 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     events_.splice(events_.end(), tmp);
   }
 
-  if (should_use_timer) timeout_trigger.Cancel();
+  if (timer_armed) timer.Cancel();
   return std::distance(events_out.begin(), it);
 }
 
