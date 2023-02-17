@@ -70,13 +70,26 @@ int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
   return i;
 }
 
+bool FutexCmdHasTimeout(uint32_t cmd) {
+  switch (cmd) {
+    case FUTEX_WAIT:
+    case FUTEX_LOCK_PI:
+    case FUTEX_LOCK_PI2:
+    case FUTEX_WAIT_BITSET:
+    case FUTEX_WAIT_REQUEUE_PI:
+      return true;
+  }
+  return false;
+}
+
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 const struct timespec *timeout, uint32_t *uaddr2,
                 uint32_t val3) {
   futex_op &= ~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME);
   FutexTable &t = FutexTable::GetFutexTable();
   std::optional<uint64_t> timeout_us;
-  if (timeout) timeout_us = timespec_to_us(*timeout);
+  if (timeout && FutexCmdHasTimeout(futex_op))
+    timeout_us = timespec_to_us(*timeout);
   Status<void> ret;
 
   switch (futex_op) {

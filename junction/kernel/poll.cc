@@ -447,8 +447,10 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
 
 void EPollObserver::Notify(uint32_t events) {
   triggered_events_ = events;
-  if ((triggered_events_ & watched_events_) != 0) epollf_->AddEvent(*this);
-  else epollf_->RemoveEvent(*this);
+  if ((triggered_events_ & watched_events_) != 0)
+    epollf_->AddEvent(*this);
+  else
+    epollf_->RemoveEvent(*this);
 }
 
 }  // namespace detail

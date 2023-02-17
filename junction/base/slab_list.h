@@ -19,7 +19,7 @@ class SlabList {
     using reference = std::byte&;
 
     iterator() {}
-    explicit iterator(SlabList *sl, size_t idx) : sl_(sl), idx_(idx) {}
+    explicit iterator(SlabList* sl, size_t idx) : sl_(sl), idx_(idx) {}
     reference operator*() const { return *(sl_->get_ptr(idx_)); }
     pointer operator->() const { return sl_->get_ptr(idx_); }
 
@@ -70,7 +70,7 @@ class SlabList {
     friend const_iterator;
 
    private:
-    SlabList *sl_{nullptr};
+    SlabList* sl_{nullptr};
     size_t idx_{-1};
   };
 
@@ -82,7 +82,7 @@ class SlabList {
     using reference = const std::byte&;
 
     const_iterator() {}
-    explicit const_iterator(SlabList *sl, size_t idx) : sl_(sl), idx_(idx) {}
+    explicit const_iterator(SlabList* sl, size_t idx) : sl_(sl), idx_(idx) {}
     const_iterator(const const_iterator& it) : sl_(it.sl_), idx_(it.idx_) {}
     reference operator*() const { return (*sl_)[idx_]; }
     pointer operator->() const { return sl_->get_ptr(idx_); }
@@ -101,7 +101,9 @@ class SlabList {
     }
 
     // Increment
-    const_iterator operator+(difference_type i) { return const_iterator(sl_, idx_ + i); }
+    const_iterator operator+(difference_type i) {
+      return const_iterator(sl_, idx_ + i);
+    }
     difference_type operator+(const const_iterator other) const {
       return idx_ + other;
     }
@@ -130,7 +132,7 @@ class SlabList {
     };
 
    private:
-    SlabList *sl_{nullptr};
+    SlabList* sl_{nullptr};
     size_t idx_{-1};
   };
 
@@ -176,9 +178,7 @@ class SlabList {
     size_ = size;
   }
 
-  std::byte& operator[](int idx) {
-    return *(get_ptr(idx));
-  }
+  std::byte& operator[](int idx) { return *(get_ptr(idx)); }
 
   std::byte* get_ptr(size_t idx) {
     // Note: No bounds checks are performed.
