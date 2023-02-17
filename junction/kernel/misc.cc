@@ -15,4 +15,9 @@ ssize_t usys_getcwd(char *buf, size_t size) {
                       __NR_getcwd);
 }
 
+int usys_socketpair(int domain, int type, int protocol, int sv[2]) {
+  sv[0] = sv[1] = 0;
+  return 0;
+}
+
 }  // namespace junction

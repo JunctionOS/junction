@@ -68,3 +68,4 @@ eventfd
 eventfd2
 getcwd
 fcntl
+socketpair

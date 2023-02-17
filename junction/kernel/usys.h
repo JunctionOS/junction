@@ -114,6 +114,7 @@ long usys_clock_nanosleep(clockid_t clockid, int flags,
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);
 int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask);
 ssize_t usys_getcwd(char *buf, size_t size);
+int usys_socketpair(int domain, int type, int protocol, int sv[2]);
 
 // Signals
 long usys_rt_sigaction(int sig, const struct sigaction *action,
