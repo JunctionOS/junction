@@ -1,13 +1,13 @@
-From d475ea7ac4218382ec6ee23930f67ec086145cc6 Mon Sep 17 00:00:00 2001
+From ca0891b801fe902afd1f9b72448a846a5fc6b5ed Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 20 Nov 2022 16:47:47 -0500
-Subject: [PATCH 2/2] junction syscall hooks
+Subject: [PATCH 2/5] junction syscall hooks
 
 ---
  elf/Makefile                             |   6 +-
- sysdeps/unix/sysv/linux/x86_64/syscall.S |  14 ++-
+ sysdeps/unix/sysv/linux/x86_64/syscall.S |  16 +++-
  sysdeps/unix/sysv/linux/x86_64/sysdep.h  | 109 ++++++-----------------
- 3 files changed, 44 insertions(+), 85 deletions(-)
+ 3 files changed, 45 insertions(+), 86 deletions(-)
 
 diff --git a/elf/Makefile b/elf/Makefile
 index 6e95fa2130..30db945015 100644
@@ -27,11 +27,15 @@ index 6e95fa2130..30db945015 100644
  ldconfig-modules := \
    cache \
 diff --git a/sysdeps/unix/sysv/linux/x86_64/syscall.S b/sysdeps/unix/sysv/linux/x86_64/syscall.S
-index 192455a898..4614b4430e 100644
+index 192455a898..73d5e29d7d 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/syscall.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/syscall.S
-@@ -34,7 +34,19 @@ ENTRY (syscall)
- 	movq %r8, %r10
+@@ -31,10 +31,22 @@ ENTRY (syscall)
+ 	movq %rsi, %rdi		/* shift arg1 - arg5.  */
+ 	movq %rdx, %rsi
+ 	movq %rcx, %rdx
+-	movq %r8, %r10
++	movq %r8, %rcx
  	movq %r9, %r8
  	movq 8(%rsp),%r9	/* arg6 is on the stack.  */
 -	syscall			/* Do the system call.  */
@@ -242,5 +246,5 @@ index 740abefcfd..ff5fffa4f6 100644
  
  # define VDSO_NAME  "LINUX_2.6"
 -- 
-2.34.1
+2.37.2
 
