@@ -1,13 +1,13 @@
-From 253f0ea9c0a5fafcb2273f7ea00f534099badbfa Mon Sep 17 00:00:00 2001
+From 694530bdc55573ca828d73e5e31be5f270705270 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 23 Nov 2022 17:12:56 -0500
-Subject: [PATCH 3/3] glibc: hook some more syscalls
+Subject: [PATCH 3/5] glibc: hook some more syscalls
 
 ---
  sysdeps/unix/sysv/linux/kernel-features.h |  2 +-
- sysdeps/unix/sysv/linux/x86_64/clone3.S   | 13 ++++++++-----
- sysdeps/x86_64/nptl/tls.h                 |  9 +--------
- 3 files changed, 10 insertions(+), 14 deletions(-)
+ sysdeps/unix/sysv/linux/x86_64/clone3.S   | 25 +++++++++++++----------
+ sysdeps/x86_64/nptl/tls.h                 |  9 +-------
+ 3 files changed, 16 insertions(+), 20 deletions(-)
 
 diff --git a/sysdeps/unix/sysv/linux/kernel-features.h b/sysdeps/unix/sysv/linux/kernel-features.h
 index 74adc3956b..344b4f93e5 100644
@@ -23,15 +23,23 @@ index 74adc3956b..344b4f93e5 100644
  /* Support for various CLOEXEC and NONBLOCK flags was added in
     2.6.27.  */
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone3.S b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-index 18fc2ee966..ad99e7c07e 100644
+index 18fc2ee966..e88e397cc6 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone3.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-@@ -51,13 +51,14 @@ ENTRY (__clone3)
- 	   syscall.  */
- 	mov	%RCX_LP, %R8_LP
+@@ -47,17 +47,18 @@ ENTRY (__clone3)
+ 	test	%RDX_LP, %RDX_LP	/* No NULL function pointer.  */
+ 	jz	SYSCALL_ERROR_LABEL
  
+-	/* Save the cl_args pointer in R8 which is preserved by the
+-	   syscall.  */
+-	mov	%RCX_LP, %R8_LP
+-
 -	/* Do the system call.  */
 -	movl	$SYS_ify(clone3), %eax
++	/* Save the fun and args pointer in R12 and R13 which are preserved by the
++	   functon call.  */
++	mov	%RCX_LP, %R12_LP
++	mov	%RDX_LP, %R13_LP
  
  	/* End FDE now, because in the child the unwind info will be
  	   wrong.  */
@@ -44,8 +52,14 @@ index 18fc2ee966..ad99e7c07e 100644
  
  	test	%RAX_LP, %RAX_LP
  	jl	SYSCALL_ERROR_LABEL
-@@ -81,8 +82,10 @@ L(thread_start):
- 	call	*%rdx		/* Call function.  */
+@@ -77,12 +78,14 @@ L(thread_start):
+ 	and	$-16, %RSP_LP
+ 
+ 	/* Set up arguments for the function call.  */
+-	mov	%R8_LP, %RDI_LP	/* Argument.  */
+-	call	*%rdx		/* Call function.  */
++	mov	%R12_LP, %RDI_LP	/* Argument.  */
++	call	*%r13		/* Call function.  */
  	/* Call exit with return value from function call. */
  	movq	%rax, %rdi
 -	movl	$SYS_ify(exit), %eax

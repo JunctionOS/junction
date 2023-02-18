@@ -16,6 +16,7 @@ add_library(syscall
   syscall.cc
   seccomp.cc
   syscall_tbl.cc
+  entry.S
 )
 
 target_link_libraries(syscall

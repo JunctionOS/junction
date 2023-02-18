@@ -17,6 +17,7 @@ extern "C" {
 
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
+#include "junction/syscall/entry.h"
 #include "junction/syscall/seccomp_bpf.h"
 #include "junction/syscall/syscall.h"
 #include "junction/syscall/systbl.h"
@@ -124,19 +125,12 @@ void log_syscall_msg(const char* msg_needed, long sysn) {
 
 static __attribute__((__optimize__("-fno-stack-protector"))) void
 __signal_handler(int nr, siginfo_t* info, void* void_context) {
-  ucontext_t* ctx = (ucontext_t*)(void_context);
+  ucontext_t* ctx = reinterpret_cast<ucontext_t*>(void_context);
 
   if (unlikely(info->si_code != SYS_SECCOMP)) return;
-
   if (unlikely(!ctx)) return;
 
   long sysn = static_cast<long>(ctx->uc_mcontext.gregs[REG_SYSCALL]);
-  long arg0 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG0]);
-  long arg1 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG1]);
-  long arg2 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG2]);
-  long arg3 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG3]);
-  long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
-  long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
 
   if (unlikely(!thread_self())) {
     log_syscall_msg("Unexpected syscall from Caladan", sysn);
@@ -148,18 +142,25 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
     syscall_exit(-1);
   }
 
-#ifdef DEBUG
+  if (sysn == SYS_clone3) {
+    // redirect to syscall handler that will save state for us
+    ctx->uc_mcontext.gregs[REG_RIP] =
+        reinterpret_cast<uint64_t>(junction_syscall_full_trap);
+    return;
+  }
+
+  long arg0 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG0]);
+  long arg1 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG1]);
+  long arg2 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG2]);
+  long arg3 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG3]);
+  long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
+  long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
+
+#if 0
   log_syscall_msg("Trap handled syscall", sysn);
 #endif
 
-  /* set a pointer to the current trapframe */
-  mythread().set_tf(ctx);
-
   auto res = sys_dispatch(arg0, arg1, arg2, arg3, arg4, arg5, sysn);
-
-  /* clear the trapframe pointer */
-  mythread().set_tf(nullptr);
-
   ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
 }
 

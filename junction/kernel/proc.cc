@@ -14,6 +14,7 @@ extern "C" {
 }
 
 #include <cstdlib>
+#include <cstring>
 
 #include "junction/base/arch.h"
 #include "junction/bindings/log.h"
@@ -24,6 +25,8 @@ extern "C" {
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/syscall/entry.h"
+#include "junction/syscall/syscall.h"
 
 namespace junction {
 
@@ -58,12 +61,53 @@ pid_t usys_set_tid_address(int *tidptr) {
   return tstate.get_tid();
 }
 
-// Take advantage of the fact that glibc places func/arg in the 3rd/4th argument
-// register (SYS_clone3 only uses the first two arguments). The new
-// thread starts with the same RIP and registers but with a different return
-// value from the parent thread, and branches to the function in the 3rd
-// argument register. Instead of cloning the existing thread, we just start the
-// child directly at func. See __clone3 in clone3.S in glibc for reference.
+void CloneTrapframe(thread_t *oldth, thread_t *newth) {
+  // copy callee saved regs from oldth->junction_tf to newth->tf
+  thread_tf &newtf = newth->tf;
+  thread_tf &oldtf = oldth->junction_tf;
+  newtf.rbx = oldtf.rbx;
+  newtf.rbp = oldtf.rbp;
+  newtf.r12 = oldtf.r12;
+  newtf.r13 = oldtf.r13;
+  newtf.r14 = oldtf.r14;
+  newtf.r15 = oldtf.r15;
+
+  // copy fsbase if present
+  if (oldth->has_fsbase) {
+    newth->has_fsbase = true;
+    newtf.fsbase = oldth->tf.fsbase;
+  }
+
+  // copy extra state if we came in via trap
+  if (oldth->xsave_area) {
+    // copy caller saved regs from oldth->junction_tf to newth->junction_tf
+    thread_tf &newjtf = newth->junction_tf;
+    newjtf.rdi = oldtf.rdi;
+    newjtf.rsi = oldtf.rsi;
+    newjtf.rcx = oldtf.rcx;
+    newjtf.rdx = oldtf.rdx;
+    newjtf.r8 = oldtf.r8;
+    newjtf.r9 = oldtf.r9;
+    newjtf.r10 = oldtf.r10;
+
+    // Our return routine expects xsave area on the stack, and the future
+    // stack addr provided in rdi.
+    newtf.rip = reinterpret_cast<uint64_t>(junction_full_restore_newth);
+    newtf.rdi = newtf.rsp;
+
+    // allocate xsave area on stack
+    newtf.rsp = AlignDown(newtf.rsp - XSAVE_BYTES, 64);
+
+    // Copy the xsave area
+    std::memcpy(reinterpret_cast<void *>(newtf.rsp), oldth->xsave_area,
+                XSAVE_BYTES);
+  } else {
+    // fast return without restoring extended reg set
+    newtf.rdi = oldtf.rip;
+    newtf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
+  }
+}
+
 long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
                  void *arg) {
   static constexpr uint64_t kRequiredFlags =
@@ -72,20 +116,13 @@ long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
   // Only support starting new threads in the same process
   if ((cl_args->flags & kRequiredFlags) != kRequiredFlags) return -ENOSYS;
 
-  // We may have entered here from either a patched glibc or from a syscall trap
-  // If we are in a syscall trap, we need to look elsewhere for @arg
-  // TODO: this really only works for glibc.
-  if (mythread().get_tf())
-    arg = reinterpret_cast<void *>(
-        mythread().get_tf()->uc_mcontext.gregs[REG_R8]);
-
   thread_t *th;
   if (cl_args->stack) {
-    th = thread_create_nostack(reinterpret_cast<thread_fn_t>(func), arg);
+    th = thread_create_nostack(nullptr, 0);
     if (!th) return -ENOMEM;
     th->tf.rsp = cl_args->stack + cl_args->stack_size;
   } else {
-    th = thread_create(reinterpret_cast<thread_fn_t>(func), arg);
+    th = thread_create(nullptr, 0);
     if (!th) return -ENOMEM;
     th->tf.rsp += 8;
   }
@@ -93,9 +130,8 @@ long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
   // Allocate some stack space for some of our thread-local data
   Thread &tstate = myproc().CreateThread(th);
 
-  // New function expects stack to be aligned to 8 mod 16.
-  assert(th->tf.rsp % 16 == 0);
-  th->tf.rsp -= 8;
+  // Clone the trap frame
+  CloneTrapframe(thread_self(), th);
 
   // Set FSBASE if requested
   if (cl_args->flags & CLONE_SETTLS) set_fsbase(th, cl_args->tls);
