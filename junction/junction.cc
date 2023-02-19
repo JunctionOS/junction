@@ -96,13 +96,13 @@ Status<void> init() {
   std::shared_ptr<LinuxFileSystemManifest> manifest = init_fs_manifest();
   init_fs(new LinuxFileSystem(std::move(manifest)));
 
-  Status<void> ret = init_seccomp();
+  Status<void> ret = SyscallInit();
   if (unlikely(!ret)) return ret;
 
-  ret = SyscallInit();
+  ret = ShimJmpInit();
   if (unlikely(!ret)) return ret;
 
-  return ShimJmpInit();
+  return init_seccomp();
 }
 
 }  // namespace junction
