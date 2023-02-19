@@ -38,6 +38,9 @@ class Thread {
   const pid_t tid_;      // the thread identifier
 };
 
+// Make sure that Caladan's thread def has enough room for the Thread class
+static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
+
 // Process is a UNIX process object.
 class Process {
  public:
@@ -67,8 +70,8 @@ class Process {
 // mythread returns the Thread object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.
 inline Thread &mythread() {
-  uint64_t ts = get_uthread_specific();
-  assert(ts);
+  thread_t *th = thread_self();
+  Thread *ts = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   return *reinterpret_cast<Thread *>(ts);
 }
 

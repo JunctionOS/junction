@@ -33,17 +33,17 @@ namespace junction {
 // Attach calling thread to this process; used for testing.
 Thread &Process::CreateTestThread() {
   // Intentionally leak this memory
-  Thread *tstate = new Thread(this, 1);
-  __set_uthread_specific(thread_self(), reinterpret_cast<uintptr_t>(tstate));
+  thread_t *th = thread_self();
+  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+  new (tstate) Thread(this, 1);
+  th->tlsvar = 1;  // Mark tstate as intialized
   return *tstate;
 }
 
 Thread &Process::CreateThread(thread_t *th) {
-  // Store the Thread object on the stack
-  th->tf.rsp = AlignDown(th->tf.rsp - sizeof(Thread), 16);
-  __set_uthread_specific(th, th->tf.rsp);
-  Thread *tstate = reinterpret_cast<Thread *>(th->tf.rsp);
+  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(this, 1);  // TODO: make PID unique?
+  th->tlsvar = 1;                // Mark tstate as intialized
   return *tstate;
 }
 
@@ -158,6 +158,10 @@ void usys_exit(int status) {
     *child_tid = 0;
     FutexTable::GetFutexTable().Wake(child_tid, 1);
   }
+
+  Thread *tptr = reinterpret_cast<Thread *>(thread_self()->junction_tstate_buf);
+  tptr->~Thread();
+
   rt::Exit();
 }
 
