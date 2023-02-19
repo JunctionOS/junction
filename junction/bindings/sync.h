@@ -12,25 +12,9 @@ extern "C" {
 #include <type_traits>
 #include <utility>
 
+#include "junction/base/compiler.h"
+
 namespace junction::rt {
-
-// Force the compiler to access a memory location.
-template <typename T>
-T volatile &access_once(T &t) requires std::is_integral_v<T> {
-  return static_cast<T volatile &>(t);
-}
-
-// Force the compiler to read a memory location.
-template <typename T>
-T read_once(const T &p) requires std::is_integral_v<T> {
-  return static_cast<const T volatile &>(p);
-}
-
-// Force the compiler to write a memory location.
-template <typename T>
-void write_once(T &p, const T &val) requires std::is_integral_v<T> {
-  static_cast<T volatile &>(p) = val;
-}
 
 // WaitQueue is used to wake a group of threads.
 class WaitQueue {

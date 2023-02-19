@@ -36,16 +36,17 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
 
   // Wait for a wakeup.
   bucket.lock.Lock();
-  if (rt::read_once(*key) != val) {
+  if (read_once(*key) != val) {
     bucket.lock.Unlock();
+    timer.Cancel();
     return MakeError(EAGAIN);
   }
   bucket.futexes.push_back(waiter);
   bucket.lock.UnlockAndPark();
 
   // Cancel the timer if pending and return.
+  timer.Cancel();
   if (waiter.th) return MakeError(ETIMEDOUT);
-  if (timeout_us) timer.Cancel();
   return {};
 }
 

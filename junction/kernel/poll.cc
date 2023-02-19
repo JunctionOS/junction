@@ -396,7 +396,6 @@ bool EPollFile::Delete(File &f) {
 int EPollFile::Wait(std::span<epoll_event> events_out,
                     std::optional<uint64_t> timeout_us) {
   // Setup a timer for timeouts.
-  bool timer_armed = false;
   bool timed_out = false;
   rt::Timer timer([this, &timed_out] {
     timed_out = true;
@@ -414,7 +413,6 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
       if (*timeout_us == 0) return 0;
       lock_.Unlock();
       timer.Start(*timeout_us);
-      timer_armed = true;
       lock_.Lock();
     }
 
@@ -441,7 +439,7 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     events_.splice(events_.end(), tmp);
   }
 
-  if (timer_armed) timer.Cancel();
+  timer.Cancel();
   return std::distance(events_out.begin(), it);
 }
 
