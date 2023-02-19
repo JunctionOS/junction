@@ -20,6 +20,8 @@ extern "C" {
 void clone_fast_start(void *rip) __noreturn;
 unsigned long usys_clone3_enter(long arg0, long arg1, long arg2, long arg3,
                                 long arg4, long arg5);
+unsigned long usys_clone_enter(long arg0, long arg1, long arg2, long arg3,
+                               long arg4, long arg5);
 void junction_syscall_full_trap();
 void junction_full_restore_newth(uint64_t rsp) __noreturn;
 }

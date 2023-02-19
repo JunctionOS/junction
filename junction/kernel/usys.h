@@ -92,8 +92,10 @@ pid_t usys_set_tid_address(int *tidptr);
 void usys_exit_group(int status);
 void usys_exit(int status);
 int usys_arch_prctl(int code, unsigned long addr);
-long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
-                 void *arg);
+long usys_clone(unsigned long clone_flags, unsigned long newsp,
+                uintptr_t parent_tidptr, uintptr_t child_tidptr,
+                unsigned long tls);
+long usys_clone3(clone_args *cl_args, size_t size);
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 const struct timespec *timeout, uint32_t *uaddr2,
                 uint32_t val3);

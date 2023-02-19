@@ -142,7 +142,7 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
     syscall_exit(-1);
   }
 
-  if (sysn == SYS_clone3) {
+  if (sysn == SYS_clone3 || sysn == SYS_clone) {
     // redirect to syscall handler that will save state for us
     ctx->uc_mcontext.gregs[REG_RIP] =
         reinterpret_cast<uint64_t>(junction_syscall_full_trap);

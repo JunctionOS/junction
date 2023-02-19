@@ -108,24 +108,16 @@ void CloneTrapframe(thread_t *oldth, thread_t *newth) {
   }
 }
 
-long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
-                 void *arg) {
+long DoClone(clone_args *cl_args, uint64_t rsp) {
   static constexpr uint64_t kRequiredFlags =
       (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD);
 
   // Only support starting new threads in the same process
   if ((cl_args->flags & kRequiredFlags) != kRequiredFlags) return -ENOSYS;
 
-  thread_t *th;
-  if (cl_args->stack) {
-    th = thread_create_nostack(nullptr, 0);
-    if (!th) return -ENOMEM;
-    th->tf.rsp = cl_args->stack + cl_args->stack_size;
-  } else {
-    th = thread_create(nullptr, 0);
-    if (!th) return -ENOMEM;
-    th->tf.rsp += 8;
-  }
+  thread_t *th = thread_create_nostack(nullptr, 0);
+  if (!th) return -ENOMEM;
+  th->tf.rsp = rsp;
 
   // Allocate some stack space for some of our thread-local data
   Thread &tstate = myproc().CreateThread(th);
@@ -149,6 +141,22 @@ long usys_clone3(clone_args *cl_args, size_t size, int (*func)(void *arg),
 
   thread_ready(th);
   return tstate.get_tid();
+}
+
+long usys_clone3(clone_args *cl_args, size_t size) {
+  if (unlikely(!cl_args->stack)) return -EINVAL;
+  return DoClone(cl_args, cl_args->stack + cl_args->stack_size);
+}
+
+long usys_clone(unsigned long clone_flags, unsigned long newsp,
+                uintptr_t parent_tidptr, uintptr_t child_tidptr,
+                unsigned long tls) {
+  clone_args cl_args;
+  cl_args.flags = clone_flags;
+  cl_args.child_tid = child_tidptr;
+  cl_args.parent_tid = parent_tidptr;
+  cl_args.tls = tls;
+  return DoClone(&cl_args, newsp);
 }
 
 void usys_exit(int status) {

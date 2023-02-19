@@ -3,6 +3,7 @@
 getpid
 arch_prctl
 clone3
+clone
 set_tid_address
 open
 openat

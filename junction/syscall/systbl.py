@@ -11,7 +11,7 @@ OUTPUT_FILE = sys.argv[3]
 
 SYS_NR = 451
 
-TF_SAVE_SYSCALLS = set(["clone3"])
+TF_SAVE_SYSCALLS = set(["clone3", "clone"])
 
 def gen_syscall_dict():
 	with open(SYSCALL_DEFS) as f:

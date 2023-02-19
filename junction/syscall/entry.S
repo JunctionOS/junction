@@ -90,6 +90,28 @@ usys_clone3_enter:
 	jmp usys_clone3
 
 /**
+ * usys_clone_enter - entry to junction for clone function calls
+ *
+ * see notes for usys_clone3_enter.
+ */
+.align 16
+.globl usys_clone_enter
+.type usys_clone_enter, @function
+usys_clone_enter:
+	/* Load address of junction_tf in struct thread */
+	movq %gs:__perthread___self(%rip), %r11
+	addq $JUNCTION_TF_OFF, %r11
+
+	/* save registers */
+	SAVETF_CALLEE(%r11)
+
+	/* save RIP */
+	movq    (%rsp), %r10
+	movq    %r10, RIP(%r11)
+
+	jmp usys_clone
+
+/**
  * clone_fast_start - routine to start children created with clone
  * @rdi: entry address for child to run
  *
