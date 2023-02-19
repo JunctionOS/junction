@@ -9,6 +9,8 @@ extern "C" {
 
 #include <utility>
 
+#include "junction/base/compiler.h"
+
 namespace junction::rt {
 
 namespace timer_internal {
@@ -39,7 +41,7 @@ class Timer : private timer_internal::timer_node {
     timer_init(&entry_, timer_internal::TimerTrampoline, arg);
     timer_start(&entry_, us);
   }
-  ~Timer() { assert(!entry_.armed && !entry_.executing); }
+  ~Timer() { BUG_ON(timer_busy(&entry_)); }
 
   // Disable move.
   Timer(Timer &&) = delete;

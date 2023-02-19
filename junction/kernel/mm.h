@@ -46,7 +46,7 @@ class alignas(kCacheLineSize) MemoryMap {
     uintptr_t pos = reinterpret_cast<uintptr_t>(base);
     if (pos != PageAlign(pos) || len != PageAlign(len)) return;
     rt::SpinGuard g(lock_);
-    if (pos == map_addr_) map_addr_ += len; 
+    if (pos == map_addr_) map_addr_ += len;
   }
 
   // Returns true if the mapping is inside the reserved region.
