@@ -165,7 +165,7 @@ class TCPSocket : public Socket {
   [[nodiscard]] rt::TCPQueue &TcpQueue() { return listen_q_; }
 
   SocketState state_;
-  netaddr addr_;
+  netaddr addr_{0, 0};
   std::atomic_bool is_shut_{false};
   rt::TCPConn conn_;
   rt::TCPQueue listen_q_;
