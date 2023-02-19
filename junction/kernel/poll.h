@@ -85,7 +85,7 @@ class alignas(kCacheLineSize) PollSource {
   }
 
   // Gets the current mask of set events
-  unsigned int get_events() { return rt::read_once(event_mask_); }
+  unsigned int get_events() const { return rt::read_once(event_mask_); }
 
   // Sets a mask of events and notifies (must be synchronized by caller).
   void Set(unsigned int event_mask);

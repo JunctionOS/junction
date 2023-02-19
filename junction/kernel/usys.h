@@ -43,11 +43,11 @@ int usys_pipe2(int pipefd[2], int flags);
 long usys_fcntl(int fd, unsigned int cmd, unsigned long arg);
 
 // Memory
-int usys_brk(void *addr);
-void *usys_mmap(void *addr, size_t length, int prot, int flags, int fd,
-                off_t offset);
+uintptr_t usys_brk(uintptr_t addr);
+intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
+                   off_t offset);
 int usys_mprotect(void *addr, size_t len, int prot);
-int usys_munmap(void *addr, size_t length);
+int usys_munmap(void *addr, size_t len);
 
 // Net
 long usys_socket(int domain, int type, int protocol);

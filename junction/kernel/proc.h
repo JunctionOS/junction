@@ -11,6 +11,8 @@ extern "C" {
 
 #include "junction/base/uid.h"
 #include "junction/kernel/file.h"
+#include "junction/kernel/mm.h"
+#include "junction/limits.h"
 
 namespace junction {
 
@@ -44,7 +46,7 @@ static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 // Process is a UNIX process object.
 class Process {
  public:
-  Process(pid_t pid) : pid_(pid) {}
+  Process(pid_t pid, void *base, size_t len) : pid_(pid), mem_map_(base, len) {}
   ~Process() = default;
 
   Process(Process &&) = delete;
@@ -54,6 +56,7 @@ class Process {
 
   [[nodiscard]] pid_t get_pid() const { return pid_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
+  [[nodiscard]] MemoryMap &get_mem_map() { return mem_map_; }
 
   Thread &CreateThread(thread_t *th);
   Thread &CreateTestThread();
@@ -63,9 +66,18 @@ class Process {
   int xstate_;          // exit state
   bool killed_{false};  // If non-zero, the process has been killed
 
-  // per-process kernel subsystems
-  FileTable file_tbl_;  // file descriptor table
+  //
+  // Per-process kernel subsystems
+  //
+
+  // File descriptor table
+  FileTable file_tbl_;
+  // Memory management
+  MemoryMap mem_map_;
 };
+
+// Create a new process.
+Status<Process *> CreateProcess();
 
 // mythread returns the Thread object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.

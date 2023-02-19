@@ -84,8 +84,8 @@ std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
 
 Status<void> InitTestProc() {
   // Intentionally leak this memory
-  Process *p = new Process(2);
-  p->CreateTestThread();
+  Status<Process *> p = CreateProcess();
+  (*p)->CreateTestThread();
   return {};
 }
 

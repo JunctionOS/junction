@@ -1,45 +1,90 @@
 // mm.cc - memory management support
-//
-// TODO(amb): need to keep track of allocations for multiprocess
 
 extern "C" {
 #include <sys/mman.h>
 }
 
+#include "junction/base/arch.h"
+#include "junction/bindings/log.h"
 #include "junction/kernel/file.h"
-#include "junction/kernel/ksys.h"
+#include "junction/kernel/mm.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
 
-int usys_brk(void *addr) {
-  // TODO(amb): maybe this is broken? Instead allocate a heap?
-  return brk(addr);
+uintptr_t usys_brk(uintptr_t addr) {
+  MemoryMap &mm = myproc().get_mem_map();
+  uintptr_t oldbrk = mm.GetBreak();
+  if (addr == 0) return oldbrk;
+  uintptr_t newbrk = mm.SetBreak(addr);
+
+  // check if out of virtual memory.
+  if (unlikely(newbrk != addr)) {
+    LOG(ERR) << "mm: Out of virtual memory.";
+    return oldbrk;
+  }
+
+  // check if the amount requested already lands on the current page.
+  if (PageAlign(newbrk) == PageAlign(oldbrk)) return newbrk;
+
+  // handle shrinking the heap.
+  if (newbrk < oldbrk) {
+    KernelMUnmap(reinterpret_cast<void *>(PageAlign(newbrk)),
+                 PageAlign(oldbrk) - PageAlign(newbrk));
+    return newbrk;
+  }
+
+  // handle growing the heap.
+  Status<void> ret = KernelMMapFixed(
+      reinterpret_cast<void *>(PageAlign(oldbrk)),
+      PageAlign(newbrk) - PageAlign(oldbrk), PROT_READ | PROT_WRITE, 0);
+  if (unlikely(!ret))
+    LOG(ERR) << "mm: Could not increase brk addr. (mmap() failed "
+             << ret.error() << ").";
+  return newbrk;
 }
 
-void *usys_mmap(void *addr, size_t length, int prot, int flags, int fd,
-                off_t offset) {
+intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
+                   off_t offset) {
+  MemoryMap &mm = myproc().get_mem_map();
+  if ((flags & MAP_FIXED) != 0) {
+    if (!mm.IsWithin(addr, len))
+      LOG_ONCE(WARN)
+          << "mm: Fixed addr out of bounds; may interfere with other processes";
+  } else {
+    addr = mm.ReserveForMapping(len);
+    if (unlikely(!addr)) {
+      LOG(ERR) << "mm: Out of virtual memory.";
+      return -ENOMEM;
+    }
+  }
+
   // Map anonymous memory.
   if ((flags & MAP_ANONYMOUS) != 0) {
-    intptr_t ret = ksys_mmap(addr, length, prot, flags, fd, offset);
-    if (ret < 0) return MAP_FAILED;
-    return reinterpret_cast<void *>(ret);
+    Status<void> ret = KernelMMapFixed(addr, len, prot, flags);
+    if (!ret) return MakeCError(ret);
+    return reinterpret_cast<intptr_t>(addr);
   }
 
   // Map a file.
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f)) return MAP_FAILED;
-  Status<void *> ret = f->MMap(addr, length, prot, flags, offset);
-  if (!ret) return MAP_FAILED;
-  return static_cast<void *>(*ret);
+  if (unlikely(!f)) return -EBADF;
+  Status<void *> ret = f->MMap(addr, len, prot, flags | MAP_FIXED, offset);
+  if (!ret) return MakeCError(ret);
+  return reinterpret_cast<intptr_t>(*ret);
 }
 
 int usys_mprotect(void *addr, size_t len, int prot) {
   return ksys_mprotect(addr, len, prot);
 }
 
-int usys_munmap(void *addr, size_t length) { return ksys_munmap(addr, length); }
+int usys_munmap(void *addr, size_t len) {
+  int ret = ksys_munmap(addr, len);
+  MemoryMap &mm = myproc().get_mem_map();
+  if (!ret) mm.ReturnForMapping(addr, len);
+  return ret;
+}
 
 }  // namespace junction

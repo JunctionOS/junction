@@ -23,43 +23,20 @@ extern "C" {
 #include "junction/bindings/timer.h"
 #include "junction/kernel/futex.h"
 #include "junction/kernel/ksys.h"
+#include "junction/kernel/mm.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/limits.h"
 #include "junction/syscall/entry.h"
 #include "junction/syscall/syscall.h"
 
 namespace junction {
 
-// Attach calling thread to this process; used for testing.
-Thread &Process::CreateTestThread() {
-  // Intentionally leak this memory
-  thread_t *th = thread_self();
-  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(this, 1);
-  th->tlsvar = 1;  // Mark tstate as initialized
-  return *tstate;
-}
+namespace {
 
-Thread &Process::CreateThread(thread_t *th) {
-  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(this, 1);  // TODO: make PID unique?
-  th->tlsvar = 1;                // Mark tstate as initialized
-  return *tstate;
-}
-
-pid_t usys_getpid() { return myproc().get_pid(); }
-
-int usys_arch_prctl(int code, unsigned long addr) {
-  if (code != ARCH_SET_FS) return -EINVAL;
-  set_fsbase(thread_self(), addr);
-  return 0;
-}
-
-pid_t usys_set_tid_address(int *tidptr) {
-  Thread &tstate = mythread();
-  tstate.set_child_tid(reinterpret_cast<uint32_t *>(tidptr));
-  return tstate.get_tid();
-}
+// Global allocation of PIDs
+rt::Spin process_lock;
+UIDGenerator<kMaxProcesses> pid_generator;
 
 void CloneTrapframe(thread_t *oldth, thread_t *newth) {
   // copy callee saved regs from oldth->junction_tf to newth->tf
@@ -140,6 +117,58 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
     tstate.set_child_tid(nullptr);
 
   thread_ready(th);
+  return tstate.get_tid();
+}
+
+}  // namespace
+
+Status<Process *> CreateProcess() {
+  pid_t pid;
+  {
+    rt::SpinGuard guard(process_lock);
+    std::optional<size_t> tmp = pid_generator();
+    if (!tmp) return MakeError(ENOSPC);
+    pid = *tmp;
+  }
+
+  Status<void *> base = CreateMemoryMap(kMemoryMappingSize);
+  if (!base) return MakeError(base);
+
+  LOG(INFO) << "proc: Creating process with pid=" << pid
+            << ", mapping=" << *base << "-"
+            << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(*base) +
+                                        kMemoryMappingSize);
+  return new Process(pid, *base, kMemoryMappingSize);
+}
+
+// Attach calling thread to this process; used for testing.
+Thread &Process::CreateTestThread() {
+  // Intentionally leak this memory
+  thread_t *th = thread_self();
+  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+  new (tstate) Thread(this, 1);
+  th->tlsvar = 1;  // Mark tstate as initialized
+  return *tstate;
+}
+
+Thread &Process::CreateThread(thread_t *th) {
+  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+  new (tstate) Thread(this, 1);  // TODO: make PID unique?
+  th->tlsvar = 1;                // Mark tstate as initialized
+  return *tstate;
+}
+
+pid_t usys_getpid() { return myproc().get_pid(); }
+
+int usys_arch_prctl(int code, unsigned long addr) {
+  if (code != ARCH_SET_FS) return -EINVAL;
+  set_fsbase(thread_self(), addr);
+  return 0;
+}
+
+pid_t usys_set_tid_address(int *tidptr) {
+  Thread &tstate = mythread();
+  tstate.set_child_tid(reinterpret_cast<uint32_t *>(tidptr));
   return tstate.get_tid();
 }
 

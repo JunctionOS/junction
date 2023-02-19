@@ -70,7 +70,7 @@ int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
   return i;
 }
 
-bool FutexCmdHasTimeout(uint32_t cmd) {
+constexpr bool FutexCmdHasTimeout(uint32_t cmd) {
   switch (cmd) {
     case FUTEX_WAIT:
     case FUTEX_LOCK_PI:

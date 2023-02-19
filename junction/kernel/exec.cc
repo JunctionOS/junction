@@ -159,9 +159,9 @@ Status<thread_t *> Exec(std::string_view pathname,
   // remove the existing exit function pointer
   th->tf.rsp += 8;
 
-  Process *p = new Process(2);  // TODO: pick unique pid
-  p->CreateThread(th);
-
+  Status<Process *> p = CreateProcess();
+  if (!p) return MakeError(p);
+  (*p)->CreateThread(th);
   SetupStack(&th->tf.rsp, argv, envp, *edata);
   return th;
 }
