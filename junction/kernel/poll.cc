@@ -411,8 +411,8 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
 
     // Arm the timer if needed.
     if (events_.empty() && timeout_us) {
-      lock_.Unlock();
       if (*timeout_us == 0) return 0;
+      lock_.Unlock();
       timer.Start(*timeout_us);
       timer_armed = true;
       lock_.Lock();

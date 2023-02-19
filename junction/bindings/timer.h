@@ -39,7 +39,7 @@ class Timer : private timer_internal::timer_node {
     timer_init(&entry_, timer_internal::TimerTrampoline, arg);
     timer_start(&entry_, us);
   }
-  ~Timer() { assert(!entry_.armed); }
+  ~Timer() { assert(!entry_.armed && !entry_.executing); }
 
   // Disable move.
   Timer(Timer &&) = delete;

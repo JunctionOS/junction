@@ -28,7 +28,7 @@ int ReadFull(const int fd, unsigned char *buf, const int size) {
   while (n < size) {
     int pret = poll(&pfd, 1, -1);
     assert(pret == 1);
-    assert(pret.revents == POLLIN);
+    assert(pfd.revents == POLLIN);
 
     ssize_t ret = read(fd, (void *)(buf + n), size - n);
     if (ret == 0) {

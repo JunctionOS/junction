@@ -132,13 +132,15 @@ asm(R"(
     .type junction_exec_start, @function
     junction_exec_start:
 
+    movq %rdi, %r11
+    xor %rdi, %rdi
     xor %rsi, %rsi
     xor %rdx, %rdx
     xor %rcx, %rcx
     xor %r8, %r8
     xor %r9, %r9
 
-    jmpq    *%rdi
+    jmpq    *%r11
 )");
 }  // namespace
 
@@ -155,7 +157,7 @@ Status<thread_t *> Exec(std::string_view pathname,
   if (!th) return MakeError(ENOMEM);
 
   // remove the existing exit function pointer
-  th->tf.rsp -= 8;
+  th->tf.rsp += 8;
 
   Process *p = new Process(2);  // TODO: pick unique pid
   p->CreateThread(th);

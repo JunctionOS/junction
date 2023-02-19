@@ -13,7 +13,7 @@ using IntrusiveListNode = boost::intrusive::list_member_hook<
     boost::intrusive::link_mode<boost::intrusive::normal_link>>;
 #else   // DEBUG
 using IntrusiveListNode = boost::intrusive::list_member_hook<
-    boost::intrusive::link_mode<boost::intrusive::safe_unlink>>;
+    boost::intrusive::link_mode<boost::intrusive::safe_link>>;
 #endif  // DEBUG
 
 template <typename T, IntrusiveListNode T::*PtrToMember>

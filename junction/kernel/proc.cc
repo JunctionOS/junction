@@ -36,14 +36,14 @@ Thread &Process::CreateTestThread() {
   thread_t *th = thread_self();
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(this, 1);
-  th->tlsvar = 1;  // Mark tstate as intialized
+  th->tlsvar = 1;  // Mark tstate as initialized
   return *tstate;
 }
 
 Thread &Process::CreateThread(thread_t *th) {
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(this, 1);  // TODO: make PID unique?
-  th->tlsvar = 1;                // Mark tstate as intialized
+  th->tlsvar = 1;                // Mark tstate as initialized
   return *tstate;
 }
 
