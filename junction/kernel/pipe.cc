@@ -77,8 +77,8 @@ Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
     rt::SpinGuard guard(lock_);
     if (chan_.is_empty()) read_poll_->Clear(kPollIn);
     if (writer_is_closed()) return n;
+    if (!chan_.is_full()) write_poll_->Set(kPollOut);
     write_waker_.Wake();
-    write_poll_->Set(kPollOut);
   }
   return n;
 }
@@ -112,8 +112,8 @@ Status<size_t> Pipe::Write(std::span<const std::byte> buf, bool nonblocking) {
     rt::SpinGuard guard(lock_);
     if (chan_.is_full()) write_poll_->Clear(kPollOut);
     if (reader_is_closed()) return MakeError(EPIPE);
+    if (!chan_.is_empty()) read_poll_->Set(kPollIn);
     read_waker_.Wake();
-    read_poll_->Set(kPollIn);
   }
   return n;
 }

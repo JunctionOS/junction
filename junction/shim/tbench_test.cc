@@ -241,8 +241,6 @@ void BenchPoll(int measure_rounds) {
   }
 }
 
-#if 0
-
 void BenchSelect(int measure_rounds) {
   static constexpr size_t kBufSize = 64;
   static constexpr size_t kPollThreads = 100;
@@ -267,6 +265,7 @@ void BenchSelect(int measure_rounds) {
         EXPECT_EQ(ret, 1);
         EXPECT_TRUE(FD_ISSET(out_fd, &rfds));
         ssize_t n = write(out_fd, buf, kBufSize);
+        if (n < 0) printf("ret is %d\n", errno);
         EXPECT_GT(n, 0);
         bytes_written += n;
       }
@@ -300,7 +299,6 @@ void BenchSelect(int measure_rounds) {
     }
   }
 }
-#endif
 
 void BenchEPoll(int measure_rounds) {
   static constexpr size_t kBufSize = 64;
@@ -451,7 +449,7 @@ TEST_F(ThreadingTest, Pipe) { Bench("Pipe", BenchPipe); }
 
 TEST_F(ThreadingTest, Poll) { Bench("Poll", BenchPoll); }
 
-// TEST_F(ThreadingTest, Select) { Bench("Select", BenchSelect); }
+TEST_F(ThreadingTest, Select) { Bench("Select", BenchSelect); }
 
 TEST_F(ThreadingTest, EPoll) { Bench("EPoll", BenchEPoll); }
 
