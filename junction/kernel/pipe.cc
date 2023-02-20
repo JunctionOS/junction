@@ -5,18 +5,15 @@
 #include <atomic>
 #include <memory>
 
-#include "junction/base/arch.h"
 #include "junction/base/byte_channel.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/limits.h"
 
 namespace junction {
 
 namespace {
-
-// The size in bytes of the pipe's channel.
-constexpr size_t kPipeSize = 16 * kPageSize;  // same default as Linux
 
 class Pipe {
  public:

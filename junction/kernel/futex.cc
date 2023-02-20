@@ -33,7 +33,7 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
       thread_ready(waiter.th);
     }
   });
-  auto f = finally([timeout_us, &timer] { timer.Cancel(); });
+  auto f = finally([&timer] { timer.Cancel(); });
   if (timeout_us) timer.Start(*timeout_us);
 
   // Wait for a wakeup.

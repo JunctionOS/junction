@@ -1,3 +1,5 @@
+// exec.cc - support for launching elf binaries
+
 extern "C" {
 #include <asm/ops.h>
 #include <elf.h>

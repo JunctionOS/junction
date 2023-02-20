@@ -1,4 +1,4 @@
-// exec.h- junction support for launching elf binaries
+// exec.h - support for launching elf binaries
 
 #pragma once
 
