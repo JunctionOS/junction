@@ -106,6 +106,10 @@ class File {
   [[nodiscard]] unsigned int get_flags() const { return flags_; }
   [[nodiscard]] unsigned int get_mode() const { return mode_; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
+  [[nodiscard]] bool is_nonblocking() const {
+    return get_flags() & kFlagNonblock;
+  }
+
   void set_flags(unsigned int flags) {
     NotifyFlagsChanging(flags_, flags);
     flags_ = flags;

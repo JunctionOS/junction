@@ -151,7 +151,7 @@ class TCPConn : public VectorIO {
   static Status<TCPConn> DialNonBlocking(netaddr laddr, netaddr raddr) {
     tcpconn_t *c;
     int ret = tcp_dial_nonblocking(laddr, raddr, &c);
-    if (ret) return MakeError(-ret);
+    if (ret && ret != -EINPROGRESS) return MakeError(-ret);
     return TCPConn(c);
   }
 
@@ -178,6 +178,12 @@ class TCPConn : public VectorIO {
   [[nodiscard]] netaddr LocalAddr() const { return tcp_local_addr(c_); }
   // Gets the remote TCP address.
   [[nodiscard]] netaddr RemoteAddr() const { return tcp_remote_addr(c_); }
+  // Checks status of TCP connection (intended for non-blocking dial)
+  [[nodiscard]] Status<void> GetStatus() const {
+    int ret = tcp_get_status(c_);
+    if (ret) return MakeError(-ret);
+    return {};
+  }
 
   // Reads from the TCP stream.
   Status<size_t> Read(std::span<std::byte> buf) {

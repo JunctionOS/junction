@@ -58,13 +58,13 @@ Status<void> NetAddrToSockAddr(const netaddr &naddr, sockaddr *saddr,
 }
 
 Status<std::shared_ptr<Socket>> CreateSocket(int domain, int type) {
-  // TODO(amb): must support SOCKNONBLOCK
   if (unlikely(domain != AF_INET)) return MakeError(EINVAL);
-  type &= ~(SOCK_CLOEXEC | SOCK_NONBLOCK);
+  int flags = type & kFlagNonblock;
+  type &= ~(kFlagCloseExec | kFlagNonblock);
   if (type == SOCK_STREAM)
-    return std::make_shared<TCPSocket>();
+    return std::make_shared<TCPSocket>(flags);
   else if (type == SOCK_DGRAM)
-    return std::make_shared<UDPSocket>();
+    return std::make_shared<UDPSocket>(flags);
   else
     return MakeError(EINVAL);
 }

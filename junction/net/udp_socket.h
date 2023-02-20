@@ -14,7 +14,7 @@ namespace junction {
 
 class UDPSocket : public Socket {
  public:
-  UDPSocket() noexcept : Socket() {}
+  UDPSocket(int flags = 0) noexcept : Socket(flags) {}
   ~UDPSocket() override = default;
 
   Status<void> Bind(netaddr addr) override {
@@ -41,7 +41,7 @@ class UDPSocket : public Socket {
       conn_.InstallPollSource(nullptr, nullptr, 0);
 
     conn_ = std::move(*ret);
-    if (get_flags() & kFlagNonblock) conn_.SetNonBlocking(true);
+    if (is_nonblocking()) conn_.SetNonBlocking(true);
     if (IsPollSourceSetup()) SetupPollSource();
     return {};
   }
@@ -69,7 +69,7 @@ class UDPSocket : public Socket {
       Status<rt::UDPConn> ret = rt::UDPConn::Listen({0, 0});
       if (unlikely(!ret)) return MakeError(ret);
       conn_ = std::move(*ret);
-      if (get_flags() & kFlagNonblock) conn_.SetNonBlocking(true);
+      if (is_nonblocking()) conn_.SetNonBlocking(true);
       if (IsPollSourceSetup()) SetupPollSource();
     }
     return conn_.WriteTo(buf, raddr);

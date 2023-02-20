@@ -19,7 +19,8 @@ class TCPSocket : public Socket {
   };
 
  public:
-  TCPSocket() noexcept : Socket(), state_(SocketState::kSockUnbound) {}
+  TCPSocket(int flags = 0) noexcept
+      : Socket(flags), state_(SocketState::kSockUnbound) {}
   TCPSocket(rt::TCPConn conn, int flags = 0) noexcept
       : Socket(flags),
         state_(SocketState::kSockConnected),
@@ -40,7 +41,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockBound)) return MakeError(EINVAL);
     Status<rt::TCPQueue> ret = rt::TCPQueue::Listen(addr_, backlog);
     if (unlikely(!ret)) return MakeError(ret);
-    if (get_flags() & kFlagNonblock) ret->SetNonBlocking(true);
+    if (is_nonblocking()) ret->SetNonBlocking(true);
     listen_q_ = std::move(*ret);
     state_ = SocketState::kSockListening;
     if (IsPollSourceSetup()) SetupPollSource();
@@ -48,11 +49,17 @@ class TCPSocket : public Socket {
   }
 
   Status<void> Connect(netaddr addr) override {
+    // Some applications probe the nonblocking socket by calling connect()
+    if (state_ == SocketState::kSockConnected) {
+      if (!is_nonblocking()) return MakeError(EISCONN);
+      return conn_.GetStatus();
+    }
+
     if (unlikely(state_ != SocketState::kSockUnbound &&
                  state_ != SocketState::kSockBound))
       return MakeError(EINVAL);
     Status<rt::TCPConn> ret;
-    if (get_flags() & kFlagNonblock)
+    if (is_nonblocking())
       ret = rt::TCPConn::DialNonBlocking(addr_, addr);
     else
       ret = rt::TCPConn::Dial(addr_, addr);
@@ -60,6 +67,7 @@ class TCPSocket : public Socket {
     conn_ = std::move(*ret);
     state_ = SocketState::kSockConnected;
     if (IsPollSourceSetup()) SetupPollSource();
+    if (is_nonblocking()) return conn_.GetStatus();
     return {};
   }
 
