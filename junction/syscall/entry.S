@@ -153,21 +153,36 @@ junction_syscall_full_trap:
 	// save registers that we must restore
 	SAVETF_CALLER(%r11)
 
-	// allocate stack space for redzone and xsave area
+	// save rsp
 	movq    %rsp, RSP(%r11)
+
+	// move arg4 to %rcx per function call convention
+	movq    %r10, %rcx
+
+	// Maybe switch stacks
+	movq    %gs:__perthread___self(%rip), %r11
+	movq    JUNCTION_STACK_OFFSET(%r11), %r10 // stack
+	cmpq    %rsp, %r10
+	jb      1f
+
+	addq    $JUNCTION_STACK_SIZE, %r10
+	cmpq    %rsp, %r10
+	jb      1f
+
+	// switch stacks
+	movq    %r10, %rsp
+
+1:
+	// allocate stack space for redzone and xsave area
 	subq    $(REDZONE_SIZE + XSAVE_BYTES), %rsp
 	andq    $-64, %rsp
 
 	// stash a pointer to the xsave area
-	addq    $(JUNCTION_XSAVEPTR_OFF - JUNCTION_TF_OFF), %r11
-	movq    %rsp, (%r11)
+	movq    %rsp, JUNCTION_XSAVEPTR_OFF(%r11)
 
 	// save extended state
 	// TODO(jsf): use xsavec
 	fxsave64 (%rsp)
-
-	// move arg4 to %rcx per function call convention
-	movq    %r10, %rcx
 
 	// call syscall handler
 	shlq    $3, %rax
@@ -177,8 +192,12 @@ junction_syscall_full_trap:
 	// restore extended states
 	fxrstor64  (%rsp)
 
-	// get trapframe address
+	// clear stashed xsave area pointer
+
 	movq    %gs:__perthread___self(%rip), %r11
+	movq    $0, JUNCTION_XSAVEPTR_OFF(%r11)
+
+	// get trapframe address
 	addq    $JUNCTION_TF_OFF, %r11
 
 	// Restore regs that a normal caller would have saved
@@ -186,11 +205,6 @@ junction_syscall_full_trap:
 
 	// Restore stack and return
 	movq    RSP(%r11), %rsp
-
-	// clear stashed xsave area pointer
-	addq    $(JUNCTION_XSAVEPTR_OFF - JUNCTION_TF_OFF), %r11
-	movq    $0, (%r11)
-
 	jmpq    *%rcx
 
 /**

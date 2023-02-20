@@ -92,7 +92,8 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   // Only support starting new threads in the same process
   if ((cl_args->flags & kRequiredFlags) != kRequiredFlags) return -ENOSYS;
 
-  thread_t *th = thread_create_nostack(nullptr, 0);
+  // Allocate thread with stack, may be used for signals in Go
+  thread_t *th = thread_create(nullptr, 0);
   if (!th) return -ENOMEM;
   th->tf.rsp = rsp;
 

@@ -142,26 +142,9 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
     syscall_exit(-1);
   }
 
-  if (sysn == SYS_clone3 || sysn == SYS_clone) {
-    // redirect to syscall handler that will save state for us
-    ctx->uc_mcontext.gregs[REG_RIP] =
-        reinterpret_cast<uint64_t>(junction_syscall_full_trap);
-    return;
-  }
-
-  long arg0 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG0]);
-  long arg1 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG1]);
-  long arg2 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG2]);
-  long arg3 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG3]);
-  long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
-  long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
-
-#if 0
-  log_syscall_msg("Trap handled syscall", sysn);
-#endif
-
-  auto res = sys_dispatch(arg0, arg1, arg2, arg3, arg4, arg5, sysn);
-  ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
+  // redirect to syscall handler that will save state for us
+  ctx->uc_mcontext.gregs[REG_RIP] =
+      reinterpret_cast<uint64_t>(junction_syscall_full_trap);
 }
 
 Status<void> _install_signal_handler() {
@@ -170,7 +153,7 @@ Status<void> _install_signal_handler() {
   if (sigemptyset(&act.sa_mask) != 0) return MakeError(-errno);
 
   act.sa_sigaction = &__signal_handler;
-  act.sa_flags = SA_SIGINFO | SA_NODEFER;
+  act.sa_flags = SA_SIGINFO | SA_NODEFER | SA_ONSTACK;
 
   if (base_sigaction(SIGSYS, &act, NULL) < 0) {
     perror("sigaction");

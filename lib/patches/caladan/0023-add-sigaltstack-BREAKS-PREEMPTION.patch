@@ -1,0 +1,65 @@
+From d896151560320378c91cd0a4cced2bcc10dbb1ae Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Mon, 20 Feb 2023 17:11:28 -0500
+Subject: [PATCH 23/23] add sigaltstack; BREAKS PREEMPTION
+
+---
+ runtime/preempt.c | 15 ++++++++++++++-
+ 1 file changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/runtime/preempt.c b/runtime/preempt.c
+index b49ab72..470051e 100644
+--- a/runtime/preempt.c
++++ b/runtime/preempt.c
+@@ -26,6 +26,7 @@ static void set_preempt_needed(void)
+ /* handles preemptive cede signals from the iokernel */
+ static void handle_sigusr1(int s, siginfo_t *si, void *c)
+ {
++	BUG();
+ 	STAT(PREEMPTIONS)++;
+ 
+ 	/* resume execution if preemption is disabled */
+@@ -43,6 +44,7 @@ static void handle_sigusr1(int s, siginfo_t *si, void *c)
+ /* handles preemptive yield signals from the iokernel */
+ static void handle_sigusr2(int s, siginfo_t *si, void *c)
+ {
++	BUG();
+ 	STAT(PREEMPTIONS)++;
+ 
+ 	/* resume execution if preemption is disabled */
+@@ -94,6 +96,16 @@ void preempt(void)
+ 
+ int preempt_init_thread(void)
+ {
++	stack_t ss;
++	ss.ss_sp = malloc(SIGSTKSZ);
++	if (ss.ss_sp == NULL)
++		return -ENOMEM;
++
++	ss.ss_size = SIGSTKSZ;
++	ss.ss_flags = 0;
++	if (sigaltstack(&ss, NULL) == -1)
++		return -errno;
++
+ 	perthread_store(preempt_cnt, PREEMPT_NOT_PENDING);
+ 	return 0;
+ }
+@@ -106,6 +118,7 @@ int preempt_init_thread(void)
+  */
+ int preempt_init(void)
+ {
++#if 0
+ 	struct sigaction act;
+ 
+ 	act.sa_flags = SA_SIGINFO | SA_NODEFER;
+@@ -126,6 +139,6 @@ int preempt_init(void)
+ 		log_err("couldn't register signal handler");
+ 		return -1;
+ 	}
+-
++#endif
+ 	return 0;
+ }
+-- 
+2.34.1
+
