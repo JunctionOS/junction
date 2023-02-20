@@ -163,16 +163,19 @@ junction_syscall_full_trap:
 	movq    %gs:__perthread___self(%rip), %r11
 	movq    JUNCTION_STACK_OFFSET(%r11), %r10 // stack
 	cmpq    %rsp, %r10
-	jb      1f
+	ja      1f
 
 	addq    $JUNCTION_STACK_SIZE, %r10
 	cmpq    %rsp, %r10
-	jb      1f
+	jbe     1f
 
+	// make stack switch a no-op
+	movq    %rsp, %r10
+
+1:
 	// switch stacks
 	movq    %r10, %rsp
 
-1:
 	// allocate stack space for redzone and xsave area
 	subq    $(REDZONE_SIZE + XSAVE_BYTES), %rsp
 	andq    $-64, %rsp
