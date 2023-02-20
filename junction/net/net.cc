@@ -127,6 +127,16 @@ long usys_setsockopt(int sockfd, [[maybe_unused]] int level,
   return 0;
 }
 
+long usys_getsockopt(int sockfd, [[maybe_unused]] int level,
+                     [[maybe_unused]] int option_name,
+                     [[maybe_unused]] void *option_value,
+                     [[maybe_unused]] socklen_t *option_len) {
+  auto sock_ret = FDToSocket(sockfd);
+  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  LOG_ONCE(WARN) << "Unsupported: getsockopt";
+  return 0;
+}
+
 ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
                       struct sockaddr *src_addr, socklen_t *addrlen) {
   flags = flags & ~kMsgNoSignal;

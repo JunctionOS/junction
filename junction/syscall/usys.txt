@@ -39,6 +39,7 @@ socket
 bind
 connect
 setsockopt
+getsockopt
 recvfrom
 sendto
 sendmsg

@@ -53,6 +53,8 @@ int usys_munmap(void *addr, size_t len);
 long usys_socket(int domain, int type, int protocol);
 long usys_bind(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
 long usys_connect(int sockfd, const struct sockaddr *addr, socklen_t addrlen);
+long usys_getsockopt(int sockfd, int level, int optname, void *optval,
+                     socklen_t *optlen);
 long usys_setsockopt(int socket, int level, int option_name,
                      const void *option_value, socklen_t option_len);
 ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
