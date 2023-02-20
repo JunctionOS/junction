@@ -37,9 +37,8 @@ class EventFdFile : public File {
                        [[maybe_unused]] off_t *off) override;
 
  private:
-  inline bool is_nonblocking() const { return get_flags() & kFlagNonblock; }
-
-  inline bool is_semaphore() const { return get_flags() & kEventFdSemaphore; }
+  bool is_nonblocking() const { return get_flags() & kFlagNonblock; }
+  bool is_semaphore() const { return get_flags() & kEventFdSemaphore; }
 
   rt::Spin lock_;
   rt::WaitQueue queue_;

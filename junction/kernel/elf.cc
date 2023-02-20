@@ -265,9 +265,8 @@ Status<elf_data> LoadELF(std::string_view path) {
   if (!hdr) return MakeError(hdr);
 
   // Check if the ELF type is supported.
-  if (hdr->type != kETypeExec && hdr->type != kETypeDynamic) {
+  if (hdr->type != kETypeExec && hdr->type != kETypeDynamic)
     return MakeError(EINVAL);
-  }
 
   // Load the PHDR table.
   Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);

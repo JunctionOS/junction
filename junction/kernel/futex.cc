@@ -4,6 +4,7 @@ extern "C" {
 #include <linux/futex.h>
 }
 
+#include "junction/base/finally.h"
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
 #include "junction/kernel/futex.h"
@@ -32,20 +33,19 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
       thread_ready(waiter.th);
     }
   });
+  auto f = finally([timeout_us, &timer] { timer.Cancel(); });
   if (timeout_us) timer.Start(*timeout_us);
 
   // Wait for a wakeup.
   bucket.lock.Lock();
   if (read_once(*key) != val) {
     bucket.lock.Unlock();
-    timer.Cancel();
     return MakeError(EAGAIN);
   }
   bucket.futexes.push_back(waiter);
   bucket.lock.UnlockAndPark();
 
   // Cancel the timer if pending and return.
-  timer.Cancel();
   if (waiter.th) return MakeError(ETIMEDOUT);
   return {};
 }

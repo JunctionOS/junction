@@ -52,12 +52,12 @@ int DoPoll(struct pollfd *fds, nfds_t nfds,
   rt::ThreadWaker th;
 
   // Setup a trigger for the timer (if needed).
-  rt::Timer timeout_trigger([&lock, &th, &timed_out] {
+  rt::Timer timer([&lock, &th, &timed_out] {
     timed_out = true;
     rt::SpinGuard g(lock);
     th.Wake();
   });
-  if (timeout_us) timeout_trigger.Start(*timeout_us);
+  if (timeout_us) timer.Start(*timeout_us);
 
   // Pack args to avoid heap allocations.
   struct {
@@ -107,7 +107,7 @@ int DoPoll(struct pollfd *fds, nfds_t nfds,
     }
   }
 
-  if (timeout_us) timeout_trigger.Cancel();
+  if (timeout_us) timer.Cancel();
   return nevents;
 }
 
@@ -207,12 +207,12 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   rt::ThreadWaker th;
 
   // Setup a trigger for the timer (if needed).
-  rt::Timer timeout_trigger([&lock, &th, &timed_out] {
+  rt::Timer timer([&lock, &th, &timed_out] {
     timed_out = true;
     rt::SpinGuard g(lock);
     th.Wake();
   });
-  if (timeout_us) timeout_trigger.Start(*timeout_us);
+  if (timeout_us) timer.Start(*timeout_us);
 
   // Pack args to avoid heap allocations.
   struct {
@@ -259,7 +259,7 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     }
   }
 
-  if (timeout_us) timeout_trigger.Cancel();
+  if (timeout_us) timer.Cancel();
   return EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
 }
 

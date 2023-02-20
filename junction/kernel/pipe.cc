@@ -77,8 +77,10 @@ Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
     rt::SpinGuard guard(lock_);
     if (chan_.is_empty()) read_poll_->Clear(kPollIn);
     if (writer_is_closed()) return n;
-    if (!chan_.is_full()) write_poll_->Set(kPollOut);
-    write_waker_.Wake();
+    if (!chan_.is_full()) {
+      write_poll_->Set(kPollOut);
+      write_waker_.Wake();
+    }
   }
   return n;
 }
@@ -112,8 +114,10 @@ Status<size_t> Pipe::Write(std::span<const std::byte> buf, bool nonblocking) {
     rt::SpinGuard guard(lock_);
     if (chan_.is_full()) write_poll_->Clear(kPollOut);
     if (reader_is_closed()) return MakeError(EPIPE);
-    if (!chan_.is_empty()) read_poll_->Set(kPollIn);
-    read_waker_.Wake();
+    if (!chan_.is_empty()) {
+      read_poll_->Set(kPollIn);
+      read_waker_.Wake();
+    }
   }
   return n;
 }
@@ -121,16 +125,19 @@ Status<size_t> Pipe::Write(std::span<const std::byte> buf, bool nonblocking) {
 void Pipe::CloseReader() {
   rt::SpinGuard guard(lock_);
   reader_closed_.store(true, std::memory_order_release);
-  write_waker_.Wake();
-  if (!writer_is_closed())
+  if (!writer_is_closed()) {
     write_poll_->Set(kPollErr);  // POSIX requires this for pipe, not kPollRdHUp
+    write_waker_.Wake();
+  }
 }
 
 void Pipe::CloseWriter() {
   rt::SpinGuard guard(lock_);
   writer_closed_.store(true, std::memory_order_release);
-  read_waker_.Wake();
-  if (!reader_is_closed()) read_poll_->Set(kPollHUp);
+  if (!reader_is_closed()) {
+    read_poll_->Set(kPollHUp);
+    read_waker_.Wake();
+  }
 }
 
 class PipeReaderFile : public File {
