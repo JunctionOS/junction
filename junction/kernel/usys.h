@@ -16,6 +16,8 @@ struct clone_args;
 #include <cstdint>
 
 namespace junction {
+struct kernel_sigset_t;
+
 extern "C" {
 
 // File
@@ -123,8 +125,8 @@ int usys_socketpair(int domain, int type, int protocol, int sv[2]);
 // Signals
 long usys_rt_sigaction(int sig, const struct sigaction *action,
                        struct sigaction *oact, size_t sigsetsize);
-long usys_rt_sigprocmask(int how, sigset_t *nset, sigset_t *oset,
-                         size_t sigsetsize);
+long usys_rt_sigprocmask(int how, const kernel_sigset_t *nset,
+                         kernel_sigset_t *oset, size_t sigsetsize);
 long usys_sigaltstack(const stack_t *ss, stack_t *old_ss);
 
 // Eventfd
