@@ -6,6 +6,7 @@ extern "C" {
 }
 
 #include <memory>
+#include <variant>
 
 #include "junction/base/error.h"
 #include "junction/bindings/net.h"
@@ -28,7 +29,7 @@ class TCPSocket : public Socket {
   TCPSocket(rt::TCPConn conn, int flags = 0) noexcept
       : Socket(flags),
         state_(SocketState::kSockConnected),
-        conn_(std::move(conn)) {}
+        v_(std::move(conn)) {}
 
   ~TCPSocket() override = default;
 
@@ -46,7 +47,7 @@ class TCPSocket : public Socket {
     Status<rt::TCPQueue> ret = rt::TCPQueue::Listen(addr_, backlog);
     if (unlikely(!ret)) return MakeError(ret);
     if (is_nonblocking()) ret->SetNonBlocking(true);
-    listen_q_ = std::move(*ret);
+    v_ = std::move(*ret);
     state_ = SocketState::kSockListening;
     if (IsPollSourceSetup()) SetupPollSource();
     return {};
@@ -56,7 +57,7 @@ class TCPSocket : public Socket {
     // Some applications probe the nonblocking socket by calling connect()
     if (state_ == SocketState::kSockConnected) {
       if (!is_nonblocking()) return MakeError(EISCONN);
-      return conn_.GetStatus();
+      return TcpConn().GetStatus();
     }
 
     if (unlikely(state_ != SocketState::kSockUnbound &&
@@ -68,10 +69,10 @@ class TCPSocket : public Socket {
     else
       ret = rt::TCPConn::Dial(addr_, addr);
     if (unlikely(!ret)) return MakeError(ret);
-    conn_ = std::move(*ret);
+    v_ = std::move(*ret);
     state_ = SocketState::kSockConnected;
     if (IsPollSourceSetup()) SetupPollSource();
-    if (is_nonblocking()) return conn_.GetStatus();
+    if (is_nonblocking()) return TcpConn().GetStatus();
     return {};
   }
 
@@ -184,14 +185,13 @@ class TCPSocket : public Socket {
       TcpConn().SetNonBlocking(nonblocking);
   }
 
-  [[nodiscard]] rt::TCPConn &TcpConn() { return conn_; }
-  [[nodiscard]] rt::TCPQueue &TcpQueue() { return listen_q_; }
+  [[nodiscard]] rt::TCPConn &TcpConn() { return std::get<rt::TCPConn>(v_); }
+  [[nodiscard]] rt::TCPQueue &TcpQueue() { return std::get<rt::TCPQueue>(v_); }
 
   SocketState state_;
   netaddr addr_{0, 0};
   std::atomic_bool is_shut_{false};
-  rt::TCPConn conn_;
-  rt::TCPQueue listen_q_;
+  std::variant<rt::TCPConn, rt::TCPQueue> v_;
 };
 
 }  // namespace junction
