@@ -64,6 +64,7 @@ __always_inline void do_free(void *ptr) {
   if (likely(runtime.ready)) {
     rt::RuntimeLibcGuard guard;
     std::free(ptr);
+    return;
   }
 
   // But call directly if the runtime is not initialized yet.

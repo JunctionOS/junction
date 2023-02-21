@@ -1,10 +1,11 @@
+#include "junction/junction.h"
+
 #include <boost/program_options.hpp>
 #include <memory>
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/filesystem/linuxfs.h"
-#include "junction/junction.h"
 #include "junction/kernel/fs.h"
 #include "junction/kernel/proc.h"
 #include "junction/shim/backend/init.h"
