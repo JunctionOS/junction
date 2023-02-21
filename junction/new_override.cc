@@ -23,7 +23,7 @@ struct alignas(kCacheLineSize) {
   bool ready;
 } runtime;
 
-void *do_new(size_t size) {
+__always_inline void *do_new(size_t size) {
   // Handle the case where the runtime is not initialized
   if (unlikely(!runtime.ready)) return std::malloc(size);
 
@@ -37,7 +37,7 @@ void *do_new(size_t size) {
   return smalloc(size);
 }
 
-void *do_new_aligned(size_t size, std::align_val_t a) {
+__always_inline void *do_new_aligned(size_t size, std::align_val_t a) {
   auto align = static_cast<size_t>(a);
 
   // Handle the case where the runtime is not initialized
@@ -53,7 +53,7 @@ void *do_new_aligned(size_t size, std::align_val_t a) {
   return smalloc(AlignUp(size, align));
 }
 
-void do_free(void *ptr) {
+__always_inline void do_free(void *ptr) {
   // Hot path: free memory using the runtine
   if (likely(is_page_addr(ptr))) {
     sfree(ptr);
