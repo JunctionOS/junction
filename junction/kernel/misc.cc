@@ -44,6 +44,7 @@ long usys_setrlimit([[maybe_unused]] int resource,
 long usys_prlimit64([[maybe_unused]] pid_t pid, [[maybe_unused]] int resource,
                     [[maybe_unused]] const struct rlimit *new_limit,
                     struct rlimit *old_limit) {
+  if (new_limit) return -EPERM;
   if (old_limit) {
     old_limit->rlim_cur = RLIM_INFINITY;
     old_limit->rlim_max = RLIM_INFINITY;

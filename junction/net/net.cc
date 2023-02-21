@@ -248,4 +248,13 @@ long usys_getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
   return 0;
 }
 
+long usys_ioctl(int fd, unsigned long request, [[maybe_unused]] char *argp) {
+  auto sock_ret = FDToSocket(fd);
+  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  Socket &s = sock_ret.value().get();
+  Status<void> ret = s.Ioctl(request, argp);
+  if (unlikely(!ret)) return MakeCError(ret);
+  return 0;
+}
+
 }  // namespace junction

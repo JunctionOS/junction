@@ -1,6 +1,5 @@
 extern "C" {
 #include <fcntl.h>
-#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 }
@@ -238,9 +237,11 @@ ssize_t usys_sendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
   File *fout = ftbl.Get(out_fd);
   if (unlikely(!fout || fout->get_mode() == kModeRead)) return -EBADF;
   File *fin = ftbl.Get(in_fd);
-  if (unlikely(!fin || fin->get_mode() == kModeWrite)) return -EBADF;
+  if (unlikely(!fin || fin->get_mode() == kModeWrite ||
+               fin->get_type() == FileType::kSocket))
+    return -EBADF;
   std::vector<std::byte> buf(count);
-  off_t off = offset ? *offset : fin->get_off_ref();
+  off_t &off = offset ? *offset : fin->get_off_ref();
   Status<size_t> ret = fin->Read(buf, &off);
   if (!ret) return MakeCError(ret);
   ret = fout->Write(buf, &fout->get_off_ref());
@@ -358,21 +359,6 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
       return 0;
     default:
       LOG_ONCE(WARN) << "Unsupported fcntl cmd " << cmd;
-      return -EINVAL;
-  }
-}
-
-long usys_ioctl(int fd, unsigned long request, [[maybe_unused]] char *argp) {
-  FileTable &ftbl = myproc().get_file_table();
-  File *f = ftbl.Get(fd);
-  if (unlikely(!f)) return -EBADF;
-
-  switch (request) {
-    case FIONBIO:
-      f->set_flags(f->get_flags() | kFlagNonblock);
-      return 0;
-    default:
-      LOG_ONCE(WARN) << "Unsupported ioctl request: " << request;
       return -EINVAL;
   }
 }

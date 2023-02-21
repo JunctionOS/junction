@@ -41,6 +41,9 @@ class Socket : public File {
   }
   virtual Status<void> Listen(int backlog) { return MakeError(ENOTCONN); }
   virtual Status<void> Shutdown(int how) { return MakeError(ENOTCONN); }
+  virtual Status<void> Ioctl(unsigned long request, char *argp) {
+    return MakeError(EINVAL);
+  }
   virtual Status<netaddr> RemoteAddr() { return MakeError(ENOTCONN); }
   virtual Status<netaddr> LocalAddr() { return MakeError(ENOTCONN); }
 };

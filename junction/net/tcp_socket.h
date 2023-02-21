@@ -1,6 +1,10 @@
 // tcp_socket.h - TCP socket
 #pragma once
 
+extern "C" {
+#include <sys/ioctl.h>
+}
+
 #include <memory>
 
 #include "junction/base/error.h"
@@ -91,6 +95,17 @@ class TCPSocket : public Socket {
     }
 
     return MakeError(ENOTCONN);
+  }
+
+  Status<void> Ioctl(unsigned long request, [[maybe_unused]] char *argp) {
+    switch (request) {
+      case FIONBIO:
+        set_flags(get_flags() | kFlagNonblock);
+        return {};
+      default:
+        LOG_ONCE(WARN) << "Unsupported ioctl request: " << request;
+        return MakeError(EINVAL);
+    }
   }
 
   Status<netaddr> RemoteAddr() override {
