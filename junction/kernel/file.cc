@@ -246,7 +246,6 @@ ssize_t usys_sendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
   if (!ret) return MakeCError(ret);
   ret = fout->Write(buf, &fout->get_off_ref());
   if (!ret) return MakeCError(ret);
-  if (!offset) fin->get_off_ref() = *ret;
   return 0;
 }
 
