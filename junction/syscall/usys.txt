@@ -16,6 +16,7 @@ writev
 pwritev
 pwritev2
 pread64
+sendfile
 lseek
 fsync
 close
@@ -28,6 +29,7 @@ munmap
 newfstatat
 getdents
 getdents64
+mkdir
 dup
 dup2
 pipe
@@ -71,3 +73,8 @@ eventfd2
 getcwd
 fcntl
 socketpair
+uname
+getrlimit
+setrlimit
+prlimit64
+ioctl

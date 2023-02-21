@@ -61,6 +61,10 @@ class FileSystem {
                                              uint32_t mode, uint32_t flags) {
     return nullptr;
   }
+  virtual Status<void> CreateDirectory(const std::string_view &pathname,
+                                       uint32_t mode) {
+    return MakeError(EINVAL);
+  }
 
  protected:
   std::shared_ptr<Inode> root_;  // the root directory of the file system

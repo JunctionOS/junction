@@ -82,6 +82,8 @@ class LinuxFileSystem : public FileSystem {
   virtual Status<std::shared_ptr<File>> Open(const std::string_view& pathname,
                                              uint32_t mode,
                                              uint32_t flags) override;
+  virtual Status<void> CreateDirectory(const std::string_view& pathname,
+                                       uint32_t mode) override;
 
   friend std::ostream& operator<<(std::ostream& os, const LinuxFileSystem& fs);
 

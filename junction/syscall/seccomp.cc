@@ -81,6 +81,8 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(clock_gettime),
       ALLOW_JUNCTION_SYSCALL(writev),
       ALLOW_JUNCTION_SYSCALL(exit_group),
+      // TODO(girfan): Remove after merging VFS changes
+      ALLOW_JUNCTION_SYSCALL(mkdir),
 
       TRAP,
   };

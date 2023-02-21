@@ -15,6 +15,7 @@ extern "C" {
 #include "junction/filesystem/linuxfile.h"
 #include "junction/filesystem/linuxfs.h"
 #include "junction/kernel/file.h"
+#include "junction/kernel/ksys.h"
 
 namespace {
 
@@ -258,6 +259,15 @@ Status<std::shared_ptr<File>> LinuxFileSystem::Open(
 
   if (!f) return MakeError(EINVAL);
   return f;
+}
+
+Status<void> LinuxFileSystem::CreateDirectory(const std::string_view& pathname,
+                                              uint32_t mode) {
+  // TODO(girfan): Remove after merging VFS changes
+  long ret = ksys_default(reinterpret_cast<unsigned long>(pathname.data()),
+                          mode, 0, 0, 0, 0, __NR_mkdir);
+  if (ret) return MakeError(ret);
+  return {};
 }
 
 std::ostream& operator<<(std::ostream& os, const LinuxFileSystem& fs) {

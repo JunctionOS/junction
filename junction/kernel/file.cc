@@ -1,5 +1,6 @@
 extern "C" {
 #include <fcntl.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 }
@@ -231,6 +232,23 @@ ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
   return static_cast<ssize_t>(*ret);
 }
 
+// TODO(girfan): Inefficient; extra copy can be removed?
+ssize_t usys_sendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *fout = ftbl.Get(out_fd);
+  if (unlikely(!fout || fout->get_mode() == kModeRead)) return -EBADF;
+  File *fin = ftbl.Get(in_fd);
+  if (unlikely(!fin || fin->get_mode() == kModeWrite)) return -EBADF;
+  std::vector<std::byte> buf(count);
+  off_t off = offset ? *offset : fin->get_off_ref();
+  Status<size_t> ret = fin->Read(buf, &off);
+  if (!ret) return MakeCError(ret);
+  ret = fout->Write(buf, &fout->get_off_ref());
+  if (!ret) return MakeCError(ret);
+  if (!offset) fin->get_off_ref() = *ret;
+  return 0;
+}
+
 off_t usys_lseek(int fd, off_t offset, int whence) {
   // TODO(amb): validate whence
   FileTable &ftbl = myproc().get_file_table();
@@ -325,8 +343,10 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
     case F_GETFD:
       /* fallthrough */
     case F_SETFD:
+      // TODO(girfan): If/when we handle exec* calls, we should track these fds
+      // and handle fd flags like FD_CLOEXEC.
       LOG_ONCE(WARN) << "fcntl: F_GET/SETFD not implemented";
-      return -EINVAL;
+      return 0;
     case F_GETFL:
       return f->get_mode() | f->get_flags();
     case F_SETFL:
@@ -340,6 +360,28 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
       LOG_ONCE(WARN) << "Unsupported fcntl cmd " << cmd;
       return -EINVAL;
   }
+}
+
+long usys_ioctl(int fd, unsigned long request, [[maybe_unused]] char *argp) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+
+  switch (request) {
+    case FIONBIO:
+      f->set_flags(f->get_flags() | kFlagNonblock);
+      return 0;
+    default:
+      LOG_ONCE(WARN) << "Unsupported ioctl request: " << request;
+      return -EINVAL;
+  }
+}
+
+long usys_mkdir(const char *pathname, mode_t mode) {
+  FileSystem *fs = get_fs();
+  Status<void> ret = fs->CreateDirectory(pathname, mode);
+  if (!ret) return MakeCError(ret);
+  return 0;
 }
 
 }  // namespace junction

@@ -5,10 +5,12 @@ extern "C" {
 #include <sched.h>
 #include <signal.h>
 #include <sys/epoll.h>
+#include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/utsname.h>
 #include <time.h>
 struct clone_args;
 }
@@ -31,6 +33,7 @@ ssize_t usys_writev(int fd, const iovec *iov, int iovcnt);
 ssize_t usys_pwritev(int fd, const iovec *iov, int iovcnt, off_t offset);
 ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
                       int flags);
+ssize_t usys_sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 off_t usys_lseek(int fd, off_t offset, int whence);
 int usys_fsync(int fd);
 int usys_dup(int oldfd);
@@ -43,6 +46,7 @@ long usys_getdents64(unsigned int fd, void *dirp, unsigned int count);
 int usys_pipe(int pipefd[2]);
 int usys_pipe2(int pipefd[2], int flags);
 long usys_fcntl(int fd, unsigned int cmd, unsigned long arg);
+long usys_mkdir(const char *pathname, mode_t mode);
 
 // Memory
 uintptr_t usys_brk(uintptr_t addr);
@@ -121,6 +125,12 @@ long usys_clock_nanosleep(clockid_t clockid, int flags,
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);
 ssize_t usys_getcwd(char *buf, size_t size);
 int usys_socketpair(int domain, int type, int protocol, int sv[2]);
+long usys_uname(struct utsname *buf);
+long usys_getrlimit(int resource, struct rlimit *rlim);
+long usys_setrlimit(int resource, const struct rlimit *rlim);
+long usys_prlimit64(pid_t pid, int resource, const struct rlimit *new_limit,
+                    struct rlimit *old_limit);
+long usys_ioctl(int fd, unsigned long request, char *argp);
 
 // Signals
 long usys_rt_sigaction(int sig, const struct sigaction *action,
