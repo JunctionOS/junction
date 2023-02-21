@@ -10,6 +10,7 @@ namespace junction {
 
 void JunctionMain(int argc, char *argv[]) {
   // initialize junction
+  EnableMemoryAllocation();
   Status<void> ret = init();
   BUG_ON(!ret);
 

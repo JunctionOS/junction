@@ -70,6 +70,7 @@ add_subdirectory(shim)
 # Build junction
 add_library(junction
   junction.cc
+  new_override.cc
 )
 target_link_libraries(junction INTERFACE
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"

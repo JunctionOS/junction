@@ -51,5 +51,6 @@ JunctionCfg &GetCfg();
 
 Status<void> init();
 Status<void> InitTestProc();
+void EnableMemoryAllocation();
 
 }  // namespace junction

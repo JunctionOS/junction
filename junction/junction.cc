@@ -1,7 +1,3 @@
-extern "C" {
-#include <runtime/smalloc.h>
-}
-
 #include <boost/program_options.hpp>
 #include <memory>
 
@@ -106,59 +102,3 @@ Status<void> init() {
 }
 
 }  // namespace junction
-
-// Override global new and delete operators
-inline void *__new(size_t size) {
-  if (likely(base_init_done && thread_self()))
-    return smalloc(size);
-  else
-    return malloc(size);
-}
-
-void *operator new(size_t size, const std::nothrow_t &nothrow_value) noexcept {
-  return __new(size);
-}
-
-void *operator new(size_t size) throw() {
-  void *ptr = __new(size);
-  if (unlikely(size && !ptr)) throw std::bad_alloc();
-  return ptr;
-}
-
-void *operator new[](size_t size) throw() {
-  void *ptr = __new(size);
-  if (unlikely(size && !ptr)) throw std::bad_alloc();
-  return ptr;
-}
-
-void *operator new(size_t size, std::align_val_t align) throw() {
-  // TODO(amb): need to implement alignment support
-  void *ptr = __new(size);
-  if (unlikely(size && !ptr)) throw std::bad_alloc();
-  return ptr;
-}
-
-void operator delete(void *ptr) noexcept {
-  if (!ptr) return;
-  if (likely(base_init_done && thread_self()))
-    sfree(ptr);
-  else
-    ;  // memory is being freed at teardown, probably ok to leak?
-}
-
-void operator delete[](void *ptr) noexcept {
-  if (!ptr) return;
-  if (likely(base_init_done && thread_self()))
-    sfree(ptr);
-  else
-    ;  // memory is being freed at teardown, probably ok to leak?
-}
-
-void operator delete(void *ptr, std::align_val_t align) noexcept {
-  // TODO(amb): need to implement alignment support
-  if (!ptr) return;
-  if (likely(base_init_done && thread_self()))
-    sfree(ptr);
-  else
-    ;  // memory is being freed at teardown, probably ok to leak?
-}
