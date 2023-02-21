@@ -1,12 +1,26 @@
-From d896151560320378c91cd0a4cced2bcc10dbb1ae Mon Sep 17 00:00:00 2001
+From 6d7f968242ab5aa6ca7ff3e18371245217ba521f Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
-Subject: [PATCH 23/23] add sigaltstack; BREAKS PREEMPTION
+Subject: [PATCH 23/24] add sigaltstack; BREAKS PREEMPTION
 
 ---
- runtime/preempt.c | 15 ++++++++++++++-
- 1 file changed, 14 insertions(+), 1 deletion(-)
+ inc/runtime/thread.h |  1 +
+ runtime/preempt.c    | 15 ++++++++++++++-
+ runtime/sched.c      |  7 +++++++
+ 3 files changed, 22 insertions(+), 1 deletion(-)
 
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index cc9cf91..0f79da8 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -99,6 +99,7 @@ struct stack;
+ struct thread {
+     struct thread_tf    tf;
+     struct list_node    link;
++    struct stack        *syscallstack;
+     struct stack        *stack;
+     unsigned int        main_thread:1;
+     unsigned int        has_fsbase:1;
 diff --git a/runtime/preempt.c b/runtime/preempt.c
 index b49ab72..470051e 100644
 --- a/runtime/preempt.c
@@ -60,6 +74,31 @@ index b49ab72..470051e 100644
 +#endif
  	return 0;
  }
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 828be86..abe085d 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -830,6 +830,11 @@ static __always_inline thread_t *__thread_create(void)
+ 	preempt_enable();
+ 
+ 	th->stack = s;
++	th->syscallstack = stack_alloc();
++
++	BUG_ON(!th->syscallstack);
++
++
+ 	th->main_thread = false;
+ 	th->has_fsbase = false;
+ 	th->thread_ready = false;
+@@ -954,6 +959,8 @@ static void thread_finish_exit(void)
+ 	gc_remove_thread(th);
+ 	if (th->stack)
+ 		stack_free(th->stack);
++	if (th->syscallstack)
++		stack_free(th->syscallstack);
+ 	tcache_free(perthread_ptr(thread_pt), th);
+ 	perthread_store(__self, NULL);
+ 
 -- 
 2.34.1
 

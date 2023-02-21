@@ -159,21 +159,10 @@ junction_syscall_full_trap:
 	// move arg4 to %rcx per function call convention
 	movq    %r10, %rcx
 
-	// Maybe switch stacks
+	// switch stacks
 	movq    %gs:__perthread___self(%rip), %r11
 	movq    JUNCTION_STACK_OFFSET(%r11), %r10 // stack
-	cmpq    %rsp, %r10
-	ja      1f
-
 	addq    $JUNCTION_STACK_SIZE, %r10
-	cmpq    %rsp, %r10
-	jbe     1f
-
-	// make stack switch a no-op
-	movq    %rsp, %r10
-
-1:
-	// switch stacks
 	movq    %r10, %rsp
 
 	// allocate stack space for redzone and xsave area

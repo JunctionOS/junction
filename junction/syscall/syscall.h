@@ -11,7 +11,7 @@ Status<void> SyscallInit();
 // Update in entry.S if changed.
 static_assert(offsetof(thread, junction_tf) == JUNCTION_TF_OFF);
 static_assert(offsetof(thread, xsave_area) == JUNCTION_XSAVEPTR_OFF);
-static_assert(offsetof(thread, stack) == JUNCTION_STACK_OFFSET);
+static_assert(offsetof(thread, syscallstack) == JUNCTION_STACK_OFFSET);
 
 unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
                            long arg4, long arg5, long syscall);

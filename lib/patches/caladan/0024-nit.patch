@@ -1,0 +1,26 @@
+From 41f2dd886253aaf76c7d20b47d6336dd2e1b1140 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Mon, 20 Feb 2023 23:40:18 -0500
+Subject: [PATCH 24/24] nit
+
+---
+ inc/base/compiler.h | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/inc/base/compiler.h b/inc/base/compiler.h
+index 50bcd8d..de47622 100644
+--- a/inc/base/compiler.h
++++ b/inc/base/compiler.h
+@@ -10,7 +10,9 @@
+ #ifndef unlikely
+ #define unlikely(x) __builtin_expect(!!(x), 0)
+ #endif
++#ifndef __cplusplus
+ #define unreachable() __builtin_unreachable()
++#endif
+ 
+ #define prefetch0(x) __builtin_prefetch((x), 0, 3)
+ #define prefetch1(x) __builtin_prefetch((x), 0, 2)
+-- 
+2.34.1
+
