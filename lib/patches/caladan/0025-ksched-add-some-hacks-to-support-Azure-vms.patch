@@ -1,0 +1,196 @@
+From f09676b43d42b715dc4d577269e46491bad19136 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Wed, 29 Jun 2022 03:29:09 +0000
+Subject: [PATCH 9/9] ksched: add some hacks to support Azure vms
+
+- a fake cpuidle driver that can be loaded to satisfy ksched's needs
+- a fake mwait implementation that spin polls memory locations at 1us intervals
+---
+ ksched/Kbuild            |  3 +-
+ ksched/fake_idle.c       | 88 ++++++++++++++++++++++++++++++++++++++++
+ ksched/ksched.c          | 21 ++++++++--
+ scripts/setup_machine.sh |  5 +++
+ 4 files changed, 111 insertions(+), 6 deletions(-)
+ create mode 100644 ksched/fake_idle.c
+
+diff --git a/ksched/Kbuild b/ksched/Kbuild
+index 6354297..54de6e3 100644
+--- a/ksched/Kbuild
++++ b/ksched/Kbuild
+@@ -1,2 +1 @@
+-obj-m += ksched.o
+-# CFLAGS_ksched.o += -DSUPPRESS_CUSTOMIZED_IPI_HANDLER
++obj-m += ksched.o fake_idle.o
+diff --git a/ksched/fake_idle.c b/ksched/fake_idle.c
+new file mode 100644
+index 0000000..d3cc608
+--- /dev/null
++++ b/ksched/fake_idle.c
+@@ -0,0 +1,88 @@
++#include <linux/cpu.h>
++#include <linux/cpuidle.h>
++#include <linux/kobject.h>
++#include <linux/module.h>
++#include <linux/moduleparam.h>
++#include <linux/sched.h>
++
++static struct kobject *kobj;
++static int unloaded;
++static int refcnt_for_unload;
++
++static int __cpuidle fake_idle(struct cpuidle_device *dev,
++                                 struct cpuidle_driver *drv, int index)
++{
++  return index;
++}
++
++static struct cpuidle_driver fake_idle_driver = {
++        .name = "fake_idle",
++        .owner = THIS_MODULE,
++        .states = {
++                {
++                        .enter                  = fake_idle,
++                        .exit_latency           = 1,
++                        .target_residency       = 1,
++                        .name                   = "",
++                        .desc                   = "",
++		},
++        },
++        .safe_state_index = 0,
++        .state_count = 1,
++};
++
++static ssize_t unload_store(struct kobject *kobj, struct kobj_attribute *attr,
++                                   const char *buf, size_t count) {
++  if (unloaded) return -ENODEV;
++  if (atomic_read(&THIS_MODULE->refcnt) + 1 != refcnt_for_unload) return -EBUSY;
++  unloaded = 1;
++  cpuidle_unregister(&fake_idle_driver);
++  return count;
++}
++
++static ssize_t unload_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf){
++   return sprintf(buf, "%s\n", unloaded ? "unloaded" : "loaded");
++}
++
++static struct kobj_attribute unload_attr = __ATTR(unload, 0644, unload_show, unload_store);
++
++static int __init create_sysfs_entry(void)
++{
++  int err;
++
++  kobj = kobject_create_and_add("fake_idle", NULL);
++  if (kobj == NULL)
++    return -ENOMEM;
++  err = sysfs_create_file(kobj, &unload_attr.attr);
++  if (err)
++    kobject_put(kobj);
++
++  return err;
++}
++
++static int __init fake_idle_init(void)
++{
++  int err;
++
++
++  err = create_sysfs_entry();
++  if (err)
++    return err;
++
++  err = cpuidle_register(&fake_idle_driver, NULL);
++  if (err)
++    kobject_put(kobj);
++
++  refcnt_for_unload = atomic_read(&THIS_MODULE->refcnt);
++  return err;
++}
++
++static void __exit fake_idle_exit(void)
++{
++  kobject_put(kobj);
++}
++
++module_init(fake_idle_init);
++module_exit(fake_idle_exit);
++
++MODULE_LICENSE("GPL");
+diff --git a/ksched/ksched.c b/ksched/ksched.c
+index e6ab72d..5a49bbe 100644
+--- a/ksched/ksched.c
++++ b/ksched/ksched.c
+@@ -166,13 +166,25 @@ static void ksched_next_tid(struct ksched_percpu *kp, int cpu, pid_t tid)
+ 	return;
+ }
+ 
++static bool has_mwait;
++
+ static int ksched_mwait_on_addr(const unsigned int *addr, unsigned int hint,
+ 				unsigned int val)
+ {
+ 	unsigned int cur;
++	size_t i;
+ 
+ 	lockdep_assert_irqs_disabled();
+ 
++	if (!has_mwait) {
++		for (i = 0; i < 10; i++) {
++			cur = READ_ONCE(*addr);
++			if (cur != val) return cur;
++			udelay(1);
++		}
++		return cur;
++	}
++
+ 	/* first see if the condition is met without waiting */
+ 	cur = smp_load_acquire(addr);
+ 	if (cur != val)
+@@ -464,6 +476,7 @@ static int __init ksched_cpuidle_hijack(void)
+ 	backup_state_count = drv->state_count;
+ 	drv->states[0].enter = ksched_idle;
+ 	drv->state_count = 1;
++	try_module_get(drv->owner);
+ 	cpuidle_resume_and_unlock();
+ 
+ 	return 0;
+@@ -480,6 +493,7 @@ static void __exit ksched_cpuidle_unhijack(void)
+ 	cpuidle_pause_and_lock();
+ 	drv->states[0] = backup_state;
+ 	drv->state_count = backup_state_count;
++	module_put(drv->owner);
+ 	cpuidle_resume_and_unlock();
+ }
+ 
+@@ -497,10 +511,9 @@ static int __init ksched_init(void)
+ 	dev_t devno_ksched = MKDEV(KSCHED_MAJOR, KSCHED_MINOR);
+ 	int ret;
+ 
+-	if (!cpu_has(&boot_cpu_data, X86_FEATURE_MWAIT)) {
+-		printk(KERN_ERR "ksched: mwait support is required");
+-		return -ENOTSUPP;
+-	}
++	has_mwait = cpu_has(&boot_cpu_data, X86_FEATURE_MWAIT);
++	if (!has_mwait)
++		printk(KERN_ERR "ksched: mwait support is missing");
+ 
+ 	ret = register_chrdev_region(devno_ksched, 1, "ksched");
+ 	if (ret)
+diff --git a/scripts/setup_machine.sh b/scripts/setup_machine.sh
+index c8bed08..79cb93c 100755
+--- a/scripts/setup_machine.sh
++++ b/scripts/setup_machine.sh
+@@ -8,6 +8,11 @@ sysctl -w vm.hugetlb_shm_group=27
+ sysctl -w vm.max_map_count=16777216
+ sysctl -w net.core.somaxconn=3072
+ 
++# check to see if we need a fake idle driver
++if grep -q none /sys/devices/system/cpu/cpuidle/current_driver; then
++  insmod $(dirname $0)/../ksched/build/fake_idle.ko
++fi
++
+ # set up the ksched module
+ rmmod ksched
+ rm /dev/ksched
+-- 
+2.34.1
+
