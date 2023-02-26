@@ -29,7 +29,7 @@ class alignas(kCacheLineSize) MemoryMap {
   }
 
   // Gets the break address (for the heap).
-  uintptr_t GetBreak() const { return brk_addr_; }
+  [[nodiscard]] uintptr_t GetBreak() const { return brk_addr_; }
 
   // Reserve space for a memory mapping. Returns nullptr if no space available.
   void *ReserveForMapping(size_t len) {

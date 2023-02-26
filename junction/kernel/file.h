@@ -123,13 +123,11 @@ class File {
   }
 
  protected:
-  [[nodiscard]] bool IsPollSourceSetup() { return poll_source_setup_; }
+  [[nodiscard]] bool IsPollSourceSetup() const { return poll_source_setup_; }
 
   // File implementations can override this method to subscribe to flag changes
   virtual void NotifyFlagsChanging(unsigned int oldflags,
                                    unsigned int newflags) {}
-
-  PollSource poll_;
 
  private:
   virtual void SetupPollSource() {}
@@ -139,6 +137,7 @@ class File {
   const unsigned int mode_;
   off_t off_{0};
   bool poll_source_setup_{false};
+  PollSource poll_;
 };
 
 namespace detail {

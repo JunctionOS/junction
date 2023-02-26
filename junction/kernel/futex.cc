@@ -21,6 +21,9 @@ FutexTable &FutexTable::GetFutexTable() {
 
 Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
                               std::optional<uint64_t> timeout_us) {
+  // Hot path: Don't need to block for a false condition.
+  if (read_once(*key) != val) return MakeError(EAGAIN);
+
   detail::futex_waiter waiter{thread_self(), key, bitset};
   detail::futex_bucket &bucket = get_bucket(key);
 
@@ -45,7 +48,7 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
   bucket.futexes.push_back(waiter);
   bucket.lock.UnlockAndPark();
 
-  // Cancel the timer if pending and return.
+  // Detect if there was a timeout and return.
   if (waiter.th) return MakeError(ETIMEDOUT);
   return {};
 }

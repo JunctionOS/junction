@@ -167,12 +167,13 @@ class TCPSocket : public Socket {
 
  private:
   void SetupPollSource() override {
+    PollSource &s = get_poll_source();
     if (state_ == SocketState::kSockListening)
       TcpQueue().InstallPollSource(PollSourceSet, PollSourceClear,
-                                   reinterpret_cast<unsigned long>(&poll_));
+                                   reinterpret_cast<unsigned long>(&s));
     else if (state_ == SocketState::kSockConnected)
       TcpConn().InstallPollSource(PollSourceSet, PollSourceClear,
-                                  reinterpret_cast<unsigned long>(&poll_));
+                                  reinterpret_cast<unsigned long>(&s));
   }
 
   void NotifyFlagsChanging(unsigned int oldflags,

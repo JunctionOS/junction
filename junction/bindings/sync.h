@@ -247,7 +247,7 @@ class RWMutex {
 class Barrier {
  public:
   Barrier(int count) noexcept { barrier_init(&b_, count); }
-  ~Barrier() {}
+  ~Barrier() = default;
 
   Barrier(Barrier &&) = delete;
   Barrier &operator=(Barrier &&) = delete;

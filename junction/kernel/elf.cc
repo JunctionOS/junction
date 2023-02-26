@@ -218,6 +218,7 @@ Status<std::tuple<uintptr_t, size_t>> LoadSegments(
   return std::make_tuple(map_off, map_len);
 }
 
+// LoadInterp loads an interpreter binary (usually ld.so).
 Status<elf_data::interp_data> LoadInterp(std::string_view path) {
   if (junction::GetCfg().get_interp_path().size())
     path = junction::GetCfg().get_interp_path();
@@ -251,6 +252,16 @@ Status<elf_data::interp_data> LoadInterp(std::string_view path) {
                                .entry_addr{hdr->entry + std::get<0>(*ret)}};
 }
 
+// FindPHDRByType returns the first PHDR of a type if one exists.
+std::optional<elf_phdr> FindPHDRByType(const std::vector<elf_phdr> &v,
+                                       uint32_t type) {
+  auto it = std::find_if(v.begin(), v.end(), [type](const elf_phdr &phdr) {
+    return phdr.type == type;
+  });
+  if (it == v.end()) return {};
+  return *it;
+}
+
 }  // namespace
 
 Status<elf_data> LoadELF(std::string_view path) {
@@ -274,14 +285,13 @@ Status<elf_data> LoadELF(std::string_view path) {
 
   // Load the interpreter (if present).
   std::optional<elf_data::interp_data> interp_data;
-  for (const elf_phdr &phdr : *phdrs) {
-    if (phdr.type != kPTypeInterp) continue;
-    Status<std::string> path = ReadInterp(*file, phdr);
+  std::optional<elf_phdr> phdr = FindPHDRByType(*phdrs, kPTypeInterp);
+  if (phdr) {
+    Status<std::string> path = ReadInterp(*file, *phdr);
     if (!path) return MakeError(path);
     Status<elf_data::interp_data> data = LoadInterp(*path);
     if (!data) return MakeError(data);
     interp_data = *data;
-    break;
   }
 
   // Load the PHDR segments.
@@ -291,11 +301,8 @@ Status<elf_data> LoadELF(std::string_view path) {
 
   // Look for a PHDR table segment
   uintptr_t phdr_va = 0;
-  for (const auto &phdr : *phdrs) {
-    if (phdr.type != kPTypeSelf) continue;
-    phdr_va = phdr.vaddr + std::get<0>(*ret);
-    break;
-  }
+  phdr = FindPHDRByType(*phdrs, kPTypeSelf);
+  if (phdr) phdr_va = phdr->vaddr + std::get<0>(*ret);
 
   LOG(INFO) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
 

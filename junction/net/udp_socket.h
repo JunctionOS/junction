@@ -97,8 +97,9 @@ class UDPSocket : public Socket {
  private:
   void SetupPollSource() override {
     if (!conn_.is_valid()) return;
+    PollSource &s = get_poll_source();
     conn_.InstallPollSource(PollSourceSet, PollSourceClear,
-                            reinterpret_cast<unsigned long>(&poll_));
+                            reinterpret_cast<unsigned long>(&s));
   }
 
   void NotifyFlagsChanging(unsigned int oldflags,
