@@ -23,8 +23,7 @@ constexpr unsigned int kEPollEdgeTriggered = EPOLLET;
 constexpr unsigned int kEPollOneShot = EPOLLONESHOT;
 constexpr unsigned int kEPollExclusive = EPOLLEXCLUSIVE;
 
-int DoPoll(struct pollfd *fds, nfds_t nfds,
-           std::optional<uint64_t> timeout_us) {
+int DoPoll(pollfd *fds, nfds_t nfds, std::optional<uint64_t> timeout_us) {
   int nevents = 0;
 
   // Check each file; if at least one has events, no need to block.
@@ -461,7 +460,7 @@ int CreateEPollFile() {
   return myproc().get_file_table().Insert(std::move(f));
 }
 
-int DoEPollWait(int epfd, struct epoll_event *events, int maxevents,
+int DoEPollWait(int epfd, epoll_event *events, int maxevents,
                 std::optional<uint64_t> timeout_us) {
   if (unlikely(maxevents < 0)) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
@@ -512,7 +511,7 @@ int usys_epoll_create(int size) { return CreateEPollFile(); }
 // TODO(amb): support FD_CLOEXEC flag
 int usys_epoll_create1(int flags) { return CreateEPollFile(); }
 
-int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event) {
+int usys_epoll_ctl(int epfd, int op, int fd, const struct epoll_event *event) {
   // get the epoll file
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(epfd);
