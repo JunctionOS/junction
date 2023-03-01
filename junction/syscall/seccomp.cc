@@ -52,7 +52,6 @@ Status<void> _install_seccomp_filter() {
       ALLOW_SYSCALL(geteuid),
       ALLOW_SYSCALL(getegid),
       ALLOW_SYSCALL(getgid),
-      ALLOW_SYSCALL(uname),
       ALLOW_SYSCALL(rename),
       ALLOW_SYSCALL(madvise),
       ALLOW_SYSCALL(restart_syscall),

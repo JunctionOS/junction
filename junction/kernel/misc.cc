@@ -6,10 +6,20 @@ extern "C" {
 #include <sys/utsname.h>
 }
 
+#include <cstring>
+
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
+
+namespace {
+utsname utsname = {.sysname = "Linux",
+                   .nodename = "junction",  // TODO: support hostnames?
+                   .release = "5.19.0",     // pretend to be this kernel
+                   .version = "#1 SMP",
+                   .machine = "x86_64"};
+}
 
 ssize_t usys_getcwd(char *buf, size_t size) {
   // TODO(amb): Remove this once the filesystem is more there
@@ -23,9 +33,9 @@ int usys_socketpair(int domain, int type, int protocol, int sv[2]) {
 }
 
 long usys_uname(struct utsname *buf) {
-  // TODO(girfan): Cache at junction init and re-use?
-  return ksys_default(reinterpret_cast<unsigned long>(buf), 0, 0, 0, 0, 0,
-                      __NR_uname);
+  if (!buf) return -EFAULT;
+  std::memcpy(buf, &utsname, sizeof(utsname));
+  return 0;
 }
 
 long usys_getrlimit([[maybe_unused]] int resource, struct rlimit *rlim) {
