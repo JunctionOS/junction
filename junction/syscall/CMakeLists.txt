@@ -5,10 +5,9 @@ message(STATUS "Building junction syscall")
 add_custom_command(
     OUTPUT  syscall_tbl.cc
     COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/systbl.py
-      ${CMAKE_CURRENT_SOURCE_DIR}/syscall_defs.txt
       ${CMAKE_CURRENT_SOURCE_DIR}/usys.txt
       ${CMAKE_CURRENT_BINARY_DIR}/syscall_tbl.cc
-    DEPENDS systbl.py syscall_defs.txt systbl.h usys.txt
+    DEPENDS systbl.py systbl.h usys.txt
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
 )
 

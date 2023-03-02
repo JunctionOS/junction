@@ -17,6 +17,8 @@ namespace junction {
 LinuxFile::LinuxFile(Token, int fd, int flags, mode_t mode) noexcept
     : File(FileType::kNormal, flags, mode), fd_(fd) {}
 
+LinuxFile::~LinuxFile() { ksys_close(fd_); }
+
 std::shared_ptr<LinuxFile> LinuxFile::Open(const std::string_view &pathname,
                                            int flags, mode_t mode) {
   int fd = ksys_open(pathname.data(), flags, mode);
@@ -55,14 +57,14 @@ Status<void *> LinuxFile::MMap(void *addr, size_t length, int prot, int flags,
   return reinterpret_cast<void *>(ret);
 }
 
-Status<int> LinuxFile::Stat(struct stat *statbuf, int flags) {
+Status<void> LinuxFile::Stat(struct stat *statbuf, int flags) {
   // For passing an empty string without initializing it each time.
   const static std::string empty;
 
   assert(flags & AT_EMPTY_PATH);
   int ret = ksys_newfstatat(fd_, empty.c_str() /* pathname */, statbuf, flags);
-  if (ret < 0) return MakeError(-ret);
-  return ret;
+  if (ret) return MakeError(-ret);
+  return {};
 }
 
 Status<int> LinuxFile::GetDents(void *dirp, unsigned int count) {

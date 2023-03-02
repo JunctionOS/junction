@@ -438,4 +438,40 @@ inline void WaitForever() {
   PreemptGuardAndPark g(p);
 }
 
+// Reader-Writer mutex; works with C++ std::unique_lock/std::shared_lock.
+class SharedMutex {
+ public:
+  SharedMutex() { rwmutex_init(&mu_); }
+  ~SharedMutex() = default;
+
+  // Locks the mutex in write mode.
+  void lock() { rwmutex_wrlock(&mu_); }
+
+  // Locks the mutex in write mode only if it is currently unlocked.
+  // Returns true if successful.
+  bool try_lock() { return rwmutex_try_wrlock(&mu_); }
+
+  // Unlocks the mutex.
+  void unlock() { rwmutex_unlock(&mu_); }
+
+  // Locks the mutex in read mode.
+  void lock_shared() { rwmutex_rdlock(&mu_); }
+
+  // Unlocks the mutex.
+  void unlock_shared() { rwmutex_unlock(&mu_); }
+
+  // Locks the mutex in read mode only if it is currently write unlocked.
+  // Returns true if successful.
+  bool try_lock_shared() { return rwmutex_try_rdlock(&mu_); }
+
+  /* no copying or moving*/
+  SharedMutex(const SharedMutex &) = delete;
+  SharedMutex &operator=(const SharedMutex &) = delete;
+  SharedMutex(SharedMutex &&) = delete;
+  SharedMutex &operator=(const SharedMutex &&) = delete;
+
+ private:
+  rwmutex_t mu_;
+};
+
 }  // namespace junction::rt

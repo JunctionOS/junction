@@ -9,7 +9,7 @@
 
 #include <csignal>
 
-/* Perform syscalls using glibc. */
+/* perform syscalls using glibc. */
 int test_glibc_syscall() {
   int fd = open("testdata/test.txt", O_RDONLY);
 

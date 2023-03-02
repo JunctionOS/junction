@@ -3,18 +3,30 @@
 import sys
 import os
 
-assert len(sys.argv) == 4
+assert len(sys.argv) == 3
 
-SYSCALL_DEFS = sys.argv[1]
-USYS_LIST = sys.argv[2]
-OUTPUT_FILE = sys.argv[3]
+USYS_LIST = sys.argv[1]
+OUTPUT_FILE = sys.argv[2]
 
 SYS_NR = 451
 
 TF_SAVE_SYSCALLS = set(["clone3", "clone"])
 
+# Header files scanned in the given order to get a list of syscall numbers.
+# The first file found is used.
+SYSCALL_DEFS_FILES = [
+	"/usr/include/asm/unistd_64.h",
+	"/usr/include/x86_64-linux-gnu/asm/unistd_64.h"
+]
+
 def gen_syscall_dict():
-	with open(SYSCALL_DEFS) as f:
+	syscall_defs_file = None
+	for file in SYSCALL_DEFS_FILES:
+		if os.path.exists(file):
+			syscall_defs_file = file
+			break
+	assert (syscall_defs_file is not None), "No header file found for determining syscall numbers"
+	with open(syscall_defs_file) as f:
 		dat = f.read().splitlines()
 	syscall_nr_to_name = {}
 	syscall_name_to_nr = {}
@@ -48,7 +60,8 @@ defined_syscalls = [None for i in range(SYS_NR)]
 for name in gen_usys_list():
 	ns = name.split(":::", 2)
 	name = ns[0]
-	assert name in syscall_name_to_nr, f"Missing definition of {name} in syscall list"
+	if name not in syscall_name_to_nr:
+		continue
 	if len(ns) > 1 and ns[1] == "enosys":
 		defined_syscalls[syscall_name_to_nr.get(name)] = f"junction::usys_enosys"
 	else:

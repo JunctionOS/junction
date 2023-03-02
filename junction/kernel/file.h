@@ -80,6 +80,10 @@ class File {
   virtual Status<size_t> Write(std::span<const std::byte> buf, off_t *off) {
     return MakeError(EINVAL);
   }
+  virtual Status<void> Truncate(off_t newlen) { return MakeError(EINVAL); }
+  virtual Status<void> Allocate(int mode, off_t offset, off_t len) {
+    return MakeError(EINVAL);
+  }
   virtual Status<off_t> Seek(off_t off, SeekFrom origin) {
     return MakeError(EINVAL);
   }
@@ -88,13 +92,12 @@ class File {
                               off_t off) {
     return MakeError(EINVAL);
   }
-  virtual Status<int> Stat(struct stat *statbuf, int flags) {
+  virtual Status<void> Stat(struct stat *statbuf, int flags) {
     return MakeError(EINVAL);
   }
   virtual Status<int> GetDents(void *dirp, unsigned int count) {
     return MakeError(EINVAL);
   }
-  // TODO(girfan): We should be able to do with just one version of GetDents.
   virtual Status<int> GetDents64(void *dirp, unsigned int count) {
     return MakeError(EINVAL);
   }

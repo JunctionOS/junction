@@ -40,6 +40,18 @@ set(caladan_test_config_path
 )
 file(WRITE ${caladan_test_config_path} ${caladan_test_config})
 
+set(fs_test_config
+"/memfs
+/tmp
+/usr/local
+/var/logs
+/var/lib"
+)
+set(fs_test_config_path
+  ${CMAKE_CURRENT_BINARY_DIR}/test.filesystem.config
+)
+file(WRITE ${fs_test_config_path} ${fs_test_config})
+
 set(CUSTOM_GLIBC_DIR
   "${CMAKE_SOURCE_DIR}/lib/glibc/build/"
 )

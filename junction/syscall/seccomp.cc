@@ -25,7 +25,6 @@ extern "C" {
 namespace junction {
 
 /* Source: https://outflux.net/teach-seccomp/step-3/example.c
- * List of syscall numbers: https://filippo.io/linux-syscall-table/
  */
 Status<void> _install_seccomp_filter() {
   struct sock_filter filter[] = {
@@ -39,12 +38,8 @@ Status<void> _install_seccomp_filter() {
       ALLOW_CALADAN_SYSCALL(write),
 
       ALLOW_SYSCALL(gettimeofday),
-      ALLOW_SYSCALL(fstat),
-      ALLOW_SYSCALL(stat),
       ALLOW_SYSCALL(brk),
       ALLOW_SYSCALL(munmap),
-      ALLOW_SYSCALL(getcwd),
-      ALLOW_SYSCALL(readlink),
       ALLOW_SYSCALL(readlink),
       ALLOW_SYSCALL(prlimit64),
       ALLOW_SYSCALL(sysinfo),
@@ -56,17 +51,23 @@ Status<void> _install_seccomp_filter() {
       ALLOW_SYSCALL(madvise),
       ALLOW_SYSCALL(restart_syscall),
       ALLOW_SYSCALL(clock_nanosleep),
+      ALLOW_SYSCALL(geteuid),
+      ALLOW_SYSCALL(getegid),
+      ALLOW_SYSCALL(getgid),
       ALLOW_SYSCALL(getppid),
       ALLOW_SYSCALL(getuid),
       ALLOW_SYSCALL(gettid),
       ALLOW_SYSCALL(access),
       ALLOW_SYSCALL(time),
+      ALLOW_SYSCALL(getcwd),
 
       ALLOW_JUNCTION_SYSCALL(ioctl),
       ALLOW_JUNCTION_SYSCALL(prctl),
       ALLOW_JUNCTION_SYSCALL(getdents),
       ALLOW_JUNCTION_SYSCALL(getdents64),
+      ALLOW_JUNCTION_SYSCALL(fstat),
       ALLOW_JUNCTION_SYSCALL(newfstatat),
+      ALLOW_JUNCTION_SYSCALL(statfs),
       ALLOW_JUNCTION_SYSCALL(mmap),
       ALLOW_JUNCTION_SYSCALL(mprotect),
       ALLOW_JUNCTION_SYSCALL(fsync),
@@ -80,8 +81,6 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(clock_gettime),
       ALLOW_JUNCTION_SYSCALL(writev),
       ALLOW_JUNCTION_SYSCALL(exit_group),
-      // TODO(girfan): Remove after merging VFS changes
-      ALLOW_JUNCTION_SYSCALL(mkdir),
 
       TRAP,
   };

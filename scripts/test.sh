@@ -30,7 +30,7 @@ mkdir /tmp/junction
 # Run tests
 cd $TEST_DIR
 export GTEST_COLOR=1
-$CTEST --output-on-failure --verbose --timeout 120
+sudo $CTEST --output-on-failure --verbose --timeout 120
 
 # Cleanup test state
 rm -rf /tmp/junction

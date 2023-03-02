@@ -1,11 +1,13 @@
 #include "junction/junction.h"
 
 #include <boost/program_options.hpp>
+#include <iostream>
 #include <memory>
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
-#include "junction/filesystem/linuxfs.h"
+#include "junction/filesystem/vfs.h"
+#include "junction/junction.h"
 #include "junction/kernel/fs.h"
 #include "junction/kernel/proc.h"
 #include "junction/shim/backend/init.h"
@@ -24,6 +26,10 @@ namespace po = boost::program_options;
 po::options_description JunctionCfg::GetOptions() {
   po::options_description desc("Junction options");
   desc.add_options()("help", "produce help message")(
+      "chroot_path", po::value<std::string>()->implicit_value(""),
+      "chroot path to execute the binary from")(
+      "fs_config_path", po::value<std::string>()->implicit_value(""),
+      "file system configuration path")(
       "interpreter_path", po::value<std::string>()->implicit_value(""),
       "use this custom interpreter for binaries")(
       "ld_path", po::value<std::string>()->implicit_value(""),
@@ -49,6 +55,12 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 
   if (vm.count("help")) return MakeError(0);
 
+  if (vm.count("chroot_path"))
+    chroot_path = vm["chroot_path"].as<std::string>();
+
+  if (vm.count("fs_config_path"))
+    fs_config_path = vm["fs_config_path"].as<std::string>();
+
   if (vm.count("interpreter_path"))
     interp_path = vm["interpreter_path"].as<std::string>();
 
@@ -62,21 +74,12 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 }
 
 void JunctionCfg::Print() {
+  LOG(INFO) << "cfg: chroot_path = " << chroot_path;
+  LOG(INFO) << "cfg: fs_config_path = " << fs_config_path;
   LOG(INFO) << "cfg: interpreter_path = " << interp_path;
   LOG(INFO) << "cfg: ld_path = " << ld_path;
   LOG(INFO) << "cfg: ld_preload = " << preload_path;
   for (std::string &s : binary_envp) LOG(INFO) << "env: " << s;
-}
-
-std::shared_ptr<LinuxFileSystemManifest> init_fs_manifest() {
-  auto manifest = std::make_shared<LinuxFileSystemManifest>();
-  const unsigned int flags = 0;
-  const std::vector<std::string> filepaths(
-      {"/lib64/*", "/lib/*", "/usr/*", "/home/*", "/etc/*"});
-  for (const auto &filepath : filepaths) {
-    manifest->Insert(filepath, flags);
-  }
-  return manifest;
 }
 
 Status<void> InitTestProc() {
@@ -86,14 +89,39 @@ Status<void> InitTestProc() {
   return {};
 }
 
+Status<void> InitChroot() {
+  const std::string_view &chroot_path = GetCfg().get_chroot_path();
+  if (chroot_path != "/") {
+    int ret = chroot(chroot_path.data());
+    if (ret) return MakeError(ret);
+  }
+  return {};
+}
+
+Status<void> InitFS() {
+  const std::string_view &fs_config_path = GetCfg().get_fs_config_path();
+  FileSystem *fs;
+  if (fs_config_path.empty()) {
+    fs = new VFS();
+  } else {
+    fs = new VFS(fs_config_path);
+  }
+  init_fs(fs);
+  return {};
+}
+
 Status<void> init() {
   // Make sure any one-time routines in the logger get run now.
   LOG(INFO) << "Initializing junction";
   GetCfg().Print();
-  std::shared_ptr<LinuxFileSystemManifest> manifest = init_fs_manifest();
-  init_fs(new LinuxFileSystem(std::move(manifest)));
 
-  Status<void> ret = SyscallInit();
+  Status<void> ret = InitFS();
+  if (unlikely(!ret)) return ret;
+
+  ret = SyscallInit();
+  if (unlikely(!ret)) return ret;
+
+  ret = InitChroot();
   if (unlikely(!ret)) return ret;
 
   ret = ShimJmpInit();

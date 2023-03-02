@@ -22,6 +22,14 @@ class JunctionCfg {
  public:
   using program_options = boost::program_options::options_description;
 
+  [[nodiscard]] const std::string_view get_chroot_path() const {
+    return chroot_path;
+  }
+
+  [[nodiscard]] const std::string_view get_fs_config_path() const {
+    return fs_config_path;
+  }
+
   [[nodiscard]] const std::string_view get_interp_path() const {
     return interp_path;
   }
@@ -41,6 +49,8 @@ class JunctionCfg {
   void Print();
 
  private:
+  std::string chroot_path{"/"};
+  std::string fs_config_path;
   std::string interp_path{CUSTOM_GLIBC_INTERPRETER_PATH};
   std::string ld_path{CUSTOM_GLIBC_DIR};
   std::string preload_path{CUSTOM_GLIBC_PRELOAD};

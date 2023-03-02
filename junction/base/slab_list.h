@@ -149,6 +149,7 @@ class SlabList {
 
   SlabList(const size_t size) : SlabList() { Resize(size); }
 
+  // Adds or removes blocks to reach the target size.
   void Resize(const size_t size) {
     if (size > max_size()) {
       throw std::length_error("Exceeds MaxSize");

@@ -1,7 +1,9 @@
 extern "C" {
 #include <fcntl.h>
+#include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 }
 
 #include <algorithm>
@@ -139,12 +141,23 @@ long usys_open(const char *pathname, int flags, mode_t mode) {
 
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   if (unlikely(dirfd != AT_FDCWD)) return -EINVAL;
-  const std::string_view path(pathname);
-  FileSystem *fs = get_fs();
-  Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
-  if (unlikely(!f)) return -ENOENT;
+  return usys_open(pathname, flags, mode);
+}
+
+long usys_ftruncate(int fd, off_t length) {
   FileTable &ftbl = myproc().get_file_table();
-  return ftbl.Insert(std::move(*f));
+  File *f = ftbl.Get(fd);
+  auto ret = f->Truncate(length);
+  if (!ret) return MakeCError(ret);
+  return 0;
+}
+
+long usys_fallocate(int fd, int mode, off_t offset, off_t len) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  auto ret = f->Allocate(mode, offset, len);
+  if (!ret) return MakeCError(ret);
+  return 0;
 }
 
 ssize_t usys_read(int fd, char *buf, size_t len) {
@@ -246,7 +259,7 @@ ssize_t usys_sendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
   if (!ret) return MakeCError(ret);
   ret = fout->Write(buf, &fout->get_off_ref());
   if (!ret) return MakeCError(ret);
-  return 0;
+  return static_cast<ssize_t>(*ret);
 }
 
 off_t usys_lseek(int fd, off_t offset, int whence) {
@@ -296,15 +309,29 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
     FileTable &ftbl = myproc().get_file_table();
     File *f = ftbl.Get(dirfd);
     if (unlikely(!f)) return -EBADF;
-    Status<int> ret = f->Stat(statbuf, flags);
+    Status<void> ret = f->Stat(statbuf, flags);
     if (!ret) return MakeCError(ret);
-    return static_cast<long>(*ret);
+    return 0;
   } else {
-    // TODO(girfan): Eventually we should not allow this. Only files from the
-    // filesystem should be able to do this. We can fstat when we open
-    // files/mock it for newly created files.
-    return static_cast<long>(ksys_newfstatat(dirfd, pathname, statbuf, flags));
+    FileSystem *fs = get_fs();
+    Status<void> ret = fs->Stat(pathname, statbuf);
+    if (!ret) return MakeCError(ret);
+    return 0;
   }
+}
+
+long usys_statfs(const char *path, struct statfs *buf) {
+  FileSystem *fs = get_fs();
+  Status<void> ret = fs->StatFS(path, buf);
+  if (!ret) return MakeCError(ret);
+  return 0;
+}
+
+long usys_stat(const char *path, struct stat *statbuf) {
+  FileSystem *fs = get_fs();
+  Status<void> ret = fs->Stat(path, statbuf);
+  if (!ret) return MakeCError(ret);
+  return 0;
 }
 
 long usys_getdents(unsigned int fd, void *dirp, unsigned int count) {
@@ -366,6 +393,42 @@ long usys_mkdir(const char *pathname, mode_t mode) {
   FileSystem *fs = get_fs();
   Status<void> ret = fs->CreateDirectory(pathname, mode);
   if (!ret) return MakeCError(ret);
+  return 0;
+}
+
+long usys_mkdirat(int fd, const char *pathname, mode_t mode) {
+  if (unlikely(fd != AT_FDCWD)) return -EINVAL;
+  return usys_mkdir(pathname, mode);
+}
+
+long usys_rmdir(const char *pathname) {
+  FileSystem *fs = get_fs();
+  Status<void> ret = fs->RemoveDirectory(pathname);
+  if (!ret) return MakeCError(ret);
+  return 0;
+}
+
+long usys_link(const char *oldpath, const char *newpath) {
+  FileSystem *fs = get_fs();
+  Status<void> ret = fs->Link(oldpath, newpath);
+  if (!ret) return MakeCError(ret);
+  return 0;
+}
+
+long usys_unlink(const char *pathname) {
+  FileSystem *fs = get_fs();
+  Status<void> ret = fs->Unlink(pathname);
+  if (!ret) return MakeCError(ret);
+  return 0;
+}
+
+long usys_chown(const char *pathname, uid_t owner, gid_t group) {
+  LOG(WARN) << "chown: no-op";
+  return 0;
+}
+
+long usys_chmod(const char *pathname, mode_t mode) {
+  LOG(WARN) << "chmod: no-op";
   return 0;
 }
 

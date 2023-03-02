@@ -86,8 +86,7 @@ long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
 
 }  // namespace
 
-// TODO(girfan): Fix the "restrict" keyword for all the net syscalls.
-long usys_socket(int domain, int type, int protocol) {
+long usys_socket(int domain, int type, [[maybe_unused]] int protocol) {
   Status<std::shared_ptr<Socket>> ret = CreateSocket(domain, type);
   if (unlikely(!ret)) return MakeCError(ret);
   return myproc().get_file_table().Insert(std::move(*ret));

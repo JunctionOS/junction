@@ -8,6 +8,7 @@ extern "C" {
 #include <sys/resource.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/statfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
@@ -25,6 +26,8 @@ extern "C" {
 // File
 long usys_open(const char *pathname, int flags, mode_t mode);
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode);
+long usys_ftruncate(int fd, off_t length);
+long usys_fallocate(int fd, int mode, off_t offset, off_t len);
 ssize_t usys_read(int fd, char *buf, size_t len);
 ssize_t usys_write(int fd, const char *buf, size_t len);
 ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset);
@@ -41,12 +44,20 @@ int usys_dup2(int oldfd, int newfd);
 long usys_close(int fd);
 long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                      int flags);
+long usys_statfs(const char *path, struct statfs *buf);
+long usys_stat(const char *path, struct stat *statbuf);
 long usys_getdents(unsigned int fd, void *dirp, unsigned int count);
 long usys_getdents64(unsigned int fd, void *dirp, unsigned int count);
 int usys_pipe(int pipefd[2]);
 int usys_pipe2(int pipefd[2], int flags);
 long usys_fcntl(int fd, unsigned int cmd, unsigned long arg);
 long usys_mkdir(const char *pathname, mode_t mode);
+long usys_mkdirat(int fd, const char *pathname, mode_t mode);
+long usys_rmdir(const char *pathname);
+long usys_link(const char *oldpath, const char *newpath);
+long usys_unlink(const char *pathname);
+long usys_chown(const char *pathname, uid_t owner, gid_t group);
+long usys_chmod(const char *pathname, mode_t mode);
 
 // Memory
 uintptr_t usys_brk(uintptr_t addr);
@@ -75,6 +86,7 @@ long usys_shutdown(int sockfd, int how);
 long usys_listen(int sockfd, int backlog);
 long usys_getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 long usys_getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
+int usys_socketpair(int domain, int type, int protocol, int sv[2]);
 
 // Poll
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout);
@@ -124,7 +136,6 @@ long usys_clock_nanosleep(clockid_t clockid, int flags,
 // Misc
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);
 ssize_t usys_getcwd(char *buf, size_t size);
-int usys_socketpair(int domain, int type, int protocol, int sv[2]);
 long usys_uname(struct utsname *buf);
 long usys_getrlimit(int resource, struct rlimit *rlim);
 long usys_setrlimit(int resource, const struct rlimit *rlim);

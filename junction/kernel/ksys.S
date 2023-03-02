@@ -112,6 +112,22 @@ ksys_newfstatat:
 	ret
 
 .align 16
+.globl ksys_stat
+.type ksys_stat, @function
+ksys_stat:
+	movl	$__NR_stat, %eax
+	syscall
+	ret
+
+.align 16
+.globl ksys_statfs
+.type ksys_statfs, @function
+ksys_statfs:
+	movl	$__NR_statfs, %eax
+	syscall
+	ret
+
+.align 16
 .globl ksys_getdents
 .type ksys_getdents, @function
 ksys_getdents:
