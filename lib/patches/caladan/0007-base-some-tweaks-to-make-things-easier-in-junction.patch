@@ -1,7 +1,7 @@
-From 65a7e8f87b1e24bbc0234a3e0f5cac1d94f131be Mon Sep 17 00:00:00 2001
+From 46bc40b1991b492ce8674ea950e49fe169ea3933 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 30 Nov 2022 18:58:31 -0500
-Subject: [PATCH 7/7] base: some tweaks to make things easier in junction
+Subject: [PATCH 07/20] base: some tweaks to make things easier in junction
 
 - disable backtrace calls on fatal exits
 - init_shutdown directly calls syscall(group_exit) instead of running libc exit handlers
@@ -47,10 +47,10 @@ index 088f83f..4cf2dfa 100644
  	if (fatal)
  		init_shutdown(EXIT_FAILURE);
 diff --git a/base/syscall.S b/base/syscall.S
-index 002c6af..528843c 100644
+index d98d2e4..a844304 100644
 --- a/base/syscall.S
 +++ b/base/syscall.S
-@@ -49,5 +49,11 @@ syscall_mprotect:
+@@ -50,5 +50,11 @@ syscall_mprotect:
  	syscall
  	ret
  
@@ -85,5 +85,5 @@ index c10f9fb..88d3662 100644
 +extern void syscall_exit(int status) __noreturn;
 \ No newline at end of file
 -- 
-2.34.1
+2.37.2
 

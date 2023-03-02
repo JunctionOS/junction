@@ -1,7 +1,7 @@
-From 843c2d31a6407410666ae768e52376e4082cbee0 Mon Sep 17 00:00:00 2001
+From a210d6b7ed4d1dc02f951385e47797540bfba35f Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 15:59:55 -0500
-Subject: [PATCH 05/15] base/runtime - make all runtime syscalls from a set
+Subject: [PATCH 05/20] base/runtime - make all runtime syscalls from a set
  instruction range
 
 ---

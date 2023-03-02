@@ -1,7 +1,7 @@
-From f09676b43d42b715dc4d577269e46491bad19136 Mon Sep 17 00:00:00 2001
+From 9158e48851989f8f963f67def46ba95129779cfb Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 29 Jun 2022 03:29:09 +0000
-Subject: [PATCH 9/9] ksched: add some hacks to support Azure vms
+Subject: [PATCH 20/20] ksched: add some hacks to support Azure vms
 
 - a fake cpuidle driver that can be loaded to satisfy ksched's needs
 - a fake mwait implementation that spin polls memory locations at 1us intervals
@@ -192,5 +192,5 @@ index c8bed08..79cb93c 100755
  rmmod ksched
  rm /dev/ksched
 -- 
-2.34.1
+2.37.2
 

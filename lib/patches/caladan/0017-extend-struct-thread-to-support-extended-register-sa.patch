@@ -1,7 +1,7 @@
-From 19c4b1fdc3f172709add8bfb4904e2a3d97d213e Mon Sep 17 00:00:00 2001
+From ea1d190196ef8285e747a7be1dcbaa0b7e541be5 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sat, 18 Feb 2023 21:50:32 -0500
-Subject: [PATCH 20/20] extend struct thread to support extended register
+Subject: [PATCH 17/20] extend struct thread to support extended register
  saving
 
 ---
@@ -24,7 +24,7 @@ index 10ed588..a821db5 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 2f43841..08414d3 100644
+index ee7fcf0..828be86 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -802,6 +802,7 @@ static __always_inline thread_t *__thread_create_nostack(void)
@@ -36,5 +36,5 @@ index 2f43841..08414d3 100644
  	return th;
  }
 -- 
-2.34.1
+2.37.2
 

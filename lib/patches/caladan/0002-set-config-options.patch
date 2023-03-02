@@ -1,7 +1,7 @@
-From 6651fac7c1e9040c57360d25b866156fb829a946 Mon Sep 17 00:00:00 2001
+From f9405a635b2d1aba76b19e1a2e401496654534c5 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 21 Nov 2022 00:00:45 -0500
-Subject: [PATCH 2/8] set config options
+Subject: [PATCH 02/20] set config options
 
 ---
  build/config | 6 +++---
@@ -32,5 +32,5 @@ index 023e2e1..3e741d8 100644
  # Build with clang instead of gcc
  CONFIG_CLANG=n
 -- 
-2.34.1
+2.37.2
 

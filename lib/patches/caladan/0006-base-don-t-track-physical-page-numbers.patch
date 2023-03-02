@@ -1,7 +1,7 @@
-From 9ab6ca55c10131907db42bfc5c1864f26b570479 Mon Sep 17 00:00:00 2001
+From ff21ace961aeb9e71a11105258c73fe835d70f3d Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 23:48:48 -0500
-Subject: [PATCH 6/8] base: don't track physical page numbers
+Subject: [PATCH 06/20] base: don't track physical page numbers
 
 ---
  base/page.c     |  9 ---------
@@ -87,5 +87,5 @@ index f5d61f9..f4412a4 100644
   * smpage_to_lgpage - retrieves the large page struct for a 4kb page
   * @pg: the page
 -- 
-2.34.1
+2.37.2
 

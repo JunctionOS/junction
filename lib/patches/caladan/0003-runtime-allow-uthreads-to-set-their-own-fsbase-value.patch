@@ -1,7 +1,7 @@
-From af16c541122d083fb258f6fad678ec04fbaac119 Mon Sep 17 00:00:00 2001
+From 33cc90c67a2578838a1d0f67ca027091a0713f1e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
-Subject: [PATCH 03/16] runtime: allow uthreads to set their own fsbase values
+Subject: [PATCH 03/20] runtime: allow uthreads to set their own fsbase values
 
 ---
  build/shared.mk      |  2 +-
@@ -115,7 +115,7 @@ index 3dbb57d..295fce9 100644
  	hd_parity = !!(ACCESS_ONCE(*addr) & q->parity_bit_mask);
  
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 48c74c0..7a9f903 100644
+index a5e1149..0bf4d43 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@

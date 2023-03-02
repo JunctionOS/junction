@@ -1,7 +1,7 @@
-From 99bd72e39a7f578aa0e50e1f6e3a8a2257e3b95a Mon Sep 17 00:00:00 2001
+From 4394e97e360b90a7a505c5fd86c0b038f6f2ea3c Mon Sep 17 00:00:00 2001
 From: Gohar Irfan Chaudhry <girfan@mit.edu>
 Date: Tue, 8 Nov 2022 14:39:42 -0500
-Subject: [PATCH 1/4] no-op pthread_mutex_destroy to let libc exit handlers
+Subject: [PATCH 01/20] no-op pthread_mutex_destroy to let libc exit handlers
  succeed
 
 ---
@@ -22,5 +22,5 @@ index 4dd0880..b23dd96 100644
  }
  
 -- 
-2.34.1
+2.37.2
 

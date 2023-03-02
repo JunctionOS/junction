@@ -1,7 +1,7 @@
-From 8af208881f6d4a81c0f1fe4c9f4c824c78f42f46 Mon Sep 17 00:00:00 2001
+From f669821e6a4535b11ac0349e4880f18721704f4a Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Fri, 17 Feb 2023 17:01:44 -0500
-Subject: [PATCH 18/19] enlarge stacks
+Subject: [PATCH 16/20] enlarge stacks
 
 ---
  runtime/defs.h | 4 ++--

@@ -1,14 +1,14 @@
-From 14ec03655c0dabb94b2e70870c0d831731d03151 Mon Sep 17 00:00:00 2001
+From 08399ff6c27683ffc6b7769b8d36d421a58511b6 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 19 Feb 2023 00:34:47 -0500
-Subject: [PATCH 21/21] add space for Thread class in struct thread
+Subject: [PATCH 18/20] add space for Thread class in struct thread
 
 ---
  inc/runtime/thread.h | 1 +
  1 file changed, 1 insertion(+)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index a821db5..4b6d3da 100644
+index a821db5..cc9cf91 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -111,6 +111,7 @@ struct thread {
@@ -20,5 +20,5 @@ index a821db5..4b6d3da 100644
      struct list_node    gc_link;
      unsigned int        onk;
 -- 
-2.34.1
+2.37.2
 

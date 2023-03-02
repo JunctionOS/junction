@@ -1,7 +1,7 @@
-From d9a7ce82407060c5d893a52d4810bd9ddc6b991b Mon Sep 17 00:00:00 2001
+From 070e2ef9360fc24a0be438202c51523b2eb6264c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 30 Nov 2022 23:53:24 -0500
-Subject: [PATCH 8/8] base: provide sigaction functionality for
+Subject: [PATCH 08/20] base: provide sigaction functionality for
  runtime/junction
 
 ---
@@ -141,5 +141,5 @@ index 78f6493..b49ab72 100644
  		return -1;
  	}
 -- 
-2.34.1
+2.37.2
 

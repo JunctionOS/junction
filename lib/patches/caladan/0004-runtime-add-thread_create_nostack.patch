@@ -1,7 +1,7 @@
-From cc5e4c6d774c078c8bf0878cb3962fd4fe3c3fc0 Mon Sep 17 00:00:00 2001
+From 8f75c86b8c57d31d30858fb802a1332400b37c37 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 24 Nov 2022 21:55:35 -0500
-Subject: [PATCH 4/4] runtime: add thread_create_nostack
+Subject: [PATCH 04/20] runtime: add thread_create_nostack
 
 ---
  inc/runtime/thread.h |  1 +
@@ -21,7 +21,7 @@ index 67dcceb..ccc5380 100644
  extern uint64_t __get_uthread_specific(thread_t *th);
  extern void set_fsbase(thread_t *th, uint64_t fsbase);
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 837359c..a0a300b 100644
+index 0bf4d43..4f56ccf 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -792,6 +792,31 @@ void thread_yield(void)
@@ -94,5 +94,5 @@ index 837359c..a0a300b 100644
  	perthread_store(__self, NULL);
  
 -- 
-2.34.1
+2.37.2
 
