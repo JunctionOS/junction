@@ -172,7 +172,7 @@ class SlabList {
       // Remove blocks
       const size_t delta = n_blocks_in_use_ - blocks_needed;
       for (size_t i = 0; i < delta; i++) {
-        const size_t idx = n_blocks_in_use_ - i;
+        const size_t idx = n_blocks_in_use_ - i - 1;
         free(block_ptrs_[idx]);
         block_ptrs_[idx] = nullptr;
       }
@@ -185,7 +185,7 @@ class SlabList {
 
   std::byte* get_ptr(size_t idx) {
     // Note: No bounds checks are performed.
-    const size_t block = std::floor(static_cast<float>(idx) / BlockSize);
+    const size_t block = std::floor(static_cast<double>(idx) / BlockSize);
     return reinterpret_cast<std::byte*>(block_ptrs_[block]) + (idx % BlockSize);
   }
 

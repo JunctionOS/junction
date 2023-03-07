@@ -70,7 +70,6 @@ MemFSInode::MemFSInode(const unsigned int type) noexcept
 
 std::shared_ptr<File> MemFSInode::Open(const std::string_view& name,
                                        uint32_t mode, uint32_t flags) {
-  std::unique_lock l(m_);
   auto ret = MemFSFile::Open(name, flags, mode, shared_from_this());
   if (unlikely(!ret)) return nullptr;
   return ret;
@@ -83,7 +82,6 @@ std::shared_ptr<File> MemFSInode::Open(uint32_t mode, uint32_t flags) {
 std::shared_ptr<Inode> MemFSInode::Lookup(const std::string_view& name) {
   if (unlikely(type_ != kTypeDirectory)) return nullptr;
 
-  std::shared_lock l(m_);
   for (const auto& [k, inode] : children_) {
     if (k == name) return inode;
   }
@@ -97,10 +95,6 @@ Status<void> MemFSInode::Insert(const std::string_view& name,
   std::shared_ptr<MemFSInode> mfsinode =
       std::dynamic_pointer_cast<MemFSInode>(inode);
 
-  std::unique_lock l1(m_, std::defer_lock);
-  std::unique_lock l2(mfsinode->m_, std::defer_lock);
-  std::lock(l1, l2);
-
   if (unlikely(children_.find(name) != children_.end()))
     return MakeError(EINVAL);
   children_.insert({std::string(name), inode});
@@ -111,14 +105,11 @@ Status<void> MemFSInode::Insert(const std::string_view& name,
 Status<void> MemFSInode::Remove(const std::string_view& name) {
   if (unlikely(type_ != kTypeDirectory)) return MakeError(EINVAL);
 
-  std::unique_lock l1(m_);
-
   auto it = children_.find(name);
   if (unlikely(it == children_.end())) return MakeError(EINVAL);
 
   std::shared_ptr<MemFSInode> mfsinode =
       std::dynamic_pointer_cast<MemFSInode>(it->second);
-  std::unique_lock l2(mfsinode->m_);
 
   mfsinode->nlink_--;
   children_.erase(it);
@@ -129,7 +120,6 @@ Status<void> MemFSInode::Truncate(off_t newlen) {
   if (unlikely(newlen > kMaxSizeBytes)) return MakeError(EINVAL);
   if (unlikely(type_ == kTypeDirectory)) return MakeError(EISDIR);
 
-  std::unique_lock l(m_);
   buf_.Resize(newlen);
   mtime_ = time(nullptr);
   ctime_ = mtime_;
@@ -139,7 +129,6 @@ Status<void> MemFSInode::Truncate(off_t newlen) {
 Status<void> MemFSInode::Allocate(int mode, off_t offset, off_t len) {
   if (mode & FALLOC_FL_UNSHARE_RANGE) return MakeError(EOPNOTSUPP);
 
-  std::unique_lock l(m_);
   if (mode == 0) {
     const size_t newlen = offset + len;
     if (newlen > buf_.size()) {
@@ -175,7 +164,6 @@ Status<void> MemFSInode::Allocate(int mode, off_t offset, off_t len) {
 }
 
 Status<void> MemFSInode::Stat(struct stat* buf) {
-  std::shared_lock l(m_);
   buf->st_dev = 0;
   buf->st_ino = ino_;
   buf->st_mode = get_type();
@@ -193,16 +181,13 @@ Status<void> MemFSInode::Stat(struct stat* buf) {
 }
 
 Status<size_t> MemFSInode::Read(std::span<std::byte> buf, off_t off) {
-  std::shared_lock l(m_);
   const size_t n = std::min(buf.size(), buf_.size() - off);
   std::copy_n(buf_.cbegin() + off, n, buf.begin());
   return n;
 }
 
 Status<size_t> MemFSInode::Write(std::span<const std::byte> buf, off_t off) {
-  std::unique_lock l(m_);
   if (buf_.size() - off < buf.size()) {
-    // Make room for more data before writing.
     buf_.Resize(buf.size() + off);
   }
   std::copy_n(buf.begin(), buf.size(), buf_.begin() + off);
@@ -211,8 +196,6 @@ Status<size_t> MemFSInode::Write(std::span<const std::byte> buf, off_t off) {
 
 Status<int> MemFSInode::GetDents(void* dirp, unsigned int* count, off_t* off) {
   if (unlikely(type_ != kTypeDirectory)) return MakeError(EINVAL);
-
-  std::shared_lock l(m_);
   if ((size_t)*off >= children_.size()) return 0;
 
   auto it = children_.cbegin();
