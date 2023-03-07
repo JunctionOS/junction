@@ -162,17 +162,19 @@ class SlabList {
         size < BlockSize ? 1 : std::ceil(static_cast<float>(size) / BlockSize);
     if (blocks_needed > n_blocks_in_use_) {
       // Add blocks
-      for (size_t i = n_blocks_in_use_; i <= blocks_needed - n_blocks_in_use_;
-           i++) {
+      const size_t delta = blocks_needed - n_blocks_in_use_;
+      for (size_t i = 0; i < delta; i++) {
         void* p = malloc(BlockSize);
         if (!p) throw std::bad_alloc();
-        block_ptrs_[i] = p;
+        block_ptrs_[i + n_blocks_in_use_] = p;
       }
     } else {
       // Remove blocks
-      for (size_t i = blocks_needed; i < n_blocks_in_use_; i++) {
-        free(block_ptrs_[i]);
-        block_ptrs_[i] = nullptr;
+      const size_t delta = n_blocks_in_use_ - blocks_needed;
+      for (size_t i = 0; i < delta; i++) {
+        const size_t idx = n_blocks_in_use_ - i;
+        free(block_ptrs_[idx]);
+        block_ptrs_[idx] = nullptr;
       }
     }
     n_blocks_in_use_ = blocks_needed;
