@@ -159,10 +159,10 @@ class SlabList {
     }
 
     const size_t blocks_needed =
-        size < BlockSize ? 1 : std::ceil(size / BlockSize);
+        size < BlockSize ? 1 : std::ceil(static_cast<float>(size) / BlockSize);
     if (blocks_needed > n_blocks_in_use_) {
       // Add blocks
-      for (size_t i = n_blocks_in_use_; i < blocks_needed - n_blocks_in_use_;
+      for (size_t i = n_blocks_in_use_; i <= blocks_needed - n_blocks_in_use_;
            i++) {
         void* p = malloc(BlockSize);
         if (!p) throw std::bad_alloc();
@@ -183,7 +183,7 @@ class SlabList {
 
   std::byte* get_ptr(size_t idx) {
     // Note: No bounds checks are performed.
-    const size_t block = std::floor(idx / BlockSize);
+    const size_t block = std::floor(static_cast<float>(idx) / BlockSize);
     return reinterpret_cast<std::byte*>(block_ptrs_[block]) + (idx % BlockSize);
   }
 

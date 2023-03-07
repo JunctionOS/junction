@@ -3,7 +3,6 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
-#include <iostream>
 #include <vector>
 
 using namespace junction;
@@ -11,7 +10,7 @@ using namespace junction;
 class SlabListTest : public ::testing::Test {};
 
 constexpr size_t kBlockSize = 4096;
-constexpr size_t kMaxBlocks = 128;
+constexpr size_t kMaxBlocks = 256;
 
 TEST_F(SlabListTest, CreateSlabListTest) {
   SlabList<kBlockSize, kMaxBlocks> sl_1;
@@ -52,6 +51,29 @@ TEST_F(SlabListTest, FillTest) {
   // Read back filled values.
   for (const std::byte& v : sl) {
     EXPECT_EQ(v, val);
+  }
+}
+
+TEST_F(SlabListTest, CopyNTest) {
+  // Create a vector of bytes and repeatedly write it to the SlabList from an
+  // increasing offset. This will require resizing the SlabList and creating
+  // more than 1 blocks.
+  const size_t size = 104;
+  const size_t iters = 50;
+  static_assert(static_cast<float>(size * iters) / kBlockSize > 1.0);
+
+  std::vector<std::byte> src(size, static_cast<std::byte>('x'));
+  auto off = 0;
+
+  // Copy from src to dst.
+  SlabList<kBlockSize, kMaxBlocks> dst;
+  for (size_t i = 0; i < iters; i++) {
+    if (dst.size() - off < src.size()) {
+      dst.Resize(src.size() + off);
+    }
+    auto it = std::copy_n(src.begin(), src.size(), dst.begin() + off);
+    EXPECT_EQ(it, dst.end());
+    off += src.size();
   }
 }
 
