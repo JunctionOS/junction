@@ -159,7 +159,7 @@ class SlabList {
     }
 
     const size_t blocks_needed =
-        size < BlockSize ? 1 : std::ceil(static_cast<float>(size) / BlockSize);
+        size < BlockSize ? 1 : std::ceil(static_cast<double>(size) / BlockSize);
     if (blocks_needed > n_blocks_in_use_) {
       // Add blocks
       const size_t delta = blocks_needed - n_blocks_in_use_;
