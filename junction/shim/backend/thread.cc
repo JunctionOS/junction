@@ -3,13 +3,16 @@ extern "C" {
 #include "lib/caladan/runtime/defs.h"
 }
 
+#include "junction/kernel/proc.h"
 #include "junction/shim/shim.h"
 
 namespace junction {
 
 int shim_allocate_stack(void **stack_bottom_out, size_t *stack_size_out,
                         size_t *guard_size_out) {
+  preempt_disable();
   stack *stack = stack_alloc();
+  preempt_enable();
   if (unlikely(!stack)) return -ENOMEM;
 
   *stack_bottom_out = (unsigned char *)stack->usable + RUNTIME_STACK_SIZE;
@@ -22,7 +25,10 @@ int shim_allocate_stack(void **stack_bottom_out, size_t *stack_size_out,
 void shim_free_stack(void *stack_top) {
   auto uptr = reinterpret_cast<uintptr_t(*)[STACK_PTR_SIZE]>(stack_top);
   stack *stk = container_of(uptr, stack, usable);
+
+  preempt_disable();
   stack_free(stk);
+  preempt_enable();
 }
 
 void shim_free_stack_on_exit(void *stack_top) {

@@ -33,11 +33,9 @@ Status<size_t> StdIOFile::Write(std::span<const std::byte> buf, off_t *off) {
 }
 
 Status<void> StdIOFile::Stat(struct stat *statbuf, int flags) {
-  // For passing an empty string without initializing it each time.
-  const static std::string empty;
-
+  char empty_path[1] = {'\0'};
   assert(flags & AT_EMPTY_PATH);
-  int ret = ksys_newfstatat(fd_, empty.c_str() /* pathname */, statbuf, flags);
+  int ret = ksys_newfstatat(fd_, empty_path /* pathname */, statbuf, flags);
   if (ret) return MakeError(-ret);
   return {};
 }

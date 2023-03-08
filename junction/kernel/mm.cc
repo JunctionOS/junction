@@ -30,8 +30,8 @@ uintptr_t usys_brk(uintptr_t addr) {
 
   // handle shrinking the heap.
   if (newbrk < oldbrk) {
-    KernelMUnmap(reinterpret_cast<void *>(PageAlign(newbrk)),
-                 PageAlign(oldbrk) - PageAlign(newbrk));
+    KernelMMapFixed(reinterpret_cast<void *>(PageAlign(newbrk)),
+                    PageAlign(oldbrk) - PageAlign(newbrk), PROT_NONE, 0);
     return newbrk;
   }
 
@@ -81,10 +81,11 @@ int usys_mprotect(void *addr, size_t len, int prot) {
 }
 
 int usys_munmap(void *addr, size_t len) {
-  int ret = ksys_munmap(addr, len);
+  Status<void> ret = KernelMMapFixed(addr, len, PROT_NONE, 0);
+  if (unlikely(!ret)) return MakeCError(ret);
   MemoryMap &mm = myproc().get_mem_map();
-  if (!ret) mm.ReturnForMapping(addr, len);
-  return ret;
+  mm.ReturnForMapping(addr, len);
+  return 0;
 }
 
 }  // namespace junction

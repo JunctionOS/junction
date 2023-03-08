@@ -14,10 +14,9 @@ extern "C" {
 
 namespace junction {
 
-FutexTable &FutexTable::GetFutexTable() {
-  static FutexTable f;
-  return f;
-}
+static FutexTable f;
+
+FutexTable &FutexTable::GetFutexTable() { return f; }
 
 Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
                               std::optional<uint64_t> timeout_us) {

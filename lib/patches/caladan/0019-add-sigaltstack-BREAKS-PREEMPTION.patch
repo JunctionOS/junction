@@ -1,4 +1,4 @@
-From 70f10c2eef460d7d30a76c82c83a34cb2dd1d8c6 Mon Sep 17 00:00:00 2001
+From 220e7f47e48ec592b676e644bfee969a0eef03e8 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
 Subject: [PATCH 19/20] add sigaltstack; BREAKS PREEMPTION
@@ -6,8 +6,8 @@ Subject: [PATCH 19/20] add sigaltstack; BREAKS PREEMPTION
 ---
  inc/runtime/thread.h |  1 +
  runtime/preempt.c    | 15 ++++++++++++++-
- runtime/sched.c      |  7 +++++++
- 3 files changed, 22 insertions(+), 1 deletion(-)
+ runtime/sched.c      | 11 +++++++++++
+ 3 files changed, 26 insertions(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index cc9cf91..0f79da8 100644
@@ -75,10 +75,21 @@ index b49ab72..470051e 100644
  	return 0;
  }
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 828be86..abe085d 100644
+index 828be86..3fb79b9 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -830,6 +830,11 @@ static __always_inline thread_t *__thread_create(void)
+@@ -793,6 +793,10 @@ static __always_inline thread_t *__thread_create_nostack(void)
+ 		return NULL;
+ 	}
+ 
++	 th->syscallstack = stack_alloc();
++        BUG_ON(!th->syscallstack);
++
++
+ 	th->last_cpu = myk()->curr_cpu;
+ 	preempt_enable();
+ 
+@@ -830,6 +834,11 @@ static __always_inline thread_t *__thread_create(void)
  	preempt_enable();
  
  	th->stack = s;
@@ -90,7 +101,7 @@ index 828be86..abe085d 100644
  	th->main_thread = false;
  	th->has_fsbase = false;
  	th->thread_ready = false;
-@@ -954,6 +959,8 @@ static void thread_finish_exit(void)
+@@ -954,6 +963,8 @@ static void thread_finish_exit(void)
  	gc_remove_thread(th);
  	if (th->stack)
  		stack_free(th->stack);

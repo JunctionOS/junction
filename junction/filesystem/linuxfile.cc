@@ -51,18 +51,16 @@ Status<off_t> LinuxFile::Seek(off_t off, SeekFrom origin) {
 
 Status<void *> LinuxFile::MMap(void *addr, size_t length, int prot, int flags,
                                off_t off) {
-  assert(!(flags & (MAP_FIXED | MAP_ANONYMOUS)));
+  assert(!(flags & MAP_ANONYMOUS));
   intptr_t ret = ksys_mmap(addr, length, prot, flags, fd_, off);
   if (ret < 0) return MakeError(-ret);
   return reinterpret_cast<void *>(ret);
 }
 
 Status<void> LinuxFile::Stat(struct stat *statbuf, int flags) {
-  // For passing an empty string without initializing it each time.
-  const static std::string empty;
-
+  char empty_path[1] = {'\0'};
   assert(flags & AT_EMPTY_PATH);
-  int ret = ksys_newfstatat(fd_, empty.c_str() /* pathname */, statbuf, flags);
+  int ret = ksys_newfstatat(fd_, empty_path /* pathname */, statbuf, flags);
   if (ret) return MakeError(-ret);
   return {};
 }
