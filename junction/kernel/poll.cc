@@ -309,15 +309,15 @@ class EPollFile : public File {
   int Wait(std::span<epoll_event> events, std::optional<uint64_t> timeout);
 
   void AddEvent(EPollObserver &o) {
-    if (std::exchange(o.attached_, true)) return;
     rt::SpinGuard g(lock_);
+    if (std::exchange(o.attached_, true)) return;
     events_.push_back(o);
     waker_.Wake();
   }
 
   void RemoveEvent(EPollObserver &o) {
-    if (!std::exchange(o.attached_, false)) return;
     rt::SpinGuard g(lock_);
+    if (!std::exchange(o.attached_, false)) return;
     events_.erase(decltype(events_)::s_iterator_to(o));
   }
 
