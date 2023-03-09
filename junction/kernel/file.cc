@@ -305,6 +305,7 @@ long usys_close(int fd) {
 
 long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                      int flags) {
+  if (unlikely(!pathname)) return -EINVAL;
   if (flags & AT_EMPTY_PATH) {
     FileTable &ftbl = myproc().get_file_table();
     File *f = ftbl.Get(dirfd);
