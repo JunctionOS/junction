@@ -274,6 +274,9 @@ class TCPQueue {
   // Does this hold a valid TCP listener queue?
   [[nodiscard]] bool is_valid() const { return q_ != nullptr; }
 
+  // Gets the local TCP address.
+  [[nodiscard]] netaddr LocalAddr() const { return tcpq_local_addr(q_); }
+
   // Shutdown the listener queue; any blocked Accept() returns a nullptr.
   void Shutdown() { tcp_qshutdown(q_); }
 

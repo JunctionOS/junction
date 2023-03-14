@@ -42,8 +42,6 @@ class TCPSocket : public Socket {
   }
 
   Status<void> Listen(int backlog) override {
-    // TODO(jsf): support ephemeral port in Caladan
-    if (unlikely(state_ != SocketState::kSockBound)) return MakeError(EINVAL);
     Status<rt::TCPQueue> ret = rt::TCPQueue::Listen(addr_, backlog);
     if (unlikely(!ret)) return MakeError(ret);
     if (is_nonblocking()) ret->SetNonBlocking(true);
@@ -116,8 +114,17 @@ class TCPSocket : public Socket {
   }
 
   Status<netaddr> LocalAddr() override {
-    if (state_ != SocketState::kSockConnected) return addr_;
-    return TcpConn().LocalAddr();
+    switch (state_) {
+      case SocketState::kSockUnbound:
+      case SocketState::kSockBound:
+        return addr_;
+      case SocketState::kSockConnected:
+        return TcpConn().LocalAddr();
+      case SocketState::kSockListening:
+        return TcpQueue().LocalAddr();
+      default:
+        std::unreachable();
+    }
   }
 
   Status<size_t> Read(std::span<std::byte> buf,
