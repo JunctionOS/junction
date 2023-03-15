@@ -440,6 +440,7 @@ long usys_chmod(const char *pathname, mode_t mode) {
 long usys_ioctl(int fd, unsigned long request, char *argp) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
   auto ret = f->Ioctl(request, argp);
   if (!ret) return MakeCError(ret);
   return 0;

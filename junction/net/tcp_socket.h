@@ -16,13 +16,6 @@ extern "C" {
 namespace junction {
 
 class TCPSocket : public Socket {
-  enum class SocketState {
-    kSockUnbound,
-    kSockBound,
-    kSockListening,
-    kSockConnected
-  };
-
  public:
   TCPSocket(int flags = 0) noexcept
       : Socket(flags), state_(SocketState::kSockUnbound) {}
@@ -173,6 +166,13 @@ class TCPSocket : public Socket {
   }
 
  private:
+  enum class SocketState {
+    kSockUnbound,
+    kSockBound,
+    kSockListening,
+    kSockConnected
+  };
+
   void SetupPollSource() override {
     PollSource &s = get_poll_source();
     if (state_ == SocketState::kSockListening)
