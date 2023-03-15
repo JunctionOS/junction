@@ -369,11 +369,15 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
       return ftbl.Insert(std::move(fdup), arg);
     }
     case F_GETFD:
-      /* fallthrough */
+      if (f->get_flags() & O_CLOEXEC) {
+        return FD_CLOEXEC;
+      }
+      return 0;
     case F_SETFD:
-      // TODO(girfan): If/when we handle exec* calls, we should track these fds
-      // and handle fd flags like FD_CLOEXEC.
-      LOG_ONCE(WARN) << "fcntl: F_GET/SETFD not implemented";
+      if (arg != FD_CLOEXEC) {
+        return -EINVAL;
+      }
+      f->set_flags(f->get_flags() | O_CLOEXEC);
       return 0;
     case F_GETFL:
       return f->get_mode() | f->get_flags();
@@ -430,6 +434,14 @@ long usys_chown(const char *pathname, uid_t owner, gid_t group) {
 
 long usys_chmod(const char *pathname, mode_t mode) {
   LOG(WARN) << "chmod: no-op";
+  return 0;
+}
+
+long usys_ioctl(int fd, unsigned long request, char *argp) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  auto ret = f->Ioctl(request, argp);
+  if (!ret) return MakeCError(ret);
   return 0;
 }
 

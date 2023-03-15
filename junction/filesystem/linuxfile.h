@@ -37,6 +37,7 @@ class LinuxFile : public File {
   virtual Status<void> Stat(struct stat *statbuf, int flags) override;
   virtual Status<int> GetDents(void *dirp, unsigned int count) override;
   virtual Status<int> GetDents64(void *dirp, unsigned int count) override;
+  virtual Status<void> Ioctl(unsigned long request, char *argp) override;
 
   [[nodiscard]] int get_fd() const { return fd_; }
 

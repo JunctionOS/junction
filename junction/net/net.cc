@@ -1,3 +1,7 @@
+extern "C" {
+#include <netinet/in.h>
+}
+
 #include "junction/bindings/net.h"
 
 #include <cstring>
@@ -122,6 +126,9 @@ long usys_setsockopt(int sockfd, [[maybe_unused]] int level,
                      [[maybe_unused]] socklen_t option_len) {
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  if (level == SOL_IPV6) {
+    return -ENOPROTOOPT;
+  }
   LOG_ONCE(WARN) << "Unsupported: setsockopt";
   return 0;
 }
@@ -244,15 +251,6 @@ long usys_getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
   if (unlikely(!ret)) return MakeCError(ret);
   auto conv_ret = NetAddrToSockAddr(*ret, addr, addrlen);
   if (unlikely(!conv_ret)) return MakeCError(conv_ret);
-  return 0;
-}
-
-long usys_ioctl(int fd, unsigned long request, [[maybe_unused]] char *argp) {
-  auto sock_ret = FDToSocket(fd);
-  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
-  Socket &s = sock_ret.value().get();
-  Status<void> ret = s.Ioctl(request, argp);
-  if (unlikely(!ret)) return MakeCError(ret);
   return 0;
 }
 

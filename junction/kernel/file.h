@@ -101,6 +101,9 @@ class File {
   virtual Status<int> GetDents64(void *dirp, unsigned int count) {
     return MakeError(EINVAL);
   }
+  virtual Status<void> Ioctl(unsigned long request, char *argp) {
+    return MakeError(EINVAL);
+  }
 
   // Default writev implementation that falls back to write internally
   virtual Status<size_t> Writev(std::span<const iovec> vec, off_t *off);
