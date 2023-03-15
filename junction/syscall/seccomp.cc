@@ -65,6 +65,7 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(mmap),
       ALLOW_JUNCTION_SYSCALL(munmap),
       ALLOW_JUNCTION_SYSCALL(mprotect),
+      ALLOW_JUNCTION_SYSCALL(madvise),
       ALLOW_JUNCTION_SYSCALL(fsync),
       ALLOW_JUNCTION_SYSCALL(openat),
       ALLOW_JUNCTION_SYSCALL(open),

@@ -28,6 +28,7 @@ brk
 mmap
 mprotect
 munmap
+madvise
 newfstatat
 statfs
 stat

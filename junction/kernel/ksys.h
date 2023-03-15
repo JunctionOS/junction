@@ -26,7 +26,7 @@ intptr_t ksys_mmap(void *addr, size_t length, int prot, int flags, int fd,
                    off_t offset);
 int ksys_munmap(void *addr, size_t length);
 int ksys_mprotect(void *addr, size_t len, int prot);
-int ksys_madvise(void *addr, size_t length, int advice);
+long ksys_madvise(void *addr, size_t length, int advice);
 int ksys_open(const char *pathname, int flags, mode_t mode);
 int ksys_close(int fd);
 ssize_t ksys_read(int fd, void *buf, size_t count);
