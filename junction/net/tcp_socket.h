@@ -89,7 +89,8 @@ class TCPSocket : public Socket {
     return MakeError(ENOTCONN);
   }
 
-  Status<void> Ioctl(unsigned long request, [[maybe_unused]] char *argp) override {
+  Status<void> Ioctl(unsigned long request,
+                     [[maybe_unused]] char *argp) override {
     switch (request) {
       case FIONBIO:
         set_flags(get_flags() | kFlagNonblock);

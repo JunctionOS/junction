@@ -1,6 +1,6 @@
 extern "C" {
-#include <sys/stat.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 }
 
 #include <syscall.h>
@@ -78,7 +78,8 @@ Status<int> LinuxFile::GetDents64(void *dirp, unsigned int count) {
   return ret;
 }
 
-Status<void> LinuxFile::Ioctl(unsigned long request, [[maybe_unused]] char *argp) {
+Status<void> LinuxFile::Ioctl(unsigned long request,
+                              [[maybe_unused]] char *argp) {
   if (request == FIOCLEX) {
     // Equivalent to: fcntl(fd, F_SETFD, FD_CLOEXEC)
     set_flags(get_flags() | FD_CLOEXEC);

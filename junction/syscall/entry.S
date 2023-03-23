@@ -121,9 +121,17 @@ usys_clone_enter:
 .globl clone_fast_start
 .type clone_fast_start, @function
 clone_fast_start:
+	movq %gs:__perthread___self(%rip), %r11
+	addq $JUNCTION_TF_OFF, %r11
+
+	RESTORETF_CALLER(%r11)
+
+	movq RIP(%r11), %r11
+
 	/* clear return value */
 	xorq %rax, %rax
-	jmpq *%rdi
+
+	jmpq *%r11
 
 /**
  * junction_syscall_full_trap - syscall instruction entry point
@@ -141,9 +149,9 @@ clone_fast_start:
  * and r11 to be clobbered. We save the remaining registers and extended state.
  */
 .align 16
-.global junction_syscall_full_trap
-.type junction_syscall_full_trap, @function
-junction_syscall_full_trap:
+.global __junction_syscall_intercept
+.type __junction_syscall_intercept, @function
+__junction_syscall_intercept:
 	// get trapframe address
 	movq    %gs:__perthread___self(%rip), %r11
 	addq    $JUNCTION_TF_OFF, %r11
@@ -162,12 +170,13 @@ junction_syscall_full_trap:
 	// switch stacks
 	movq    %gs:__perthread___self(%rip), %r11
 	movq    JUNCTION_STACK_OFFSET(%r11), %r10 // stack
-	addq    $JUNCTION_STACK_SIZE, %r10
-	movq    %r10, %rsp
 
-	// allocate stack space for redzone and xsave area
-	subq    $(REDZONE_SIZE + XSAVE_BYTES), %rsp
-	andq    $-64, %rsp
+	// set stack pointer to stack bottom - XSAVE_BYTES
+	addq    $(JUNCTION_STACK_SIZE - XSAVE_BYTES), %r10
+
+	// align and set stack
+	andq    $-64, %r10
+	movq    %r10, %rsp
 
 	// stash a pointer to the xsave area
 	movq    %rsp, JUNCTION_XSAVEPTR_OFF(%r11)
@@ -185,7 +194,6 @@ junction_syscall_full_trap:
 	fxrstor64  (%rsp)
 
 	// clear stashed xsave area pointer
-
 	movq    %gs:__perthread___self(%rip), %r11
 	movq    $0, JUNCTION_XSAVEPTR_OFF(%r11)
 
@@ -200,31 +208,103 @@ junction_syscall_full_trap:
 	jmpq    *%rcx
 
 /**
- * junction_full_restore_newth - function to start a new thread that fully
+ * __junction_syscall_intercept_clone_ret - function to start a new thread that fully
  * restores all registers and extended processor state
- * @rdi: stack pointer to be restored
- * @rsp: pointer to xsave area on stack
  *
  * Start a new thread by restoring an xsave area on the stack.
  * We arrived here using __jmp_thread which has already restored callee-saved
  * regs.
  */
 .align 16
-.global junction_full_restore_newth
-.type junction_full_restore_newth, @function
-junction_full_restore_newth:
+.global __junction_syscall_intercept_clone_ret
+.type __junction_syscall_intercept_clone_ret, @function
+__junction_syscall_intercept_clone_ret:
 	// restore extended states
 	fxrstor64  (%rsp)
-
-	// restore stack pointer
-	movq    %rdi, %rsp
 
 	// restore caller-saved registers
 	movq    %gs:__perthread___self(%rip), %r11
 	addq    $JUNCTION_TF_OFF, %r11
 	RESTORETF_CALLER(%r11)
 
+	// restore stack pointer
+	movq    RSP(%r11), %rsp
+
 	// clear return value for new thread
 	xorq    %rax, %rax
 
 	jmpq    *%rcx
+
+
+.align 16
+.global junction_fncall_stackswitch_enter
+.type junction_fncall_stackswitch_enter, @function
+junction_fncall_stackswitch_enter:
+
+	// move arg4 to %rcx per function call convention
+	movq    %r10, %rcx
+
+	// get address of syscall stack
+	movq    %gs:__perthread___self(%rip), %r11
+	movq    JUNCTION_STACK_OFFSET(%r11), %r11 // stack
+	addq    $JUNCTION_STACK_SIZE, %r11
+
+	// push existing stack pointer to new stack
+	movq 	%rsp, -8(%r11)
+
+	// switch stacks and align
+	movq    %r11, %rsp
+	subq    $16, %rsp
+
+	// call syscall handler
+	shlq    $3, %rax
+	addq    $0x200000, %rax
+	callq   *(%rax)
+
+	// restore stack pointer
+	addq $16, %rsp
+	movq -8(%rsp), %rsp
+
+	ret
+
+
+.align 16
+.global junction_fncall_stackswitch_clone_enter
+.type junction_fncall_stackswitch_clone_enter, @function
+junction_fncall_stackswitch_clone_enter:
+
+	// move arg4 to %rcx per function call convention
+	movq    %r10, %rcx
+
+	// get address of junction trapframe
+	movq    %gs:__perthread___self(%rip), %r11
+
+	addq    $JUNCTION_TF_OFF, %r11
+
+	// Save registers
+	SAVETF_CALLEE(%r11)
+	SAVETF_CALLER(%r11)
+
+	// save RSP + RIP
+	movq    %rsp, RSP(%r11)
+
+	movq    (%rsp), %r10
+	movq    %r10, RIP(%r11)
+
+	// get address of syscall stack and switch
+	movq    %gs:__perthread___self(%rip), %r11
+	movq    JUNCTION_STACK_OFFSET(%r11), %r11 // stack
+	addq    $JUNCTION_STACK_SIZE, %r11
+	movq    %r11, %rsp
+
+	callq   usys_clone
+
+	// get address of junction trapframe
+	movq    %gs:__perthread___self(%rip), %r11
+	addq    $JUNCTION_TF_OFF, %r11
+
+	movq    RSP(%r11), %rsp
+	movq    R10(%r11), %r10
+
+	ret
+

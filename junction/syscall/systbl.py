@@ -8,7 +8,7 @@ assert len(sys.argv) == 3
 USYS_LIST = sys.argv[1]
 OUTPUT_FILE = sys.argv[2]
 
-SYS_NR = 451
+SYS_NR = 453
 
 TF_SAVE_SYSCALLS = set(["clone3", "clone"])
 
@@ -69,6 +69,8 @@ for name in gen_usys_list():
 		if name in TF_SAVE_SYSCALLS: name += "_enter"
 		defined_syscalls[nr] = f"junction::usys_{name}"
 
+defined_syscalls[451] = f"junction::junction_fncall_stackswitch_enter"
+defined_syscalls[452] = "junction::junction_fncall_stackswitch_clone_enter"
 # generate stub functions for unimplemented syscalls
 # TODO: eventually replace these with a single function
 for i, entry in enumerate(defined_syscalls):

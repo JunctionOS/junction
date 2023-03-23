@@ -2,13 +2,12 @@ extern "C" {
 #include <netinet/in.h>
 }
 
-#include "junction/bindings/net.h"
-
 #include <cstring>
 #include <memory>
 
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
+#include "junction/bindings/net.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"

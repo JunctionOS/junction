@@ -15,6 +15,7 @@ extern "C" {
 #include <base/signal.h>
 }
 
+#include "junction/bindings/log.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/syscall/entry.h"
@@ -138,9 +139,11 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
     syscall_exit(-1);
   }
 
+  LOG_ONCE(WARN) << "Warning: intercepting syscalls with seccomp traps";
+
   // redirect to syscall handler that will save state for us
   ctx->uc_mcontext.gregs[REG_RIP] =
-      reinterpret_cast<uint64_t>(junction_syscall_full_trap);
+      reinterpret_cast<uint64_t>(__junction_syscall_intercept);
 }
 
 Status<void> _install_signal_handler() {

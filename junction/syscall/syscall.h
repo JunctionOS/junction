@@ -23,8 +23,10 @@ unsigned long usys_clone3_enter(long arg0, long arg1, long arg2, long arg3,
                                 long arg4, long arg5);
 unsigned long usys_clone_enter(long arg0, long arg1, long arg2, long arg3,
                                long arg4, long arg5);
-void junction_syscall_full_trap();
-void junction_full_restore_newth(uint64_t rsp) __noreturn;
+void junction_fncall_stackswitch_enter();
+void junction_fncall_stackswitch_clone_enter();
+void __junction_syscall_intercept();
+void __junction_syscall_intercept_clone_ret() __noreturn;
 }
 
 }  // namespace junction

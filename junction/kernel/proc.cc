@@ -38,50 +38,45 @@ namespace {
 rt::Spin process_lock;
 UIDGenerator<kMaxProcesses> pid_generator;
 
-void CloneTrapframe(thread_t *oldth, thread_t *newth) {
-  // copy callee saved regs from oldth->junction_tf to newth->tf
-  thread_tf &newtf = newth->tf;
-  thread_tf &oldtf = oldth->junction_tf;
+void CopyCalleeRegs(thread_tf &newtf, const thread_tf &oldtf) {
   newtf.rbx = oldtf.rbx;
   newtf.rbp = oldtf.rbp;
   newtf.r12 = oldtf.r12;
   newtf.r13 = oldtf.r13;
   newtf.r14 = oldtf.r14;
   newtf.r15 = oldtf.r15;
+}
+
+void CopyCallerRegs(thread_tf &newtf, const thread_tf &oldtf) {
+  newtf.rdi = oldtf.rdi;
+  newtf.rsi = oldtf.rsi;
+  newtf.rdx = oldtf.rdx;
+  newtf.rcx = oldtf.rcx;
+  newtf.r8 = oldtf.r8;
+  newtf.r9 = oldtf.r9;
+  newtf.r10 = oldtf.r10;
+}
+
+void CloneTrapframe(thread_t *newth, const thread_t *oldth) {
+
+  CopyCalleeRegs(newth->tf, oldth->junction_tf);
+  CopyCallerRegs(newth->junction_tf, oldth->junction_tf);
+  newth->junction_tf.rip = oldth->junction_tf.rip;
 
   // copy fsbase if present
   if (oldth->has_fsbase) {
     newth->has_fsbase = true;
-    newtf.fsbase = oldth->tf.fsbase;
+    newth->tf.fsbase = oldth->tf.fsbase;
   }
 
-  // copy extra state if we came in via trap
   if (oldth->xsave_area) {
-    // copy caller saved regs from oldth->junction_tf to newth->junction_tf
-    thread_tf &newjtf = newth->junction_tf;
-    newjtf.rdi = oldtf.rdi;
-    newjtf.rsi = oldtf.rsi;
-    newjtf.rcx = oldtf.rcx;
-    newjtf.rdx = oldtf.rdx;
-    newjtf.r8 = oldtf.r8;
-    newjtf.r9 = oldtf.r9;
-    newjtf.r10 = oldtf.r10;
-
-    // Our return routine expects xsave area on the stack, and the future
-    // stack addr provided in rdi.
-    newtf.rip = reinterpret_cast<uint64_t>(junction_full_restore_newth);
-    newtf.rdi = newtf.rsp;
-
-    // allocate xsave area on stack
-    newtf.rsp = AlignDown(newtf.rsp - XSAVE_BYTES, 64);
-
-    // Copy the xsave area
-    std::memcpy(reinterpret_cast<void *>(newtf.rsp), oldth->xsave_area,
+    newth->tf.rip = reinterpret_cast<uint64_t>(__junction_syscall_intercept_clone_ret);
+    newth->junction_tf.rsp = newth->tf.rsp;
+    newth->tf.rsp = AlignDown(newth->tf.rsp - XSAVE_BYTES, 64);
+    std::memcpy(reinterpret_cast<void *>(newth->tf.rsp), oldth->xsave_area,
                 XSAVE_BYTES);
   } else {
-    // fast return without restoring extended reg set
-    newtf.rdi = oldtf.rip;
-    newtf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
+    newth->tf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
   }
 }
 
@@ -100,7 +95,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   Thread &tstate = myproc().CreateThread(th);
 
   // Clone the trap frame
-  CloneTrapframe(thread_self(), th);
+  CloneTrapframe(th, thread_self());
 
   // Set FSBASE if requested
   if (cl_args->flags & CLONE_SETTLS) set_fsbase(th, cl_args->tls);
