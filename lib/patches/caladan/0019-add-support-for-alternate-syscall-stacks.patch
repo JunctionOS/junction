@@ -1,4 +1,4 @@
-From 55735b518fc22d1843ce0da084c84f7373360ccf Mon Sep 17 00:00:00 2001
+From 8489331e58d990d95ac46ce9c7286d0e9603cace Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
 Subject: [PATCH 19/20] add support for alternate syscall stacks
@@ -13,9 +13,10 @@ intercepted with seccomp. using this option disables preemption in the runtime.
  inc/runtime/thread.h |  1 +
  runtime/cfg.c        | 10 +++++++++-
  runtime/defs.h       |  1 +
- runtime/preempt.c    | 18 ++++++++++++++++++
+ runtime/init.c       |  2 +-
+ runtime/preempt.c    | 20 ++++++++++++++++++++
  runtime/sched.c      | 11 +++++++++++
- 5 files changed, 40 insertions(+), 1 deletion(-)
+ 6 files changed, 43 insertions(+), 2 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index cc9cf91..0f79da8 100644
@@ -76,26 +77,44 @@ index d0c4524..0a29fc9 100644
  
  extern void kthread_park(void);
  extern void kthread_park_now(void);
+diff --git a/runtime/init.c b/runtime/init.c
+index fa14f58..6bcf765 100644
+--- a/runtime/init.c
++++ b/runtime/init.c
+@@ -58,10 +58,10 @@ static const struct init_entry global_init_handlers[] = {
+ /* per-kthread subsystem initialization */
+ static const struct init_entry thread_init_handlers[] = {
+ 	/* runtime core */
++	THREAD_INITIALIZER(stack),
+ 	THREAD_INITIALIZER(preempt),
+ 	THREAD_INITIALIZER(kthread),
+ 	THREAD_INITIALIZER(ioqueues),
+-	THREAD_INITIALIZER(stack),
+ 	THREAD_INITIALIZER(sched),
+ 	THREAD_INITIALIZER(timer),
+ 	THREAD_INITIALIZER(smalloc),
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index b49ab72..4bcee24 100644
+index b49ab72..ee376d6 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -94,7 +94,22 @@ void preempt(void)
+@@ -94,7 +94,24 @@ void preempt(void)
  
  int preempt_init_thread(void)
  {
 +	stack_t ss;
++	struct stack *stk;
 +
  	perthread_store(preempt_cnt, PREEMPT_NOT_PENDING);
 +
 +	if (!use_sigaltstack)
 +		return 0;
 +
-+	ss.ss_sp = malloc(SIGSTKSZ);
-+	if (ss.ss_sp == NULL)
++	stk = stack_alloc();
++	if (!stk)
 +		return -ENOMEM;
 +
-+	ss.ss_size = SIGSTKSZ;
++	ss.ss_sp = &stk->usable[0];
++	ss.ss_size = RUNTIME_STACK_SIZE;
 +	ss.ss_flags = 0;
 +	if (sigaltstack(&ss, NULL) == -1)
 +		return -errno;
@@ -103,7 +122,7 @@ index b49ab72..4bcee24 100644
  	return 0;
  }
  
-@@ -108,6 +123,9 @@ int preempt_init(void)
+@@ -108,6 +125,9 @@ int preempt_init(void)
  {
  	struct sigaction act;
  
