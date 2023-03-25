@@ -41,6 +41,9 @@ link
 unlink
 chown
 chmod
+getcwd
+chdir
+umask
 dup
 dup2
 pipe
@@ -72,6 +75,7 @@ epoll_wait
 epoll_pwait
 epoll_pwait2
 clock_gettime
+clock_getres
 gettimeofday
 getpeername
 getsockname
@@ -81,7 +85,6 @@ sigaltstack
 sched_getaffinity
 eventfd
 eventfd2
-getcwd
 fcntl
 socketpair
 uname

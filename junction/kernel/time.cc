@@ -31,4 +31,8 @@ long usys_gettimeofday(struct timeval *tv, struct timezone *tz) {
   return gettimeofday(tv, tz);
 }
 
+long usys_clock_getres(clockid_t clk_id, struct timespec *res) {
+  return clock_getres(clk_id, res);
+}
+
 }  // namespace junction

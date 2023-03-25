@@ -369,7 +369,7 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
       return ftbl.Insert(std::move(fdup), arg);
     }
     case F_GETFD:
-      if (f->get_flags() & O_CLOEXEC) {
+      if (f->get_flags() & kFlagCloseExec) {
         return FD_CLOEXEC;
       }
       return 0;
@@ -377,7 +377,7 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
       if (arg != FD_CLOEXEC) {
         return -EINVAL;
       }
-      f->set_flags(f->get_flags() | O_CLOEXEC);
+      f->set_flags(f->get_flags() | kFlagCloseExec);
       return 0;
     case F_GETFL:
       return f->get_mode() | f->get_flags();
@@ -437,6 +437,18 @@ long usys_chmod(const char *pathname, mode_t mode) {
   return 0;
 }
 
+long usys_getcwd(char *buf, size_t size) {
+  // TODO(amb): Remove this once the filesystem is more there
+  return ksys_default(reinterpret_cast<unsigned long>(buf), size, 0, 0, 0, 0,
+                      __NR_getcwd);
+}
+
+long usys_chdir(const char *path) {
+  // TODO(girfan): Remove this once the filesystem is more there
+  return ksys_default(reinterpret_cast<unsigned long>(path), 0, 0, 0, 0, 0,
+                      __NR_chdir);
+}
+
 long usys_ioctl(int fd, unsigned long request, char *argp) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
@@ -444,6 +456,13 @@ long usys_ioctl(int fd, unsigned long request, char *argp) {
   auto ret = f->Ioctl(request, argp);
   if (!ret) return MakeCError(ret);
   return 0;
+}
+
+mode_t usys_umask(mode_t mask) {
+  FileSystem *fs = get_fs();
+  mode_t old = fs->get_umask();
+  fs->set_umask(mask);
+  return old;
 }
 
 }  // namespace junction

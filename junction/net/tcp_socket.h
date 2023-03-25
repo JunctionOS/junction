@@ -95,6 +95,9 @@ class TCPSocket : public Socket {
       case FIONBIO:
         set_flags(get_flags() | kFlagNonblock);
         return {};
+      case FIONCLEX:
+        set_flags(get_flags() | kFlagCloseExec);
+        return {};
       default:
         LOG_ONCE(WARN) << "Unsupported ioctl request: " << request;
         return MakeError(EINVAL);

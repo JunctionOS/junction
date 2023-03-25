@@ -104,6 +104,9 @@ class FileSystem {
                             uint32_t flags) {
     return false;
   }
+
+  virtual mode_t get_umask() { return 0; }
+  virtual void set_umask(mode_t umask) { return; }
 };
 
 // Currently in-use file system.

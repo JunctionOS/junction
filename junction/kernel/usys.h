@@ -58,6 +58,9 @@ long usys_link(const char *oldpath, const char *newpath);
 long usys_unlink(const char *pathname);
 long usys_chown(const char *pathname, uid_t owner, gid_t group);
 long usys_chmod(const char *pathname, mode_t mode);
+long usys_getcwd(char *buf, size_t size);
+long usys_chdir(const char *path);
+mode_t usys_umask(mode_t mask);
 
 // Memory
 uintptr_t usys_brk(uintptr_t addr);
@@ -129,6 +132,7 @@ int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask);
 // Time
 long usys_nanosleep(const struct timespec *req, struct timespec *rem);
 long usys_clock_gettime(clockid_t clk_id, struct timespec *tp);
+long usys_clock_getres(clockid_t clk_id, struct timespec *res);
 long usys_gettimeofday(struct timeval *tv, struct timezone *tz);
 long usys_clock_nanosleep(clockid_t clockid, int flags,
                           const struct timespec *request,
@@ -136,7 +140,6 @@ long usys_clock_nanosleep(clockid_t clockid, int flags,
 
 // Misc
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);
-ssize_t usys_getcwd(char *buf, size_t size);
 long usys_uname(struct utsname *buf);
 long usys_getrlimit(int resource, struct rlimit *rlim);
 long usys_setrlimit(int resource, const struct rlimit *rlim);

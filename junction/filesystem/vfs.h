@@ -38,6 +38,9 @@ class VFS : public FileSystem {
                             const std::string_view &newpath) override;
   virtual Status<void> Unlink(const std::string_view &pathname) override;
 
+  mode_t get_umask() override { return umask_; }
+  void set_umask(mode_t umask) override { umask_ = umask; }
+
  private:
   // list of available file systems.
   // order matters; the first file system that supports a given path prefix will
@@ -46,6 +49,8 @@ class VFS : public FileSystem {
 
   FileSystem *get_fs(const std::string_view &pathname, uint32_t mode,
                      uint32_t flags);
+
+  mode_t umask_;
 };
 
 }  // namespace junction

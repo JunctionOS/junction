@@ -55,7 +55,7 @@ Status<void> _install_seccomp_filter() {
       // ALLOW_SYSCALL(getuid),
       // ALLOW_SYSCALL(gettid),
       // ALLOW_SYSCALL(access),
-
+      
       ALLOW_JUNCTION_SYSCALL(ioctl),
       ALLOW_JUNCTION_SYSCALL(prctl),
       ALLOW_JUNCTION_SYSCALL(getdents),
@@ -77,8 +77,8 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(write),
       ALLOW_JUNCTION_SYSCALL(writev),
       ALLOW_JUNCTION_SYSCALL(exit_group),
-
       ALLOW_JUNCTION_SYSCALL(getcwd),
+      ALLOW_JUNCTION_SYSCALL(chdir),
       TRAP,
   };
   struct sock_fprog prog = {
