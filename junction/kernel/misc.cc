@@ -8,6 +8,7 @@ extern "C" {
 
 #include <cstring>
 
+#include "junction/bindings/log.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/usys.h"
 
@@ -33,25 +34,31 @@ long usys_uname(struct utsname *buf) {
 }
 
 long usys_getrlimit([[maybe_unused]] int resource, struct rlimit *rlim) {
-  // TODO(girfan): Cache at junction init and re-use?
   if (!rlim) return -EFAULT;
-  rlim->rlim_cur = RLIM_INFINITY;
-  rlim->rlim_max = RLIM_INFINITY;
+  rlim->rlim_cur = 1024;
+  rlim->rlim_max = 1024;
   return 0;
 }
 
 long usys_setrlimit([[maybe_unused]] int resource,
                     [[maybe_unused]] const struct rlimit *rlim) {
-  return -EPERM;
+  // TODO(girfan): Should return -EPERM but some applications (memcached)
+  // fail on that.
+  LOG_ONCE(WARN) << "Unsupported: setrlimit";
+  return 0;
 }
 
 long usys_prlimit64([[maybe_unused]] pid_t pid, [[maybe_unused]] int resource,
                     [[maybe_unused]] const struct rlimit *new_limit,
                     struct rlimit *old_limit) {
-  if (new_limit) return -EPERM;
+  if (new_limit) {
+    // TODO(girfan): Should return -EPERM but some applications (memcached)
+    // fail on that.
+    LOG_ONCE(WARN) << "Unsupported: prlimit64";
+  }
   if (old_limit) {
-    old_limit->rlim_cur = RLIM_INFINITY;
-    old_limit->rlim_max = RLIM_INFINITY;
+    old_limit->rlim_cur = 1024;
+    old_limit->rlim_max = 1024;
   }
   return 0;
 }
