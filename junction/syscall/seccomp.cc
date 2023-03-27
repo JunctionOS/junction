@@ -55,7 +55,7 @@ Status<void> _install_seccomp_filter() {
       // ALLOW_SYSCALL(getuid),
       // ALLOW_SYSCALL(gettid),
       // ALLOW_SYSCALL(access),
-      
+
       ALLOW_JUNCTION_SYSCALL(ioctl),
       ALLOW_JUNCTION_SYSCALL(prctl),
       ALLOW_JUNCTION_SYSCALL(getdents),

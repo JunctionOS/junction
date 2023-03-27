@@ -73,6 +73,15 @@ __always_inline void do_free(void *ptr) {
 
 void EnableMemoryAllocation() { runtime.ready = true; }
 
+void ThrowBadAlloc() {
+  if (likely(runtime.ready)) {
+    rt::RuntimeLibcGuard guard;
+    throw std::bad_alloc();
+  } else {
+    throw std::bad_alloc();
+  }
+}
+
 }  // namespace junction
 
 //
@@ -99,25 +108,25 @@ void *operator new[](size_t size, std::align_val_t align,
 
 void *operator new(size_t size) throw() {
   void *ptr = junction::do_new(size);
-  if (unlikely(size > 0 && !ptr)) throw std::bad_alloc();
+  if (unlikely(size > 0 && !ptr)) junction::ThrowBadAlloc();
   return ptr;
 }
 
 void *operator new[](size_t size) throw() {
   void *ptr = junction::do_new(size);
-  if (unlikely(size > 0 && !ptr)) throw std::bad_alloc();
+  if (unlikely(size > 0 && !ptr)) junction::ThrowBadAlloc();
   return ptr;
 }
 
 void *operator new(size_t size, std::align_val_t align) throw() {
   void *ptr = junction::do_new_aligned(size, align);
-  if (unlikely(size > 0 && !ptr)) throw std::bad_alloc();
+  if (unlikely(size > 0 && !ptr)) junction::ThrowBadAlloc();
   return ptr;
 }
 
 void *operator new[](size_t size, std::align_val_t align) throw() {
   void *ptr = junction::do_new_aligned(size, align);
-  if (unlikely(size > 0 && !ptr)) throw std::bad_alloc();
+  if (unlikely(size > 0 && !ptr)) junction::ThrowBadAlloc();
   return ptr;
 }
 
