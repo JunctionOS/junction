@@ -10,6 +10,7 @@ extern "C" {
 
 #include "junction/bindings/log.h"
 #include "junction/kernel/ksys.h"
+#include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
@@ -33,32 +34,35 @@ long usys_uname(struct utsname *buf) {
   return 0;
 }
 
-long usys_getrlimit([[maybe_unused]] int resource, struct rlimit *rlim) {
+long usys_getrlimit(int resource, struct rlimit *rlim) {
+  if (resource != RLIMIT_NOFILE) return -EPERM;
   if (!rlim) return -EFAULT;
-  rlim->rlim_cur = 1024;
-  rlim->rlim_max = 1024;
+  rlimit limit_nofile = myproc().get_limit_nofile();
+  rlim->rlim_cur = limit_nofile.rlim_cur;
+  rlim->rlim_max = limit_nofile.rlim_max;
   return 0;
 }
 
-long usys_setrlimit([[maybe_unused]] int resource,
-                    [[maybe_unused]] const struct rlimit *rlim) {
-  // TODO(girfan): Should return -EPERM but some applications (memcached)
-  // fail on that.
-  LOG_ONCE(WARN) << "Unsupported: setrlimit";
+long usys_setrlimit(int resource, const struct rlimit *rlim) {
+  if (resource != RLIMIT_NOFILE) return -EPERM;
+  if (!rlim) return -EFAULT;
+  if (rlim->rlim_cur > rlim->rlim_max) return -EINVAL;
+  myproc().set_limit_nofile(rlim);
   return 0;
 }
 
-long usys_prlimit64([[maybe_unused]] pid_t pid, [[maybe_unused]] int resource,
-                    [[maybe_unused]] const struct rlimit *new_limit,
-                    struct rlimit *old_limit) {
-  if (new_limit) {
-    // TODO(girfan): Should return -EPERM but some applications (memcached)
-    // fail on that.
-    LOG_ONCE(WARN) << "Unsupported: prlimit64";
-  }
+// TODO(girfan): Need to check the pid when we support multiple procs.
+long usys_prlimit64([[maybe_unused]] pid_t pid, int resource,
+                    const struct rlimit *new_limit, struct rlimit *old_limit) {
+  if (resource != RLIMIT_NOFILE) return -EPERM;
   if (old_limit) {
-    old_limit->rlim_cur = 1024;
-    old_limit->rlim_max = 1024;
+    rlimit limit_nofile = myproc().get_limit_nofile();
+    old_limit->rlim_cur = limit_nofile.rlim_cur;
+    old_limit->rlim_max = limit_nofile.rlim_max;
+  }
+  if (new_limit) {
+    if (new_limit->rlim_cur > new_limit->rlim_max) return -EINVAL;
+    myproc().set_limit_nofile(new_limit);
   }
   return 0;
 }

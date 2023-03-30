@@ -3,6 +3,7 @@
 #pragma once
 
 extern "C" {
+#include <sys/resource.h>
 #include <sys/types.h>
 #include <ucontext.h>
 }
@@ -62,7 +63,10 @@ static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 // Process is a UNIX process object.
 class Process {
  public:
-  Process(pid_t pid, void *base, size_t len) : pid_(pid), mem_map_(base, len) {}
+  Process(pid_t pid, void *base, size_t len) : pid_(pid), mem_map_(base, len) {
+    limit_nofile_.rlim_cur = 8192;
+    limit_nofile_.rlim_max = 8192;
+  }
   ~Process() = default;
 
   Process(Process &&) = delete;
@@ -73,14 +77,20 @@ class Process {
   [[nodiscard]] pid_t get_pid() const { return pid_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
   [[nodiscard]] MemoryMap &get_mem_map() { return mem_map_; }
+  [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
+  void set_limit_nofile(const rlimit *rlim) {
+    limit_nofile_.rlim_cur = rlim->rlim_cur;
+    limit_nofile_.rlim_max = rlim->rlim_max;
+  }
 
   Thread &CreateThread(thread_t *th);
   Thread &CreateTestThread();
 
  private:
-  const pid_t pid_;     // the process identifier
-  int xstate_;          // exit state
-  bool killed_{false};  // If non-zero, the process has been killed
+  const pid_t pid_;      // the process identifier
+  int xstate_;           // exit state
+  bool killed_{false};   // If non-zero, the process has been killed
+  rlimit limit_nofile_;  // current rlimit for RLIMIT_NOFILE
 
   //
   // Per-process kernel subsystems
