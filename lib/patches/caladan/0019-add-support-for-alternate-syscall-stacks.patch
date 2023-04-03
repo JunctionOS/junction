@@ -1,4 +1,4 @@
-From 8489331e58d990d95ac46ce9c7286d0e9603cace Mon Sep 17 00:00:00 2001
+From eb868f9a2bde5840baa57d0d8639712ad012bbc4 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
 Subject: [PATCH 19/20] add support for alternate syscall stacks
@@ -31,18 +31,18 @@ index cc9cf91..0f79da8 100644
      unsigned int        main_thread:1;
      unsigned int        has_fsbase:1;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index ac1b9b5..235e261 100644
+index 85e3a19..c0cc47b 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
-@@ -17,6 +17,7 @@
- int arp_static_count = 0;
- struct cfg_arp_static_entry static_entries[MAX_ARP_STATIC_ENTRIES];
+@@ -18,6 +18,7 @@ static size_t arp_static_sz;
+ size_t arp_static_count;
+ struct cfg_arp_static_entry *static_entries;
  int preferred_socket = 0;
 +bool use_sigaltstack = false;
  
  /*
   * Configuration Options
-@@ -352,6 +353,13 @@ static int parse_enable_gc(const char *name, const char *val)
+@@ -359,6 +360,13 @@ static int parse_enable_gc(const char *name, const char *val)
  #endif
  }
  
@@ -56,7 +56,7 @@ index ac1b9b5..235e261 100644
  
  /*
   * Parsing Infrastructure
-@@ -388,7 +396,7 @@ static const struct cfg_handler cfg_handlers[] = {
+@@ -395,7 +403,7 @@ static const struct cfg_handler cfg_handlers[] = {
  	{ "enable_storage", parse_enable_storage, false },
  	{ "enable_directpath", parse_enable_directpath, false },
  	{ "enable_gc", parse_enable_gc, false },
@@ -66,7 +66,7 @@ index ac1b9b5..235e261 100644
  
  /**
 diff --git a/runtime/defs.h b/runtime/defs.h
-index d0c4524..0a29fc9 100644
+index 51aef66..0c2282c 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -430,6 +430,7 @@ extern unsigned int cfg_request_hardware_queues;
@@ -78,7 +78,7 @@ index d0c4524..0a29fc9 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/init.c b/runtime/init.c
-index fa14f58..6bcf765 100644
+index 690daac..79066cf 100644
 --- a/runtime/init.c
 +++ b/runtime/init.c
 @@ -58,10 +58,10 @@ static const struct init_entry global_init_handlers[] = {
@@ -133,7 +133,7 @@ index b49ab72..ee376d6 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 0d4f10d..6c901c9 100644
+index 29d1c16..3c2da08 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -791,6 +791,10 @@ static __always_inline thread_t *__thread_create_nostack(void)
@@ -159,7 +159,7 @@ index 0d4f10d..6c901c9 100644
  	th->main_thread = false;
  	th->has_fsbase = false;
  	th->thread_ready = false;
-@@ -952,6 +961,8 @@ static void thread_finish_exit(void)
+@@ -953,6 +962,8 @@ static void thread_finish_exit(void)
  	gc_remove_thread(th);
  	if (th->stack)
  		stack_free(th->stack);

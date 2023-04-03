@@ -1,4 +1,4 @@
-From ea1d190196ef8285e747a7be1dcbaa0b7e541be5 Mon Sep 17 00:00:00 2001
+From af6e22a8086b2db6658fa43c904068b62cc70603 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sat, 18 Feb 2023 21:50:32 -0500
 Subject: [PATCH 17/20] extend struct thread to support extended register
@@ -6,8 +6,8 @@ Subject: [PATCH 17/20] extend struct thread to support extended register
 
 ---
  inc/runtime/thread.h | 3 +++
- runtime/sched.c      | 1 +
- 2 files changed, 4 insertions(+)
+ runtime/sched.c      | 2 ++
+ 2 files changed, 5 insertions(+)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index 10ed588..a821db5 100644
@@ -24,10 +24,18 @@ index 10ed588..a821db5 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/sched.c b/runtime/sched.c
-index ee7fcf0..828be86 100644
+index 1edb45a..29d1c16 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -802,6 +802,7 @@ static __always_inline thread_t *__thread_create_nostack(void)
+@@ -800,6 +800,7 @@ static __always_inline thread_t *__thread_create_nostack(void)
+ 	th->thread_ready = false;
+ 	th->thread_running = false;
+ 	th->tlsvar = 0;
++	th->xsave_area = NULL;
+ 
+ 	return th;
+ }
+@@ -832,6 +833,7 @@ static __always_inline thread_t *__thread_create(void)
  	th->thread_ready = false;
  	th->thread_running = false;
  	th->tlsvar = 0;
