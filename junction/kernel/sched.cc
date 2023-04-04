@@ -23,7 +23,7 @@ int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) {
   if (cores / kBitsPerByte > cpusetsize) return -EPERM;
   std::memset(mask, 0, cpusetsize);
   for (size_t i = 0; i < cores; ++i) CPU_SET(i, mask);
-  return 0;
+  return static_cast<int>(cpusetsize);
 }
 
 }  // namespace junction
