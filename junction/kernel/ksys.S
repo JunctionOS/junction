@@ -69,18 +69,10 @@ ksys_close:
 	ret
 
 .align 16
-.globl ksys_read
-.type ksys_read, @function
-ksys_read:
-	movl	$__NR_read, %eax
-	syscall
-	ret
-
-.align 16
-.globl ksys_write
-.type ksys_write, @function
-ksys_write:
-	movl	$__NR_write, %eax
+.globl ksys_readv
+.type ksys_readv, @function
+ksys_readv:
+	movl	$__NR_readv, %eax
 	syscall
 	ret
 
@@ -93,14 +85,7 @@ ksys_pread:
 	syscall
 	ret
 
-.align 16
-.globl ksys_pwrite
-.type ksys_pwrite, @function
-ksys_pwrite:
-	movl	$__NR_pwrite64, %eax
-	movq	%rcx, %r10
-	syscall
-	ret
+
 
 .align 16
 .globl ksys_newfstatat

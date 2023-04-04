@@ -41,8 +41,8 @@ Status<void> StdIOFile::Stat(struct stat *statbuf, int flags) {
 }
 
 Status<void> StdIOFile::Sync() {
-  int ret = fsync(fd_);
-  if (ret) return MakeError(-ret);
+  //  int ret = fsync(fd_);
+  //  if (ret) return MakeError(-ret);
   return {};
 }
 

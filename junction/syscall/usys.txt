@@ -42,7 +42,6 @@ unlink
 chown
 chmod
 getcwd
-chdir
 umask
 dup
 dup2

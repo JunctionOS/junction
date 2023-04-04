@@ -443,11 +443,13 @@ long usys_getcwd(char *buf, size_t size) {
                       __NR_getcwd);
 }
 
+#if 0
 long usys_chdir(const char *path) {
   // TODO(girfan): Remove this once the filesystem is more there
   return ksys_default(reinterpret_cast<unsigned long>(path), 0, 0, 0, 0, 0,
                       __NR_chdir);
 }
+#endif
 
 long usys_ioctl(int fd, unsigned long request, char *argp) {
   FileTable &ftbl = myproc().get_file_table();

@@ -59,7 +59,7 @@ long usys_unlink(const char *pathname);
 long usys_chown(const char *pathname, uid_t owner, gid_t group);
 long usys_chmod(const char *pathname, mode_t mode);
 long usys_getcwd(char *buf, size_t size);
-long usys_chdir(const char *path);
+// long usys_chdir(const char *path);
 mode_t usys_umask(mode_t mask);
 
 // Memory
