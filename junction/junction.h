@@ -58,6 +58,7 @@ class JunctionCfg {
 };
 
 JunctionCfg &GetCfg();
+std::string_view GetCwd();
 
 Status<void> init();
 Status<void> InitTestProc();

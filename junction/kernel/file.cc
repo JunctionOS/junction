@@ -8,10 +8,12 @@ extern "C" {
 
 #include <algorithm>
 #include <bit>
+#include <cstring>
 #include <memory>
 
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
+#include "junction/junction.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/fs.h"
 #include "junction/kernel/ksys.h"
@@ -439,8 +441,13 @@ long usys_chmod(const char *pathname, mode_t mode) {
 
 long usys_getcwd(char *buf, size_t size) {
   // TODO(amb): Remove this once the filesystem is more there
-  return ksys_default(reinterpret_cast<unsigned long>(buf), size, 0, 0, 0, 0,
-                      __NR_getcwd);
+
+  std::string_view cwd = GetCwd();
+  size_t outsz = cwd.size() + 1;
+  if (outsz > size) return -ERANGE;
+  std::memcpy(buf, cwd.data(), cwd.size());
+  buf[cwd.size()] = '\0';
+  return outsz;
 }
 
 #if 0

@@ -1,6 +1,7 @@
 #include "junction/junction.h"
 
 #include <boost/program_options.hpp>
+#include <filesystem>
 #include <iostream>
 #include <memory>
 
@@ -15,6 +16,10 @@
 #include "junction/syscall/syscall.h"
 
 namespace junction {
+
+std::string cwd;
+
+std::string_view GetCwd() { return cwd; }
 
 JunctionCfg &GetCfg() {
   static JunctionCfg cfg;
@@ -126,6 +131,8 @@ Status<void> init() {
 
   ret = ShimJmpInit();
   if (unlikely(!ret)) return ret;
+
+  cwd = std::filesystem::current_path();
 
   return init_seccomp();
 }
