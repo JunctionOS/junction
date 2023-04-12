@@ -164,16 +164,14 @@ class SlabList {
       // Add blocks
       const size_t delta = blocks_needed - n_blocks_in_use_;
       for (size_t i = 0; i < delta; i++) {
-        void* p = malloc(BlockSize);
-        if (!p) throw std::bad_alloc();
-        block_ptrs_[i + n_blocks_in_use_] = p;
+        block_ptrs_[i + n_blocks_in_use_] = new char[BlockSize];
       }
     } else {
       // Remove blocks
       const size_t delta = n_blocks_in_use_ - blocks_needed;
       for (size_t i = 0; i < delta; i++) {
         const size_t idx = n_blocks_in_use_ - i - 1;
-        free(block_ptrs_[idx]);
+        delete[] block_ptrs_[idx];
         block_ptrs_[idx] = nullptr;
       }
     }
@@ -197,7 +195,7 @@ class SlabList {
   }
 
  private:
-  void* block_ptrs_[MaxBlocks];
+  char* block_ptrs_[MaxBlocks];
   size_t size_{0};
   size_t n_blocks_in_use_{0};
 };

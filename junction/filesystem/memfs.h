@@ -26,8 +26,8 @@ namespace junction {
 
 class MemFSInode : public Inode,
                    public std::enable_shared_from_this<MemFSInode> {
-  constexpr static ssize_t kMaxSizeBytes = 32 * 1024 * 1024;  // 32MB
-  constexpr static size_t kBlockSize = 4096;                  // 4KB (page size)
+  constexpr static size_t kMaxSizeBytes = (1UL << 33);  // 8 GB
+  constexpr static size_t kBlockSize = 4096;            // 4KB (page size)
   static_assert(kMaxSizeBytes % kBlockSize == 0);
   constexpr static size_t kMaxBlocks = kMaxSizeBytes / kBlockSize;
 

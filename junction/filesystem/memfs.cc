@@ -117,7 +117,9 @@ Status<void> MemFSInode::Remove(const std::string_view& name) {
 }
 
 Status<void> MemFSInode::Truncate(off_t newlen) {
-  if (unlikely(newlen > kMaxSizeBytes)) return MakeError(EINVAL);
+  if (unlikely(static_cast<size_t>(newlen) > kMaxSizeBytes)) {
+    return MakeError(EINVAL);
+  }
   if (unlikely(type_ == kTypeDirectory)) return MakeError(EISDIR);
 
   buf_.Resize(newlen);
