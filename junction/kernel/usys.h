@@ -128,6 +128,13 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
 long usys_sched_yield();
 long usys_getcpu();
 int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask);
+long usys_sched_setscheduler(pid_t pid, int policy,
+                             const struct sched_param *param);
+long usys_sched_getscheduler(pid_t pid);
+long usys_sched_setparam(pid_t pid, const struct sched_param *param);
+long usys_sched_getparam(pid_t pid, struct sched_param *param);
+long usys_sched_get_priority_max(int policy);
+long usys_sched_get_priority_min(int policy);
 
 // Time
 long usys_nanosleep(const struct timespec *req, struct timespec *rem);

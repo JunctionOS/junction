@@ -91,3 +91,9 @@ getrlimit
 setrlimit
 prlimit64
 ioctl
+sched_setscheduler
+sched_getscheduler
+sched_getparam
+sched_setparam
+sched_get_priority_max
+sched_get_priority_min
