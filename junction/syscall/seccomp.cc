@@ -112,12 +112,24 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
     syscall_exit(-1);
   }
 
+  LOG_ONCE(WARN) << "Warning: intercepting syscalls with seccomp traps";
+
+  if (unlikely(!preempt_enabled())) {  // call probably from junction libc
+    long arg0 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG0]);
+    long arg1 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG1]);
+    long arg2 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG2]);
+    long arg3 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG3]);
+    long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
+    long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
+    auto res = ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, sysn);
+    ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
+    return;
+  }
+
   if (unlikely(!get_uthread_specific())) {
     log_syscall_msg("Intercepted syscall originating in junction", sysn);
     syscall_exit(-1);
   }
-
-  LOG_ONCE(WARN) << "Warning: intercepting syscalls with seccomp traps";
 
   // redirect to syscall handler that will save state for us
   ctx->uc_mcontext.gregs[REG_RIP] =

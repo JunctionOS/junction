@@ -42,16 +42,10 @@ long usys_sched_setparam(pid_t pid, const struct sched_param *param) {
   return -EPERM;
 }
 
-long usys_sched_getparam(pid_t pid, struct sched_param *param) {
-  return 0;
-}
+long usys_sched_getparam(pid_t pid, struct sched_param *param) { return 0; }
 
-long usys_sched_get_priority_max([[maybe_unused]] int policy) {
-  return 0;
-}
+long usys_sched_get_priority_max([[maybe_unused]] int policy) { return 0; }
 
-long usys_sched_get_priority_min([[maybe_unused]] int policy) {
-  return 0;
-}
+long usys_sched_get_priority_min([[maybe_unused]] int policy) { return 0; }
 
 }  // namespace junction
