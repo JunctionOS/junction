@@ -43,7 +43,7 @@ class Logger {
   if (auto pred =                            \
           [] {                               \
             static bool once = false;        \
-            if (!once) {                     \
+            if (unlikely(!once)) {           \
               once = true;                   \
               return true;                   \
             }                                \
@@ -71,7 +71,7 @@ class Logger {
   if (auto pred =                            \
           [] {                               \
             static bool once = false;        \
-            if (!once) {                     \
+            if (unlikely(!once)) {           \
               once = true;                   \
               return true;                   \
             }                                \
