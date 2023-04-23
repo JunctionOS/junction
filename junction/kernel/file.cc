@@ -315,7 +315,7 @@ int usys_dup(int oldfd) {
 }
 
 int usys_dup2(int oldfd, int newfd) {
-  if (oldfd == newfd) return -EINVAL;
+  if (oldfd == newfd) return newfd;
   FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
