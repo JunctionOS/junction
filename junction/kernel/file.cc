@@ -51,18 +51,7 @@ std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap) {
 FileTable::FileTable()
     : farr_(std::make_unique<FArr>(kInitialCap)),
       rcup_(farr_.get()),
-      close_on_exec_(kInitialCap) {
-  // Create STDIN, STDOUT, STDERR files.
-  std::shared_ptr<StdIOFile> fin =
-      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
-  std::shared_ptr<StdIOFile> fout =
-      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
-  std::shared_ptr<StdIOFile> ferr =
-      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
-  Insert(std::move(fin));
-  Insert(std::move(fout));
-  Insert(std::move(ferr));
-}
+      close_on_exec_(kInitialCap) {}
 
 FileTable::~FileTable() = default;
 

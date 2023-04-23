@@ -117,7 +117,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
 
 }  // namespace
 
-Status<Process *> CreateProcess() {
+Status<std::unique_ptr<Process>> CreateProcess() {
   pid_t pid;
   {
     rt::SpinGuard guard(process_lock);
@@ -133,7 +133,7 @@ Status<Process *> CreateProcess() {
             << ", mapping=" << *base << "-"
             << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(*base) +
                                         kMemoryMappingSize);
-  return new Process(pid, *base, kMemoryMappingSize);
+  return std::make_unique<Process>(pid, *base, kMemoryMappingSize);
 }
 
 // Attach calling thread to this process; used for testing.
@@ -167,7 +167,7 @@ pid_t usys_set_tid_address(int *tidptr) {
   return tstate.get_tid();
 }
 
-long usys_clone3(clone_args *cl_args, size_t size) {
+long usys_clone3(struct clone_args *cl_args, size_t size) {
   if (unlikely(!cl_args->stack)) return -EINVAL;
   return DoClone(cl_args, cl_args->stack + cl_args->stack_size);
 }

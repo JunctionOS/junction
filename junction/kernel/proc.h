@@ -35,7 +35,8 @@ class Process;
 // Thread is a UNIX thread object.
 class Thread {
  public:
-  Thread(Process *proc, pid_t tid) : proc_(proc), tid_(tid) {}
+  Thread(Process *proc, pid_t tid, std::optional<rt::ThreadWaker> w = {})
+      : proc_(proc), tid_(tid), vfork_waker_(std::move(w)) {}
   ~Thread() = default;
 
   Thread(Thread &&) = delete;
@@ -55,6 +56,9 @@ class Thread {
   uint32_t *child_tid_;         // Used for clone3/exit
   const pid_t tid_;             // the thread identifier
   kernel_sigset_t cur_sigset_;  // blocked signals
+
+  // Wakes the thread waiting for the vfork thread to exec().
+  std::optional<rt::ThreadWaker> vfork_waker_;
 };
 
 // Make sure that Caladan's thread def has enough room for the Thread class
@@ -103,7 +107,7 @@ class Process {
 };
 
 // Create a new process.
-Status<Process *> CreateProcess();
+Status<std::unique_ptr<Process>> CreateProcess();
 
 // mythread returns the Thread object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.

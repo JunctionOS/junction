@@ -15,7 +15,7 @@ extern "C" {
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
 #include "junction/kernel/elf.h"
-#include "junction/kernel/proc.h"
+#include "junction/kernel/exec.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
@@ -154,12 +154,14 @@ asm(R"(
 )");
 }  // namespace
 
-Status<thread_t *> Exec(std::string_view pathname,
-                        const std::vector<std::string_view> &argv,
-                        const std::vector<std::string_view> &envp) {
+Status<void> Exec(Process &p, std::string_view pathname,
+                  const std::vector<std::string_view> &argv,
+                  const std::vector<std::string_view> &envp) {
+  // load the ELF program image file
   auto edata = LoadELF(pathname);
   if (!edata) return MakeError(edata);
 
+  // Create the first thread
   uint64_t entry =
       edata->interp ? edata->interp->entry_addr : edata->entry_addr;
   thread_t *th =
@@ -169,11 +171,10 @@ Status<thread_t *> Exec(std::string_view pathname,
   // remove the existing exit function pointer
   th->tf.rsp += 8;
 
-  Status<Process *> p = CreateProcess();
-  if (!p) return MakeError(p);
-  (*p)->CreateThread(th);
   SetupStack(&th->tf.rsp, argv, envp, *edata);
-  return th;
+  p.CreateThread(th);
+  thread_ready(th);
+  return {};
 }
 
 }  // namespace junction

@@ -87,11 +87,11 @@ void JunctionCfg::Print() {
   for (std::string &s : binary_envp) LOG(INFO) << "env: " << s;
 }
 
-Status<void> InitTestProc() {
+Status<std::unique_ptr<Process>> CreateTestProc() {
   // Intentionally leak this memory
-  Status<Process *> p = CreateProcess();
-  (*p)->CreateTestThread();
-  return {};
+  Status<std::unique_ptr<Process>> p = CreateProcess();
+  if (p) (*p)->CreateTestThread();
+  return p;
 }
 
 Status<void> InitChroot() {

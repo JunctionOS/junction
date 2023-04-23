@@ -5,42 +5,70 @@
 #include "junction/bindings/runtime.h"
 #include "junction/junction.h"
 #include "junction/kernel/exec.h"
+#include "junction/kernel/stdiofile.h"
 
 namespace junction {
 
+namespace {
+
+Status<std::unique_ptr<Process>> CreateFirstProcess(
+    std::string_view path, const std::vector<std::string_view> &argv,
+    const std::vector<std::string_view> &envp) {
+  // Create the process object
+  Status<std::unique_ptr<Process>> proc = CreateProcess();
+  if (!proc) return MakeError(proc);
+
+  // Create and insert STDIN, STDOUT, STDERR files
+  std::shared_ptr<StdIOFile> fin =
+      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
+  std::shared_ptr<StdIOFile> fout =
+      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
+  std::shared_ptr<StdIOFile> ferr =
+      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
+  FileTable &ftbl = (**proc).get_file_table();
+  ftbl.Insert(std::move(fin));
+  ftbl.Insert(std::move(fout));
+  ftbl.Insert(std::move(ferr));
+
+  // Exec program image
+  Status<void> ret = Exec(**proc, path, argv, envp);
+  if (!ret) {
+    LOG(ERR) << "Failed to exec binary: " << ret.error();
+    return MakeError(ret);
+  }
+
+  return *std::move(proc);
+}
+
+}  // namespace
+
 void JunctionMain(int argc, char *argv[]) {
-  // initialize junction
+  // Initialize core junction services
   EnableMemoryAllocation();
   Status<void> ret = init();
   BUG_ON(!ret);
 
+  // Initialize environment and arguments
   std::stringstream ld_path_s;
   ld_path_s << "LD_LIBRARY_PATH=" << GetCfg().get_ld_path()
             << ":/lib/x86_64-linux-gnu/";
   std::string ld_path = ld_path_s.str();
-
   std::stringstream preload_path_s;
   preload_path_s << "LD_PRELOAD=" << GetCfg().get_preload_path();
   std::string preload_path = preload_path_s.str();
-
   std::vector<std::string_view> envp = {ld_path, preload_path,
 #ifdef DEBUG
                                         "LD_DEBUG=all"
 #endif  // DEBUG
   };
-
   for (const std::string &s : GetCfg().get_binary_envp()) envp.emplace_back(s);
-
   std::vector<std::string_view> args = {};
   for (int i = 0; i < argc; i++) args.emplace_back(argv[i]);
 
-  Status<thread_t *> th = Exec(args[0], args, envp);
-  if (!th) {
-    LOG(ERR) << "Failed to exec binary: " << th.error();
-    return;
-  }
-
-  thread_ready(*th);
+  // Create the first process
+  Status<std::unique_ptr<Process>> proc =
+      CreateFirstProcess(args[0], args, envp);
+  BUG_ON(!proc);
 
   // Wait forever... (the binary will directly call GROUP_EXIT for now)
   rt::WaitForever();
@@ -91,7 +119,6 @@ int main(int argc, char *argv[]) {
 
   int rtret = junction::rt::RuntimeInit(
       cfg_file, [=] { junction::JunctionMain(binary_argc, binary_args); });
-
   if (rtret) {
     std::cerr << "runtime failed to start" << std::endl;
     return rtret;

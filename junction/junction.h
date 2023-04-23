@@ -3,6 +3,7 @@
 #include <boost/program_options.hpp>
 
 #include "junction/base/error.h"
+#include "junction/kernel/proc.h"
 
 #ifndef CUSTOM_GLIBC_INTERPRETER_PATH
 #define CUSTOM_GLIBC_INTERPRETER_PATH
@@ -61,7 +62,7 @@ JunctionCfg &GetCfg();
 std::string_view GetCwd();
 
 Status<void> init();
-Status<void> InitTestProc();
+Status<std::unique_ptr<Process>> InitTestProc();
 void EnableMemoryAllocation();
 
 }  // namespace junction

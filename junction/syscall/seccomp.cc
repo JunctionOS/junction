@@ -123,7 +123,7 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
     ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
     return;
   }
-  
+
   LOG_ONCE(WARN) << "Warning: intercepting syscalls with seccomp traps";
 
   if (unlikely(!get_uthread_specific())) {
