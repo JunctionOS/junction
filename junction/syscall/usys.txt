@@ -45,6 +45,7 @@ getcwd
 umask
 dup
 dup2
+dup3
 pipe
 pipe2
 clock_nanosleep

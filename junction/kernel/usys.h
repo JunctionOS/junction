@@ -41,6 +41,7 @@ off_t usys_lseek(int fd, off_t offset, int whence);
 int usys_fsync(int fd);
 int usys_dup(int oldfd);
 int usys_dup2(int oldfd, int newfd);
+int usys_dup3(int oldfd, int newfd, int flags);
 long usys_close(int fd);
 long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                      int flags);

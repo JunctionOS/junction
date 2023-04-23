@@ -11,6 +11,7 @@ extern "C" {
 #include <cstring>
 #include <memory>
 
+#include "junction/base/finally.h"
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
 #include "junction/junction.h"
@@ -48,7 +49,9 @@ std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap) {
 }  // namespace detail
 
 FileTable::FileTable()
-    : farr_(std::make_unique<FArr>(kInitialCap)), rcup_(farr_.get()) {
+    : farr_(std::make_unique<FArr>(kInitialCap)),
+      rcup_(farr_.get()),
+      close_on_exec_(kInitialCap) {
   // Create STDIN, STDOUT, STDERR files.
   std::shared_ptr<StdIOFile> fin =
       std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
@@ -72,6 +75,7 @@ void FileTable::Resize(size_t len) {
     rcup_.set(narr.get());
     rt::RCUFree(std::move(farr_));
     farr_ = std::move(narr);
+    close_on_exec_.resize(new_cap);
   }
 }
 
@@ -83,11 +87,14 @@ std::shared_ptr<File> FileTable::Dup(int fd) {
   return tbl->files[fd];
 }
 
-int FileTable::Insert(std::shared_ptr<File> f, size_t lowest) {
+int FileTable::Insert(std::shared_ptr<File> f, size_t lowest, bool cloexec) {
   rt::SpinGuard g(lock_);
+  size_t i;
+  auto fin = finally([this, cloexec, &i] {
+    if (cloexec) close_on_exec_.set(i);
+  });
 
   // Find the first empty slot to insert the file.
-  size_t i;
   for (i = lowest; i < farr_->len; ++i) {
     if (!farr_->files[i]) {
       farr_->files[i] = std::move(f);
@@ -102,10 +109,23 @@ int FileTable::Insert(std::shared_ptr<File> f, size_t lowest) {
   return static_cast<int>(i);
 }
 
-void FileTable::InsertAt(int fd, std::shared_ptr<File> f) {
+void FileTable::InsertAt(int fd, std::shared_ptr<File> f, bool cloexec) {
   rt::SpinGuard g(lock_);
   if (static_cast<size_t>(fd) >= farr_->len) Resize(fd);
   farr_->files[fd] = std::move(f);
+  if (cloexec) close_on_exec_.set(fd);
+}
+
+void FileTable::SetCloseOnExec(int fd) {
+  rt::SpinGuard g(lock_);
+  assert(farr_->files[i]);
+  close_on_exec_.set(fd);
+}
+
+bool FileTable::TestCloseOnExec(int fd) {
+  rt::SpinGuard g(lock_);
+  assert(farr_->files[i]);
+  return close_on_exec_.test(fd);
 }
 
 bool FileTable::Remove(int fd) {
@@ -119,6 +139,9 @@ bool FileTable::Remove(int fd) {
 
     // Remove the file.
     tmp = std::move(farr_->files[fd]);
+
+    // Clear close-on-exec.
+    close_on_exec_.clear(fd);
   }
   return true;
 }
@@ -138,7 +161,7 @@ long usys_open(const char *pathname, int flags, mode_t mode) {
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -ENOENT;
   FileTable &ftbl = myproc().get_file_table();
-  return ftbl.Insert(std::move(*f));
+  return ftbl.Insert(std::move(*f), (flags & kFlagCloseExec) > 0);
 }
 
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
@@ -299,6 +322,14 @@ int usys_dup2(int oldfd, int newfd) {
   return newfd;
 }
 
+int usys_dup3(int oldfd, int newfd, int flags) {
+  FileTable &ftbl = myproc().get_file_table();
+  std::shared_ptr<File> f = ftbl.Dup(oldfd);
+  if (!f) return -EBADF;
+  ftbl.InsertAt(newfd, std::move(f), (flags & kFlagCloseExec) > 0);
+  return newfd;
+}
+
 long usys_close(int fd) {
   FileTable &ftbl = myproc().get_file_table();
   if (!ftbl.Remove(fd)) return -EBADF;
@@ -362,24 +393,18 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
 
   switch (cmd) {
     case F_DUPFD_CLOEXEC:
-      LOG_ONCE(WARN) << "fcntl ignoring cloexec";
       /* fallthrough */
     case F_DUPFD: {
       std::shared_ptr<File> fdup;
       fdup = ftbl.Dup(fd);
       if (!fdup) return -EBADF;
-      return ftbl.Insert(std::move(fdup), arg);
+      return ftbl.Insert(std::move(fdup), arg, cmd == F_DUPFD_CLOEXEC);
     }
     case F_GETFD:
-      if (f->get_flags() & kFlagCloseExec) {
-        return FD_CLOEXEC;
-      }
-      return 0;
+      return ftbl.TestCloseOnExec(fd) ? FD_CLOEXEC : 0;
     case F_SETFD:
-      if (arg != FD_CLOEXEC) {
-        return -EINVAL;
-      }
-      f->set_flags(f->get_flags() | kFlagCloseExec);
+      if (arg != FD_CLOEXEC) return -EINVAL;
+      ftbl.SetCloseOnExec(fd);
       return 0;
     case F_GETFL:
       return f->get_mode() | f->get_flags();

@@ -10,6 +10,7 @@ extern "C" {
 #include <memory>
 #include <span>
 
+#include "junction/base/bitmap.h"
 #include "junction/base/error.h"
 #include "junction/bindings/rcu.h"
 #include "junction/bindings/sync.h"
@@ -175,16 +176,22 @@ class FileTable {
   std::shared_ptr<File> Dup(int fd);
 
   // Inserts a file into the file table and refcounts it. Returns the fd number.
-  int Insert(std::shared_ptr<File> f, size_t lowest = 0);
+  int Insert(std::shared_ptr<File> f, size_t lowest = 0, bool cloexec = false);
 
   // Inserts a file into the file table at a specific fd number and refcounts
   // it. If a file already exists for the fd number, it will be replaced
   // atomically.
-  void InsertAt(int fd, std::shared_ptr<File> f);
+  void InsertAt(int fd, std::shared_ptr<File> f, bool cloexec = false);
 
   // Removes the file tied to an fd number and drops its refcount. Returns true
   // if successful.
   bool Remove(int fd);
+
+  // Sets an fd as close-on-exec.
+  void SetCloseOnExec(int fd);
+
+  // Tests if an fd is close-on-exec.
+  bool TestCloseOnExec(int fd);
 
   // Runs a function on each file descriptor in the table. Preemption is
   // disabled during each call to the function.
@@ -199,6 +206,7 @@ class FileTable {
 
   std::unique_ptr<FArr> farr_;
   rt::RCUPtr<FArr> rcup_;
+  dynamic_bitmap close_on_exec_;
   rt::Spin lock_;
 };
 
