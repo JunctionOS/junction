@@ -116,18 +116,6 @@ void FileTable::InsertAt(int fd, std::shared_ptr<File> f, bool cloexec) {
   if (cloexec) close_on_exec_.set(fd);
 }
 
-void FileTable::SetCloseOnExec(int fd) {
-  rt::SpinGuard g(lock_);
-  assert(farr_->files[i]);
-  close_on_exec_.set(fd);
-}
-
-bool FileTable::TestCloseOnExec(int fd) {
-  rt::SpinGuard g(lock_);
-  assert(farr_->files[i]);
-  return close_on_exec_.test(fd);
-}
-
 bool FileTable::Remove(int fd) {
   std::shared_ptr<File> tmp;  // so destructor is called without lock held
   {
@@ -144,6 +132,18 @@ bool FileTable::Remove(int fd) {
     close_on_exec_.clear(fd);
   }
   return true;
+}
+
+void FileTable::SetCloseOnExec(int fd) {
+  rt::SpinGuard g(lock_);
+  assert(farr_->files[i]);
+  close_on_exec_.set(fd);
+}
+
+bool FileTable::TestCloseOnExec(int fd) {
+  rt::SpinGuard g(lock_);
+  assert(farr_->files[i]);
+  return close_on_exec_.test(fd);
 }
 
 //
@@ -315,6 +315,7 @@ int usys_dup(int oldfd) {
 }
 
 int usys_dup2(int oldfd, int newfd) {
+  if (oldfd == newfd) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
@@ -323,6 +324,7 @@ int usys_dup2(int oldfd, int newfd) {
 }
 
 int usys_dup3(int oldfd, int newfd, int flags) {
+  if (oldfd == newfd) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
