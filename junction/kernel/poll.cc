@@ -455,9 +455,9 @@ void EPollObserver::Notify(uint32_t events) {
 namespace {
 
 // Creates a new EPoll file.
-int CreateEPollFile() {
+int CreateEPollFile(bool cloexec = false) {
   auto f = std::make_shared<detail::EPollFile>();
-  return myproc().get_file_table().Insert(std::move(f));
+  return myproc().get_file_table().Insert(std::move(f), cloexec);
 }
 
 int DoEPollWait(int epfd, epoll_event *events, int maxevents,
@@ -508,8 +508,9 @@ int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
 // This variant is deprecated, and size is ignored.
 int usys_epoll_create(int size) { return CreateEPollFile(); }
 
-// TODO(amb): support FD_CLOEXEC flag
-int usys_epoll_create1(int flags) { return CreateEPollFile(); }
+int usys_epoll_create1(int flags) {
+  return CreateEPollFile((flags & kFlagCloseExec) > 0);
+}
 
 int usys_epoll_ctl(int epfd, int op, int fd, const struct epoll_event *event) {
   // get the epoll file
