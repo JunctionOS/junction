@@ -43,8 +43,16 @@ constexpr Elf64_auxv_t MakeAuxVec(uint64_t type, T *val) {
 void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
                  const char *filename, const elf_data &edata,
                  char *random_ptr) {
+  // get hardware capabilities from CPUID
   cpuid_info info;
   cpuid(0x00000001, &info);
+
+  // expose the real Linux vDSO, which includes the following system calls:
+  // 1. clock_gettime()
+  // 2. getcpu()
+  // 3. gettimeofday()
+  // 4. time()
+  uintptr_t vdso = getauxval(AT_SYSINFO_EHDR);
 
   std::get<0>(*vec) = MakeAuxVec(AT_HWCAP, info.edx);
   std::get<1>(*vec) = MakeAuxVec(AT_PAGESZ, kPageSize);
@@ -65,8 +73,8 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
   std::get<13>(*vec) = MakeAuxVec(AT_SECURE, 0);
   std::get<14>(*vec) = MakeAuxVec(AT_RANDOM, random_ptr);
   std::get<15>(*vec) = MakeAuxVec(AT_EXECFN, filename);
-  std::get<16>(*vec) = MakeAuxVec(AT_SYSINFO_EHDR, 0);  // not needed on x86
-  std::get<17>(*vec) = MakeAuxVec(AT_NULL, 0);          // must be last
+  std::get<16>(*vec) = MakeAuxVec(AT_SYSINFO_EHDR, vdso);
+  std::get<17>(*vec) = MakeAuxVec(AT_NULL, 0);  // must be last
 }
 
 void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,

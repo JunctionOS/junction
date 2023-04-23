@@ -365,6 +365,13 @@ void BenchEPoll(int measure_rounds) {
   close(epfd);
 }
 
+void BenchGetTime(int measure_rounds) {
+  struct timespec ts;
+  for (int i = 0; i < measure_rounds; ++i) {
+    std::ignore = clock_gettime(CLOCK_MONOTONIC, &ts);
+  }
+}
+
 void PrintResult(std::string name, us time) {
   time /= getMeasureRounds();
   std::cout << "test '" << name << "' took " << time.count() << " us."
@@ -458,3 +465,5 @@ TEST_F(ThreadingTest, Mmap) { Bench("Mmap", BenchMMAP); }
 TEST_F(ThreadingTest, EventFd) {
   Bench("EventFdPingPong", BenchEventFdPingPong);
 }
+
+TEST_F(ThreadingTest, GetTime) { Bench("GetTime", BenchGetTime); }
