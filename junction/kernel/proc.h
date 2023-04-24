@@ -35,8 +35,7 @@ class Process;
 // Thread is a UNIX thread object.
 class Thread {
  public:
-  Thread(Process *proc, pid_t tid, std::optional<rt::ThreadWaker> w = {})
-      : proc_(proc), tid_(tid), vfork_waker_(std::move(w)) {}
+  Thread(Process *proc, pid_t tid) : proc_(proc), tid_(tid) {}
   ~Thread() = default;
 
   Thread(Thread &&) = delete;
@@ -56,9 +55,6 @@ class Thread {
   uint32_t *child_tid_;         // Used for clone3/exit
   const pid_t tid_;             // the thread identifier
   kernel_sigset_t cur_sigset_;  // blocked signals
-
-  // Wakes the thread waiting for the vfork thread to exec().
-  std::optional<rt::ThreadWaker> vfork_waker_;
 };
 
 // Make sure that Caladan's thread def has enough room for the Thread class
@@ -67,7 +63,9 @@ static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 // Process is a UNIX process object.
 class Process {
  public:
-  Process(pid_t pid, void *base, size_t len) : pid_(pid), mem_map_(base, len) {
+  Process(pid_t pid, void *base, size_t len,
+          std::optional<rt::ThreadWaker> w = {})
+      : pid_(pid), vfork_waker_(std::move(w)), mem_map_(base, len) {
     limit_nofile_.rlim_cur = 8192;
     limit_nofile_.rlim_max = 8192;
   }
@@ -95,6 +93,9 @@ class Process {
   int xstate_;           // exit state
   bool killed_{false};   // If non-zero, the process has been killed
   rlimit limit_nofile_;  // current rlimit for RLIMIT_NOFILE
+
+  // Wake this blocked thread that is waiting for the vfork thread to exec().
+  std::optional<rt::ThreadWaker> vfork_waker_;
 
   //
   // Per-process kernel subsystems

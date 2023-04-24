@@ -204,6 +204,9 @@ class FileTable {
   // Adjust the file descriptor table's size if needed.
   void Resize(size_t len);
 
+  // Close all files marked close-on-exec.
+  void DoCloseOnExec();
+
   std::unique_ptr<FArr> farr_;
   rt::RCUPtr<FArr> rcup_;
   dynamic_bitmap close_on_exec_;

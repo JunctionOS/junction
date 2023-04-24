@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <limits>
 #include <optional>
 #include <vector>
@@ -43,11 +44,20 @@ class bitmap {
     bits_[detail::get_idx(pos)] |= (1UL << detail::get_shift(pos));
   }
 
+  // sets all bits
+  void set() {
+    std::fill(bits_.begin(), bits_.end(),
+              std::numeric_limits<unsigned long>::max());
+  }
+
   // clears the bit at @pos
   void clear(size_t pos) {
     assert(pos < N);
     bits_[detail::get_idx(pos)] &= ~(1UL << detail::get_shift(pos));
   }
+
+  // clears all bits
+  void clear() { std::fill(bits_.begin(), bits_.end(), 0); }
 
   // all checks if all bits are set
   bool all() const {
@@ -165,11 +175,20 @@ class dynamic_bitmap {
     bits_[detail::get_idx(pos)] |= (1UL << detail::get_shift(pos));
   }
 
+  // sets all bits
+  void set() {
+    std::fill(bits_.begin(), bits_.end(),
+              std::numeric_limits<unsigned long>::max());
+  }
+
   // clears the bit at @pos
   void clear(size_t pos) {
     assert(pos < size_);
     bits_[detail::get_idx(pos)] &= ~(1UL << detail::get_shift(pos));
   }
+
+  // clears all bits
+  void clear() { std::fill(bits_.begin(), bits_.end(), 0); }
 
   // all checks if all bits are set
   bool all() const {
@@ -243,27 +262,27 @@ std::optional<size_t> dynamic_bitmap::find_next(size_t pos) const {
 // IterableBitmap is the concept of a bitmap that can find set and cleared bits.
 template <typename T>
 concept IterableBitmap = requires(T t) {
-  { t.find_next_set() } -> std::same_as<std::optional<size_t>>;
-  { t.find_next_clear() } -> std::same_as<std::optional<size_t>>;
+  { t.find_next_set(size_t()) } -> std::same_as<std::optional<size_t>>;
+  { t.find_next_clear(size_t()) } -> std::same_as<std::optional<size_t>>;
 };
 
 // for_each_bit_set invokes a function for each bit that is set.
 template <IterableBitmap B, typename F>
 void for_each_set_bit(B bitmap, F func) {
-  std::optional<size_t> idx = bitmap.find_next_set();
+  std::optional<size_t> idx = bitmap.find_next_set(0);
   while (idx) {
     func(*idx);
-    idx = bitmap.find_next_set();
+    idx = bitmap.find_next_set(*idx);
   }
 }
 
 // for_each_bit_cleared invokes a function for each bit that is cleared.
 template <IterableBitmap B, typename F>
 void for_each_clear_bit(B bitmap, F func) {
-  std::optional<size_t> idx = bitmap.find_next_clear();
+  std::optional<size_t> idx = bitmap.find_next_clear(0);
   while (idx) {
     func(*idx);
-    idx = bitmap.find_next_clear();
+    idx = bitmap.find_next_clear(*idx);
   }
 }
 

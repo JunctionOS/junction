@@ -44,9 +44,8 @@ class alignas(kCacheLineSize) FutexTable {
   FutexTable(const FutexTable &) = delete;
   FutexTable &operator=(const FutexTable &) = delete;
 
-  // WaitOrTimeout blocks on the address @key. However, it returns ETIMEDOUT if
-  // the timeout expires, or EAGAIN if @val doesn't match the value in the
-  // address.
+  // Wait blocks on the address @key. However, it returns ETIMEDOUT if the
+  // timeout expires, or EAGAIN if @val doesn't match the value in the address.
   Status<void> Wait(uint32_t *key, uint32_t val,
                     uint32_t bitset = kFutexBitsetAny,
                     std::optional<uint64_t> timeout_us = {});

@@ -135,6 +135,13 @@ bool FileTable::TestCloseOnExec(int fd) {
   return close_on_exec_.test(fd);
 }
 
+void FileTable::DoCloseOnExec() {
+  rt::SpinGuard g(lock_);
+  for_each_set_bit(close_on_exec_,
+                   [this](size_t i) { farr_->files[i].reset(); });
+  close_on_exec_.clear();
+}
+
 //
 // System call implementations
 //
