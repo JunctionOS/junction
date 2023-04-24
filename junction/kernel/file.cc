@@ -125,13 +125,13 @@ bool FileTable::Remove(int fd) {
 
 void FileTable::SetCloseOnExec(int fd) {
   rt::SpinGuard g(lock_);
-  assert(farr_->files[i]);
+  assert(fd < farr_->len && farr_->files[fd]);
   close_on_exec_.set(fd);
 }
 
 bool FileTable::TestCloseOnExec(int fd) {
   rt::SpinGuard g(lock_);
-  assert(farr_->files[i]);
+  assert(fd < farr_->len && farr_->files[fd]);
   return close_on_exec_.test(fd);
 }
 
