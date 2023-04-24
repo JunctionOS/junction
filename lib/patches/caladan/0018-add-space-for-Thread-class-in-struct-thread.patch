@@ -15,7 +15,7 @@ index a821db5..cc9cf91 100644
       // Trapframe used by junction to stash registers on syscall entry
      struct thread_tf	junction_tf;
      void 		*xsave_area;
-+    unsigned long    junction_tstate_buf[4];
++    unsigned long    junction_tstate_buf[8];
  #ifdef GC
      struct list_node    gc_link;
      unsigned int        onk;
