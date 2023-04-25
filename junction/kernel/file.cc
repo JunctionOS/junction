@@ -168,6 +168,7 @@ long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
 long usys_ftruncate(int fd, off_t length) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
+  if (!f) return -EBADF;
   auto ret = f->Truncate(length);
   if (!ret) return MakeCError(ret);
   return 0;
@@ -176,6 +177,7 @@ long usys_ftruncate(int fd, off_t length) {
 long usys_fallocate(int fd, int mode, off_t offset, off_t len) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
+  if (!f) return -EBADF;
   auto ret = f->Allocate(mode, offset, len);
   if (!ret) return MakeCError(ret);
   return 0;

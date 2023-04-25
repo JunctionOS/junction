@@ -94,10 +94,9 @@ Status<size_t> EventFdFile::Write(std::span<const std::byte> buf,
 }  // namespace
 
 long usys_eventfd2(unsigned int initval, int flags) {
-  // TODO(jf): support cloexec
-  flags &= kEventFdSupportedFlags;
   auto efd = std::make_shared<EventFdFile>(initval, flags);
-  return myproc().get_file_table().Insert(std::move(efd));
+  return myproc().get_file_table().Insert(std::move(efd),
+                                          (flags & kFlagCloseExec) > 0);
 }
 
 long usys_eventfd(unsigned int initval) {
