@@ -266,23 +266,23 @@ concept IterableBitmap = requires(T t) {
   { t.find_next_clear(size_t()) } -> std::same_as<std::optional<size_t>>;
 };
 
-// for_each_bit_set invokes a function for each bit that is set.
+// for_each_set_bit invokes a function for each bit that is set.
 template <IterableBitmap B, typename F>
 void for_each_set_bit(B bitmap, F func) {
   std::optional<size_t> idx = bitmap.find_next_set(0);
   while (idx) {
     func(*idx);
-    idx = bitmap.find_next_set(*idx);
+    idx = bitmap.find_next_set(*idx + 1);
   }
 }
 
-// for_each_bit_cleared invokes a function for each bit that is cleared.
+// for_each_clear_bit invokes a function for each bit that is cleared.
 template <IterableBitmap B, typename F>
 void for_each_clear_bit(B bitmap, F func) {
   std::optional<size_t> idx = bitmap.find_next_clear(0);
   while (idx) {
     func(*idx);
-    idx = bitmap.find_next_clear(*idx);
+    idx = bitmap.find_next_clear(*idx + 1);
   }
 }
 
