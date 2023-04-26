@@ -166,5 +166,10 @@ long usys_sigaltstack(const stack_t *ss, stack_t *old_ss);
 long usys_eventfd2(unsigned int initval, int flags);
 long usys_eventfd(unsigned int initval);
 
+// Exec
+int usys_execve(const char *filename, const char *argv[], const char *envp[]);
+int usys_execveat(int fd, const char *filename, const char *argv[],
+                  const char *envp[], int flags);
+
 }  // extern "C"
 }  // namespace junction

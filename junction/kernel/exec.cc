@@ -177,4 +177,13 @@ Status<void> Exec(Process &p, std::string_view pathname,
   return {};
 }
 
+int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
+  return -ENOSYS;
+}
+
+int usys_execveat(int fd, const char *filename, const char *argv[],
+                  const char *envp[], int flags) {
+  return -ENOSYS;
+}
+
 }  // namespace junction

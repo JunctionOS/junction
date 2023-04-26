@@ -11,6 +11,7 @@ class UIDGenerator {
  public:
   UIDGenerator() = default;
   UIDGenerator(size_t pos) : pos_(pos) {}
+  ~UIDGenerator() = default;
 
   // Generate a new unique ID.
   std::optional<size_t> operator()() {
