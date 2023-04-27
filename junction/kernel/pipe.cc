@@ -184,8 +184,9 @@ std::tuple<int, int> CreatePipe(int flags = 0) {
 
   // Insert both files into the file table.
   FileTable &ftbl = myproc().get_file_table();
-  int read_fd = ftbl.Insert(std::move(reader));
-  int write_fd = ftbl.Insert(std::move(writer));
+  bool cloexec = (flags & kFlagCloseExec) > 0;
+  int read_fd = ftbl.Insert(std::move(reader), cloexec);
+  int write_fd = ftbl.Insert(std::move(writer), cloexec);
   return std::make_tuple(read_fd, write_fd);
 }
 

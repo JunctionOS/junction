@@ -1,5 +1,7 @@
 // utility functions for timing measurements
 
+#include <cstdint>
+
 extern int cycles_per_us;
 extern uint64_t start_tsc;
 

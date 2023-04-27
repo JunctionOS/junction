@@ -84,7 +84,8 @@ long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
     auto conv_ret = NetAddrToSockAddr(*na, addr, addrlen);
     if (unlikely(!conv_ret)) return MakeCError(conv_ret);
   }
-  return myproc().get_file_table().Insert(std::move(*ret));
+  return myproc().get_file_table().Insert(std::move(*ret),
+                                          (flags & kFlagCloseExec) > 0);
 }
 
 }  // namespace
@@ -92,7 +93,8 @@ long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
 long usys_socket(int domain, int type, [[maybe_unused]] int protocol) {
   Status<std::shared_ptr<Socket>> ret = CreateSocket(domain, type);
   if (unlikely(!ret)) return MakeCError(ret);
-  return myproc().get_file_table().Insert(std::move(*ret));
+  return myproc().get_file_table().Insert(std::move(*ret),
+                                          (type & kFlagCloseExec) > 0);
 }
 
 long usys_bind(int sockfd, const struct sockaddr *addr_in, socklen_t addrlen) {
