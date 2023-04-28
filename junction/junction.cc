@@ -87,9 +87,8 @@ void JunctionCfg::Print() {
   for (std::string &s : binary_envp) LOG(INFO) << "env: " << s;
 }
 
-Status<std::unique_ptr<Process>> CreateTestProc() {
-  // Intentionally leak this memory
-  Status<std::unique_ptr<Process>> p = CreateProcess();
+Status<std::shared_ptr<Process>> CreateTestProc() {
+  Status<std::shared_ptr<Process>> p = CreateProcess();
   if (p) (*p)->CreateTestThread();
   return p;
 }

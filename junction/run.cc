@@ -11,11 +11,11 @@ namespace junction {
 
 namespace {
 
-Status<std::unique_ptr<Process>> CreateFirstProcess(
+Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, const std::vector<std::string_view> &argv,
     const std::vector<std::string_view> &envp) {
   // Create the process object
-  Status<std::unique_ptr<Process>> proc = CreateProcess();
+  Status<std::shared_ptr<Process>> proc = CreateProcess();
   if (!proc) return MakeError(proc);
 
   // Create and insert STDIN, STDOUT, STDERR files
@@ -31,11 +31,13 @@ Status<std::unique_ptr<Process>> CreateFirstProcess(
   ftbl.Insert(std::move(ferr));
 
   // Exec program image
-  Status<void> ret = Exec(**proc, path, argv, envp);
+  Status<thread_t *> ret = Exec(**proc, path, argv, envp);
   if (!ret) {
     LOG(ERR) << "Failed to exec binary: " << ret.error();
     return MakeError(ret);
   }
+
+  thread_ready(*ret);
 
   return *std::move(proc);
 }
@@ -66,12 +68,14 @@ void JunctionMain(int argc, char *argv[]) {
   for (int i = 0; i < argc; i++) args.emplace_back(argv[i]);
 
   // Create the first process
-  Status<std::unique_ptr<Process>> proc =
+  Status<std::shared_ptr<Process>> proc =
       CreateFirstProcess(args[0], args, envp);
   BUG_ON(!proc);
 
-  // Wait forever... (the binary will directly call GROUP_EXIT for now)
-  rt::WaitForever();
+  // Drop reference so the process can properly destruct itself when done
+  (*proc).reset();
+
+  Process::WaitAll();
   return;
 }
 

@@ -154,9 +154,11 @@ asm(R"(
 )");
 }  // namespace
 
-Status<void> Exec(Process &p, std::string_view pathname,
-                  const std::vector<std::string_view> &argv,
-                  const std::vector<std::string_view> &envp) {
+Status<thread_t *> Exec(Process &p, std::string_view pathname,
+                        const std::vector<std::string_view> &argv,
+                        const std::vector<std::string_view> &envp) {
+  // TODO(jfried): cache a pointer to this mapped area so it can be cleaned up
+  // TODO(jfried): use junction's file system in the ELF loader
   // load the ELF program image file
   auto edata = LoadELF(pathname);
   if (!edata) return MakeError(edata);
@@ -164,21 +166,61 @@ Status<void> Exec(Process &p, std::string_view pathname,
   // Create the first thread
   uint64_t entry =
       edata->interp ? edata->interp->entry_addr : edata->entry_addr;
-  thread_t *th =
-      thread_create(junction_exec_start, reinterpret_cast<void *>(entry));
-  if (!th) return MakeError(ENOMEM);
+
+  Status<std::unique_ptr<Thread>> tstate = p.CreateThreadMain();
+  if (!tstate) return MakeError(tstate);
+  thread_t *th = (*tstate)->GetCaladanThread();
+  th->tf.rip = reinterpret_cast<uintptr_t>(junction_exec_start);
+  th->tf.rdi = reinterpret_cast<uintptr_t>(entry);
 
   // remove the existing exit function pointer
   th->tf.rsp += 8;
 
   SetupStack(&th->tf.rsp, argv, envp, *edata);
-  p.CreateThread(th);
-  thread_ready(th);
-  return {};
+
+  tstate->release();
+  return th;
 }
 
 int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
-  return -ENOSYS;
+  // allocate new memory map
+  Status<void *> base = CreateMemoryMap(kMemoryMappingSize);
+  if (!base) return MakeCError(base);
+
+  // turn argv and envp in string_view vectors, memory must remain valid until
+  // after Exec returns
+  std::vector<std::string_view> argv_view;
+  while (*argv) argv_view.emplace_back(*argv++);
+
+  std::vector<std::string_view> envp_view;
+  while (*envp) envp_view.emplace_back(*envp++);
+
+  // TODO(jfried): must stop all other threads
+
+  Status<thread_t *> ret = Exec(myproc(), filename, argv_view, envp_view);
+  if (!ret) return MakeCError(ret);
+
+  // Finish exec from a different thread, since this stack may be unmapped when
+  // replacing a proc's MM
+  rt::Spawn([oldth = thread_self(), newth = *ret, base = *base] {
+    // Ensure old thread has parked before proceeding
+    while (load_acquire(&oldth->thread_running)) rt::Yield();
+
+    // Destroy the previous thread and release its memory
+    Thread *tptr = reinterpret_cast<Thread *>(oldth->junction_tstate_buf);
+    tptr->~Thread();
+    thread_free(oldth);
+
+    // Complete the exec
+    tptr = reinterpret_cast<Thread *>(newth->junction_tstate_buf);
+    tptr->get_process().FinishExec(base, kMemoryMappingSize);
+
+    // Wake the new main thread
+    thread_ready(newth);
+  });
+
+  rt::WaitForever();
+  std::unreachable();
 }
 
 int usys_execveat(int fd, const char *filename, const char *argv[],

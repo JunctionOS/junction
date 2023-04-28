@@ -38,6 +38,18 @@ namespace {
 rt::Spin process_lock;
 UIDGenerator<kMaxProcesses> pid_generator;
 
+Status<pid_t> AllocPid() {
+  rt::SpinGuard guard(process_lock);
+  std::optional<size_t> tmp = pid_generator();
+  if (!tmp) return MakeError(ENOSPC);
+  return *tmp;
+}
+
+void ReleasePid(pid_t pid) {
+  rt::SpinGuard guard(process_lock);
+  pid_generator.Release(pid);
+}
+
 void CopyCalleeRegs(thread_tf &newtf, const thread_tf &oldtf) {
   newtf.rbx = oldtf.rbx;
   newtf.rbp = oldtf.rbp;
@@ -81,18 +93,45 @@ void CloneTrapframe(thread_t *newth, const thread_t *oldth) {
 }
 
 long DoClone(clone_args *cl_args, uint64_t rsp) {
-  static constexpr uint64_t kRequiredFlags =
+  static constexpr uint64_t kThreadRequiredFlags =
       (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD);
 
-  // Only support starting new threads in the same process
-  if ((cl_args->flags & kRequiredFlags) != kRequiredFlags) return -ENOSYS;
+  static constexpr uint64_t kVforkRequiredFlags = (CLONE_VM | CLONE_VFORK);
 
-  thread_t *th = thread_create_nostack(nullptr, 0);
-  if (!th) return -ENOMEM;
+  static constexpr uint64_t kCheckFlags =
+      (kThreadRequiredFlags | kVforkRequiredFlags);
+
+  bool do_vfork = false;
+
+  switch (cl_args->flags & kCheckFlags) {
+    case kVforkRequiredFlags:
+      do_vfork = true;
+      break;
+    case kThreadRequiredFlags:
+      break;
+    default:
+      return -ENOSYS;
+  }
+
+  Status<std::unique_ptr<Thread>> tptr;
+
+  if (do_vfork) {
+    rt::ThreadWaker waker;
+    waker.Arm();
+    Status<std::shared_ptr<Process>> forkp =
+        myproc().CreateProcessVfork(std::move(waker));
+    if (!forkp) return MakeCError(forkp);
+    tptr = (*forkp)->CreateThread();
+  } else {
+    tptr = myproc().CreateThread();
+  }
+
+  if (!tptr) return MakeCError(tptr);
+
+  Thread &tstate = **tptr;
+  thread_t *th = tstate.GetCaladanThread();
+
   th->tf.rsp = rsp;
-
-  // Allocate some stack space for some of our thread-local data
-  Thread &tstate = myproc().CreateThread(th);
 
   // Clone the trap frame
   CloneTrapframe(th, thread_self());
@@ -111,46 +150,96 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   else
     tstate.set_child_tid(nullptr);
 
+  (*tptr).release();
   thread_ready(th);
+
+  // Wait for child thread to exit or exec
+  if (do_vfork) rt::WaitForever();
+
   return tstate.get_tid();
 }
 
 }  // namespace
 
-Status<std::unique_ptr<Process>> CreateProcess() {
-  pid_t pid;
-  {
-    rt::SpinGuard guard(process_lock);
-    std::optional<size_t> tmp = pid_generator();
-    if (!tmp) return MakeError(ENOSPC);
-    pid = *tmp;
+rt::WaitGroup Process::all_procs;
+
+Thread::~Thread() {
+  uint32_t *child_tid = get_child_tid();
+  if (child_tid) {
+    *child_tid = 0;
+    FutexTable::GetFutexTable().Wake(child_tid);
   }
+
+  if (tid_ != proc_->get_pid()) ReleasePid(tid_);
+}
+
+Process::~Process() {
+  vfork_waker_.Wake();
+  ReleasePid(pid_);
+  all_procs.Done();
+}
+
+void Process::FinishExec(void *base, size_t len) {
+  file_tbl_.DoCloseOnExec();
+  mem_map_ = std::make_shared<MemoryMap>(base, len);
+  vfork_waker_.Wake();
+}
+
+Status<std::shared_ptr<Process>> CreateProcess() {
+  Status<pid_t> pid = AllocPid();
+  if (!pid) return MakeError(pid);
 
   Status<void *> base = CreateMemoryMap(kMemoryMappingSize);
   if (!base) return MakeError(base);
 
-  LOG(INFO) << "proc: Creating process with pid=" << pid
+  LOG(INFO) << "proc: Creating process with pid=" << *pid
             << ", mapping=" << *base << "-"
             << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(*base) +
                                         kMemoryMappingSize);
-  return std::make_unique<Process>(pid, *base, kMemoryMappingSize);
+  return std::make_shared<Process>(*pid, *base, kMemoryMappingSize);
+}
+
+Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
+    rt::ThreadWaker &&w) {
+  Status<pid_t> pid = AllocPid();
+  if (!pid) return MakeError(pid);
+
+  return std::make_shared<Process>(*pid, mem_map_, file_tbl_, std::move(w));
 }
 
 // Attach calling thread to this process; used for testing.
 Thread &Process::CreateTestThread() {
-  // Intentionally leak this memory
   thread_t *th = thread_self();
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(this, 1);
+  new (tstate) Thread(shared_from_this(), 1);
   th->tlsvar = 1;  // Mark tstate as initialized
   return *tstate;
 }
 
-Thread &Process::CreateThread(thread_t *th) {
+Status<std::unique_ptr<Thread>> Process::CreateThreadMain() {
+  thread_t *th = thread_create(nullptr, 0);
+  if (!th) return MakeError(ENOMEM);
+
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(this, 1);  // TODO: make PID unique?
-  th->tlsvar = 1;                // Mark tstate as initialized
-  return *tstate;
+  new (tstate) Thread(shared_from_this(), get_pid());
+  th->tlsvar = 1;  // Mark tstate as initialized
+  return std::unique_ptr<Thread>(tstate);
+}
+
+Status<std::unique_ptr<Thread>> Process::CreateThread() {
+  thread_t *th = thread_create_nostack(nullptr, 0);
+  if (unlikely(!th)) return MakeError(ENOMEM);
+
+  Status<pid_t> tid = AllocPid();
+  if (!tid) {
+    thread_free(th);
+    return MakeError(tid);
+  }
+
+  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+  new (tstate) Thread(shared_from_this(), *tid);
+  th->tlsvar = 1;  // Mark tstate as initialized
+  return std::unique_ptr<Thread>(tstate);
 }
 
 pid_t usys_getpid() { return myproc().get_pid(); }
@@ -186,23 +275,16 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
 }
 
 void usys_exit(int status) {
-  Thread &tstate = mythread();
-  uint32_t *child_tid = tstate.get_child_tid();
-  if (child_tid) {
-    *child_tid = 0;
-    FutexTable::GetFutexTable().Wake(child_tid, 1);
-  }
-
   Thread *tptr = reinterpret_cast<Thread *>(thread_self()->junction_tstate_buf);
   tptr->~Thread();
-
   rt::Exit();
 }
 
 void usys_exit_group(int status) {
-  LOG(ERR) << "Exiting...";
-  // TODO(jfried): this should only terminate this Proc
-  ksys_exit(status);
+  // TODO(jfried): this must kill all other threads in this thread group...
+  Thread *tptr = reinterpret_cast<Thread *>(thread_self()->junction_tstate_buf);
+  tptr->~Thread();
+  rt::Exit();
 }
 
 }  // namespace junction
