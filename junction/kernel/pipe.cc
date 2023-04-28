@@ -57,7 +57,7 @@ Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
 
     // Return if can't block.
     if (nonblocking) {
-      if (writer_is_closed()) return 0;
+      if (writer_is_closed() && chan_.is_empty()) return 0;
       return MakeError(EAGAIN);
     }
 
@@ -66,7 +66,7 @@ Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
     rt::SpinGuard guard(lock_);
     guard.Park(read_waker_,
                [this] { return !chan_.is_empty() || writer_is_closed(); });
-    if (writer_is_closed()) return 0;
+    if (writer_is_closed() && chan_.is_empty()) return 0;
   }
 
   // Wake the writer and any pollers.

@@ -241,6 +241,7 @@ void BenchPoll(int measure_rounds) {
   }
 }
 
+#if 0
 void BenchSelect(int measure_rounds) {
   static constexpr size_t kBufSize = 64;
   static constexpr size_t kPollThreads = 100;
@@ -299,6 +300,7 @@ void BenchSelect(int measure_rounds) {
     }
   }
 }
+#endif
 
 void BenchEPoll(int measure_rounds) {
   static constexpr size_t kBufSize = 64;
@@ -456,7 +458,9 @@ TEST_F(ThreadingTest, Pipe) { Bench("Pipe", BenchPipe); }
 
 TEST_F(ThreadingTest, Poll) { Bench("Poll", BenchPoll); }
 
+#if 0
 TEST_F(ThreadingTest, Select) { Bench("Select", BenchSelect); }
+#endif
 
 TEST_F(ThreadingTest, EPoll) { Bench("EPoll", BenchEPoll); }
 
