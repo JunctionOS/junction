@@ -199,6 +199,9 @@ void BenchPosixSpawn(int measure_rounds) {
     ret = posix_spawn_file_actions_adddup2(&file_actions, pipefds[1], 2);
     EXPECT_EQ(ret, 0);
 
+    ret = posix_spawn_file_actions_addclose(&file_actions, pipefds[1]);
+    EXPECT_EQ(ret, 0);
+
     ret = posix_spawn_file_actions_addclose(&file_actions, pipefds[0]);
     EXPECT_EQ(ret, 0);
 
