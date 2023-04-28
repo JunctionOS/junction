@@ -29,6 +29,7 @@ struct kernel_sigset_t {
 };
 
 constexpr size_t kSigSetSizeBytes = 8;
+constexpr rlim_t kDefaultNoFile = 8192;
 
 class Process;
 
@@ -63,12 +64,14 @@ static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 // Process is a UNIX process object.
 class Process {
  public:
-  Process(pid_t pid, void *base, size_t len,
+  Process(pid_t pid, void *base, size_t len)
+      : pid_(pid), mem_map_(std::make_shared<MemoryMap>(base, len)) {}
+  Process(pid_t pid, std::shared_ptr<MemoryMap> mm, FileTable &ftbl,
           std::optional<rt::ThreadWaker> w = {})
-      : pid_(pid), vfork_waker_(std::move(w)), mem_map_(base, len) {
-    limit_nofile_.rlim_cur = 8192;
-    limit_nofile_.rlim_max = 8192;
-  }
+      : pid_(pid),
+        vfork_waker_(std::move(w)),
+        file_tbl_(ftbl),
+        mem_map_(std::move(mm)) {}
   ~Process() = default;
 
   Process(Process &&) = delete;
@@ -78,7 +81,7 @@ class Process {
 
   [[nodiscard]] pid_t get_pid() const { return pid_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
-  [[nodiscard]] MemoryMap &get_mem_map() { return mem_map_; }
+  [[nodiscard]] MemoryMap &get_mem_map() { return *mem_map_; }
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
   void set_limit_nofile(const rlimit *rlim) {
     limit_nofile_.rlim_cur = rlim->rlim_cur;
@@ -89,10 +92,11 @@ class Process {
   Thread &CreateTestThread();
 
  private:
-  const pid_t pid_;      // the process identifier
-  int xstate_;           // exit state
-  bool killed_{false};   // If non-zero, the process has been killed
-  rlimit limit_nofile_;  // current rlimit for RLIMIT_NOFILE
+  const pid_t pid_;     // the process identifier
+  int xstate_;          // exit state
+  bool killed_{false};  // If non-zero, the process has been killed
+  rlimit limit_nofile_{kDefaultNoFile,
+                       kDefaultNoFile};  // current rlimit for RLIMIT_NOFILE
 
   // Wake this blocked thread that is waiting for the vfork thread to exec().
   std::optional<rt::ThreadWaker> vfork_waker_;
@@ -104,7 +108,7 @@ class Process {
   // File descriptor table
   FileTable file_tbl_;
   // Memory management
-  MemoryMap mem_map_;
+  std::shared_ptr<MemoryMap> mem_map_;
 };
 
 // Create a new process.
