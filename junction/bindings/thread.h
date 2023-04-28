@@ -140,7 +140,7 @@ using ret_t =
 }  // namespace thread_internal
 
 // Called from a running thread to exit.
-inline void Exit() { thread_exit(); }
+[[noreturn]] inline void Exit() { thread_exit(); }
 
 // Called from a running thread to yield.
 inline void Yield() { thread_yield(); }
