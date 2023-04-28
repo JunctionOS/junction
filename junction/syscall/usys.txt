@@ -13,6 +13,7 @@ fallocate
 exit_group
 exit
 read
+readv
 write
 pwrite64
 writev

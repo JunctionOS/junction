@@ -197,6 +197,16 @@ ssize_t usys_read(int fd, char *buf, size_t len) {
   return static_cast<ssize_t>(*ret);
 }
 
+ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
+  Status<size_t> ret =
+      f->Readv({iov, static_cast<size_t>(iovcnt)}, &f->get_off_ref());
+  if (!ret) return MakeCError(ret);
+  return static_cast<ssize_t>(*ret);
+}
+
 ssize_t usys_write(int fd, const char *buf, size_t len) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
@@ -222,6 +232,19 @@ Status<size_t> File::Writev(std::span<const iovec> vec, off_t *off) {
     ret = Write(
         writable_span(reinterpret_cast<const char *>(v.iov_base), v.iov_len),
         off);
+    if (!ret) break;
+    total_bytes += *ret;
+  }
+  if (total_bytes) return total_bytes;
+  return ret;
+}
+
+Status<size_t> File::Readv(std::span<iovec> vec, off_t *off) {
+  ssize_t total_bytes = 0;
+  Status<size_t> ret;
+  for (auto &v : vec) {
+    ret = Read(readable_span(reinterpret_cast<char *>(v.iov_base), v.iov_len),
+               off);
     if (!ret) break;
     total_bytes += *ret;
   }
