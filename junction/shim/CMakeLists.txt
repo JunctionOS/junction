@@ -24,6 +24,12 @@ add_library(glibc_shim_backend
   shimjmp_tbl.cpp
 )
 
+add_executable(child_test
+  child_test.cc
+)
+
+add_compile_definitions(POSIX_SPAWN_CHILD_BIN=\"$<TARGET_FILE:child_test>\")
+
 add_executable(tbench_test
   tbench_test.cc
 )

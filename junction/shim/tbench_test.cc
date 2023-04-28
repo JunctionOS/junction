@@ -10,6 +10,7 @@ extern "C" {
 #include <fcntl.h>
 #include <poll.h>
 #include <semaphore.h>
+#include <spawn.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
@@ -183,6 +184,49 @@ void BenchPipe(int measure_rounds) {
   th.join();
   close(fds[0]);
   close(fds[1]);
+}
+
+void BenchPosixSpawn(int measure_rounds) {
+  for (int i = 0; i < measure_rounds; i++) {
+    int pipefds[2];
+    int ret = pipe(pipefds);
+    EXPECT_EQ(ret, 0);
+
+    posix_spawn_file_actions_t file_actions;
+    ret = posix_spawn_file_actions_init(&file_actions);
+    EXPECT_EQ(ret, 0);
+
+    ret = posix_spawn_file_actions_adddup2(&file_actions, pipefds[1], 2);
+    EXPECT_EQ(ret, 0);
+
+    ret = posix_spawn_file_actions_addclose(&file_actions, pipefds[0]);
+    EXPECT_EQ(ret, 0);
+
+    pid_t child;
+    char *const args[2] = {POSIX_SPAWN_CHILD_BIN, nullptr};
+    extern char **environ;
+    ret = posix_spawn(&child, args[0], &file_actions, nullptr, args, environ);
+    EXPECT_EQ(ret, 0);
+
+    ret = posix_spawn_file_actions_destroy(&file_actions);
+    EXPECT_EQ(ret, 0);
+
+    close(pipefds[1]);
+
+    waitpid(child, nullptr, 0);
+
+    size_t bytes_read = 0;
+    std::string expected = "in child process\n";
+    char buf[expected.size() + 1];
+    while (bytes_read < expected.size()) {
+      ssize_t rret = read(pipefds[0], buf, expected.size() - bytes_read);
+      EXPECT_GT(rret, 0);
+      bytes_read += rret;
+    }
+    buf[expected.size()] = '\0';
+    EXPECT_EQ(std::string(buf), expected);
+    close(pipefds[0]);
+  }
 }
 
 void BenchPoll(int measure_rounds) {
@@ -437,6 +481,10 @@ class ThreadingTest : public ::testing::Test {
 };
 
 std::vector<std::pair<const std::string, us>> ThreadingTest::results_({});
+
+TEST_F(ThreadingTest, BenchPosixSpawn) {
+  Bench("BenchPosixSpawn", BenchPosixSpawn);
+}
 
 TEST_F(ThreadingTest, GetPid) { Bench("GetPid", BenchGetPid); }
 

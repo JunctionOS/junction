@@ -244,7 +244,7 @@ Status<elf_data::interp_data> LoadInterp(std::string_view path) {
   Status<std::tuple<uintptr_t, size_t>> ret = LoadSegments(*file, *phdrs, true);
   if (!ret) return MakeError(ret);
 
-  LOG(INFO) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
+  DLOG(DEBUG) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
 
   // Success, return metadata.
   return elf_data::interp_data{.map_base{std::get<0>(*ret)},
@@ -304,7 +304,7 @@ Status<elf_data> LoadELF(std::string_view path) {
   phdr = FindPHDRByType(*phdrs, kPTypeSelf);
   if (phdr) phdr_va = phdr->vaddr + std::get<0>(*ret);
 
-  LOG(INFO) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
+  DLOG(DEBUG) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
 
   // Success, return metadata.
   return elf_data{.map_base{std::get<0>(*ret)},
