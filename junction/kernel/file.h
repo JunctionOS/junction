@@ -164,6 +164,7 @@ std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap);
 class FileTable {
  public:
   FileTable();
+  FileTable(const FileTable &o);
   ~FileTable();
 
   // Returns a raw pointer to a file for a given fd number. Returns nullptr if

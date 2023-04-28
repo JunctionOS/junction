@@ -53,6 +53,11 @@ FileTable::FileTable()
       rcup_(farr_.get()),
       close_on_exec_(kInitialCap) {}
 
+FileTable::FileTable(const FileTable &o)
+    : farr_(CopyFileArray(*o.farr_, o.farr_->len)),
+      rcup_(farr_.get()),
+      close_on_exec_(o.close_on_exec_) {}
+
 FileTable::~FileTable() = default;
 
 void FileTable::Resize(size_t len) {
