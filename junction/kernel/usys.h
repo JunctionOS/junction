@@ -113,6 +113,7 @@ int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
 
 // Proc
 pid_t usys_getpid();
+pid_t usys_gettid();
 pid_t usys_set_tid_address(int *tidptr);
 void usys_exit_group(int status);
 void usys_exit(int status);

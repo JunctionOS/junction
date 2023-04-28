@@ -1,0 +1,54 @@
+From d5b2e6ad841adb6ac63b83b10a3d5ed586196ed6 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 27 Apr 2023 17:53:14 -0400
+Subject: [PATCH 22/22] thread nit
+
+---
+ inc/runtime/thread.h |  1 +
+ runtime/sched.c      | 11 ++++++++---
+ 2 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 0f79da8..5ab1351 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -29,6 +29,7 @@ extern thread_t *thread_create(thread_fn_t fn, void *arg);
+ extern thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t len);
+ extern thread_t *thread_create_nostack(thread_fn_t fn, void *arg);
+ extern void set_fsbase(thread_t *th, uint64_t fsbase);
++extern void thread_free(thread_t *th);
+ 
+ DECLARE_PERTHREAD(thread_t *, __self);
+ DECLARE_PERTHREAD(unsigned int, kthread_idx);
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 3c2da08..1c04bc8 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -955,16 +955,21 @@ int thread_spawn_main(thread_fn_t fn, void *arg)
+ 	return 0;
+ }
+ 
+-static void thread_finish_exit(void)
++void thread_free(thread_t *th)
+ {
+-	struct thread *th = thread_self();
+-
+ 	gc_remove_thread(th);
+ 	if (th->stack)
+ 		stack_free(th->stack);
+ 	if (th->syscallstack)
+ 		stack_free(th->syscallstack);
+ 	tcache_free(perthread_ptr(thread_pt), th);
++}
++
++static void thread_finish_exit(void)
++{
++	struct thread *th = thread_self();
++
++	thread_free(th);
+ 	perthread_store(__self, NULL);
+ 
+ 	/* if the main thread dies, kill the whole program */
+-- 
+2.34.1
+

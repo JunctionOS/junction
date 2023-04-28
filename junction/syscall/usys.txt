@@ -1,6 +1,7 @@
 # add syscalls that are implemented by junction to this file
 
 getpid
+gettid
 arch_prctl
 clone3
 clone

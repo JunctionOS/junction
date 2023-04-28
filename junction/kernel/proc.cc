@@ -155,6 +155,8 @@ Thread &Process::CreateThread(thread_t *th) {
 
 pid_t usys_getpid() { return myproc().get_pid(); }
 
+pid_t usys_gettid() { return mythread().get_tid(); }
+
 int usys_arch_prctl(int code, unsigned long addr) {
   if (code != ARCH_SET_FS) return -EINVAL;
   set_fsbase(thread_self(), addr);
