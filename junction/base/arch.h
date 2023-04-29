@@ -33,7 +33,13 @@ inline void SetFSBase(uint64_t val) { _writefsbase_u64(val); }
 // GetFSBase gets the current %FS.base value.
 inline uint64_t GetFSBase() { return _readfsbase_u64(); }
 
-// ReadRandom gets random bytes from the hardware RNG.
+// CPURelax inserts a pause during busy polling
+inline void CPURelax() { __builtin_ia32_pause(); }
+
+// ReadRandom gets random bytes from the hardware RNG (fast).
 Status<size_t> ReadRandom(std::span<std::byte> buf);
+
+// ReadEntropy gets random bytes from the hardware entropy source (slow).
+Status<size_t> ReadEntropy(std::span<std::byte> buf, bool blocking = true);
 
 }  // namespace junction

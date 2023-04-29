@@ -1,3 +1,7 @@
+// arch.cc - support for x86_64 CPU features
+//
+// TODO(amb): Do misaligned reads still work with RDRAND/RDSEED?
+
 #include "junction/base/arch.h"
 
 #include <cstring>
@@ -5,14 +9,28 @@
 namespace junction {
 namespace {
 
-// The number of retries before giving up. Intel suggests this is a HW error.
-constexpr int kRetries = 10;
+bool ReadRandomWord(uint64_t *val) {
+  // The number of retries before giving up. Intel suggests this is a HW error.
+  static constexpr int kRetries = 10;
+  unsigned char ok;
 
-bool ReadRandomWord(unsigned long long *val) {
   for (int i = 0; i < kRetries; ++i) {
-    if (__builtin_ia32_rdrand64_step(val)) return true;
+    asm volatile("rdrand %0; setc %1" : "=r"(*val), "=qm"(ok));
+    if (ok != 0) return true;
   }
   return false;
+}
+
+bool ReadSeedWord(uint64_t *val, bool blocking) {
+  unsigned char ok;
+
+  while (true) {
+    asm volatile("rdseed %0; setc %1" : "=r"(*val), "=qm"(ok));
+    if (!blocking || ok != 0) break;
+    CPURelax();
+  }
+
+  return ok != 0;
 }
 
 }  // namespace
@@ -21,21 +39,42 @@ Status<size_t> ReadRandom(std::span<std::byte> buf) {
   size_t n = 0;
   while (n < buf.size()) {
     // Copy if less than 8 bytes.
-    if (buf.size() - n < sizeof(unsigned long long)) {
-      unsigned long long val;
+    if (buf.size() - n < sizeof(uint64_t)) {
+      uint64_t val;
       if (!ReadRandomWord(&val)) return MakeError(EIO);
       std::memcpy(buf.data() + n, &val, buf.size() - n);
       break;
     }
 
     // Otherwise no need to copy.
-    if (!ReadRandomWord(
-            reinterpret_cast<unsigned long long *>(buf.data() + n))) {
+    if (!ReadRandomWord(reinterpret_cast<uint64_t *>(buf.data() + n))) {
       return MakeError(EIO);
     }
-    n += sizeof(unsigned long long);
+    n += sizeof(uint64_t);
   }
 
+  return buf.size();
+}
+
+Status<size_t> ReadEntropy(std::span<std::byte> buf, bool blocking) {
+  size_t n = 0;
+  while (n < buf.size()) {
+    // Copy if less than 8 bytes.
+    if (buf.size() - n < sizeof(uint64_t)) {
+      uint64_t val;
+      if (!ReadSeedWord(&val, blocking)) break;
+      std::memcpy(buf.data() + n, &val, buf.size() - n);
+      break;
+    }
+
+    // Otherwise no need to copy.
+    if (!ReadSeedWord(reinterpret_cast<uint64_t *>(buf.data() + n), blocking)) {
+      break;
+    }
+    n += sizeof(uint64_t);
+  }
+
+  if (!buf.empty() && n == 0) return MakeError(EAGAIN);
   return buf.size();
 }
 
