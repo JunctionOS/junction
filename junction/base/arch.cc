@@ -12,20 +12,20 @@ namespace {
 bool ReadRandomWord(uint64_t *val) {
   // The number of retries before giving up. Intel suggests this is a HW error.
   static constexpr int kRetries = 10;
-  unsigned char ok;
+  bool ok;
 
   for (int i = 0; i < kRetries; ++i) {
-    asm volatile("rdrand %0; setc %1" : "=r"(*val), "=qm"(ok));
+    asm volatile("rdrand %0" : "=r"(*val), "=@ccc"(ok));
     if (ok != 0) return true;
   }
   return false;
 }
 
 bool ReadSeedWord(uint64_t *val, bool blocking) {
-  unsigned char ok;
+  bool ok;
 
   while (true) {
-    asm volatile("rdseed %0; setc %1" : "=r"(*val), "=qm"(ok));
+    asm volatile("rdseed %0" : "=r"(*val), "=@ccc"(ok));
     if (!blocking || ok != 0) break;
     CPURelax();
   }
