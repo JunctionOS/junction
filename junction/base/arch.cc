@@ -16,7 +16,7 @@ bool ReadRandomWord(uint64_t *val) {
 
   for (int i = 0; i < kRetries; ++i) {
     asm volatile("rdrand %0" : "=r"(*val), "=@ccc"(ok));
-    if (ok != 0) return true;
+    if (ok) return true;
   }
   return false;
 }
@@ -26,11 +26,11 @@ bool ReadSeedWord(uint64_t *val, bool blocking) {
 
   while (true) {
     asm volatile("rdseed %0" : "=r"(*val), "=@ccc"(ok));
-    if (!blocking || ok != 0) break;
+    if (!blocking || ok) break;
     CPURelax();
   }
 
-  return ok != 0;
+  return ok;
 }
 
 }  // namespace

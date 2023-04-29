@@ -16,6 +16,7 @@ set(SOURCES_C_CPP
   time.cc
   misc.cc
   mm.cc
+  special_files.cc
 )
 
 set(SOURCES_ASM
