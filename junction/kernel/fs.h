@@ -61,8 +61,8 @@ class ISoftLink : public Inode {
   // Opens a file that does nothing.
   std::shared_ptr<File> Open(uint32_t mode, uint32_t flags) override;
 
-  // ReadLink reads the path of the link (if this is a softlink inode).
-  virtual Status<std::string> ReadLink();
+  // ReadLink reads the path of the link.
+  virtual Status<std::string> ReadLink() = 0;
 };
 
 struct dir_entry {
