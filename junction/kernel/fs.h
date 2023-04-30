@@ -39,16 +39,18 @@ constexpr unsigned int kTypeFIFO = S_IFIFO;
 // Inode is the base class for all inodes
 class Inode : std::enable_shared_from_this<Inode> {
  public:
-  Inode(unsigned int type, unsigned long (inum) : type_(type), inum_(inum) {}
+  Inode(unsigned int type, unsigned long(inum)) : type_(type), inum_(inum) {}
   virtual ~Inode() = default;
 
   // Open a file for this inode.
   virtual std::shared_ptr<File> Open(uint32_t mode, uint32_t flags) = 0;
+  // Get attributes.
+  virtual Status<stat> GetAttributes() = 0;
+  // Set attributes.
+  virtual Status<void> SetAttributes(stat attr) = 0;
 
-  [[nodiscard]] unsigned int get_type() const {
-    return type_; }
-  [[nodiscard]] unsigned long get_inode_number() const {
-    return inum_; }
+  [[nodiscard]] unsigned int get_type() const { return type_; }
+  [[nodiscard]] unsigned long get_inum() const { return inum_; }
 
  private:
   const unsigned int type_;   // the file type referred to by this inode
@@ -77,8 +79,6 @@ class IDir : public Inode {
   // Opens a file that supports getdents() and getdents64().
   std::shared_ptr<File> Open(uint32_t mode, uint32_t flags) override;
 
-  // TODO(amb): Add an API to help handle Stat
-
   // Lookup finds a directory entry by name.
   virtual Status<std::shared_ptr<Inode>> Lookup(std::string_view name) = 0;
   // MkNod creates a file (usually of a special type).
@@ -99,7 +99,7 @@ class IDir : public Inode {
   virtual Status<void> Link(INode &node, std::string_view name) = 0;
   // Create a new normal file.
   virtual Status<std::shared_ptr<File>> Create(std::string_view name,
-                                               uint32_t mode) = 0;
+                                               mode_t mode) = 0;
 
   // If true, don't allow creation of new directory entries.
   [[nodiscard]] bool is_dead() const { return dead_; }
