@@ -31,6 +31,8 @@ constexpr size_t kOversizeRatio = 2;
 
 namespace junction {
 
+std::unique_ptr<FileSystem> fs_;
+
 namespace detail {
 
 file_array::file_array(size_t cap)

@@ -178,7 +178,7 @@ class FileSystem {
 };
 
 // Currently in-use file system.
-static std::unique_ptr<FileSystem> fs_;
+extern std::unique_ptr<FileSystem> fs_;
 
 // Use the provided file system and perform initialization steps.
 void init_fs(FileSystem *fs);
