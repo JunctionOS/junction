@@ -81,8 +81,8 @@ static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 // Process is a UNIX process object.
 class Process : public std::enable_shared_from_this<Process> {
  public:
-  Process(pid_t pid, void *base, size_t len)
-      : pid_(pid), mem_map_(std::make_shared<MemoryMap>(base, len)) {
+  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm)
+      : pid_(pid), mem_map_(std::move(mm)) {
     all_procs.Add(1);
   }
   Process(pid_t pid, std::shared_ptr<MemoryMap> mm, FileTable &ftbl,
@@ -116,7 +116,7 @@ class Process : public std::enable_shared_from_this<Process> {
   Status<std::unique_ptr<Thread>> CreateThreadMain();
   Status<std::unique_ptr<Thread>> CreateThread();
   Thread &CreateTestThread();
-  void FinishExec(void *base, size_t len);
+  void FinishExec(std::shared_ptr<MemoryMap> &&new_mm);
 
   static void WaitAll() { all_procs.Wait(); }
 

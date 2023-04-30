@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "junction/base/error.h"
+#include "junction/kernel/mm.h"
 
 namespace junction {
 
@@ -29,6 +30,6 @@ struct elf_data {
 };
 
 // Load an ELF object file into memory. Returns metadata if successful.
-Status<elf_data> LoadELF(std::string_view path);
+Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path);
 
 }  // namespace junction

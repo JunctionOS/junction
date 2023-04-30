@@ -154,13 +154,12 @@ asm(R"(
 )");
 }  // namespace
 
-Status<thread_t *> Exec(Process &p, std::string_view pathname,
+Status<thread_t *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                         const std::vector<std::string_view> &argv,
                         const std::vector<std::string_view> &envp) {
-  // TODO(jfried): cache a pointer to this mapped area so it can be cleaned up
   // TODO(jfried): use junction's file system in the ELF loader
   // load the ELF program image file
-  auto edata = LoadELF(pathname);
+  auto edata = LoadELF(mm, pathname);
   if (!edata) return MakeError(edata);
 
   // Create the first thread
@@ -184,8 +183,8 @@ Status<thread_t *> Exec(Process &p, std::string_view pathname,
 
 int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
   // allocate new memory map
-  Status<void *> base = CreateMemoryMap(kMemoryMappingSize);
-  if (!base) return MakeCError(base);
+  Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
+  if (!mm) return MakeCError(mm);
 
   // turn argv and envp in string_view vectors, memory must remain valid until
   // after Exec returns
@@ -197,12 +196,12 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
 
   // TODO(jfried): must stop all other threads
 
-  Status<thread_t *> ret = Exec(myproc(), filename, argv_view, envp_view);
+  Status<thread_t *> ret = Exec(myproc(), **mm, filename, argv_view, envp_view);
   if (!ret) return MakeCError(ret);
 
   // Finish exec from a different thread, since this stack may be unmapped when
   // replacing a proc's MM
-  rt::Spawn([oldth = thread_self(), newth = *ret, base = *base] {
+  rt::Spawn([oldth = thread_self(), newth = *ret, mm = std::move(*mm)] mutable {
     // Ensure old thread has parked before proceeding
     while (load_acquire(&oldth->thread_running)) rt::Yield();
 
@@ -213,7 +212,7 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
 
     // Complete the exec
     tptr = reinterpret_cast<Thread *>(newth->junction_tstate_buf);
-    tptr->get_process().FinishExec(base, kMemoryMappingSize);
+    tptr->get_process().FinishExec(std::move(mm));
 
     // Wake the new main thread
     thread_ready(newth);

@@ -198,14 +198,15 @@ Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
 
 // LoadSegments loads all loadable PHDRs
 Status<std::tuple<uintptr_t, size_t>> LoadSegments(
-    KernelFile &f, const std::vector<elf_phdr> &phdrs, bool reloc) {
+    MemoryMap &mm, KernelFile &f, const std::vector<elf_phdr> &phdrs,
+    bool reloc) {
   // Determine the base address.
   off_t map_off = 0;
   size_t map_len = CountTotalLength(phdrs);
   if (reloc) {
-    Status<void *> ret = KernelMMap(map_len, PROT_NONE, 0);
-    if (!ret) return MakeError(ret);
-    map_off = reinterpret_cast<off_t>(*ret);
+    void *ret = mm.ReserveForMapping(map_len);
+    if (!ret) return MakeError(ENOMEM);
+    map_off = reinterpret_cast<off_t>(ret);
   }
 
   // Load the segments.
@@ -219,7 +220,7 @@ Status<std::tuple<uintptr_t, size_t>> LoadSegments(
 }
 
 // LoadInterp loads an interpreter binary (usually ld.so).
-Status<elf_data::interp_data> LoadInterp(std::string_view path) {
+Status<elf_data::interp_data> LoadInterp(MemoryMap &mm, std::string_view path) {
   if (junction::GetCfg().get_interp_path().size())
     path = junction::GetCfg().get_interp_path();
 
@@ -241,7 +242,8 @@ Status<elf_data::interp_data> LoadInterp(std::string_view path) {
   if (!phdrs) return MakeError(phdrs);
 
   // Load the PHDR segments.
-  Status<std::tuple<uintptr_t, size_t>> ret = LoadSegments(*file, *phdrs, true);
+  Status<std::tuple<uintptr_t, size_t>> ret =
+      LoadSegments(mm, *file, *phdrs, true);
   if (!ret) return MakeError(ret);
 
   DLOG(DEBUG) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
@@ -264,7 +266,7 @@ std::optional<elf_phdr> FindPHDRByType(const std::vector<elf_phdr> &v,
 
 }  // namespace
 
-Status<elf_data> LoadELF(std::string_view path) {
+Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path) {
   DLOG(INFO) << "elf: loading ELF object file '" << path << "'";
 
   // Open the file.
@@ -289,14 +291,14 @@ Status<elf_data> LoadELF(std::string_view path) {
   if (phdr) {
     Status<std::string> path = ReadInterp(*file, *phdr);
     if (!path) return MakeError(path);
-    Status<elf_data::interp_data> data = LoadInterp(*path);
+    Status<elf_data::interp_data> data = LoadInterp(mm, *path);
     if (!data) return MakeError(data);
     interp_data = *data;
   }
 
   // Load the PHDR segments.
   Status<std::tuple<uintptr_t, size_t>> ret =
-      LoadSegments(*file, *phdrs, hdr->type == kETypeDynamic);
+      LoadSegments(mm, *file, *phdrs, hdr->type == kETypeDynamic);
   if (!ret) return MakeError(ret);
 
   // Look for a PHDR table segment

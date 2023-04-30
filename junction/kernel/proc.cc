@@ -179,9 +179,9 @@ Process::~Process() {
   all_procs.Done();
 }
 
-void Process::FinishExec(void *base, size_t len) {
+void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
   file_tbl_.DoCloseOnExec();
-  mem_map_ = std::make_shared<MemoryMap>(base, len);
+  mem_map_ = std::move(new_mm);
   vfork_waker_.Wake();
 }
 
@@ -189,14 +189,15 @@ Status<std::shared_ptr<Process>> CreateProcess() {
   Status<pid_t> pid = AllocPid();
   if (!pid) return MakeError(pid);
 
-  Status<void *> base = CreateMemoryMap(kMemoryMappingSize);
-  if (!base) return MakeError(base);
+  Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
+  if (!mm) return MakeError(mm);
 
+  const void *base = (*mm)->get_base();
   LOG(INFO) << "proc: Creating process with pid=" << *pid
-            << ", mapping=" << *base << "-"
-            << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(*base) +
+            << ", mapping=" << base << "-"
+            << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(base) +
                                         kMemoryMappingSize);
-  return std::make_shared<Process>(*pid, *base, kMemoryMappingSize);
+  return std::make_shared<Process>(*pid, std::move(*mm));
 }
 
 Status<std::shared_ptr<Process>> Process::CreateProcessVfork(

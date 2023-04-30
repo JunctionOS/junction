@@ -15,7 +15,7 @@ namespace junction {
 //
 // The first thread is created and returned by this call. The caller must call
 // thread_ready to start the program.
-Status<thread_t *> Exec(Process &p, std::string_view pathname,
+Status<thread_t *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                         const std::vector<std::string_view> &argv,
                         const std::vector<std::string_view> &envp);
 

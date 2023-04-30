@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <memory>
+
 #include "junction/base/arch.h"
 #include "junction/base/error.h"
 #include "junction/bindings/sync.h"
@@ -56,6 +58,10 @@ class alignas(kCacheLineSize) MemoryMap {
     return end >= start && start >= base_ && end <= base_ + len_;
   }
 
+  [[nodiscard]] const void *get_base() const {
+    return reinterpret_cast<void *>(base_);
+  }
+
  private:
   rt::Spin lock_;
   const uintptr_t base_;
@@ -65,8 +71,10 @@ class alignas(kCacheLineSize) MemoryMap {
 };
 
 // Reserve a region of virtual memory for a MemoryMap.
-inline Status<void *> CreateMemoryMap(size_t len) {
-  return KernelMMap(len, PROT_NONE, 0);
+inline Status<std::shared_ptr<MemoryMap>> CreateMemoryMap(size_t len) {
+  Status<void *> ret = KernelMMap(len, PROT_NONE, 0);
+  if (!ret) return MakeError(ret);
+  return std::make_shared<MemoryMap>(*ret, len);
 }
 
 }  // namespace junction

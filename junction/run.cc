@@ -31,7 +31,8 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   ftbl.Insert(std::move(ferr));
 
   // Exec program image
-  Status<thread_t *> ret = Exec(**proc, path, argv, envp);
+  Status<thread_t *> ret =
+      Exec(**proc, (*proc)->get_mem_map(), path, argv, envp);
   if (!ret) {
     LOG(ERR) << "Failed to exec binary: " << ret.error();
     return MakeError(ret);
