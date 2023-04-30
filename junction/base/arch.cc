@@ -47,9 +47,8 @@ Status<size_t> ReadRandom(std::span<std::byte> buf) {
     }
 
     // Otherwise no need to copy.
-    if (!ReadRandomWord(reinterpret_cast<uint64_t *>(buf.data() + n))) {
+    if (!ReadRandomWord(reinterpret_cast<uint64_t *>(buf.data() + n)))
       return MakeError(EIO);
-    }
     n += sizeof(uint64_t);
   }
 
@@ -68,9 +67,8 @@ Status<size_t> ReadEntropy(std::span<std::byte> buf, bool blocking) {
     }
 
     // Otherwise no need to copy.
-    if (!ReadSeedWord(reinterpret_cast<uint64_t *>(buf.data() + n), blocking)) {
+    if (!ReadSeedWord(reinterpret_cast<uint64_t *>(buf.data() + n), blocking))
       break;
-    }
     n += sizeof(uint64_t);
   }
 

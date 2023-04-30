@@ -22,6 +22,74 @@ namespace junction {
 constexpr unsigned int kTypeRegularFile = S_IFREG;
 // Directory.
 constexpr unsigned int kTypeDirectory = S_IFDIR;
+// Character device.
+constexpr unsigned int kTypeCharacter = S_IFCHR;
+// Block device.
+constexpr unsigned int kTypeBlock = S_IFBLK;
+// Symbolic link.
+constexpr unsigned int kTypeSymLink = S_IFLNK;
+// Pipe or FIFO.
+constexpr unsigned int kTypeFIFO = S_IFIFO;
+
+#if 0
+//
+// TODO: These are notes on a new file system design (WIP)
+//
+
+class Inode : std::enable_shared_from_this<Inode> {
+ public:
+  Inode(unsigned int type, unsigned long (inum) : type_(type), inum_(inum) {}
+  virtual ~Inode() = default;
+
+  // Open a file for this inode.
+  virtual std::shared_ptr<File> Open(uint32_t mode, uint32_t flags) = 0;
+
+  [[nodiscard]] unsigned int get_type() const {
+    return type_; }
+  [[nodiscard]] unsigned long get_inode_number() const {
+    return inum_; }
+
+ private:
+  const unsigned int type_;   // the file type referred to by this inode
+  const unsigned long inum_;  // inode number
+};
+
+struct dir_entry {
+  std::string name;
+  unsigned long inum;
+  unsigned int type;
+};
+
+class IDir : public Inode {
+ public:
+  // Opens a file that supports getdents64().
+  std::shared_ptr<File> Open(uint32_t mode, uint32_t flags) override;
+
+  // Lookup an inode in this directory (can be empty).
+  virtual std::shared_ptr<Inode> Lookup(std::string_view name) = 0;
+  // Insert an inode into this directory.
+  virtual Status<void> Insert(std::string_view name,
+                              std::shared_ptr<Inode> inode) = 0;
+  // Remove an inode from this directory.
+  virtual Status<void> Remove(std::string_view name) = 0;
+  // Create a new directory.
+  virtual Status<void> MakeDir(std::string_view name, uint32_t mode) = 0;
+  // Create a new file.
+  virtual Status<std::shared_ptr<File>> Create(std::string_view name,
+                                               uint32_t mode) = 0;
+
+ private:
+  // GetDents returns a vector of the current entries.
+  virtual std::vector<dir_entry> GetDents() = 0;
+};
+
+class FileSystem {
+ private:
+  std::shared_ptr<IDir> root_;
+  std::shared_ptr<IDir> cwd_;
+};
+
+#endif
 
 class Inode {
  public:
