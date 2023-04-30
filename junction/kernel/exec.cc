@@ -157,7 +157,6 @@ asm(R"(
 Status<thread_t *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                         const std::vector<std::string_view> &argv,
                         const std::vector<std::string_view> &envp) {
-  // TODO(jfried): use junction's file system in the ELF loader
   // load the ELF program image file
   auto edata = LoadELF(mm, pathname);
   if (!edata) return MakeError(edata);
@@ -224,6 +223,7 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
 
 int usys_execveat(int fd, const char *filename, const char *argv[],
                   const char *envp[], int flags) {
+  // TODO: support when Junction supports openat
   return -ENOSYS;
 }
 

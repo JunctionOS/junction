@@ -11,11 +11,62 @@
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
 #include "junction/junction.h"
+#include "junction/kernel/file.h"
+#include "junction/kernel/fs.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 
 namespace junction {
 namespace {
+
+// JunctionFile provides a wrapper around a Junction FS-provided file.
+class JunctionFile {
+ public:
+  // Open creates a new file descriptor attached to a file path.
+  static Status<JunctionFile> Open(std::string_view path, int flags,
+                                   mode_t mode) {
+    FileSystem *fs = get_fs();
+    Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
+    if (!f) return MakeError(f);
+    return JunctionFile(std::move(*f));
+  }
+
+  explicit JunctionFile(std::shared_ptr<File> &&f) noexcept
+      : f_(std::move(f)) {}
+  ~JunctionFile() = default;
+
+  // Read from the file.
+  Status<size_t> Read(std::span<std::byte> buf) { return f_->Read(buf, &off_); }
+
+  // Write to the file.
+  Status<size_t> Write(std::span<const std::byte> buf) {
+    return f_->Write(buf, &off_);
+  }
+
+  // Map a portion of the file.
+  Status<void *> MMap(size_t length, int prot, int flags, off_t off) {
+    assert(!(flags & (MAP_FIXED | MAP_ANONYMOUS)));
+    flags |= MAP_PRIVATE;
+    return f_->MMap(nullptr, length, prot, flags, off);
+  }
+
+  // Map a portion of the file to a fixed address.
+  Status<void> MMapFixed(void *addr, size_t length, int prot, int flags,
+                         off_t off) {
+    assert(!(flags & MAP_ANONYMOUS));
+    flags |= MAP_FIXED | MAP_PRIVATE;
+    Status<void *> ret = f_->MMap(addr, length, prot, flags, off);
+    if (!ret) return MakeError(ret);
+    return {};
+  }
+
+  // Seek to a different position in the file.
+  void Seek(off_t offset) { f_->Seek(offset, SeekFrom::kStart); }
+
+ private:
+  std::shared_ptr<File> f_;
+  off_t off_{0};
+};
 
 constexpr size_t kMagicLen = 16;
 
@@ -95,7 +146,7 @@ constexpr bool HeaderIsValid(const elf_header &hdr) {
 }
 
 // ReadHeader reads and validates the header of the ELF file
-Status<elf_header> ReadHeader(KernelFile &f) {
+Status<elf_header> ReadHeader(JunctionFile &f) {
   elf_header hdr;
   Status<void> ret = ReadFull(f, writable_byte_view(hdr));
   if (!ret) return MakeError(ret);
@@ -107,7 +158,8 @@ Status<elf_header> ReadHeader(KernelFile &f) {
 }
 
 // ReadPHDRs reads a vector of PHDRs from the ELF file
-Status<std::vector<elf_phdr>> ReadPHDRs(KernelFile &f, const elf_header &hdr) {
+Status<std::vector<elf_phdr>> ReadPHDRs(JunctionFile &f,
+                                        const elf_header &hdr) {
   std::vector<elf_phdr> phdrs(hdr.phnum);
 
   // Read the PHDRs into the vector.
@@ -137,7 +189,7 @@ size_t CountTotalLength(const std::vector<elf_phdr> &phdrs) {
 }
 
 // ReadInterp loads the interpretor section and returns a path
-Status<std::string> ReadInterp(KernelFile &f, const elf_phdr &phdr) {
+Status<std::string> ReadInterp(JunctionFile &f, const elf_phdr &phdr) {
   std::string interp_path(phdr.filesz - 1,
                           '\0');  // Don't read the null terminator
   f.Seek(phdr.offset);
@@ -148,7 +200,7 @@ Status<std::string> ReadInterp(KernelFile &f, const elf_phdr &phdr) {
 }
 
 // LoadOneSegment loads one loadable PHDR into memory
-Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
+Status<void> LoadOneSegment(JunctionFile &f, off_t map_off,
                             const elf_phdr &phdr) {
   // Determine the mapping permissions.
   unsigned int prot = 0;
@@ -198,7 +250,7 @@ Status<void> LoadOneSegment(KernelFile &f, off_t map_off,
 
 // LoadSegments loads all loadable PHDRs
 Status<std::tuple<uintptr_t, size_t>> LoadSegments(
-    MemoryMap &mm, KernelFile &f, const std::vector<elf_phdr> &phdrs,
+    MemoryMap &mm, JunctionFile &f, const std::vector<elf_phdr> &phdrs,
     bool reloc) {
   // Determine the base address.
   off_t map_off = 0;
@@ -227,7 +279,7 @@ Status<elf_data::interp_data> LoadInterp(MemoryMap &mm, std::string_view path) {
   DLOG(INFO) << "elf: loading interpreter ELF object file '" << path << "'";
 
   // Open the file.
-  Status<KernelFile> file = KernelFile::Open(path, 0, S_IRUSR | S_IXUSR);
+  Status<JunctionFile> file = JunctionFile::Open(path, 0, S_IRUSR | S_IXUSR);
   if (!file) return MakeError(file);
 
   // Load the ELF header.
@@ -270,7 +322,7 @@ Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path) {
   DLOG(INFO) << "elf: loading ELF object file '" << path << "'";
 
   // Open the file.
-  Status<KernelFile> file = KernelFile::Open(path, 0, S_IRUSR | S_IXUSR);
+  Status<JunctionFile> file = JunctionFile::Open(path, 0, S_IRUSR | S_IXUSR);
   if (!file) return MakeError(file);
 
   // Load the ELF header.
