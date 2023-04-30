@@ -229,11 +229,13 @@ Status<size_t> File::Writev(std::span<const iovec> vec, off_t *off) {
   ssize_t total_bytes = 0;
   Status<size_t> ret;
   for (auto &v : vec) {
+    if (!v.iov_len) continue;
     ret = Write(
         writable_span(reinterpret_cast<const char *>(v.iov_base), v.iov_len),
         off);
     if (!ret) break;
     total_bytes += *ret;
+    if (*ret < v.iov_len) break;
   }
   if (total_bytes) return total_bytes;
   return ret;
@@ -243,10 +245,12 @@ Status<size_t> File::Readv(std::span<iovec> vec, off_t *off) {
   ssize_t total_bytes = 0;
   Status<size_t> ret;
   for (auto &v : vec) {
+    if (!v.iov_len) continue;
     ret = Read(readable_span(reinterpret_cast<char *>(v.iov_base), v.iov_len),
                off);
     if (!ret) break;
     total_bytes += *ret;
+    if (!is_nonblocking() || *ret < v.iov_len) break;
   }
   if (total_bytes) return total_bytes;
   return ret;
