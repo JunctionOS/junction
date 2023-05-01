@@ -1,4 +1,4 @@
-message(STATUS "Building junction kernel")
+message(STATUS "Building junction filesystem")
 
 set(SOURCES_C_CPP
   core.cc

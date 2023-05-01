@@ -9,6 +9,7 @@ extern "C" {
 
 #include <memory>
 #include <string_view>
+#include <vector>
 
 #include "junction/kernel/file.h"
 
@@ -44,8 +45,8 @@ class Inode : std::enable_shared_from_this<Inode> {
   // Set attributes.
   virtual Status<void> SetAttributes(struct stat attr) = 0;
 
-  [[nodiscard]] unsigned int get_type() const { return type_; }
-  [[nodiscard]] unsigned long get_inum() const { return inum_; }
+  [[nodiscard]] mode_t get_type() const { return type_; }
+  [[nodiscard]] ino_t get_inum() const { return inum_; }
 
  private:
   const mode_t type_;  // the file type referred to by this inode
