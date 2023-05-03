@@ -28,8 +28,6 @@ class MemFSInode : public Inode,
                    public std::enable_shared_from_this<MemFSInode> {
   constexpr static size_t kMaxSizeBytes = (1UL << 33);  // 8 GB
   constexpr static size_t kBlockSize = 4096;            // 4KB (page size)
-  static_assert(kMaxSizeBytes % kBlockSize == 0);
-  constexpr static size_t kMaxBlocks = kMaxSizeBytes / kBlockSize;
 
  public:
   MemFSInode(const unsigned int type) noexcept;
@@ -61,7 +59,7 @@ class MemFSInode : public Inode,
   // child nodes (in the case of directory type inode)
   string_unordered_map<std::shared_ptr<Inode>> children_;
   // contents (in the case of a regular file type inode)
-  SlabList<kBlockSize, kMaxBlocks> buf_;
+  SlabList<kBlockSize> buf_;
 
   // number of hard links
   unsigned int nlink_;

@@ -2,11 +2,15 @@
 
 #include <cmath>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
+#include <vector>
+
+#include "junction/base/bits.h"
 
 namespace junction {
 
-template <size_t BlockSize, size_t MaxBlocks>
+template <size_t BlockSize>
 class SlabList {
  public:
   struct const_iterator;
@@ -141,40 +145,19 @@ class SlabList {
   const_iterator cbegin() { return const_iterator(this, 0); }
   const_iterator cend() { return const_iterator(this, size_); }
 
-  SlabList() {
-    for (size_t i = 0; i < MaxBlocks; i++) {
-      block_ptrs_[i] = nullptr;
-    }
-  }
+  SlabList() = default;
 
   SlabList(const size_t size) : SlabList() { Resize(size); }
 
   // Adds or removes blocks to reach the target size.
   void Resize(const size_t size) {
-    if (size > max_size()) {
-      throw std::length_error("Exceeds MaxSize");
-    }
-    if (size < 0) {
-      throw std::length_error("Negative size");
-    }
+    const size_t blocks_needed = DivideUp(size, BlockSize);
+    block_ptrs_.resize(blocks_needed);
 
-    const size_t blocks_needed =
-        size < BlockSize ? 1 : std::ceil(static_cast<double>(size) / BlockSize);
-    if (blocks_needed > n_blocks_in_use_) {
-      // Add blocks
-      const size_t delta = blocks_needed - n_blocks_in_use_;
-      for (size_t i = 0; i < delta; i++) {
-        block_ptrs_[i + n_blocks_in_use_] = new char[BlockSize];
-      }
-    } else {
-      // Remove blocks
-      const size_t delta = n_blocks_in_use_ - blocks_needed;
-      for (size_t i = 0; i < delta; i++) {
-        const size_t idx = n_blocks_in_use_ - i - 1;
-        delete[] block_ptrs_[idx];
-        block_ptrs_[idx] = nullptr;
-      }
-    }
+    // Add blocks if needed
+    for (size_t i = n_blocks_in_use_; i < blocks_needed; i++)
+      block_ptrs_[i].reset(new char[BlockSize]);
+
     n_blocks_in_use_ = blocks_needed;
     size_ = size;
   }
@@ -183,19 +166,15 @@ class SlabList {
 
   std::byte* get_ptr(size_t idx) {
     // Note: No bounds checks are performed.
-    const size_t block = std::floor(static_cast<double>(idx) / BlockSize);
-    return reinterpret_cast<std::byte*>(block_ptrs_[block]) + (idx % BlockSize);
+    const size_t block = idx / BlockSize;
+    return reinterpret_cast<std::byte*>(block_ptrs_[block].get()) +
+           (idx % BlockSize);
   }
 
   size_t size() const { return size_; }
 
-  size_t max_size() const {
-    static size_t MaxSize = BlockSize * MaxBlocks;
-    return MaxSize;
-  }
-
  private:
-  char* block_ptrs_[MaxBlocks];
+  std::vector<std::unique_ptr<char[]>> block_ptrs_;
   size_t size_{0};
   size_t n_blocks_in_use_{0};
 };

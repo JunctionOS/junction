@@ -10,14 +10,13 @@ using namespace junction;
 class SlabListTest : public ::testing::Test {};
 
 constexpr size_t kBlockSize = 4096;
-constexpr size_t kMaxBlocks = 256;
 
 TEST_F(SlabListTest, CreateSlabListTest) {
-  SlabList<kBlockSize, kMaxBlocks> sl_1;
+  SlabList<kBlockSize> sl_1;
   EXPECT_EQ(sl_1.size(), 0);
 
   const size_t size = 256;
-  SlabList<kBlockSize, kMaxBlocks> sl_2(size);
+  SlabList<kBlockSize> sl_2(size);
   EXPECT_EQ(sl_2.size(), size);
 }
 
@@ -26,7 +25,7 @@ TEST_F(SlabListTest, SetValuesMultipleBlocksTest) {
   const std::vector<char> vals({'a', 'b', 'c', 'd', 'e'});
   const size_t size = kBlockSize * 5;
 
-  SlabList<kBlockSize, kMaxBlocks> sl(size);
+  SlabList<kBlockSize> sl(size);
 
   // Assign values.
   for (size_t i = 0; i < size; i++) {
@@ -43,7 +42,7 @@ TEST_F(SlabListTest, FillTest) {
   const size_t size = kBlockSize * 5;
   const std::byte val = static_cast<std::byte>('x');
 
-  SlabList<kBlockSize, kMaxBlocks> sl(size);
+  SlabList<kBlockSize> sl(size);
 
   // Fill values.
   std::fill(sl.begin(), sl.end(), val);
@@ -66,7 +65,7 @@ TEST_F(SlabListTest, CopyNTest) {
   auto off = 0;
 
   // Copy from src to dst.
-  SlabList<kBlockSize, kMaxBlocks> dst;
+  SlabList<kBlockSize> dst;
   for (size_t i = 0; i < iters; i++) {
     if (dst.size() - off < src.size()) {
       dst.Resize(src.size() + off);
@@ -86,7 +85,7 @@ TEST_F(SlabListTest, ShiftRightTest) {
   }
 
   const size_t size = kBlockSize * 5;
-  SlabList<kBlockSize, kMaxBlocks> sl(size);
+  SlabList<kBlockSize> sl(size);
 
   // Use this to compare with a std::vector implementation.
   std::vector<std::byte> truth(size);
