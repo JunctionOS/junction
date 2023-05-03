@@ -1,13 +1,14 @@
-From 694530bdc55573ca828d73e5e31be5f270705270 Mon Sep 17 00:00:00 2001
+From d6262224c399daacdf3bf84adf6dfb4665df2102 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 23 Nov 2022 17:12:56 -0500
 Subject: [PATCH 3/5] glibc: hook some more syscalls
 
 ---
  sysdeps/unix/sysv/linux/kernel-features.h |  2 +-
+ sysdeps/unix/sysv/linux/x86_64/clone.S    |  6 +++++-
  sysdeps/unix/sysv/linux/x86_64/clone3.S   | 25 +++++++++++++----------
  sysdeps/x86_64/nptl/tls.h                 |  9 +-------
- 3 files changed, 16 insertions(+), 20 deletions(-)
+ 4 files changed, 21 insertions(+), 21 deletions(-)
 
 diff --git a/sysdeps/unix/sysv/linux/kernel-features.h b/sysdeps/unix/sysv/linux/kernel-features.h
 index 74adc3956b..344b4f93e5 100644
@@ -22,11 +23,33 @@ index 74adc3956b..344b4f93e5 100644
  
  /* Support for various CLOEXEC and NONBLOCK flags was added in
     2.6.27.  */
+diff --git a/sysdeps/unix/sysv/linux/x86_64/clone.S b/sysdeps/unix/sysv/linux/x86_64/clone.S
+index b6b5cd497a..ac63d920d7 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/clone.S
++++ b/sysdeps/unix/sysv/linux/x86_64/clone.S
+@@ -78,12 +78,16 @@ ENTRY (__clone)
+ 	/* End FDE now, because in the child the unwind info will be
+ 	   wrong.  */
+ 	cfi_endproc;
+-	syscall
++
++        sub $0x8, %rsp
++        call *(SYSTBL_NAME_ADDR(clone))
+ 
+ 	testq	%rax,%rax
+ 	jl	SYSCALL_ERROR_LABEL
+ 	jz	L(thread_start)
+ 
++	add $0x8, %rsp
++
+ 	ret
+ 
+ L(thread_start):
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone3.S b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-index 18fc2ee966..e88e397cc6 100644
+index 18fc2ee966..f5d559fa97 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone3.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-@@ -47,17 +47,18 @@ ENTRY (__clone3)
+@@ -47,22 +47,23 @@ ENTRY (__clone3)
  	test	%RDX_LP, %RDX_LP	/* No NULL function pointer.  */
  	jz	SYSCALL_ERROR_LABEL
  
@@ -48,10 +71,15 @@ index 18fc2ee966..e88e397cc6 100644
 +
 +	sub $0x8, %rsp
 +	call *(SYSTBL_NAME_ADDR(clone3))
-+	add $0x8, %rsp;
  
  	test	%RAX_LP, %RAX_LP
  	jl	SYSCALL_ERROR_LABEL
+ 	jz	L(thread_start)
+ 
++	add $0x8, %rsp;
+ 	ret
+ 
+ L(thread_start):
 @@ -77,12 +78,14 @@ L(thread_start):
  	and	$-16, %RSP_LP
  
