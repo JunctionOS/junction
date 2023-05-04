@@ -10,16 +10,16 @@ namespace junction {
 namespace {
 
 constexpr bool NameIsValid(std::string_view name) {
-  return std::none_of(std::begin(name), std::end(name),
+  return std::none_of(std::cbegin(name), std::cend(name),
                       [](char c) { return c == '/' || c == '\0'; });
 }
 
 Status<std::shared_ptr<Inode>> LookupInode(
     std::shared_ptr<Inode> pos, const std::vector<std::string_view> &spath) {
   for (std::string_view v : spath) {
-    if (pos->get_type() != kTypeDirectory) return MakeError(ENOTDIR);
+    if (!(pos->get_mode() & kTypeDirectory)) return MakeError(ENOTDIR);
     auto &dir = static_cast<IDir &>(*pos);
-    if (v == ".") continue;
+    if (v.empty() || v == ".") continue;
     if (v == "..") {
       pos = dir.get_parent();
       continue;
@@ -43,7 +43,8 @@ Status<std::tuple<std::shared_ptr<IDir>, std::string_view>> LookupIDir(
 
   Status<std::shared_ptr<Inode>> ret = LookupInode(pos, spath);
   if (!ret) return MakeError(ret);
-  if ((*ret)->get_type() != kTypeDirectory) return MakeError(ENOTDIR);
+  if (!((*ret)->get_mode() & kTypeDirectory)) return MakeError(ENOTDIR);
+  if ((*ret)->is_stale()) return MakeError(ESTALE);
   return std::make_tuple(std::static_pointer_cast<IDir>(std::move(*ret)), name);
 }
 

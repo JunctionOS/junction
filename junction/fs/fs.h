@@ -35,28 +35,31 @@ constexpr unsigned int kTypeFIFO = S_IFIFO;
 // Inode is the base class for all inodes
 class Inode : std::enable_shared_from_this<Inode> {
  public:
-  Inode(mode_t type, ino_t inum) : type_(type), inum_(inum) {}
+  Inode(mode_t mode, ino_t inum) : mode_(mode), inum_(inum) {}
   virtual ~Inode() = default;
 
   // Open a file for this inode.
-  virtual std::shared_ptr<File> Open(uint32_t mode, uint32_t flags) = 0;
+  virtual std::shared_ptr<File> Open(mode_t mode, uint32_t flags) = 0;
   // Get attributes.
   virtual Status<struct stat> GetAttributes() = 0;
   // Set attributes.
   virtual Status<void> SetAttributes(struct stat attr) = 0;
 
-  [[nodiscard]] mode_t get_type() const { return type_; }
+  [[nodiscard]] mode_t get_mode() const { return mode_; }
   [[nodiscard]] ino_t get_inum() const { return inum_; }
+  [[nodiscard]] bool is_stale() const { return stale_; }
+  void mark_stale() { stale_ = true; }
 
  private:
-  const mode_t type_;  // the file type referred to by this inode
+  const mode_t mode_;  // the rype and mode
   const ino_t inum_;   // inode number
+  bool stale_;         // inode is stale (i.e., completely unlinked).
 };
 
 // ISoftLink is an inode type for soft links
 class ISoftLink : public Inode {
  public:
-  ISoftLink(ino_t inum) : Inode(kTypeSymLink, inum) {}
+  ISoftLink(mode_t mode, ino_t inum) : Inode(kTypeSymLink | mode, inum) {}
   virtual ~ISoftLink() override = default;
 
   // Opens a file that does nothing.
@@ -75,12 +78,12 @@ struct dir_entry {
 // IDir is an inode type for directories
 class IDir : public Inode {
  public:
-  IDir(ino_t inum, std::shared_ptr<IDir> parent = {})
-      : Inode(kTypeDirectory, inum), parent_(std::move(parent)) {}
+  IDir(mode_t mode, ino_t inum, std::shared_ptr<IDir> parent = {})
+      : Inode(kTypeDirectory | mode, inum), parent_(std::move(parent)) {}
   virtual ~IDir() override = default;
 
   // Opens a file that supports getdents() and getdents64().
-  std::shared_ptr<File> Open(uint32_t mode, uint32_t flags) override;
+  std::shared_ptr<File> Open(mode_t mode, uint32_t flags) override;
 
   // Lookup finds a directory entry by name.
   virtual Status<std::shared_ptr<Inode>> Lookup(std::string_view name) = 0;
@@ -100,23 +103,18 @@ class IDir : public Inode {
                               std::string_view dst_name) = 0;
   // Link creates a hard link.
   virtual Status<void> Link(Inode &node, std::string_view name) = 0;
-  // Create a new normal file.
+  // Create makes a new normal file.
   virtual Status<std::shared_ptr<File>> Create(std::string_view name,
                                                mode_t mode) = 0;
+  // GetDents returns a vector of the current entries.
+  virtual std::vector<dir_entry> GetDents() = 0;
 
-  // If true, don't allow creation of new directory entries.
-  [[nodiscard]] bool is_dead() const { return dead_; }
   // Get a reference to the parent of this directory.
   [[nodiscard]] std::shared_ptr<IDir> get_parent() const { return parent_; }
 
  private:
-  // GetDents returns a vector of the current entries.
-  virtual std::vector<dir_entry> GetDents() = 0;
-
   // Parent directory.
   std::shared_ptr<IDir> parent_;
-  // Directory has been removed.
-  bool dead_;
 };
 
 // FSRoot manages the root directory and namespace for a process
