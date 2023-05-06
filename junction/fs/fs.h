@@ -20,22 +20,27 @@ namespace junction {
 //
 
 // Regular file.
-constexpr unsigned int kTypeRegularFile = S_IFREG;
+constexpr mode_t kTypeRegularFile = S_IFREG;
 // Directory.
-constexpr unsigned int kTypeDirectory = S_IFDIR;
+constexpr mode_t kTypeDirectory = S_IFDIR;
 // Character device.
-constexpr unsigned int kTypeCharacter = S_IFCHR;
+constexpr mode_t kTypeCharacter = S_IFCHR;
 // Block device.
-constexpr unsigned int kTypeBlock = S_IFBLK;
+constexpr mode_t kTypeBlock = S_IFBLK;
 // Symbolic link.
-constexpr unsigned int kTypeSymLink = S_IFLNK;
+constexpr mode_t kTypeSymLink = S_IFLNK;
 // Pipe or FIFO.
-constexpr unsigned int kTypeFIFO = S_IFIFO;
+constexpr mode_t kTypeFIFO = S_IFIFO;
+
+// A mask of all type bits in the mode field.
+constexpr mode_t kTypeMask =
+    (S_IFREG | S_IFDIR | S_IFCHR | S_IFBLK | S_IFLNK | S_IFIFO);
 
 // Inode is the base class for all inodes
 class Inode : std::enable_shared_from_this<Inode> {
  public:
-  Inode(mode_t mode, ino_t inum) : mode_(mode), inum_(inum) {}
+  Inode(mode_t mode, ino_t inum, dev_t dev)
+      : mode_(mode), inum_(inum), dev_(dev) {}
   virtual ~Inode() = default;
 
   // Open a file for this inode.
@@ -46,20 +51,26 @@ class Inode : std::enable_shared_from_this<Inode> {
   virtual Status<void> SetAttributes(struct stat attr) = 0;
 
   [[nodiscard]] mode_t get_mode() const { return mode_; }
+  [[nodiscard]] mode_t get_type() const { return mode_ & kTypeMask; }
   [[nodiscard]] ino_t get_inum() const { return inum_; }
+  [[nodiscard]] dev_t get_dev() const { return dev_; }
   [[nodiscard]] bool is_stale() const { return stale_; }
   void mark_stale() { stale_ = true; }
+
+  // Gets a shared pointer to this inode.
+  std::shared_ptr<Inode> get_this() { return shared_from_this(); };
 
  private:
   const mode_t mode_;  // the rype and mode
   const ino_t inum_;   // inode number
+  const dev_t dev_;    // the device type
   bool stale_;         // inode is stale (i.e., completely unlinked).
 };
 
 // ISoftLink is an inode type for soft links
 class ISoftLink : public Inode {
  public:
-  ISoftLink(mode_t mode, ino_t inum) : Inode(kTypeSymLink | mode, inum) {}
+  ISoftLink(mode_t mode, ino_t inum, dev_t dev) : Inode(kTypeSymLink | mode, inum, dev) {}
   virtual ~ISoftLink() override = default;
 
   // Opens a file that does nothing.
@@ -78,8 +89,8 @@ struct dir_entry {
 // IDir is an inode type for directories
 class IDir : public Inode {
  public:
-  IDir(mode_t mode, ino_t inum, std::shared_ptr<IDir> parent = {})
-      : Inode(kTypeDirectory | mode, inum), parent_(std::move(parent)) {}
+  IDir(mode_t mode, ino_t inum, dev_t dev, std::shared_ptr<IDir> parent = {})
+      : Inode(kTypeDirectory | mode, inum, dev), parent_(std::move(parent)) {}
   virtual ~IDir() override = default;
 
   // Opens a file that supports getdents() and getdents64().
@@ -109,8 +120,13 @@ class IDir : public Inode {
   // GetDents returns a vector of the current entries.
   virtual std::vector<dir_entry> GetDents() = 0;
 
-  // Get a reference to the parent of this directory.
+  // Gets a shared pointer to the parent of this directory.
   [[nodiscard]] std::shared_ptr<IDir> get_parent() const { return parent_; }
+
+  // Gets a shared pointer to this directory.
+  std::shared_ptr<IDir> get_this() {
+    return std::static_pointer_cast<IDir>(Inode::get_this());
+  };
 
  private:
   // Parent directory.

@@ -1,0 +1,111 @@
+// dev.c - character and block device support
+
+#include "junction/fs/dev.h"
+
+#include <algorithm>
+#include <map>
+
+#include "junction/base/arch.h"
+#include "junction/fs/fs.h"
+#include "junction/kernel/file.h"
+
+namespace junction {
+
+namespace {
+
+template <Status<size_t> (*Reader)(std::span<std::byte>, bool),
+          Status<size_t> (*Writer)(std::span<const std::byte>)>
+class SpecialFile : public File {
+ public:
+  SpecialFile(unsigned int flags, unsigned int mode) noexcept
+      : File(FileType::kSpecial, flags, mode) {}
+  ~SpecialFile() override = default;
+
+  Status<size_t> Read(std::span<std::byte> buf,
+                      [[maybe_unused]] off_t *off) override {
+    return Reader(buf, !is_nonblocking());
+  }
+
+  Status<size_t> Write(std::span<const std::byte> buf,
+                       [[maybe_unused]] off_t *off) override {
+    return Writer(buf);
+  }
+};
+
+//
+// /dev/null
+//
+
+Status<size_t> CDevReadNull(std::span<std::byte> buf, bool blocking) {
+  return 0;
+}
+Status<size_t> CDevWriteNull(std::span<const std::byte> buf) {
+  return buf.size();
+}
+using CDevNullFile = SpecialFile<CDevReadNull, CDevWriteNull>;
+
+//
+// /dev/zero
+//
+
+Status<size_t> CDevReadZeroes(std::span<std::byte> buf, bool blocking) {
+  std::fill(buf.begin(), buf.end(), std::byte{0});
+  return buf.size();
+}
+using CDevZeroFile = SpecialFile<CDevReadZeroes, CDevWriteNull>;
+
+//
+// /dev/random
+//
+
+Status<size_t> CDevReadRandom(std::span<std::byte> buf, bool blocking) {
+  return ReadEntropy(buf, blocking);
+}
+using CDevRandomFile = SpecialFile<CDevReadRandom, CDevWriteNull>;
+
+//
+// /dev/urandom
+//
+
+Status<size_t> CDevReadURandom(std::span<std::byte> buf, bool blocking) {
+  return ReadRandom(buf);
+}
+using CDevURandomFile = SpecialFile<CDevReadURandom, CDevWriteNull>;
+
+//
+// Character device support
+//
+
+template <typename T>
+requires(std::derived_from<T, File>) std::shared_ptr<File> MakeFile(
+    unsigned int flags, unsigned int mode) {
+  return std::make_shared<T>(flags, mode);
+}
+
+using FactoryPtr = std::shared_ptr<File> (*)(unsigned int flags,
+                                             unsigned int mode);
+
+// Table of supported character devices
+std::map<dev_t, FactoryPtr> CharacterDevices{
+    {MakeDevice(1, 3), MakeFile<CDevNullFile>},
+    {MakeDevice(1, 5), MakeFile<CDevZeroFile>},
+    {MakeDevice(1, 8), MakeFile<CDevRandomFile>},
+    {MakeDevice(1, 9), MakeFile<CDevURandomFile>},
+};
+
+}  // namespace
+
+Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, unsigned int flags,
+                                         unsigned int mode) {
+  // Only character devices supported so far.
+  if (ino.get_type() != kTypeCharacter) return MakeError(EINVAL);
+
+  // Check if we support this type of device.
+  auto it = CharacterDevices.find(ino.get_dev());
+  if (it == CharacterDevices.end()) return MakeError(ENODEV);
+
+  // Create the file.
+  return it->second(flags, mode);
+}
+
+}  // namespace junction

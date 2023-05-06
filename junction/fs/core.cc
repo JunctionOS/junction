@@ -14,10 +14,11 @@ constexpr bool NameIsValid(std::string_view name) {
                       [](char c) { return c == '/' || c == '\0'; });
 }
 
+// LookupInode finds an inode from a path
 Status<std::shared_ptr<Inode>> LookupInode(
     std::shared_ptr<Inode> pos, const std::vector<std::string_view> &spath) {
   for (std::string_view v : spath) {
-    if (!(pos->get_mode() & kTypeDirectory)) return MakeError(ENOTDIR);
+    if (pos->get_type() != kTypeDirectory) return MakeError(ENOTDIR);
     auto &dir = static_cast<IDir &>(*pos);
     if (v.empty() || v == ".") continue;
     if (v == "..") {
@@ -32,22 +33,26 @@ Status<std::shared_ptr<Inode>> LookupInode(
   return pos;
 }
 
+// LookupIDir finds a directory inode, and returns it plus the name
 Status<std::tuple<std::shared_ptr<IDir>, std::string_view>> LookupIDir(
     std::shared_ptr<Inode> pos, std::string_view path) {
   std::vector<std::string_view> spath = split(path, '/');
   if (spath.empty()) return MakeError(EINVAL);
 
+  // strip off the file name
   std::string_view name = spath.back();
   spath.pop_back();
   if (!NameIsValid(name)) return MakeError(EINVAL);
 
+  // look up the directory
   Status<std::shared_ptr<Inode>> ret = LookupInode(pos, spath);
   if (!ret) return MakeError(ret);
-  if (!((*ret)->get_mode() & kTypeDirectory)) return MakeError(ENOTDIR);
+  if ((*ret)->get_type() != kTypeDirectory) return MakeError(ENOTDIR);
   if ((*ret)->is_stale()) return MakeError(ESTALE);
   return std::make_tuple(std::static_pointer_cast<IDir>(std::move(*ret)), name);
 }
 
+// LookupIDir finds a directory inode starting from the root path
 Status<std::tuple<std::shared_ptr<IDir>, std::string_view>> LookupIDir(
     const FSRoot &root, std::string_view path) {
   std::shared_ptr<IDir> pos = path[0] == '/' ? root.get_root() : root.get_cwd();
