@@ -95,13 +95,14 @@ std::map<dev_t, FactoryPtr> CharacterDevices{
 
 }  // namespace
 
-Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, unsigned int flags,
+Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, dev_t dev,
+                                         unsigned int flags,
                                          unsigned int mode) {
   // Only character devices supported so far.
-  if (ino.get_type() != kTypeCharacter) return MakeError(EINVAL);
+  if (ino.get_type() != kTypeCharacter) return MakeError(ENODEV);
 
   // Check if we support this type of device.
-  auto it = CharacterDevices.find(ino.get_dev());
+  auto it = CharacterDevices.find(dev);
   if (it == CharacterDevices.end()) return MakeError(ENODEV);
 
   // Create the file.

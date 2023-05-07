@@ -39,8 +39,7 @@ constexpr mode_t kTypeMask =
 // Inode is the base class for all inodes
 class Inode : std::enable_shared_from_this<Inode> {
  public:
-  Inode(mode_t mode, ino_t inum, dev_t dev)
-      : mode_(mode), inum_(inum), dev_(dev) {}
+  Inode(mode_t mode, ino_t inum) : mode_(mode), inum_(inum) {}
   virtual ~Inode() = default;
 
   // Open a file for this inode.
@@ -50,12 +49,20 @@ class Inode : std::enable_shared_from_this<Inode> {
   // Set attributes.
   virtual Status<void> SetAttributes(struct stat attr) = 0;
 
+  // permissions and other mode bits
   [[nodiscard]] mode_t get_mode() const { return mode_; }
+  // the type of file
   [[nodiscard]] mode_t get_type() const { return mode_ & kTypeMask; }
+  // the inode number
   [[nodiscard]] ino_t get_inum() const { return inum_; }
-  [[nodiscard]] dev_t get_dev() const { return dev_; }
-  [[nodiscard]] bool is_stale() const { return stale_; }
-  void mark_stale() { stale_ = true; }
+  // the number of hard links to the file
+  [[nodiscard]] nlink_t get_nlink() const { return nlink_; }
+  // increment number of hard links
+  void inc_nlink() { nlink_++; }
+  // decrement number of hard links
+  void dec_nlink() { nlink_--; }
+  // is the file fully unlinked?
+  [[nodiscard]] bool is_stale() const { return nlink_ == 0; }
 
   // Gets a shared pointer to this inode.
   std::shared_ptr<Inode> get_this() { return shared_from_this(); };
@@ -63,14 +70,23 @@ class Inode : std::enable_shared_from_this<Inode> {
  private:
   const mode_t mode_;  // the rype and mode
   const ino_t inum_;   // inode number
-  const dev_t dev_;    // the device type
-  bool stale_;         // inode is stale (i.e., completely unlinked).
+  nlink_t nlink_{1};   // number of hard links to this inode
 };
+
+// InodeToAttributes returns a partial set of attributes based on what's
+// availabe in a generic inode. The caller must fill in the rest manually.
+struct stat InodeToAttributes(const Inode &ino) {
+  struct stat s {};
+  s.st_ino = ino.get_inum();
+  s.st_mode = ino.get_mode();
+  s.st_nlink = ino.get_nlink();
+  return s;
+}
 
 // ISoftLink is an inode type for soft links
 class ISoftLink : public Inode {
  public:
-  ISoftLink(mode_t mode, ino_t inum, dev_t dev) : Inode(kTypeSymLink | mode, inum, dev) {}
+  ISoftLink(mode_t mode, ino_t inum) : Inode(kTypeSymLink | mode, inum) {}
   virtual ~ISoftLink() override = default;
 
   // Opens a file that does nothing.
@@ -89,8 +105,8 @@ struct dir_entry {
 // IDir is an inode type for directories
 class IDir : public Inode {
  public:
-  IDir(mode_t mode, ino_t inum, dev_t dev, std::shared_ptr<IDir> parent = {})
-      : Inode(kTypeDirectory | mode, inum, dev), parent_(std::move(parent)) {}
+  IDir(mode_t mode, ino_t inum, std::shared_ptr<IDir> parent = {})
+      : Inode(kTypeDirectory | mode, inum), parent_(std::move(parent)) {}
   virtual ~IDir() override = default;
 
   // Opens a file that supports getdents() and getdents64().
