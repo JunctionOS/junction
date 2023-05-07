@@ -3,6 +3,7 @@
 #include <map>
 
 #include "junction/base/compiler.h"
+#include "junction/base/finally.h"
 #include "junction/fs/fs.h"
 
 namespace junction {
@@ -30,11 +31,14 @@ class MemIDir : public IDir {
 
   // Inode ops
   Status<struct stat> GetAttributes() override;
-  Status<void> SetAttributes(struct stat attr) override;
 
  private:
+  // Helper routine for renaming (called after locks are held)
+  Status<void> DoRename(MemIDir &src, std::string_view src_name,
+                        std::string_view dst_name);
+
   rt::Mutex lock_;
-  std::map<std::string, std::shared_ptr<Inode>> entries_;
+  std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 };
 
 Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
@@ -51,7 +55,7 @@ Status<void> MemIDir::MkDir(std::string_view name, mode_t mode) {
   rt::MutexGuard g(lock_);
   auto [it, okay] = entries_.try_emplace(std::move(nbuf), std::move(dir));
   if (!okay) return MakeError(EEXIST);
-  return {}
+  return {};
 }
 
 Status<void> MemIDir::Unlink(std::string_view name) {
@@ -75,22 +79,36 @@ Status<void> MemIDir::RmDir(std::string_view name) {
 Status<void> MemIDir::SymLink(std::string_view name, std::string_view path) {}
 
 Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
-                               std::string_view dst_name) {}
+                               std::string_view dst_name) {
+  // find the source inode
+  auto src_it = src.entries_.find(src_name);
+  if (src_it == src.entries_.end()) return MakeError(ENOENT);
+
+  // make sure the destination name doesn't exist already
+  auto dst_it = entries_.find(dst_name);
+  if (dst_it != entries_.end()) return MakeError(EEXIST);
+
+  // perform the actual rename
+  std::shared_ptr<Inode> ino = std::move(src_it->second);
+  src.entries_.erase(src_it);
+  entries_[std::string(dst_name)] = std::move(ino);
+  return {};
+}
 
 Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
                              std::string_view dst_name) {
-  auto *msrc = most_derived_cast<MemIDir>(src);
+  auto *msrc = most_derived_cast<MemIDir>(&src);
   if (!msrc) return MakeError(EXDEV);
 
   // check if rename is in same directory
-  if (msrc == ths) {
-    rt::SpinGuard g(lock_);
-    return DoRename(msrc, src_name, dst_name);
+  if (msrc == this) {
+    rt::MutexGuard g(lock_);
+    return DoRename(*msrc, src_name, dst_name);
   }
 
   // otherwise rename is across different directories (so avoid deadlock)
-  auto fin = finally([this, msrc] {
-    msrc->Lock.Unlock();
+  auto fin = finally([this, &msrc] {
+    msrc->lock_.Unlock();
     lock_.Unlock();
   });
   if (msrc->get_inum() > this->get_inum()) {
@@ -100,8 +118,7 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
     lock_.Lock();
     msrc->lock_.Lock();
   }
-
-  return DoRename(msrc, src_name, dst_name);
+  return DoRename(*msrc, src_name, dst_name);
 }
 
 Status<void> MemIDir::Link(Inode &node, std::string_view name) {}
@@ -112,7 +129,7 @@ Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name,
 std::vector<dir_entry> MemIDir::GetDents() {
   std::vector<dir_entry> result;
   rt::MutexGuard g(lock_);
-  for (const auto &ent : entries) {
+  for (const auto &ent : entries_) {
     Inode &ino = *ent.second.get();
     result.emplace_back(ent.first, ino.get_inum(), ino.get_type());
   }
@@ -124,10 +141,6 @@ Status<struct stat> MemIDir::GetAttributes() {
   s.st_nlink = 1;
   s.st_blksize = kPageSize;
   return s;
-}
-
-Status<void> MemIDir::SetAttributes(struct stat attr) {
-  return MakeError(EINVAL);
 }
 
 }  // namespace

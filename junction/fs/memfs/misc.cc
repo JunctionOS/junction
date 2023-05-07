@@ -15,6 +15,7 @@ class MemISoftLink : public ISoftLink {
   ~MemISoftLink() override = default;
 
   Status<std::string> ReadLink() override;
+  Status<struct stat> GetAttributes() override;
 
  private:
   const std::string path_;
@@ -22,20 +23,31 @@ class MemISoftLink : public ISoftLink {
 
 Status<std::string> MemISoftLink::ReadLink() { return path_; }
 
+Status<struct stat> MemISoftLink::GetAttributes() {
+  struct stat st {};
+  return st;
+}
+
 // MemIDevice is an inode type for character and block devices
 class MemIDevice : public Inode {
  public:
   MemIDevice(dev_t dev, mode_t mode, ino_t inum)
       : Inode(mode, inum), dev_(dev) {}
 
-  std::shared_ptr<File> Open(mode_t mode, uint32_t flags) override;
+  Status<std::shared_ptr<File>> Open(mode_t mode, uint32_t flags) override;
+  Status<struct stat> GetAttributes() override;
 
  private:
   dev_t dev_;
 };
 
-std::shared_ptr<File> MemIDevice::Open(mode_t mode, uint32_t flags) {
+Status<std::shared_ptr<File>> MemIDevice::Open(mode_t mode, uint32_t flags) {
   return DeviceOpen(*this, dev_, mode, flags);
+}
+
+Status<struct stat> MemIDevice::GetAttributes() {
+  struct stat st {};
+  return st;
 }
 
 }  // namespace
@@ -46,7 +58,7 @@ std::shared_ptr<ISoftLink> MemCreateISoftLink(std::string_view path,
 }
 
 std::shared_ptr<Inode> MemCreateIDevice(dev_t dev, mode_t mode, ino_t inum) {
-  return std::make_shared<MemISoftLink>(dev, mode, inum);
+  return std::make_shared<MemIDevice>(dev, mode, inum);
 }
 
 }  // namespace junction

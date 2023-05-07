@@ -43,11 +43,9 @@ class Inode : std::enable_shared_from_this<Inode> {
   virtual ~Inode() = default;
 
   // Open a file for this inode.
-  virtual std::shared_ptr<File> Open(mode_t mode, uint32_t flags) = 0;
+  virtual Status<std::shared_ptr<File>> Open(mode_t mode, uint32_t flags) = 0;
   // Get attributes.
   virtual Status<struct stat> GetAttributes() = 0;
-  // Set attributes.
-  virtual Status<void> SetAttributes(struct stat attr) = 0;
 
   // permissions and other mode bits
   [[nodiscard]] mode_t get_mode() const { return mode_; }
@@ -90,7 +88,7 @@ class ISoftLink : public Inode {
   virtual ~ISoftLink() override = default;
 
   // Opens a file that does nothing.
-  std::shared_ptr<File> Open(uint32_t mode, uint32_t flags) override;
+  Status<std::shared_ptr<File>> Open(uint32_t mode, uint32_t flags) override;
 
   // ReadLink reads the path of the link.
   virtual Status<std::string> ReadLink() = 0;
@@ -110,7 +108,7 @@ class IDir : public Inode {
   virtual ~IDir() override = default;
 
   // Opens a file that supports getdents() and getdents64().
-  std::shared_ptr<File> Open(mode_t mode, uint32_t flags) override;
+  Status<std::shared_ptr<File>> Open(mode_t mode, uint32_t flags) override;
 
   // Lookup finds a directory entry by name.
   virtual Status<std::shared_ptr<Inode>> Lookup(std::string_view name) = 0;
