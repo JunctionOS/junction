@@ -1,17 +1,16 @@
 // misc.cc - support for miscellaneous inode types
 
-#include "junction/fs/dev.h"
-#include "junction/fs/fs.h"
+#include "junction/fs/memfs/memfs.h"
 
-namespace junction {
+namespace junction::memfs {
 
 namespace {
 
 // MemISoftLink is an inode type for soft link
 class MemISoftLink : public ISoftLink {
  public:
-  MemISoftLink(std::string_view path, mode_t mode, ino_t inum)
-      : ISoftLink(mode, inum), path_(path) {}
+  MemISoftLink(std::string_view path, ino_t inum)
+      : ISoftLink(0, inum), path_(path) {}
   ~MemISoftLink() override = default;
 
   Status<std::string> ReadLink() override;
@@ -24,8 +23,7 @@ class MemISoftLink : public ISoftLink {
 Status<std::string> MemISoftLink::ReadLink() { return path_; }
 
 Status<struct stat> MemISoftLink::GetAttributes() {
-  struct stat st {};
-  return st;
+  return MemInodeToAttributes(*this);
 }
 
 // MemIDevice is an inode type for character and block devices
@@ -46,19 +44,18 @@ Status<std::shared_ptr<File>> MemIDevice::Open(mode_t mode, uint32_t flags) {
 }
 
 Status<struct stat> MemIDevice::GetAttributes() {
-  struct stat st {};
-  return st;
+  return MemInodeToAttributes(*this);
 }
 
 }  // namespace
 
 std::shared_ptr<ISoftLink> MemCreateISoftLink(std::string_view path,
-                                              mode_t mode, ino_t inum) {
-  return std::make_shared<MemISoftLink>(path, mode, inum);
+                                              ino_t inum) {
+  return std::make_shared<MemISoftLink>(path, inum);
 }
 
 std::shared_ptr<Inode> MemCreateIDevice(dev_t dev, mode_t mode, ino_t inum) {
   return std::make_shared<MemIDevice>(dev, mode, inum);
 }
 
-}  // namespace junction
+}  // namespace junction::memfs

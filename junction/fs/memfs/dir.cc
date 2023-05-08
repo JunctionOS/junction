@@ -4,9 +4,9 @@
 
 #include "junction/base/compiler.h"
 #include "junction/base/finally.h"
-#include "junction/fs/fs.h"
+#include "junction/fs/memfs/memfs.h"
 
-namespace junction {
+namespace junction::memfs {
 
 namespace {
 
@@ -33,7 +33,9 @@ class MemIDir : public IDir {
   Status<struct stat> GetAttributes() override;
 
  private:
-  // Helper routine for renaming (called after locks are held)
+  // Helper routine for inserting an inode.
+  Status<void> Insert(std::string name, std::shared_ptr<Inode> ino);
+  // Helper routine for renaming.
   Status<void> DoRename(MemIDir &src, std::string_view src_name,
                         std::string_view dst_name);
 
@@ -41,21 +43,28 @@ class MemIDir : public IDir {
   std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 };
 
+Status<void> MemIDir::Insert(std::string name, std::shared_ptr<Inode> ino) {
+  rt::MutexGuard g(lock_);
+  auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
+  if (!okay) return MakeError(EEXIST);
+  return {};
+}
+
 Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
   rt::MutexGuard g(lock_);
   if (auto it = entries_.find(name); it != entries_.end()) return it->second;
   return MakeError(ENOENT);
 }
 
-Status<void> MemIDir::MkNod(std::string_view name, mode_t mode, dev_t dev) {}
+Status<void> MemIDir::MkNod(std::string_view name, mode_t mode, dev_t dev) {
+  // TODO: validate mode
+  auto ino = MemCreateIDevice(dev, mode, 0);
+  return Insert(std::string(name), std::move(ino));
+}
 
 Status<void> MemIDir::MkDir(std::string_view name, mode_t mode) {
-  auto dir = std::make_shared<MemIDir>(mode, 0, get_this());
-  std::string nbuf(name);
-  rt::MutexGuard g(lock_);
-  auto [it, okay] = entries_.try_emplace(std::move(nbuf), std::move(dir));
-  if (!okay) return MakeError(EEXIST);
-  return {};
+  auto ino = std::make_shared<MemIDir>(mode, 0, get_this());
+  return Insert(std::string(name), std::move(ino));
 }
 
 Status<void> MemIDir::Unlink(std::string_view name) {
@@ -76,10 +85,17 @@ Status<void> MemIDir::RmDir(std::string_view name) {
   return {};
 }
 
-Status<void> MemIDir::SymLink(std::string_view name, std::string_view path) {}
+Status<void> MemIDir::SymLink(std::string_view name, std::string_view path) {
+  // TODO: validate path
+  auto ino = MemCreateISoftLink(path, 0);
+  return Insert(std::string(name), std::move(ino));
+}
 
 Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
                                std::string_view dst_name) {
+  assert(lock_.IsHeld());
+  assert(src.lock_.IsHeld());
+
   // find the source inode
   auto src_it = src.entries_.find(src_name);
   if (src_it == src.entries_.end()) return MakeError(ENOENT);
@@ -137,12 +153,9 @@ std::vector<dir_entry> MemIDir::GetDents() {
 }
 
 Status<struct stat> MemIDir::GetAttributes() {
-  struct stat s = InodeToAttributes(*this);
-  s.st_nlink = 1;
-  s.st_blksize = kPageSize;
-  return s;
+  return MemInodeToAttributes(*this);
 }
 
 }  // namespace
 
-}  // namespace junction
+}  // namespace junction::memfs
