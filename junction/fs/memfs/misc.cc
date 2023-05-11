@@ -14,7 +14,7 @@ class MemISoftLink : public ISoftLink {
   ~MemISoftLink() override = default;
 
   Status<std::string> ReadLink() override;
-  Status<struct stat> GetAttributes() override;
+  Status<struct stat> GetStats() override;
 
  private:
   const std::string path_;
@@ -22,9 +22,7 @@ class MemISoftLink : public ISoftLink {
 
 Status<std::string> MemISoftLink::ReadLink() { return path_; }
 
-Status<struct stat> MemISoftLink::GetAttributes() {
-  return MemInodeToAttributes(*this);
-}
+Status<struct stat> MemISoftLink::GetStats() { return MemInodeToStats(*this); }
 
 // MemIDevice is an inode type for character and block devices
 class MemIDevice : public Inode {
@@ -33,7 +31,7 @@ class MemIDevice : public Inode {
       : Inode(mode, inum), dev_(dev) {}
 
   Status<std::shared_ptr<File>> Open(mode_t mode, uint32_t flags) override;
-  Status<struct stat> GetAttributes() override;
+  Status<struct stat> GetStats() override;
 
  private:
   dev_t dev_;
@@ -43,8 +41,10 @@ Status<std::shared_ptr<File>> MemIDevice::Open(mode_t mode, uint32_t flags) {
   return DeviceOpen(*this, dev_, mode, flags);
 }
 
-Status<struct stat> MemIDevice::GetAttributes() {
-  return MemInodeToAttributes(*this);
+Status<struct stat> MemIDevice::GetStats() {
+  struct stat st = MemInodeToStats(*this);
+  st.st_rdev = dev_;
+  return st;
 }
 
 }  // namespace

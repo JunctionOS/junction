@@ -24,13 +24,13 @@ class MemIDir : public IDir {
   Status<void> SymLink(std::string_view name, std::string_view path) override;
   Status<void> Rename(IDir &src, std::string_view src_name,
                       std::string_view dst_name) override;
-  Status<void> Link(Inode &node, std::string_view name) override;
+  Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino) override;
   Status<std::shared_ptr<File>> Create(std::string_view name,
                                        mode_t mode) override;
   std::vector<dir_entry> GetDents() override;
 
   // Inode ops
-  Status<struct stat> GetAttributes() override;
+  Status<struct stat> GetStats() override;
 
  private:
   // Helper routine for inserting an inode.
@@ -47,6 +47,7 @@ Status<void> MemIDir::Insert(std::string name, std::shared_ptr<Inode> ino) {
   rt::MutexGuard g(lock_);
   auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
   if (!okay) return MakeError(EEXIST);
+  ino->inc_nlink();
   return {};
 }
 
@@ -57,7 +58,7 @@ Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
 }
 
 Status<void> MemIDir::MkNod(std::string_view name, mode_t mode, dev_t dev) {
-  // TODO: validate mode
+  if ((mode & (kTypeCharacter | kTypeBlock)) == 0) return MakeError(EINVAL);
   auto ino = MemCreateIDevice(dev, mode, 0);
   return Insert(std::string(name), std::move(ino));
 }
@@ -72,6 +73,7 @@ Status<void> MemIDir::Unlink(std::string_view name) {
   auto it = entries_.find(name);
   if (it == entries_.end()) return MakeError(ENOENT);
   if (it->second->get_type() == kTypeDirectory) return MakeError(EISDIR);
+  it->second->dec_nlink();
   entries_.erase(it);
   return {};
 }
@@ -81,12 +83,12 @@ Status<void> MemIDir::RmDir(std::string_view name) {
   auto it = entries_.find(name);
   if (it == entries_.end()) return MakeError(ENOENT);
   if (it->second->get_type() != kTypeDirectory) return MakeError(ENOTDIR);
+  it->second->dec_nlink();
   entries_.erase(it);
   return {};
 }
 
 Status<void> MemIDir::SymLink(std::string_view name, std::string_view path) {
-  // TODO: validate path
   auto ino = MemCreateISoftLink(path, 0);
   return Insert(std::string(name), std::move(ino));
 }
@@ -137,7 +139,11 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
   return DoRename(*msrc, src_name, dst_name);
 }
 
-Status<void> MemIDir::Link(Inode &node, std::string_view name) {}
+Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
+  if (Status<void> ret = Insert(std::string(name), ino); !ret)
+    return MakeError(ret);
+  return {};
+}
 
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name,
                                               mode_t mode) {}
@@ -152,9 +158,7 @@ std::vector<dir_entry> MemIDir::GetDents() {
   return result;
 }
 
-Status<struct stat> MemIDir::GetAttributes() {
-  return MemInodeToAttributes(*this);
-}
+Status<struct stat> MemIDir::GetStats() { return MemInodeToStats(*this); }
 
 }  // namespace
 

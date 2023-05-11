@@ -8,8 +8,8 @@ namespace junction {
 namespace memfs {
 
 // Generate file attributes. Does not set st_size.
-struct stat MemInodeToAttributes(const Inode &ino) {
-  struct stat s = InodeToAttributes(ino);
+struct stat MemInodeToStats(const Inode &ino) {
+  struct stat s = InodeToStats(ino);
   s.st_blksize = kPageSize;
   s.st_dev = MakeDevice(8, 0);  // fake SCSI device
   return s;

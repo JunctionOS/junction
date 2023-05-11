@@ -86,7 +86,7 @@ using FactoryPtr = std::shared_ptr<File> (*)(unsigned int flags,
                                              unsigned int mode);
 
 // Table of supported character devices
-std::map<dev_t, FactoryPtr> CharacterDevices{
+const std::map<dev_t, FactoryPtr> CharacterDevices{
     {MakeDevice(1, 3), MakeFile<CDevNullFile>},
     {MakeDevice(1, 5), MakeFile<CDevZeroFile>},
     {MakeDevice(1, 8), MakeFile<CDevRandomFile>},

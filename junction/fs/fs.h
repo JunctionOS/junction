@@ -7,6 +7,7 @@ extern "C" {
 #include <sys/statfs.h>
 }
 
+#include <atomic>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -45,7 +46,7 @@ class Inode : std::enable_shared_from_this<Inode> {
   // Open a file for this inode.
   virtual Status<std::shared_ptr<File>> Open(mode_t mode, uint32_t flags) = 0;
   // Get attributes.
-  virtual Status<struct stat> GetAttributes() = 0;
+  virtual Status<struct stat> GetStats() = 0;
 
   // permissions and other mode bits
   [[nodiscard]] mode_t get_mode() const { return mode_; }
@@ -63,17 +64,19 @@ class Inode : std::enable_shared_from_this<Inode> {
   [[nodiscard]] bool is_stale() const { return nlink_ == 0; }
 
   // Gets a shared pointer to this inode.
-  std::shared_ptr<Inode> get_this() { return shared_from_this(); };
+  [[nodiscard]] std::shared_ptr<Inode> get_this() {
+    return shared_from_this();
+  };
 
  private:
-  const mode_t mode_;  // the rype and mode
-  const ino_t inum_;   // inode number
-  nlink_t nlink_{1};   // number of hard links to this inode
+  const mode_t mode_;              // the rype and mode
+  const ino_t inum_;               // inode number
+  std::atomic<nlink_t> nlink_{0};  // number of hard links to this inode
 };
 
-// InodeToAttributes returns a partial set of attributes based on what's
-// availabe in a generic inode. The caller must fill in the rest manually.
-struct stat InodeToAttributes(const Inode &ino) {
+// InodeToStats returns a partial set of attributes based on what's availabe in
+// a generic inode. The caller must fill in the rest manually.
+struct stat InodeToStats(const Inode &ino) {
   struct stat s {};
   s.st_ino = ino.get_inum();
   s.st_mode = ino.get_mode();
@@ -127,7 +130,8 @@ class IDir : public Inode {
   virtual Status<void> Rename(IDir &src, std::string_view src_name,
                               std::string_view dst_name) = 0;
   // Link creates a hard link.
-  virtual Status<void> Link(Inode &node, std::string_view name) = 0;
+  virtual Status<void> Link(std::string_view name,
+                            std::shared_ptr<Inode> ino) = 0;
   // Create makes a new normal file.
   virtual Status<std::shared_ptr<File>> Create(std::string_view name,
                                                mode_t mode) = 0;
@@ -136,9 +140,8 @@ class IDir : public Inode {
 
   // Gets a shared pointer to the parent of this directory.
   [[nodiscard]] std::shared_ptr<IDir> get_parent() const { return parent_; }
-
   // Gets a shared pointer to this directory.
-  std::shared_ptr<IDir> get_this() {
+  [[nodiscard]] std::shared_ptr<IDir> get_this() {
     return std::static_pointer_cast<IDir>(Inode::get_this());
   };
 
