@@ -11,9 +11,9 @@
 
 namespace junction {
 
-constexpr size_t kPageSize = 4096;
-constexpr size_t kLargePageSize = 2097152;
-constexpr size_t kCacheLineSize = 64;
+inline constexpr size_t kPageSize = 4096;
+inline constexpr size_t kLargePageSize = 2097152;
+inline constexpr size_t kCacheLineSize = 64;
 
 // PageAlign aligns an address upward to the nearest page size
 template <typename T>

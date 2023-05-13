@@ -28,8 +28,8 @@ struct kernel_sigset_t {
   unsigned long sig;
 };
 
-constexpr size_t kSigSetSizeBytes = 8;
-constexpr rlim_t kDefaultNoFile = 8192;
+inline constexpr size_t kSigSetSizeBytes = 8;
+inline constexpr rlim_t kDefaultNoFile = 8192;
 
 class Process;
 

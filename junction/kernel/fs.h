@@ -19,17 +19,17 @@ namespace junction {
 //
 
 // Regular file.
-constexpr unsigned int kTypeRegularFile = S_IFREG;
+inline constexpr unsigned int kTypeRegularFile = S_IFREG;
 // Directory.
-constexpr unsigned int kTypeDirectory = S_IFDIR;
+inline constexpr unsigned int kTypeDirectory = S_IFDIR;
 // Character device.
-constexpr unsigned int kTypeCharacter = S_IFCHR;
+inline constexpr unsigned int kTypeCharacter = S_IFCHR;
 // Block device.
-constexpr unsigned int kTypeBlock = S_IFBLK;
+inline constexpr unsigned int kTypeBlock = S_IFBLK;
 // Symbolic link.
-constexpr unsigned int kTypeSymLink = S_IFLNK;
+inline constexpr unsigned int kTypeSymLink = S_IFLNK;
 // Pipe or FIFO.
-constexpr unsigned int kTypeFIFO = S_IFIFO;
+inline constexpr unsigned int kTypeFIFO = S_IFIFO;
 
 class Inode {
  public:

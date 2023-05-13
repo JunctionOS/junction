@@ -21,20 +21,20 @@ namespace junction {
 //
 
 // Regular file.
-constexpr mode_t kTypeRegularFile = S_IFREG;
+inline constexpr mode_t kTypeRegularFile = S_IFREG;
 // Directory.
-constexpr mode_t kTypeDirectory = S_IFDIR;
+inline constexpr mode_t kTypeDirectory = S_IFDIR;
 // Character device.
-constexpr mode_t kTypeCharacter = S_IFCHR;
+inline constexpr mode_t kTypeCharacter = S_IFCHR;
 // Block device.
-constexpr mode_t kTypeBlock = S_IFBLK;
+inline constexpr mode_t kTypeBlock = S_IFBLK;
 // Symbolic link.
-constexpr mode_t kTypeSymLink = S_IFLNK;
+inline constexpr mode_t kTypeSymLink = S_IFLNK;
 // Pipe or FIFO.
-constexpr mode_t kTypeFIFO = S_IFIFO;
+inline constexpr mode_t kTypeFIFO = S_IFIFO;
 
 // A mask of all type bits in the mode field.
-constexpr mode_t kTypeMask =
+inline constexpr mode_t kTypeMask =
     (S_IFREG | S_IFDIR | S_IFCHR | S_IFBLK | S_IFLNK | S_IFIFO);
 
 // Inode is the base class for all inodes

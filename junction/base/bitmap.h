@@ -13,7 +13,7 @@ namespace junction {
 
 namespace detail {
 
-constexpr size_t kBitsPerLong = sizeof(unsigned long) * kBitsPerByte;
+inline constexpr size_t kBitsPerLong = sizeof(unsigned long) * kBitsPerByte;
 constexpr size_t get_idx(size_t pos) { return pos / kBitsPerLong; }
 constexpr size_t get_shift(size_t pos) { return pos % kBitsPerLong; }
 constexpr size_t get_size(size_t n) {

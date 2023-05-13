@@ -32,7 +32,7 @@ struct alignas(kCacheLineSize) futex_bucket {
 
 }  // namespace detail
 
-constexpr uint32_t kFutexBitsetAny = 0xFFFFFFFF;
+inline constexpr uint32_t kFutexBitsetAny = 0xFFFFFFFF;
 
 class alignas(kCacheLineSize) FutexTable {
  public:

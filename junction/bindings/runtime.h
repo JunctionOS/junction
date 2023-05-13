@@ -16,7 +16,7 @@ extern "C" {
 namespace junction::rt {
 
 // The highest number of cores supported.
-constexpr unsigned int kCoreLimit = NCPU;
+inline constexpr unsigned int kCoreLimit = NCPU;
 
 // Initializes the runtime. If successful, calls @main_func and does not return.
 int RuntimeInit(const std::string &cfg_path, std::function<void()> main_func);

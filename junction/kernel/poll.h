@@ -24,12 +24,12 @@ static_assert(EPOLLHUP == POLLHUP);
 static_assert(EPOLLPRI == POLLPRI);
 
 // event types
-constexpr unsigned int kPollIn = EPOLLIN;        // available for read()
-constexpr unsigned int kPollOut = EPOLLOUT;      // available for write()
-constexpr unsigned int kPollErr = EPOLLERR;      // error condition
-constexpr unsigned int kPollRDHUp = EPOLLRDHUP;  // reader closed
-constexpr unsigned int kPollHUp = EPOLLHUP;      // writer closed
-constexpr unsigned int kPollPrio = EPOLLPRI;     // priority event (TCP URG)
+inline constexpr unsigned int kPollIn = EPOLLIN;        // available for read()
+inline constexpr unsigned int kPollOut = EPOLLOUT;      // available for write()
+inline constexpr unsigned int kPollErr = EPOLLERR;      // error condition
+inline constexpr unsigned int kPollRDHUp = EPOLLRDHUP;  // reader closed
+inline constexpr unsigned int kPollHUp = EPOLLHUP;      // writer closed
+inline constexpr unsigned int kPollPrio = EPOLLPRI;  // priority event (TCP URG)
 
 class PollSource;
 

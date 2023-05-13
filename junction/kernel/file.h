@@ -34,29 +34,29 @@ enum class FileType : int {
 //
 
 // File is opened in append mode.
-constexpr unsigned int kFlagAppend = O_APPEND;
+inline constexpr unsigned int kFlagAppend = O_APPEND;
 // File should be truncated to zero.
-constexpr unsigned int kFlagTruncate = O_TRUNC;
+inline constexpr unsigned int kFlagTruncate = O_TRUNC;
 // File was created if it didn't exist.
-constexpr unsigned int kFlagCreate = O_CREAT;
+inline constexpr unsigned int kFlagCreate = O_CREAT;
 // Create an unnamed temporary regular file.
-constexpr unsigned int kFlagTemp = O_TMPFILE;
+inline constexpr unsigned int kFlagTemp = O_TMPFILE;
 // File must be a directory.
-constexpr unsigned int kFlagDirectory = O_DIRECTORY;
+inline constexpr unsigned int kFlagDirectory = O_DIRECTORY;
 // File is using nonblocking I/O.
-constexpr unsigned int kFlagNonblock = O_NONBLOCK;
+inline constexpr unsigned int kFlagNonblock = O_NONBLOCK;
 // Write operations will flush to disk.
-constexpr unsigned int kFlagSync = O_SYNC;
+inline constexpr unsigned int kFlagSync = O_SYNC;
 // Close this FD on exec().
-constexpr unsigned int kFlagCloseExec = O_CLOEXEC;
+inline constexpr unsigned int kFlagCloseExec = O_CLOEXEC;
 
 //
 // File permission modes.
 //
 
-constexpr unsigned int kModeRead = O_RDONLY;
-constexpr unsigned int kModeWrite = O_WRONLY;
-constexpr unsigned int kModeReadWrite = O_RDWR;
+inline constexpr unsigned int kModeRead = O_RDONLY;
+inline constexpr unsigned int kModeWrite = O_WRONLY;
+inline constexpr unsigned int kModeReadWrite = O_RDWR;
 
 //
 // Seek from operations.

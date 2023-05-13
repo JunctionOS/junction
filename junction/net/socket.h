@@ -14,7 +14,7 @@ namespace junction {
 static_assert(kFlagNonblock == SOCK_NONBLOCK);
 static_assert(kFlagCloseExec == SOCK_CLOEXEC);
 
-constexpr unsigned int kMsgNoSignal = MSG_NOSIGNAL;
+inline constexpr unsigned int kMsgNoSignal = MSG_NOSIGNAL;
 
 class Socket : public File {
  public:

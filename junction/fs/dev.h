@@ -16,8 +16,8 @@ namespace junction {
 class Inode;
 class File;
 
-constexpr size_t kMinorShift = 20;
-constexpr dev_t kMinorMask = ((1U << kMinorShift) - 1);
+inline constexpr size_t kMinorShift = 20;
+inline constexpr dev_t kMinorMask = ((1U << kMinorShift) - 1);
 constexpr dev_t DeviceMajor(dev_t dev) { return dev >> kMinorShift; }
 constexpr dev_t DeviceMinor(dev_t dev) { return dev & kMinorMask; }
 constexpr dev_t MakeDevice(dev_t major, dev_t minor) {

@@ -23,8 +23,8 @@ extern "C" void TimerTrampoline(unsigned long arg);
 
 }  // namespace timer_internal
 
-static constexpr uint64_t kMilliseconds = 1000;
-static constexpr uint64_t kSeconds = 1000000;
+inline constexpr uint64_t kMilliseconds = 1000;
+inline constexpr uint64_t kSeconds = 1000000;
 
 template <typename Callable>
 class Timer : private timer_internal::timer_node {
