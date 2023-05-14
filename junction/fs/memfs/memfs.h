@@ -1,11 +1,9 @@
-// defs.h - internal definitions for memfs
+// memfs.h - internal definitions for memfs
 
 #include "junction/fs/dev.h"
 #include "junction/fs/fs.h"
 
-namespace junction {
-
-namespace memfs {
+namespace junction::memfs {
 
 // Generate file attributes. Does not set st_size.
 struct stat MemInodeToStats(const Inode &ino) {
@@ -21,6 +19,4 @@ std::shared_ptr<ISoftLink> MemCreateISoftLink(std::string_view path,
 // Create a character or block device inode.
 std::shared_ptr<Inode> MemCreateIDevice(dev_t dev, mode_t mode, ino_t inum);
 
-}  // namespace memfs
-
-}  // namespace junction
+}  // namespace junction::memfs

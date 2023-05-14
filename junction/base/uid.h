@@ -10,7 +10,7 @@ template <size_t N>
 class UIDGenerator {
  public:
   UIDGenerator() = default;
-  UIDGenerator(size_t pos) : pos_(pos) {}
+  explicit UIDGenerator(size_t pos) : pos_(pos) {}
   ~UIDGenerator() = default;
 
   // Generate a new unique ID.

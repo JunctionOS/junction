@@ -50,7 +50,7 @@ class Thread {
     // before it first runs. this goal here is to be able to use unique pointers
     // for cleanup in functions that create new threads.
     BUG_ON(ptr == thread_self()->junction_tstate_buf);
-    auto bufptr =
+    auto *bufptr =
         reinterpret_cast<decltype(thread_t::junction_tstate_buf) *>(ptr);
     thread_free(container_of(bufptr, thread_t, junction_tstate_buf));
   }
@@ -63,7 +63,7 @@ class Thread {
   void set_sigset(kernel_sigset_t sigset) { cur_sigset_ = sigset; }
 
   thread_t *GetCaladanThread() {
-    auto ptr =
+    auto *ptr =
         reinterpret_cast<decltype(thread_t::junction_tstate_buf) *>(this);
     return container_of(ptr, thread_t, junction_tstate_buf);
   }
@@ -149,7 +149,7 @@ Status<std::shared_ptr<Process>> CreateProcess();
 // Behavior is undefined if the running thread is not part of a process.
 inline Thread &mythread() {
   thread_t *th = thread_self();
-  Thread *ts = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+  auto *ts = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   return *reinterpret_cast<Thread *>(ts);
 }
 

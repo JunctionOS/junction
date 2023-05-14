@@ -88,7 +88,7 @@ struct stat InodeToStats(const Inode &ino) {
 class ISoftLink : public Inode {
  public:
   ISoftLink(mode_t mode, ino_t inum) : Inode(kTypeSymLink | mode, inum) {}
-  virtual ~ISoftLink() override = default;
+  ~ISoftLink() override = default;
 
   // Opens a file that does nothing.
   Status<std::shared_ptr<File>> Open(uint32_t mode, uint32_t flags) override;
@@ -108,7 +108,7 @@ class IDir : public Inode {
  public:
   IDir(mode_t mode, ino_t inum, std::shared_ptr<IDir> parent = {})
       : Inode(kTypeDirectory | mode, inum), parent_(std::move(parent)) {}
-  virtual ~IDir() override = default;
+  ~IDir() override = default;
 
   // Opens a file that supports getdents() and getdents64().
   Status<std::shared_ptr<File>> Open(mode_t mode, uint32_t flags) override;

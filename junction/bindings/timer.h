@@ -29,15 +29,14 @@ inline constexpr uint64_t kSeconds = 1000000;
 template <typename Callable>
 class Timer : private timer_internal::timer_node {
  public:
-  Timer(Callable &&func) noexcept : func_(std::forward<Callable>(func)) {
-    unsigned long arg =
-        reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
+  explicit Timer(Callable &&func) noexcept
+      : func_(std::forward<Callable>(func)) {
+    auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
     timer_init(&entry_, timer_internal::TimerTrampoline, arg);
   }
   Timer(uint64_t us, Callable &&func) noexcept
       : func_(std::forward<Callable>(func)) {
-    unsigned long arg =
-        reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
+    auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
     timer_init(&entry_, timer_internal::TimerTrampoline, arg);
     timer_start(&entry_, us);
   }
@@ -50,8 +49,7 @@ class Timer : private timer_internal::timer_node {
   // Copy constructor is needed so that Timer can be inserted into containers.
   // After copying, a timer starts out disarmed.
   Timer(const Timer &t) : func_(t.func_) {
-    unsigned long arg =
-        reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
+    auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
     timer_init(&entry_, timer_internal::TimerTrampoline, arg);
   }
   Timer &operator=(const Timer &t) { func_ = t.func_; }

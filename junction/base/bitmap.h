@@ -147,12 +147,8 @@ class dynamic_bitmap {
   }
 
   // Copy support
-  dynamic_bitmap(const dynamic_bitmap &b) : size_(b.size_), bits_(b.bits_) {}
-  dynamic_bitmap &operator=(const dynamic_bitmap &b) {
-    size_ = b.size_;
-    bits_ = b.bits_;
-    return *this;
-  }
+  dynamic_bitmap(const dynamic_bitmap &b) = default;
+  dynamic_bitmap &operator=(const dynamic_bitmap &b) = default;
 
   // size returns the number of bits
   [[nodiscard]] size_t size() const { return size_; }
