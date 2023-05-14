@@ -45,6 +45,7 @@ class MemIDir : public IDir {
 
 Status<void> MemIDir::Insert(std::string name, std::shared_ptr<Inode> ino) {
   rt::MutexGuard g(lock_);
+  if (is_stale()) return MakeError(ESTALE);
   auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
   if (!okay) return MakeError(EEXIST);
   ino->inc_nlink();
@@ -82,8 +83,18 @@ Status<void> MemIDir::RmDir(std::string_view name) {
   rt::MutexGuard g(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) return MakeError(ENOENT);
-  if (it->second->get_type() != kTypeDirectory) return MakeError(ENOTDIR);
-  it->second->dec_nlink();
+  auto *dir = most_derived_cast<MemIDir>(it->second.get());
+  if (!dir) return MakeError(ENOTDIR);
+
+  // Confirm the directory being removed is empty
+  {
+    rt::MutexGuard g(dir->lock_);
+    if (!dir->entries_.empty()) return MakeError(ENOTEMPTY);
+    dir->dec_nlink();
+    assert(dir->is_stale());
+  }
+
+  // Remove it
   entries_.erase(it);
   return {};
 }
@@ -115,28 +126,28 @@ Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
 
 Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
                              std::string_view dst_name) {
-  auto *msrc = most_derived_cast<MemIDir>(&src);
-  if (!msrc) return MakeError(EXDEV);
+  auto *src_dir = most_derived_cast<MemIDir>(&src);
+  if (!src_dir) return MakeError(EXDEV);
 
   // check if rename is in same directory
-  if (msrc == this) {
+  if (src_dir == this) {
     rt::MutexGuard g(lock_);
-    return DoRename(*msrc, src_name, dst_name);
+    return DoRename(*src_dir, src_name, dst_name);
   }
 
   // otherwise rename is across different directories (so avoid deadlock)
-  auto fin = finally([this, &msrc] {
-    msrc->lock_.Unlock();
+  auto fin = finally([this, &src_dir] {
+    src_dir->lock_.Unlock();
     lock_.Unlock();
   });
-  if (msrc->get_inum() > this->get_inum()) {
-    msrc->lock_.Lock();
+  if (src_dir->get_inum() > this->get_inum()) {
+    src_dir->lock_.Lock();
     lock_.Lock();
   } else {
     lock_.Lock();
-    msrc->lock_.Lock();
+    src_dir->lock_.Lock();
   }
-  return DoRename(*msrc, src_name, dst_name);
+  return DoRename(*src_dir, src_name, dst_name);
 }
 
 Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {

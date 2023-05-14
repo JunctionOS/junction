@@ -46,21 +46,19 @@ class PollObserver {
   PollObserver() noexcept = default;
   virtual ~PollObserver() { assert(!is_attached()); }
 
-  PollObserver(const PollObserver &o) noexcept : src_(nullptr) {}
+  PollObserver(const PollObserver &o) noexcept {}
   PollObserver &operator=(const PollObserver &o) {
     src_ = nullptr;
     return *this;
   }
-  PollObserver(PollObserver &&o) noexcept : src_(nullptr) {
-    assert(!is_attached());
-  }
-  PollObserver &operator=(PollObserver &&o) {
+  PollObserver(PollObserver &&o) noexcept { assert(!is_attached()); }
+  PollObserver &operator=(PollObserver &&o) noexcept {
     assert(!is_attached());
     src_ = nullptr;
     return *this;
   }
 
-  bool is_attached() const { return src_ != nullptr; }
+  [[nodiscard]] bool is_attached() const { return src_ != nullptr; }
 
   // Detach this observer from its PollSource.
   void Detach();
@@ -85,7 +83,9 @@ class alignas(kCacheLineSize) PollSource {
   }
 
   // Gets the current mask of set events
-  unsigned int get_events() const { return read_once(event_mask_); }
+  [[nodiscard]] unsigned int get_events() const {
+    return read_once(event_mask_);
+  }
 
   // Sets a mask of events and notifies (must be synchronized by caller).
   void Set(unsigned int event_mask);
@@ -145,16 +145,17 @@ class Poller : public PollObserver {
  public:
   Poller() noexcept = default;
   explicit Poller(std::function<void(unsigned int)> func) noexcept
-      : func_(func) {}
-  ~Poller() = default;
+      : func_(std::move(func)) {}
+  ~Poller() override = default;
 
-  Poller(const Poller &p) noexcept : func_(p.func_) {}
+  Poller(const Poller &p) noexcept = default;
   Poller &operator=(const Poller &p) {
     func_ = p.func_;
     return *this;
   }
-  Poller(Poller &&p) noexcept : func_(std::move(p.func_)) {}
-  Poller &operator=(Poller &&p) {
+  Poller(Poller &&p) noexcept
+      : PollObserver(std::move(p)), func_(std::move(p.func_)) {}
+  Poller &operator=(Poller &&p) noexcept {
     func_ = std::move(p.func_);
     return *this;
   }
