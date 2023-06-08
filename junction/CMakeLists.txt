@@ -29,10 +29,8 @@ host_netmask 255.255.255.0
 host_gateway 192.168.127.1
 runtime_kthreads 5
 runtime_spinning_kthreads 0
-runtime_guaranteed_kthreads 1
+runtime_guaranteed_kthreads 0
 runtime_priority lc
-host_mac 02:02:02:02:02:02
-static_arp 192.168.127.3 02:02:02:02:02:02
 runtime_quantum_us 0"
 )
 set(caladan_test_config_path

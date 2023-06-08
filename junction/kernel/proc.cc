@@ -284,7 +284,11 @@ void usys_exit(int status) {
 void usys_exit_group(int status) {
   // TODO(jfried): this must kill all other threads in this thread group...
   Thread *tptr = reinterpret_cast<Thread *>(thread_self()->junction_tstate_buf);
+  pid_t mypid = tptr->get_process().get_pid();
   tptr->~Thread();
+
+  // Hack: terminate program if original binary calls exit_group.
+  if (mypid == 0) ksys_exit(status);
   rt::Exit();
 }
 
