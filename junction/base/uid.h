@@ -24,7 +24,7 @@ class UIDGenerator {
   }
 
   // Relinquish a unique ID, allowing it to be used again.
-  void Release(size_t pos) { bits_.clear(pos); }
+  void Release(size_t pos) { bits_.clear(pos - 1); }
 
  private:
   std::optional<size_t> get_next() {
@@ -32,6 +32,7 @@ class UIDGenerator {
     if (next) {
       bits_.set(*next);
       pos_ = (*next + 1) % N;
+      return *next + 1;
     }
     return next;
   }
