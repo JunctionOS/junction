@@ -57,13 +57,15 @@ dispatch_file += ["namespace junction {"]
 
 defined_syscalls = [None for i in range(SYS_NR)]
 
+fwded_calls = set()
+
 for name in gen_usys_list():
 	ns = name.split(":::", 2)
 	name = ns[0]
 	if name not in syscall_name_to_nr:
 		continue
-	if len(ns) > 1 and ns[1] == "enosys":
-		defined_syscalls[syscall_name_to_nr.get(name)] = f"junction::usys_enosys"
+	if len(ns) > 1 and ns[1] == "fwd":
+		fwded_calls.add(syscall_name_to_nr.get(name))
 	else:
 		nr = syscall_name_to_nr.get(name)
 		if name in TF_SAVE_SYSCALLS: name += "_enter"
@@ -76,20 +78,26 @@ defined_syscalls[452] = "junction::junction_fncall_stackswitch_clone_enter"
 for i, entry in enumerate(defined_syscalls):
 	if entry: continue
 	name = syscall_nr_to_name.get(i, str(i))
-	fn = f"""
+
+	if i in fwded_calls:
+		fn = f"""
 extern "C" {'{'} long usys_{name}_fwd(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+  return ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, {i});
+{'}'}{'}'}"""
+		defined_syscalls[i] = f"usys_{name}_fwd"
+	else:
+		fn = f"""
+extern "C" {'{'} long usys_{name}_enosys(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
   LOG_ONCE(ERR) << "Unsupported system call {i}:{name}";
   return -ENOSYS;
 {'}'}{'}'}"""
+		defined_syscalls[i] = f"usys_{name}_enosys"
 	dispatch_file.append(fn)
 
 # generate the sysfn table
 dispatch_file += [f"sysfn_t sys_tbl[SYS_NR] = {'{'}"]
 for i, entry in enumerate(defined_syscalls):
 	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
-	if not entry:
-		name = syscall_nr_to_name.get(i, str(i))
-		entry = f"usys_{name}_fwd"
 	dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{entry}),")
 dispatch_file.append("};")
 
