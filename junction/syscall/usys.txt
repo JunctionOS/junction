@@ -76,9 +76,10 @@ epoll_ctl
 epoll_wait
 epoll_pwait
 epoll_pwait2
-clock_gettime
-clock_getres
-gettimeofday
+#clock_gettime
+#clock_getres
+#gettimeofday
+#time
 getpeername
 getsockname
 rt_sigaction

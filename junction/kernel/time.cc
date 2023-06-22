@@ -23,16 +23,4 @@ long usys_nanosleep(const struct timespec *req, struct timespec *rem) {
   return 0;
 }
 
-long usys_clock_gettime(clockid_t clk_id, struct timespec *tp) {
-  return clock_gettime(clk_id, tp);
-}
-
-long usys_gettimeofday(struct timeval *tv, struct timezone *tz) {
-  return gettimeofday(tv, tz);
-}
-
-long usys_clock_getres(clockid_t clk_id, struct timespec *res) {
-  return clock_getres(clk_id, res);
-}
-
 }  // namespace junction

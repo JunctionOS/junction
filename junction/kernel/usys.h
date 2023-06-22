@@ -141,9 +141,6 @@ long usys_sched_get_priority_min(int policy);
 
 // Time
 long usys_nanosleep(const struct timespec *req, struct timespec *rem);
-long usys_clock_gettime(clockid_t clk_id, struct timespec *tp);
-long usys_clock_getres(clockid_t clk_id, struct timespec *res);
-long usys_gettimeofday(struct timeval *tv, struct timezone *tz);
 long usys_clock_nanosleep(clockid_t clockid, int flags,
                           const struct timespec *request,
                           struct timespec *remain);
