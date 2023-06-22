@@ -105,6 +105,15 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
   [[nodiscard]] MemoryMap &get_mem_map() { return *mem_map_; }
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
+
+  [[nodiscard]] const std::string_view get_bin_path() const {
+    return binary_path_;
+  }
+
+  void set_bin_path(const std::string_view &path) {
+    binary_path_ = std::string(path);
+  }
+
   void set_limit_nofile(const rlimit *rlim) {
     limit_nofile_.rlim_cur = rlim->rlim_cur;
     limit_nofile_.rlim_max = rlim->rlim_max;
@@ -126,6 +135,7 @@ class Process : public std::enable_shared_from_this<Process> {
   bool killed_{false};  // If non-zero, the process has been killed
   rlimit limit_nofile_{kDefaultNoFile,
                        kDefaultNoFile};  // current rlimit for RLIMIT_NOFILE
+  std::string binary_path_;
 
   // Wake this blocked thread that is waiting for the vfork thread to exec().
   rt::ThreadWaker vfork_waker_;

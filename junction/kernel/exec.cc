@@ -161,6 +161,9 @@ Status<thread_t *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   auto edata = LoadELF(mm, pathname);
   if (!edata) return MakeError(edata);
 
+  // Record pathname in proc
+  p.set_bin_path(pathname);
+
   // Create the first thread
   uint64_t entry =
       edata->interp ? edata->interp->entry_addr : edata->entry_addr;
