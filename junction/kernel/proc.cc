@@ -29,6 +29,7 @@ extern "C" {
 #include "junction/kernel/usys.h"
 #include "junction/limits.h"
 #include "junction/syscall/entry.h"
+#include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
 
 namespace junction {
@@ -268,7 +269,12 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
     ret = DoClone(cl_args, cl_args->stack + cl_args->stack_size);
 
   if (unlikely(GetCfg().strace_enabled()))
-    LOG(INFO) << "clone3(" << cl_args << ", " << size << ") = " << ret << ";";
+    LogSyscall(ret, "clone3", cl_args->flags,
+               reinterpret_cast<void *>(cl_args->stack),
+               reinterpret_cast<void *>(cl_args->stack),
+               reinterpret_cast<void *>(cl_args->parent_tid),
+               reinterpret_cast<void *>(cl_args->child_tid),
+               reinterpret_cast<void *>(cl_args->tls));
 
   return ret;
 }
@@ -284,11 +290,10 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
 
   long ret = DoClone(&cl_args, newsp);
   if (unlikely(GetCfg().strace_enabled()))
-    LOG(INFO) << "clone(" << clone_flags << ", "
-              << reinterpret_cast<void *>(newsp) << ", "
-              << reinterpret_cast<void *>(parent_tidptr) << ", "
-              << reinterpret_cast<void *>(child_tidptr) << ", "
-              << reinterpret_cast<void *>(tls) << ") = " << ret << ";";
+    LogSyscall(ret, "clone", clone_flags, reinterpret_cast<void *>(newsp),
+               reinterpret_cast<void *>(parent_tidptr),
+               reinterpret_cast<void *>(child_tidptr),
+               reinterpret_cast<void *>(tls));
   return ret;
 }
 

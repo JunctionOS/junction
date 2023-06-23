@@ -6,6 +6,7 @@
 #include "junction/bindings/log.h"
 #include "junction/junction.h"
 #include "junction/kernel/ksys.h"
+#include "junction/syscall/strace.h"
 #include "junction/syscall/systbl.h"
 
 extern "C" {
@@ -19,7 +20,7 @@ std::map<int, sysfn_t> debug_vdso_functions;
 extern "C" long gettimeofday_strace(struct timeval *tv, struct timezone *tz) {
   long ret = reinterpret_cast<decltype(&gettimeofday_strace)>(
       debug_vdso_functions[SYS_gettimeofday])(tv, tz);
-  LOG(INFO) << "gettimeofday(" << tv << ", " << tz << ") = " << ret;
+  LogSyscall(ret, "gettimeofday", tv, tz);
   return ret;
 }
 
@@ -27,7 +28,7 @@ extern "C" long gettimeofday_strace(struct timeval *tv, struct timezone *tz) {
 extern "C" long clock_getres_strace(clockid_t clockid, struct timespec *res) {
   long ret = reinterpret_cast<decltype(&clock_getres_strace)>(
       debug_vdso_functions[SYS_clock_getres])(clockid, res);
-  LOG(INFO) << "clock_getres(" << clockid << ", " << res << ") = " << ret;
+  LogSyscall(ret, "clock_getres", clockid, res);
   return ret;
 }
 #endif
@@ -35,14 +36,14 @@ extern "C" long clock_getres_strace(clockid_t clockid, struct timespec *res) {
 extern "C" long clock_gettime_strace(clockid_t clockid, struct timespec *tp) {
   long ret = reinterpret_cast<decltype(&clock_gettime_strace)>(
       debug_vdso_functions[SYS_clock_gettime])(clockid, tp);
-  LOG(INFO) << "clock_gettime(" << clockid << ", " << tp << ") = " << ret;
+  LogSyscall(ret, "clock_gettime", clockid, tp);
   return ret;
 }
 
 extern "C" long time_strace(time_t *tloc) {
   long ret = reinterpret_cast<decltype(&time_strace)>(
       debug_vdso_functions[SYS_time])(tloc);
-  LOG(INFO) << "time(" << tloc << ") = " << ret;
+  LogSyscall(ret, "time", tloc);
   return ret;
 }
 
