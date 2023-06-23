@@ -28,8 +28,10 @@ unsigned long usys_clone3_enter(long arg0, long arg1, long arg2, long arg3,
                                 long arg4, long arg5);
 unsigned long usys_clone_enter(long arg0, long arg1, long arg2, long arg3,
                                long arg4, long arg5);
-void junction_fncall_stackswitch_enter();
-void junction_fncall_stackswitch_clone_enter();
+long junction_fncall_stackswitch_enter(long arg0, long arg1, long arg2,
+                                       long arg3, long arg4, long arg5);
+long junction_fncall_stackswitch_clone_enter(long arg0, long arg1, long arg2,
+                                             long arg3, long arg4, long arg5);
 void __junction_syscall_intercept();
 void __junction_syscall_intercept_clone_ret() __noreturn;
 }

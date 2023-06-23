@@ -9,7 +9,6 @@ USYS_LIST = sys.argv[1]
 OUTPUT_FILE = sys.argv[2]
 
 SYS_NR = 453
-REAL_SYS_NR = 451
 
 TF_SAVE_SYSCALLS = set(["clone3", "clone"])
 
@@ -138,8 +137,7 @@ for i, entry in enumerate(defined_syscalls):
 		# do nothing, junction defines this target
 		pass
 
-	if i < REAL_SYS_NR:
-		emit_strace_target(name, defined_syscalls[i].split("::")[-1], dispatch_file)
+	emit_strace_target(name, defined_syscalls[i].split("::")[-1], dispatch_file)
 
 # generate the sysfn table
 dispatch_file += [f"sysfn_t sys_tbl[SYS_NR] = {'{'}"]
@@ -159,7 +157,6 @@ dispatch_file.append("};")
 # generate the sysfn-strace table
 dispatch_file += [f"sysfn_t sys_tbl_strace[SYS_NR] = {'{'}"]
 for i, entry in enumerate(defined_syscalls):
-	if i >= REAL_SYS_NR: continue
 	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
 	if entry.endswith("_enter"):
 		name = entry
