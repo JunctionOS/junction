@@ -42,7 +42,8 @@ po::options_description JunctionCfg::GetOptions() {
       "ld_preload", po::value<std::string>()->implicit_value(""),
       "location of ld preload library")(
       "env,E", po::value<std::vector<std::string>>()->multitoken(),
-      "environment flags for binary");
+      "environment flags for binary")(
+      "strace,s", po::bool_switch()->default_value(false), "strace mode");
   return desc;
 }
 
@@ -74,6 +75,8 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   if (vm.count("ld_preload")) preload_path = vm["ld_preload"].as<std::string>();
 
   if (vm.count("env")) binary_envp = vm["env"].as<std::vector<std::string>>();
+
+  strace = vm["strace"].as<bool>();
 
   return {};
 }

@@ -21,6 +21,7 @@ extern "C" {
 #include "junction/bindings/runtime.h"
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
+#include "junction/junction.h"
 #include "junction/kernel/futex.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/mm.h"
@@ -260,8 +261,16 @@ pid_t usys_set_tid_address(int *tidptr) {
 }
 
 long usys_clone3(struct clone_args *cl_args, size_t size) {
-  if (unlikely(!cl_args->stack)) return -EINVAL;
-  return DoClone(cl_args, cl_args->stack + cl_args->stack_size);
+  long ret;
+  if (unlikely(!cl_args->stack))
+    ret = -EINVAL;
+  else
+    ret = DoClone(cl_args, cl_args->stack + cl_args->stack_size);
+
+  if (unlikely(GetCfg().strace_enabled()))
+    LOG(INFO) << "clone3(" << cl_args << ", " << size << ") = " << ret << ";";
+
+  return ret;
 }
 
 long usys_clone(unsigned long clone_flags, unsigned long newsp,
@@ -272,7 +281,15 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   cl_args.child_tid = child_tidptr;
   cl_args.parent_tid = parent_tidptr;
   cl_args.tls = tls;
-  return DoClone(&cl_args, newsp);
+
+  long ret = DoClone(&cl_args, newsp);
+  if (unlikely(GetCfg().strace_enabled()))
+    LOG(INFO) << "clone(" << clone_flags << ", "
+              << reinterpret_cast<void *>(newsp) << ", "
+              << reinterpret_cast<void *>(parent_tidptr) << ", "
+              << reinterpret_cast<void *>(child_tidptr) << ", "
+              << reinterpret_cast<void *>(tls) << ") = " << ret << ";";
+  return ret;
 }
 
 void usys_exit(int status) {

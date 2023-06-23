@@ -45,6 +45,8 @@ class JunctionCfg {
     return binary_envp;
   }
 
+  [[nodiscard]] bool strace_enabled() const { return strace; }
+
   [[nodiscard]] program_options GetOptions();
   Status<void> FillFromArgs(int argc, char *argv[]);
   void Print();
@@ -56,6 +58,7 @@ class JunctionCfg {
   std::string ld_path{CUSTOM_GLIBC_DIR};
   std::string preload_path{CUSTOM_GLIBC_PRELOAD};
   std::vector<std::string> binary_envp;
+  bool strace{false};
 };
 
 JunctionCfg &GetCfg();

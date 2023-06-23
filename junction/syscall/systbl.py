@@ -9,6 +9,7 @@ USYS_LIST = sys.argv[1]
 OUTPUT_FILE = sys.argv[2]
 
 SYS_NR = 453
+REAL_SYS_NR = 451
 
 TF_SAVE_SYSCALLS = set(["clone3", "clone"])
 
@@ -18,6 +19,54 @@ SYSCALL_DEFS_FILES = [
 	"/usr/include/asm/unistd_64.h",
 	"/usr/include/x86_64-linux-gnu/asm/unistd_64.h"
 ]
+
+STRACE_ARGS_THAT_ARE_PATHNAMES = set([
+	("openat", 1),
+	("open", 0),
+	("access", 0),
+	("readlink", 0),
+	("readlinkat", 1),
+	("newfstatat", 1),
+	("stat", 0),
+	("statfs", 0),
+	("mkdir", 0),
+	("mkdirat", 1),
+	("rmdir", 0),
+	("link", 0),
+	("link", 1),
+	("unlink", 0),
+	("chown", 0),
+	("chmod", 0),
+])
+
+def emit_strace_target(strace_name, name, output):
+		fn = f"\nextern \"C\" uint64_t {name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
+		fn += f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{name})(arg0, arg1, arg2, arg3, arg4, arg5);"
+		fn += f"\n\tLOG(INFO) << \"{strace_name}(\""
+		for i in range(6):
+			if (strace_name, i) not in STRACE_ARGS_THAT_ARE_PATHNAMES:
+				fn += f"\n\t\t  << reinterpret_cast<void *>(arg{i})"
+			else:
+				fn += f"\n\t\t  << reinterpret_cast<char *>(arg{i})"
+			if i < 5:
+				fn += " << \", \""
+		fn += "\n\t\t  << \") = \"" + " << static_cast<long>(ret);"
+		fn += "\n\treturn ret;"
+		fn += "\n}"
+		output.append(fn)
+
+def emit_enosys_target(function_name, sysnr, syscall_name, output):
+		fn = f"\nextern \"C\" long {function_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}"
+		fn += f"\n\tLOG_ONCE(ERR) << \"Unsupported system call {sysnr}:{syscall_name}\";"
+		fn += "\n\treturn -ENOSYS;"
+		fn += "\n}"
+		output.append(fn)
+
+def emit_forward_target(function_name, sysnr, output):
+		fn = f"\nextern \"C\" long {function_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}"
+		fn += f"\n\treturn ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, {sysnr});"
+		fn += "\n}"
+		output.append(fn)
 
 def gen_syscall_dict():
 	syscall_defs_file = None
@@ -73,26 +122,24 @@ for name in gen_usys_list():
 
 defined_syscalls[451] = f"junction::junction_fncall_stackswitch_enter"
 defined_syscalls[452] = "junction::junction_fncall_stackswitch_clone_enter"
-# generate stub functions for unimplemented syscalls
-# TODO: eventually replace these with a single function
+
+# generate stub functions for unimplemented, forwarded, and strace syscalls
 for i, entry in enumerate(defined_syscalls):
-	if entry: continue
+
 	name = syscall_nr_to_name.get(i, str(i))
 
 	if i in fwded_calls:
-		fn = f"""
-extern "C" {'{'} long usys_{name}_fwd(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
-  return ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, {i});
-{'}'}{'}'}"""
 		defined_syscalls[i] = f"usys_{name}_fwd"
-	else:
-		fn = f"""
-extern "C" {'{'} long usys_{name}_enosys(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
-  LOG_ONCE(ERR) << "Unsupported system call {i}:{name}";
-  return -ENOSYS;
-{'}'}{'}'}"""
+		emit_forward_target(defined_syscalls[i], i, dispatch_file)
+	elif not entry:
 		defined_syscalls[i] = f"usys_{name}_enosys"
-	dispatch_file.append(fn)
+		emit_enosys_target(defined_syscalls[i], i, name, dispatch_file)
+	else:
+		# do nothing, junction defines this target
+		pass
+
+	if i < REAL_SYS_NR:
+		emit_strace_target(name, defined_syscalls[i].split("::")[-1], dispatch_file)
 
 # generate the sysfn table
 dispatch_file += [f"sysfn_t sys_tbl[SYS_NR] = {'{'}"]
@@ -107,6 +154,18 @@ for i, entry in enumerate(defined_syscalls):
 	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
 	name = syscall_nr_to_name.get(i, f"unknown_syscall_{i}")
 	dispatch_file.append(f"\t[{idx}] = \"{name}\",")
+dispatch_file.append("};")
+
+# generate the sysfn-strace table
+dispatch_file += [f"sysfn_t sys_tbl_strace[SYS_NR] = {'{'}"]
+for i, entry in enumerate(defined_syscalls):
+	if i >= REAL_SYS_NR: continue
+	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
+	if entry.endswith("_enter"):
+		name = entry
+	else:
+		name = entry.split("::")[-1] + "_trace"
+	dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{name}),")
 dispatch_file.append("};")
 
 # finish file and write it out

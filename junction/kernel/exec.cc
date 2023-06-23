@@ -14,6 +14,7 @@ extern "C" {
 #include "junction/base/arch.h"
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
+#include "junction/junction.h"
 #include "junction/kernel/elf.h"
 #include "junction/kernel/exec.h"
 #include "junction/kernel/usys.h"
@@ -53,6 +54,9 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
   // 3. gettimeofday()
   // 4. time()
   uintptr_t vdso = getauxval(AT_SYSINFO_EHDR);
+
+  // disable vdso when stracing
+  if (GetCfg().strace_enabled()) vdso = 0;
 
   std::get<0>(*vec) = MakeAuxVec(AT_HWCAP, info.edx);
   std::get<1>(*vec) = MakeAuxVec(AT_PAGESZ, kPageSize);
