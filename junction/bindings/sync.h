@@ -300,7 +300,9 @@ class ScopedLock {
   //   rt::SpinGuard guard(l);
   //   while (condition) guard.Park(w);
   template <typename Waker>
-  void Park(Waker &w) requires LockAndParkable<L> {
+  void Park(Waker &w)
+    requires LockAndParkable<L>
+  {
     assert(lock_.IsHeld());
     w.Arm();
     lock_.UnlockAndPark();
@@ -315,7 +317,9 @@ class ScopedLock {
   //   rt::SpinGuard guard(l);
   //   guard.Park(w, []{ return predicate; });
   template <typename Waker, typename Predicate>
-  void Park(Waker &w, Predicate stop) requires LockAndParkable<L> {
+  void Park(Waker &w, Predicate stop)
+    requires LockAndParkable<L>
+  {
     assert(lock_.IsHeld());
     while (!stop()) {
       w.Arm();

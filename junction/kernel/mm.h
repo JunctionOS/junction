@@ -45,7 +45,7 @@ class alignas(kCacheLineSize) MemoryMap {
   // Give back memory to be mapped again.
   // TODO(amb): this is hacky, maybe we need a vmarea thing instead.
   void ReturnForMapping(void *base, size_t len) {
-    uintptr_t pos = reinterpret_cast<uintptr_t>(base);
+    auto pos = reinterpret_cast<uintptr_t>(base);
     if (pos != PageAlign(pos) || len != PageAlign(len)) return;
     rt::SpinGuard g(lock_);
     if (pos == map_addr_) map_addr_ += len;
@@ -53,8 +53,8 @@ class alignas(kCacheLineSize) MemoryMap {
 
   // Returns true if the mapping is inside the reserved region.
   bool IsWithin(void *buf, size_t len) const {
-    uintptr_t start = reinterpret_cast<uintptr_t>(buf);
-    uintptr_t end = reinterpret_cast<uintptr_t>(start + len);
+    auto start = reinterpret_cast<uintptr_t>(buf);
+    auto end = reinterpret_cast<uintptr_t>(start + len);
     return end >= start && start >= base_ && end <= base_ + len_;
   }
 

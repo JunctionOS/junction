@@ -12,7 +12,7 @@ extern "C" {
 #include <string_view>
 #include <vector>
 
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 
 namespace junction {
 
@@ -52,6 +52,8 @@ class Inode : std::enable_shared_from_this<Inode> {
   [[nodiscard]] mode_t get_mode() const { return mode_; }
   // the type of file
   [[nodiscard]] mode_t get_type() const { return mode_ & kTypeMask; }
+  // Is this inode a directory?
+  [[nodiscard]] bool is_dir() const { return (mode_ & kTypeDirectory) > 0; }
   // the inode number
   [[nodiscard]] ino_t get_inum() const { return inum_; }
   // the number of hard links to the file

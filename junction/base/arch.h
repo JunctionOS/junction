@@ -17,13 +17,17 @@ inline constexpr size_t kCacheLineSize = 64;
 
 // PageAlign aligns an address upward to the nearest page size
 template <typename T>
-constexpr T PageAlign(T addr) requires std::is_unsigned_v<T> {
+constexpr T PageAlign(T addr)
+  requires std::is_unsigned_v<T>
+{
   return AlignUp(addr, kPageSize);
 }
 
 // PageAlignDown aligns an address downward to the nearest page size
 template <typename T>
-constexpr T PageAlignDown(T addr) requires std::is_unsigned_v<T> {
+constexpr T PageAlignDown(T addr)
+  requires std::is_unsigned_v<T>
+{
   return AlignDown(addr, kPageSize);
 }
 

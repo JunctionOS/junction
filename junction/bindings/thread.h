@@ -147,8 +147,9 @@ inline void Yield() { thread_yield(); }
 
 // Spawns a new thread.
 template <typename Callable, typename... Args>
-void Spawn(Callable&& func,
-           Args&&... args) requires std::invocable<Callable, Args...> {
+void Spawn(Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
   void* buf;
   using Data = thread_internal::basic_data;
   using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
@@ -164,8 +165,8 @@ template <typename T>
 class Future {
  public:
   template <typename Callable, typename... Args>
-  friend auto Async(Callable&& func,
-                    Args&&... args) requires std::invocable<Callable, Args...>;
+  friend auto Async(Callable&& func, Args&&... args)
+    requires std::invocable<Callable, Args...>;
 
   Future() noexcept = default;
   ~Future() {
@@ -212,8 +213,9 @@ class Future {
 
 // Spawns a new thread and provides its return value as a future.
 template <typename Callable, typename... Args>
-auto Async(Callable&& func,
-           Args&&... args) requires std::invocable<Callable, Args...> {
+auto Async(Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
   void* buf;
   using Ret = thread_internal::ret_t<Callable, Args...>;
   using Wrapper = thread_internal::AsyncWrapper<Ret, Callable, Args...>;
@@ -252,8 +254,8 @@ class Thread {
 
   // Spawns a thread that runs the callable with the supplied arguments.
   template <typename Callable, typename... Args>
-  Thread(Callable&& func,
-         Args&&... args) requires std::invocable<Callable, Args...>;
+  Thread(Callable&& func, Args&&... args)
+    requires std::invocable<Callable, Args...>;
 
   // Can the thread be joined?
   [[nodiscard]] bool Joinable() const { return join_data_ != nullptr; }
@@ -269,8 +271,9 @@ class Thread {
 };
 
 template <typename Callable, typename... Args>
-inline Thread::Thread(Callable&& func, Args&&... args) requires
-    std::invocable<Callable, Args...> {
+inline Thread::Thread(Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
   using Data = thread_internal::join_data;
   using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
   Wrapper* buf;

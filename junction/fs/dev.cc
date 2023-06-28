@@ -6,8 +6,8 @@
 #include <map>
 
 #include "junction/base/arch.h"
+#include "junction/fs/file.h"
 #include "junction/fs/fs.h"
-#include "junction/kernel/file.h"
 
 namespace junction {
 
@@ -77,8 +77,8 @@ using CDevURandomFile = SpecialFile<CDevReadURandom, CDevWriteNull>;
 //
 
 template <typename T>
-requires(std::derived_from<T, File>) std::shared_ptr<File> MakeFile(
-    unsigned int flags, unsigned int mode) {
+  requires(std::derived_from<T, File>)
+std::shared_ptr<File> MakeFile(unsigned int flags, unsigned int mode) {
   return std::make_shared<T>(flags, mode);
 }
 

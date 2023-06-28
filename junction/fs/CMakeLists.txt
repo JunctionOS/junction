@@ -1,10 +1,9 @@
 message(STATUS "Building junction filesystem")
 
 set(SOURCES_C_CPP
-  core.cc
   dev.cc
+  memfs/memfs.cc
   memfs/dir.cc
-  memfs/misc.cc
 )
 
 add_library(fs_c_cpp OBJECT ${SOURCES_C_CPP})

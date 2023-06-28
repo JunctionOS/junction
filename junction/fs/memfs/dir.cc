@@ -12,8 +12,8 @@ namespace {
 
 class MemIDir : public IDir {
  public:
-  MemIDir(mode_t mode, ino_t inum, std::shared_ptr<IDir> parent)
-      : IDir(mode, inum, parent) {}
+  MemIDir(mode_t mode, std::shared_ptr<IDir> parent)
+      : IDir(mode, AllocateInodeNumber(), parent) {}
 
   // Directory ops
   Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override;
@@ -60,12 +60,12 @@ Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
 
 Status<void> MemIDir::MkNod(std::string_view name, mode_t mode, dev_t dev) {
   if ((mode & (kTypeCharacter | kTypeBlock)) == 0) return MakeError(EINVAL);
-  auto ino = MemCreateIDevice(dev, mode, 0);
+  auto ino = CreateIDevice(dev, mode);
   return Insert(std::string(name), std::move(ino));
 }
 
 Status<void> MemIDir::MkDir(std::string_view name, mode_t mode) {
-  auto ino = std::make_shared<MemIDir>(mode, 0, get_this());
+  auto ino = std::make_shared<MemIDir>(mode, get_this());
   return Insert(std::string(name), std::move(ino));
 }
 
@@ -73,7 +73,7 @@ Status<void> MemIDir::Unlink(std::string_view name) {
   rt::MutexGuard g(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) return MakeError(ENOENT);
-  if (it->second->get_type() == kTypeDirectory) return MakeError(EISDIR);
+  if (it->second->is_dir()) return MakeError(EISDIR);
   it->second->dec_nlink();
   entries_.erase(it);
   return {};
@@ -86,7 +86,7 @@ Status<void> MemIDir::RmDir(std::string_view name) {
   auto *dir = most_derived_cast<MemIDir>(it->second.get());
   if (!dir) return MakeError(ENOTDIR);
 
-  // Confirm the directory being removed is empty
+  // Confirm the directory is empty
   {
     rt::MutexGuard g(dir->lock_);
     if (!dir->entries_.empty()) return MakeError(ENOTEMPTY);
@@ -100,8 +100,7 @@ Status<void> MemIDir::RmDir(std::string_view name) {
 }
 
 Status<void> MemIDir::SymLink(std::string_view name, std::string_view path) {
-  auto ino = MemCreateISoftLink(path, 0);
-  return Insert(std::string(name), std::move(ino));
+  return Insert(std::string(name), CreateISoftLink(path));
 }
 
 Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
@@ -162,10 +161,8 @@ Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name,
 std::vector<dir_entry> MemIDir::GetDents() {
   std::vector<dir_entry> result;
   rt::MutexGuard g(lock_);
-  for (const auto &ent : entries_) {
-    Inode &ino = *ent.second.get();
-    result.emplace_back(ent.first, ino.get_inum(), ino.get_type());
-  }
+  for (const auto &[name, ino] : entries_)
+    result.emplace_back(name, ino->get_inum(), ino->get_type());
   return result;
 }
 

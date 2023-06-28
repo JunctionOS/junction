@@ -26,7 +26,7 @@ extern "C" void TimerTrampoline(unsigned long arg);
 inline constexpr uint64_t kMilliseconds = 1000;
 inline constexpr uint64_t kSeconds = 1000000;
 
-template <typename Callable>
+template <std::invocable<> Callable>
 class Timer : private timer_internal::timer_node {
  public:
   explicit Timer(Callable &&func) noexcept
