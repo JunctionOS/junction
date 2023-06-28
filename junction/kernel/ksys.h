@@ -130,9 +130,9 @@ class KernelFile {
 };
 
 // Map anonymous memory.
-inline Status<void *> KernelMMap(size_t length, int prot, int flags) {
+inline Status<void *> KernelMMap(void *addr, size_t length, int prot, int flags) {
   flags |= MAP_ANONYMOUS | MAP_PRIVATE;
-  intptr_t ret = ksys_mmap(nullptr, length, prot, flags, -1, 0);
+  intptr_t ret = ksys_mmap(addr, length, prot, flags, -1, 0);
   if (ret < 0) return MakeError(-ret);
   return reinterpret_cast<void *>(ret);
 }

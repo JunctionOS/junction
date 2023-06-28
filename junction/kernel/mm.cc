@@ -48,30 +48,31 @@ uintptr_t usys_brk(uintptr_t addr) {
 intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
                    off_t offset) {
   MemoryMap &mm = myproc().get_mem_map();
-  if ((flags & MAP_FIXED) != 0) {
+  if (addr != nullptr) {
     if (!mm.IsWithin(addr, len))
       LOG_ONCE(WARN)
-          << "mm: Fixed addr out of bounds; may interfere with other processes";
+          << "mm: addr out of bounds; may interfere with other processes";
   } else {
     addr = mm.ReserveForMapping(len);
     if (unlikely(!addr)) {
       LOG(ERR) << "mm: Out of virtual memory.";
       return -ENOMEM;
     }
+    flags |= MAP_FIXED;
   }
 
   // Map anonymous memory.
   if ((flags & MAP_ANONYMOUS) != 0) {
-    Status<void> ret = KernelMMapFixed(addr, len, prot, flags);
+    Status<void *> ret = KernelMMap(addr, len, prot, flags);
     if (!ret) return MakeCError(ret);
-    return reinterpret_cast<intptr_t>(addr);
+    return reinterpret_cast<intptr_t>(*ret);
   }
 
   // Map a file.
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
-  Status<void *> ret = f->MMap(addr, len, prot, flags | MAP_FIXED, offset);
+  Status<void *> ret = f->MMap(addr, len, prot, flags, offset);
   if (!ret) return MakeCError(ret);
   return reinterpret_cast<intptr_t>(*ret);
 }

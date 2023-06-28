@@ -72,7 +72,7 @@ class alignas(kCacheLineSize) MemoryMap {
 
 // Reserve a region of virtual memory for a MemoryMap.
 inline Status<std::shared_ptr<MemoryMap>> CreateMemoryMap(size_t len) {
-  Status<void *> ret = KernelMMap(len, PROT_NONE, 0);
+  Status<void *> ret = KernelMMap(nullptr, len, PROT_NONE, 0);
   if (!ret) return MakeError(ret);
   return std::make_shared<MemoryMap>(*ret, len);
 }
