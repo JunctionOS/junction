@@ -13,6 +13,7 @@ extern "C" {
 #include "junction/base/uid.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/mm.h"
+#include "junction/kernel/signal.h"
 #include "junction/limits.h"
 
 namespace junction {
@@ -104,6 +105,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] pid_t get_pid() const { return pid_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
   [[nodiscard]] MemoryMap &get_mem_map() { return *mem_map_; }
+  [[nodiscard]] SignalTable &get_signal_table() { return signal_tbl_; }
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
 
   [[nodiscard]] const std::string_view get_bin_path() const {
@@ -146,8 +148,10 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // File descriptor table
   FileTable file_tbl_;
-  // Memory management
+  // Memory mappings
   std::shared_ptr<MemoryMap> mem_map_;
+  // Signal table
+  SignalTable signal_tbl_;
 
   static rt::WaitGroup all_procs;
 };
