@@ -42,7 +42,7 @@ STRACE_ARGS_THAT_ARE_PATHNAMES = set([
 def emit_strace_target(pretty_name, function_name, output):
 	fn = f"\nextern \"C\" uint64_t {function_name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
 	runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
-	if "execve" not in name:
+	if "execve" not in name and "exit" not in name:
 		fn += runsyscall_cmd
 		retVar = "ret"
 	else:
@@ -58,7 +58,7 @@ def emit_strace_target(pretty_name, function_name, output):
 			fn += ","
 	fn += ");"
 
-	if "execve" in name:
+	if "execve" in name or "exit" in name:
 		fn += runsyscall_cmd
 
 	fn += "\n\treturn ret;"

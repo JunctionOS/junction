@@ -310,7 +310,7 @@ void usys_exit_group(int status) {
   tptr->~Thread();
 
   // Hack: terminate program if original binary calls exit_group.
-  if (mypid == 0) ksys_exit(status);
+  if (mypid == 1) ksys_exit(status);
   rt::Exit();
 }
 
