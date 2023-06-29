@@ -8,7 +8,7 @@ CALADAN_DIR=${ROOT_DIR}/lib/caladan
 CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan
 
 # Install Linux packages
-sudo apt install -y make gcc cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev libncurses-dev meson python3-pyelftools
+sudo -E apt install -y make cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev libncurses-dev meson python3-pyelftools
 
 # Apply patches
 cd $CALADAN_DIR

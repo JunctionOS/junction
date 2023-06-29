@@ -9,10 +9,8 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Install Linux packages
 sudo apt update
-sudo apt install -y clang-format clang-tidy perl libboost-dev libboost-program-options-dev bison gcc-12 g++-12 gawk
-
-# From caladan README
-sudo apt install -y make cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev libncurses-dev meson python3-pyelftools
+sudo -E apt install -y perl libboost-dev libboost-program-options-dev bison gcc-12 g++-12 gawk
+sudo -E apt install -y clang-tidy-16 clang-format-16 || true
 
 # Initialize submodules
 git submodule update --init --recursive
