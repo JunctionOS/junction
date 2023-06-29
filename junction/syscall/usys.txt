@@ -3,8 +3,8 @@
 getpid
 gettid
 arch_prctl
-clone3
-clone
+clone3:::savetrapframe
+clone:::savetrapframe
 set_tid_address
 open
 openat

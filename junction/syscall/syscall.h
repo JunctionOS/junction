@@ -12,6 +12,10 @@ namespace junction {
 
 Status<void> SyscallInit();
 
+// Called every time a thread enters/exits a usyscall
+inline void usyscall_on_enter() {}
+inline void usyscall_on_exit() {}
+
 // Update in entry.S if changed.
 static_assert(offsetof(thread, junction_tf) == JUNCTION_TF_OFF);
 static_assert(offsetof(thread, xsave_area) == JUNCTION_XSAVEPTR_OFF);

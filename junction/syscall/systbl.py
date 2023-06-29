@@ -10,14 +10,13 @@ OUTPUT_FILE = sys.argv[2]
 
 SYS_NR = 453
 
-TF_SAVE_SYSCALLS = set(["clone3", "clone"])
-
 # Header files scanned in the given order to get a list of syscall numbers.
 # The first file found is used.
 SYSCALL_DEFS_FILES = [
 	"/usr/include/asm/unistd_64.h",
 	"/usr/include/x86_64-linux-gnu/asm/unistd_64.h"
 ]
+
 
 STRACE_ARGS_THAT_ARE_PATHNAMES = set([
 	("openat", 1),
@@ -40,44 +39,104 @@ STRACE_ARGS_THAT_ARE_PATHNAMES = set([
 	("execveat", 1),
 ])
 
-def emit_strace_target(strace_name, name, output):
-		fn = f"\nextern \"C\" uint64_t {name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
-		runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{name})(arg0, arg1, arg2, arg3, arg4, arg5);"
-		if "execve" not in name:
-			fn += runsyscall_cmd
-			retVar = "ret"
+def emit_strace_target(pretty_name, function_name, output):
+	fn = f"\nextern \"C\" uint64_t {function_name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
+	runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
+	if "execve" not in name:
+		fn += runsyscall_cmd
+		retVar = "ret"
+	else:
+		retVar = "123456789"
+
+	fn += f"\n\tLogSyscall({retVar}, \"{pretty_name}\","
+	for i in range(6):
+		if (pretty_name, i) not in STRACE_ARGS_THAT_ARE_PATHNAMES:
+			fn += f"\n\t\treinterpret_cast<void *>(arg{i})"
 		else:
-			retVar = "123456789"
+			fn += f"\n\t\treinterpret_cast<char *>(arg{i})"
+		if i < 5:
+			fn += ","
+	fn += ");"
 
-		fn += f"\n\tLogSyscall({retVar}, \"{strace_name}\","
-		for i in range(6):
-			if (strace_name, i) not in STRACE_ARGS_THAT_ARE_PATHNAMES:
-				fn += f"\n\t\treinterpret_cast<void *>(arg{i})"
-			else:
-				fn += f"\n\t\treinterpret_cast<char *>(arg{i})"
-			if i < 5:
-				fn += ","
-		fn += ");"
+	if "execve" in name:
+		fn += runsyscall_cmd
 
-		if "execve" in name:
-			fn += runsyscall_cmd
+	fn += "\n\treturn ret;"
+	fn += "\n}"
+	output.append(fn)
+	return f"{function_name}_trace"
 
-		fn += "\n\treturn ret;"
-		fn += "\n}"
-		output.append(fn)
+def emit_enosys_target(syscall_name, sysnr, output):
+	wrapper_name = f"{syscall_name}_enosys"
+	fn = f"""
+	extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+		LOG_ONCE(ERR) << "Unsupported system call {sysnr}:{syscall_name}";
+		return -ENOSYS;
+	{'}'}"""
+	output.append(fn)
+	return wrapper_name
 
-def emit_enosys_target(function_name, sysnr, syscall_name, output):
-		fn = f"\nextern \"C\" long {function_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}"
-		fn += f"\n\tLOG_ONCE(ERR) << \"Unsupported system call {sysnr}:{syscall_name}\";"
-		fn += "\n\treturn -ENOSYS;"
-		fn += "\n}"
-		output.append(fn)
+def emit_passthrough_target(syscall_name, sysnr, output):
+	wrapper_name = f"{syscall_name}_forward"
+	fn = f"""
+	extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+		return ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, {sysnr});
+	{'}'}"""
+	output.append(fn)
+	return wrapper_name
 
-def emit_forward_target(function_name, sysnr, output):
-		fn = f"\nextern \"C\" long {function_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}"
-		fn += f"\n\treturn ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, {sysnr});"
-		fn += "\n}"
-		output.append(fn)
+def emit_regular_target(syscall_name, output):
+	wrapper_name = f"{syscall_name}_entry"
+	fn = f"""
+	extern "C" uint64_t {wrapper_name}(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}
+		usyscall_on_enter();
+		uint64_t ret = reinterpret_cast<sysfn_t>(&usys_{syscall_name})(arg0, arg1, arg2, arg3, arg4, arg5);
+		usyscall_on_exit();
+		return ret;
+	{'}'}"""
+	output.append(fn)
+	return wrapper_name
+
+def emit_trapframe_save_entry(function_target, output):
+	wrapper_name = f"{function_target}_tfsave"
+	fn = f"""
+
+	static_assert(JUNCTION_TF_OFF == 216);
+	static_assert(offsetof(thread_tf, rbx) == 64);
+	static_assert(offsetof(thread_tf, rbp) == 72);
+	static_assert(offsetof(thread_tf, r12) == 80);
+	static_assert(offsetof(thread_tf, r13) == 88);
+	static_assert(offsetof(thread_tf, r14) == 96);
+	static_assert(offsetof(thread_tf, r15) == 104);
+	static_assert(offsetof(thread_tf, rip) == 120);
+
+	extern "C" void {wrapper_name}(void);
+	asm(R"(
+
+	.globl {wrapper_name}
+	.type {wrapper_name}, @function
+	{wrapper_name}:
+	movq %gs:__perthread___self(%rip), %r11
+	addq $216, %r11
+
+	/* save registers */
+	movq    %rbx, 64(%r11)
+	movq    %rbp, 72(%r11)
+	movq    %r12, 80(%r11)
+	movq    %r13, 88(%r11)
+	movq    %r14, 96(%r11)
+	movq    %r15, 104(%r11)
+
+	/* save RIP */
+	movq    (%rsp), %r10
+	movq    %r10, 120(%r11)
+
+	jmp {function_target}
+	)");
+	"""
+	output.append(fn)
+	return wrapper_name
+
 
 def gen_syscall_dict():
 	syscall_defs_file = None
@@ -98,14 +157,6 @@ def gen_syscall_dict():
 			syscall_name_to_nr[name] = int(nr)
 	return syscall_nr_to_name, syscall_name_to_nr
 
-def gen_usys_list():
-	with open(USYS_LIST) as f:
-		for line in f:
-			line = line.strip()
-			if not line or line.startswith("#"):
-				continue
-			yield line
-
 syscall_nr_to_name, syscall_name_to_nr = gen_syscall_dict()
 
 filename = os.path.basename(OUTPUT_FILE)
@@ -113,55 +164,66 @@ dispatch_file = [f"// {filename} - Generated by systbl.py - do not modify", "", 
 dispatch_file += ["#include \"junction/syscall/systbl.h\"", "#include \"junction/bindings/log.h\""]
 dispatch_file += ["#include \"junction/syscall/strace.h\"",]
 dispatch_file += ["#include \"junction/syscall/syscall.h\"",]
+dispatch_file += ["#include \"junction/syscall/entry.h\"",]
+dispatch_file += ["#include \"junction/bindings/sync.h\"",]
+
 dispatch_file += [f"static_assert(SYS_NR == {SYS_NR});"] # Make sure we are in sync with the header
 dispatch_file += ["namespace junction {"]
 
-defined_syscalls = [None for i in range(SYS_NR)]
+systabl_targets = [None for i in range(SYS_NR)]
+systabl_strace_targets = [None for i in range(SYS_NR)]
 
-fwded_calls = set()
+with open(USYS_LIST) as f:
+	for line in f:
+		name = line.strip()
+		if not name or name.startswith("#"):
+			continue
+		ns = name.split(":::", 2)
+		name = ns[0]
+		if name not in syscall_name_to_nr:
+			continue
+		sysnr = syscall_name_to_nr.get(name)
 
-for name in gen_usys_list():
-	ns = name.split(":::", 2)
-	name = ns[0]
-	if name not in syscall_name_to_nr:
+		if len(ns) > 1 and ns[1] == "savetrapframe":
+			main_entry = emit_regular_target(name, dispatch_file)
+			strace_entry =  emit_strace_target(name, main_entry, dispatch_file)
+			systabl_targets[sysnr] = emit_trapframe_save_entry(main_entry, dispatch_file)
+			systabl_strace_targets[sysnr]  = emit_trapframe_save_entry(strace_entry, dispatch_file)
+		else:
+			if len(ns) > 1 and ns[1] == "passthrough":
+				target = emit_passthrough_target(name, dispatch_file)
+			else:
+				target = emit_regular_target(name, dispatch_file)
+
+			systabl_targets[sysnr] = target
+			systabl_strace_targets[sysnr] = emit_strace_target(name, target, dispatch_file)
+
+for i in range(SYS_NR):
+	if systabl_targets[i]:
 		continue
-	if len(ns) > 1 and ns[1] == "fwd":
-		fwded_calls.add(syscall_name_to_nr.get(name))
-	else:
-		nr = syscall_name_to_nr.get(name)
-		if name in TF_SAVE_SYSCALLS: name += "_enter"
-		defined_syscalls[nr] = f"junction::usys_{name}"
 
-defined_syscalls[451] = f"junction::junction_fncall_stackswitch_enter"
-defined_syscalls[452] = "junction::junction_fncall_stackswitch_clone_enter"
+	name = syscall_nr_to_name.get(i, f"SYS_{i}")
+	target = emit_enosys_target(name, i, dispatch_file)
+	systabl_targets[i] = target
+	systabl_strace_targets[i] = emit_strace_target(name, target, dispatch_file)
 
-# generate stub functions for unimplemented, forwarded, and strace syscalls
-for i, entry in enumerate(defined_syscalls):
 
-	name = syscall_nr_to_name.get(i, str(i))
-
-	if i in fwded_calls:
-		defined_syscalls[i] = f"usys_{name}_fwd"
-		emit_forward_target(defined_syscalls[i], i, dispatch_file)
-	elif not entry:
-		defined_syscalls[i] = f"usys_{name}_enosys"
-		emit_enosys_target(defined_syscalls[i], i, name, dispatch_file)
-	else:
-		# do nothing, junction defines this target
-		pass
-
-	emit_strace_target(name, defined_syscalls[i].split("::")[-1], dispatch_file)
+# TODO: fix
+systabl_targets[451] = "junction_fncall_stackswitch_enter"
+systabl_targets[452] = "junction_fncall_stackswitch_clone_enter"
+systabl_strace_targets[451] = "junction_fncall_stackswitch_enter"
+systabl_strace_targets[452] = "junction_fncall_stackswitch_clone_enter"
 
 # generate the sysfn table
 dispatch_file += [f"sysfn_t sys_tbl[SYS_NR] = {'{'}"]
-for i, entry in enumerate(defined_syscalls):
+for i, entry in enumerate(systabl_targets):
 	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
 	dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{entry}),")
 dispatch_file.append("};")
 
 # generate the table of names for debugging
 dispatch_file += [f"const char *syscall_names[SYS_NR] = {'{'}"]
-for i, entry in enumerate(defined_syscalls):
+for i in range(SYS_NR):
 	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
 	name = syscall_nr_to_name.get(i, f"unknown_syscall_{i}")
 	dispatch_file.append(f"\t[{idx}] = \"{name}\",")
@@ -169,13 +231,9 @@ dispatch_file.append("};")
 
 # generate the sysfn-strace table
 dispatch_file += [f"sysfn_t sys_tbl_strace[SYS_NR] = {'{'}"]
-for i, entry in enumerate(defined_syscalls):
+for i, entry in enumerate(systabl_strace_targets):
 	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
-	if entry.endswith("_enter"):
-		name = entry
-	else:
-		name = entry.split("::")[-1] + "_trace"
-	dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{name}),")
+	dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{entry}),")
 dispatch_file.append("};")
 
 # finish file and write it out
