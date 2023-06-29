@@ -21,6 +21,8 @@ struct clone_args;
 namespace junction {
 struct kernel_sigset_t;
 
+extern "C" {
+
 // File
 long usys_open(const char *pathname, int flags, mode_t mode);
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode);
@@ -117,10 +119,10 @@ pid_t usys_set_tid_address(int *tidptr);
 void usys_exit_group(int status);
 void usys_exit(int status);
 int usys_arch_prctl(int code, unsigned long addr);
-extern "C" long usys_clone(unsigned long clone_flags, unsigned long newsp,
-                           uintptr_t parent_tidptr, uintptr_t child_tidptr,
-                           unsigned long tls);
-extern "C" long usys_clone3(clone_args *cl_args, size_t size);
+long usys_clone(unsigned long clone_flags, unsigned long newsp,
+                uintptr_t parent_tidptr, uintptr_t child_tidptr,
+                unsigned long tls);
+long usys_clone3(clone_args *cl_args, size_t size);
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 const struct timespec *timeout, uint32_t *uaddr2,
                 uint32_t val3);
@@ -167,5 +169,6 @@ long usys_eventfd(unsigned int initval);
 int usys_execve(const char *filename, const char *argv[], const char *envp[]);
 int usys_execveat(int fd, const char *filename, const char *argv[],
                   const char *envp[], int flags);
+}
 
 }  // namespace junction
