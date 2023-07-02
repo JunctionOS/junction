@@ -165,13 +165,26 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
 
 rt::WaitGroup Process::all_procs;
 
+void Thread::HandleInterrupt() {
+  assert(thread_self() == GetCaladanThread());
+
+  rt::SpinGuard g(lock_);
+  if (unlikely(myproc().exited())) {
+    lock_.Unlock();
+    usys_exit(0);
+    __builtin_unreachable();
+  }
+
+  // TODO: deliver signals
+}
+
 Thread::~Thread() {
   uint32_t *child_tid = get_child_tid();
   if (child_tid) {
     *child_tid = 0;
     FutexTable::GetFutexTable().Wake(child_tid);
   }
-
+  proc_->ThreadFinish(this);
   if (tid_ != proc_->get_pid()) ReleasePid(tid_);
 }
 
@@ -185,6 +198,11 @@ void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
   file_tbl_.DoCloseOnExec();
   mem_map_ = std::move(new_mm);
   vfork_waker_.Wake();
+}
+
+void Process::ThreadFinish(Thread *th) {
+  rt::SpinGuard g(thread_map_lock_);
+  thread_map_.erase(th->get_tid());
 }
 
 Status<std::shared_ptr<Process>> CreateProcess() {
@@ -216,6 +234,7 @@ Thread &Process::CreateTestThread() {
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), 1);
   th->tlsvar = 1;  // Mark tstate as initialized
+  thread_map_[1] = tstate;
   return *tstate;
 }
 
@@ -226,6 +245,7 @@ Status<std::unique_ptr<Thread>> Process::CreateThreadMain() {
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), get_pid());
   th->tlsvar = 1;  // Mark tstate as initialized
+  thread_map_[get_pid()] = tstate;
   return std::unique_ptr<Thread>(tstate);
 }
 
@@ -242,7 +262,27 @@ Status<std::unique_ptr<Thread>> Process::CreateThread() {
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), *tid);
   th->tlsvar = 1;  // Mark tstate as initialized
-  return std::unique_ptr<Thread>(tstate);
+  std::unique_ptr<Thread> th_ptr(tstate);
+
+  {
+    rt::SpinGuard g(thread_map_lock_);
+    if (unlikely(exited())) return MakeError(1);
+    thread_map_[*tid] = tstate;
+  }
+
+  return th_ptr;
+}
+
+void Process::DoExit(int status) {
+  // notify threads
+  rt::SpinGuard g(thread_map_lock_);
+  if (exited_) return;
+
+  exited_ = true;
+  xstate_ = status;
+  barrier();
+  for (const auto &[pid, th] : thread_map_) th->Interrupt();
+  FutexTable::GetFutexTable().CleanupProcess(this);
 }
 
 pid_t usys_getpid() { return myproc().get_pid(); }
@@ -299,6 +339,7 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
 
 void usys_exit(int status) {
   Thread *tptr = reinterpret_cast<Thread *>(thread_self()->junction_tstate_buf);
+  tptr->set_xstate(status);
   tptr->~Thread();
   rt::Exit();
 }
@@ -306,11 +347,8 @@ void usys_exit(int status) {
 void usys_exit_group(int status) {
   // TODO(jfried): this must kill all other threads in this thread group...
   Thread *tptr = reinterpret_cast<Thread *>(thread_self()->junction_tstate_buf);
-  pid_t mypid = tptr->get_process().get_pid();
+  myproc().DoExit(status);
   tptr->~Thread();
-
-  // Hack: terminate program if original binary calls exit_group.
-  if (mypid == 1) ksys_exit(status);
   rt::Exit();
 }
 

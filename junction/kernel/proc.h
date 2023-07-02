@@ -8,6 +8,7 @@ extern "C" {
 #include <ucontext.h>
 }
 
+#include <map>
 #include <memory>
 
 #include "junction/base/uid.h"
@@ -60,8 +61,13 @@ class Thread {
   [[nodiscard]] Process &get_process() const { return *proc_; }
   [[nodiscard]] uint32_t *get_child_tid() const { return child_tid_; }
   [[nodiscard]] kernel_sigset_t get_sigset() const { return cur_sigset_; }
+  [[nodiscard]] bool needs_interrupt() const {
+    return sig_pending_.load(std::memory_order_acquire);
+  }
+
   void set_child_tid(uint32_t *tid) { child_tid_ = tid; }
   void set_sigset(kernel_sigset_t sigset) { cur_sigset_ = sigset; }
+  void set_xstate(int xstate) { xstate_ = xstate; }
 
   thread_t *GetCaladanThread() {
     auto *ptr =
@@ -69,11 +75,25 @@ class Thread {
     return container_of(ptr, thread_t, junction_tstate_buf);
   }
 
+  // Deliver an interrupt to this thread.
+  void Interrupt() {
+    // For now just mark signal pending
+    rt::SpinGuard g(lock_);
+    sig_pending_ = true;
+  }
+
+  // Called by a thread to run pending interrupts.
+  void HandleInterrupt();
+
  private:
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   uint32_t *child_tid_;            // Used for clone3/exit
   const pid_t tid_;                // the thread identifier
-  kernel_sigset_t cur_sigset_;     // blocked signals
+
+  rt::Spin lock_;                 // protects sigstate, waiters, etc
+  kernel_sigset_t cur_sigset_;    // blocked signals
+  std::atomic_bool sig_pending_;  // has a pending signal
+  int xstate_;                    // exit state
 };
 
 // Make sure that Caladan's thread def has enough room for the Thread class
@@ -107,6 +127,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] MemoryMap &get_mem_map() { return *mem_map_; }
   [[nodiscard]] SignalTable &get_signal_table() { return signal_tbl_; }
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
+  [[nodiscard]] bool exited() const { return exited_; }
 
   [[nodiscard]] const std::string_view get_bin_path() const {
     return binary_path_;
@@ -129,18 +150,28 @@ class Process : public std::enable_shared_from_this<Process> {
   Thread &CreateTestThread();
   void FinishExec(std::shared_ptr<MemoryMap> &&new_mm);
 
+  // Called by a thread to notify that it is exiting.
+  void ThreadFinish(Thread *th);
+
+  // Called when a process exits, will attempt to notify all threads.
+  void DoExit(int status);
+
   static void WaitAll() { all_procs.Wait(); }
 
  private:
   const pid_t pid_;     // the process identifier
   int xstate_;          // exit state
-  bool killed_{false};  // If non-zero, the process has been killed
+  bool exited_{false};  // If true, the process has been killed
   rlimit limit_nofile_{kDefaultNoFile,
                        kDefaultNoFile};  // current rlimit for RLIMIT_NOFILE
   std::string binary_path_;
 
   // Wake this blocked thread that is waiting for the vfork thread to exec().
   rt::ThreadWaker vfork_waker_;
+
+  rt::Spin thread_map_lock_;
+  // TODO(jf): replace std::map with better datastructure
+  std::map<pid_t, Thread *> thread_map_;
 
   //
   // Per-process kernel subsystems

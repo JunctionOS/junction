@@ -2,6 +2,7 @@
 
 #include "junction/base/error.h"
 #include "junction/bindings/thread.h"
+#include "junction/kernel/proc.h"
 #include "junction/syscall/entry.h"
 
 extern "C" {
@@ -13,8 +14,13 @@ namespace junction {
 Status<void> SyscallInit();
 
 // Called every time a thread enters/exits a usyscall
-inline void usyscall_on_enter() {}
-inline void usyscall_on_exit() {}
+inline void usyscall_on_enter() {
+  if (unlikely(mythread().needs_interrupt())) mythread().HandleInterrupt();
+}
+
+inline void usyscall_on_exit() {
+  if (unlikely(mythread().needs_interrupt())) mythread().HandleInterrupt();
+}
 
 // Update in entry.S if changed.
 static_assert(offsetof(thread, junction_tf) == JUNCTION_TF_OFF);

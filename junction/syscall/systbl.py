@@ -44,11 +44,10 @@ def emit_strace_target(pretty_name, function_name, output):
 	runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 	if "execve" not in name and "exit" not in name:
 		fn += runsyscall_cmd
-		retVar = "ret"
+		fn += f"\n\tLogSyscall(ret, \"{pretty_name}\","
 	else:
-		retVar = "123456789"
+		fn += f"\n\tLogSyscall(\"{pretty_name}\","
 
-	fn += f"\n\tLogSyscall({retVar}, \"{pretty_name}\","
 	for i in range(6):
 		if (pretty_name, i) not in STRACE_ARGS_THAT_ARE_PATHNAMES:
 			fn += f"\n\t\treinterpret_cast<void *>(arg{i})"
@@ -191,7 +190,7 @@ with open(USYS_LIST) as f:
 			systabl_strace_targets[sysnr]  = emit_trapframe_save_entry(strace_entry, dispatch_file)
 		else:
 			if len(ns) > 1 and ns[1] == "passthrough":
-				target = emit_passthrough_target(name, dispatch_file)
+				target = emit_passthrough_target(name, sysnr, dispatch_file)
 			else:
 				target = emit_regular_target(name, dispatch_file)
 

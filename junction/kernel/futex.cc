@@ -18,12 +18,29 @@ static FutexTable f;
 
 FutexTable &FutexTable::GetFutexTable() { return f; }
 
+void FutexTable::CleanupProcess(Process *p) {
+  for (auto &bucket : buckets_) {
+    rt::SpinGuard g(bucket.lock);
+    for (auto it = bucket.futexes.begin(); it != bucket.futexes.end();) {
+      detail::futex_waiter &w = *it;
+      if (w.proc != p) {
+        ++it;
+        continue;
+      }
+      // Must remove the waiter from the list *before* waking it
+      thread_t *th = w.th;
+      it = bucket.futexes.erase(it);
+      thread_ready(th);
+    }
+  }
+}
+
 Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
                               std::optional<uint64_t> timeout_us) {
   // Hot path: Don't need to block for a false condition.
   if (read_once(*key) != val) return MakeError(EAGAIN);
 
-  detail::futex_waiter waiter{thread_self(), key, bitset};
+  detail::futex_waiter waiter{&myproc(), thread_self(), key, bitset};
   detail::futex_bucket &bucket = get_bucket(key);
 
   // Setup a timer for the timeout (if needed).
@@ -40,6 +57,13 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
 
   // Wait for a wakeup.
   bucket.lock.Lock();
+
+  // Check if proc is killed to avoid a race with CleanupProcess.
+  if (unlikely(myproc().exited())) {
+    bucket.lock.Unlock();
+    return {};
+  }
+
   if (read_once(*key) != val) {
     bucket.lock.Unlock();
     return MakeError(EAGAIN);

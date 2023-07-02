@@ -10,15 +10,17 @@
 #include "junction/base/error.h"
 #include "junction/base/intrusive_list.h"
 #include "junction/bindings/sync.h"
+#include "junction/kernel/proc.h"
 
 namespace junction {
 
 namespace detail {
 
 struct futex_waiter {
-  futex_waiter(thread_t *th, uint32_t *key, uint32_t bitset)
-      : th(th), key(key), bitset(bitset) {}
+  futex_waiter(Process *proc, thread_t *th, uint32_t *key, uint32_t bitset)
+      : proc(proc), th(th), key(key), bitset(bitset) {}
 
+  Process *proc;
   thread_t *th;
   uint32_t *key;
   uint32_t bitset;
@@ -53,6 +55,9 @@ class alignas(kCacheLineSize) FutexTable {
   // Wake unblocks up to @n threads waiting on the address @key. Returns the
   // number of threads woken.
   int Wake(uint32_t *key, int n = INT_MAX, uint32_t bitset = kFutexBitsetAny);
+
+  // Scans the entire FutexTable for waiters owned by @p and wakes them.
+  void CleanupProcess(Process *p);
 
   static FutexTable &GetFutexTable();
 
