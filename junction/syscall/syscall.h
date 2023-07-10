@@ -28,10 +28,6 @@ unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
 // Assembly routines to assist with register saving/restoring for clone calls
 extern "C" {
 void clone_fast_start(void *rip) __noreturn;
-unsigned long usys_clone3_enter(long arg0, long arg1, long arg2, long arg3,
-                                long arg4, long arg5);
-unsigned long usys_clone_enter(long arg0, long arg1, long arg2, long arg3,
-                               long arg4, long arg5);
 long junction_fncall_stackswitch_enter(long arg0, long arg1, long arg2,
                                        long arg3, long arg4, long arg5);
 long junction_fncall_stackswitch_clone_enter(long arg0, long arg1, long arg2,
