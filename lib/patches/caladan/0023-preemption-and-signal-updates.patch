@@ -1,23 +1,24 @@
-From cca4c967516f99732c3c8fae56fff8b6ab4b2e97 Mon Sep 17 00:00:00 2001
+From a7da9fa1ab5dfdaf882182fbc6b490752b632b2d Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
 Subject: [PATCH 23/23] preemption and signal updates
 
 ---
- inc/runtime/thread.h |  3 ++-
+ inc/runtime/thread.h |  4 ++--
  runtime/cfg.c        |  2 +-
  runtime/preempt.c    |  3 ---
- runtime/sched.c      | 23 +++++++++++++++++++++--
- 4 files changed, 24 insertions(+), 7 deletions(-)
+ runtime/sched.c      | 25 +++++++++++++++++++++----
+ 4 files changed, 24 insertions(+), 10 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 6a465efe..c2235beb 100644
+index 6a465efe..e4ca5bb6 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -113,7 +113,8 @@ struct thread {
+@@ -112,8 +112,8 @@ struct thread {
+     uint64_t        tlsvar;
       // Trapframe used by junction to stash registers on syscall entry
      struct thread_tf	junction_tf;
-     void 		*xsave_area;
+-    void 		*xsave_area;
 -    unsigned long    junction_tstate_buf[8];
 +    void        *stashed_sigframe;
 +    unsigned long    junction_tstate_buf[24];
@@ -52,7 +53,7 @@ index ee376d6b..f0a308ec 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f80def0e..443da582 100644
+index f80def0e..43ea6d6d 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -142,7 +142,7 @@ static void jmp_runtime(runtime_fn_t fn)
@@ -92,6 +93,22 @@ index f80def0e..443da582 100644
  {
  	struct kthread *k = myk();
  	thread_t *myth = thread_self();
+@@ -804,7 +823,6 @@ static __always_inline thread_t *__thread_create_nostack(void)
+ 	th->thread_ready = false;
+ 	th->thread_running = false;
+ 	th->tlsvar = 0;
+-	th->xsave_area = NULL;
+ 
+ 	return th;
+ }
+@@ -842,7 +860,6 @@ static __always_inline thread_t *__thread_create(void)
+ 	th->thread_ready = false;
+ 	th->thread_running = false;
+ 	th->tlsvar = 0;
+-	th->xsave_area = NULL;
+ 
+ 	return th;
+ }
 -- 
 2.39.2
 

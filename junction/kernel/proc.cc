@@ -82,21 +82,12 @@ void CloneTrapframe(thread_t *newth, const thread_t *oldth) {
     newth->tf.fsbase = oldth->tf.fsbase;
   }
 
-  if (oldth->xsave_area) {
-    newth->tf.rip =
-        reinterpret_cast<uint64_t>(__junction_syscall_intercept_clone_ret);
-    newth->junction_tf.rsp = newth->tf.rsp;
-    newth->tf.rsp = AlignDown(newth->tf.rsp - XSAVE_BYTES, 64);
-    std::memcpy(reinterpret_cast<void *>(newth->tf.rsp), oldth->xsave_area,
-                XSAVE_BYTES);
-  } else {
-    newth->tf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
-  }
+  newth->tf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
 }
 
 long DoClone(clone_args *cl_args, uint64_t rsp) {
   static constexpr uint64_t kThreadRequiredFlags =
-      (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD);
+      (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD | CLONE_SIGHAND);
 
   static constexpr uint64_t kVforkRequiredFlags = (CLONE_VM | CLONE_VFORK);
 

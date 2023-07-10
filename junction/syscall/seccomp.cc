@@ -16,8 +16,10 @@ extern "C" {
 }
 
 #include "junction/bindings/log.h"
+#include "junction/junction.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
+#include "junction/kernel/sigframe.h"
 #include "junction/syscall/entry.h"
 #include "junction/syscall/seccomp_bpf.h"
 #include "junction/syscall/syscall.h"
@@ -82,7 +84,7 @@ Status<void> _install_seccomp_filter() {
   return {};
 }
 
-void log_syscall_msg(const char* msg_needed, long sysn) {
+void log_syscall_msg(const char *msg_needed, long sysn) {
   char buf[128], *pos;
   memcpy(buf, msg_needed, strlen(msg_needed));
   pos = buf + strlen(msg_needed);
@@ -98,48 +100,115 @@ void log_syscall_msg(const char* msg_needed, long sysn) {
   ksys_write(STDOUT_FILENO, buf, pos - buf);
 }
 
-static __attribute__((__optimize__("-fno-stack-protector"))) void
-__signal_handler(int nr, siginfo_t* info, void* void_context) {
-  ucontext_t* ctx = reinterpret_cast<ucontext_t*>(void_context);
+static_assert(offsetof(k_ucontext, uc_mcontext.rax) == 0x90);
+
+extern "C" [[noreturn]] void syscall_trap_return(void);
+asm(R"(
+    .globl syscall_trap_return
+    .type syscall_trap_return, @function
+    syscall_trap_return:
+
+    // store rax in sigframe
+    movq %rax, 0x90(%rsp)
+    jmp syscall_rt_sigreturn
+)");
+
+extern "C" __attribute__((__optimize__("-fno-stack-protector"))) void
+__signal_handler(int nr, siginfo_t *info, void *void_context) {
+  k_ucontext *ctx = reinterpret_cast<k_ucontext *>(void_context);
+  k_sigframe *sigframe = container_of(ctx, k_sigframe, uc);
 
   if (unlikely(info->si_code != SYS_SECCOMP)) return;
   if (unlikely(!ctx)) return;
 
-  long sysn = static_cast<long>(ctx->uc_mcontext.gregs[REG_SYSCALL]);
+  long sysn = static_cast<long>(ctx->uc_mcontext.rax);
+
+  if (unlikely(!preempt_enabled())) {  // call probably from junction libc
+    long arg0 = static_cast<long>(ctx->uc_mcontext.rdi);
+    long arg1 = static_cast<long>(ctx->uc_mcontext.rsi);
+    long arg2 = static_cast<long>(ctx->uc_mcontext.rdx);
+    long arg3 = static_cast<long>(ctx->uc_mcontext.r10);
+    long arg4 = static_cast<long>(ctx->uc_mcontext.r8);
+    long arg5 = static_cast<long>(ctx->uc_mcontext.r9);
+    auto res = ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, sysn);
+    ctx->uc_mcontext.rax = static_cast<unsigned long>(res);
+    return;
+  }
 
   if (unlikely(!thread_self())) {
     log_syscall_msg("Unexpected syscall from Caladan", sysn);
     syscall_exit(-1);
   }
 
-  if (unlikely(!preempt_enabled())) {  // call probably from junction libc
-    long arg0 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG0]);
-    long arg1 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG1]);
-    long arg2 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG2]);
-    long arg3 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG3]);
-    long arg4 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG4]);
-    long arg5 = static_cast<long>(ctx->uc_mcontext.gregs[REG_ARG5]);
-    auto res = ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, sysn);
-    ctx->uc_mcontext.gregs[REG_RESULT] = static_cast<unsigned long>(res);
-    return;
-  }
-
-  LOG_ONCE(WARN) << "Warning: intercepting syscalls with seccomp traps";
-
   if (unlikely(!get_uthread_specific())) {
     log_syscall_msg("Intercepted syscall originating in junction", sysn);
     syscall_exit(-1);
   }
 
+  LOG_ONCE(WARN) << "Warning: intercepting syscalls with seccomp traps";
+
+  // Special case for rt_sigreturn, we actually don't care about the current
+  // signal frame, since rt_sigreturn is doing a full restore of a different
+  // signal frame.
   if (sysn == SYS_rt_sigreturn) {
-    ctx->uc_mcontext.gregs[REG_RIP] =
-        reinterpret_cast<uint64_t>(usys_rt_sigreturn_enter);
+    ctx->uc_mcontext.rip = reinterpret_cast<uint64_t>(usys_rt_sigreturn_enter);
     return;
   }
 
-  // redirect to syscall handler that will save state for us
-  ctx->uc_mcontext.gregs[REG_RIP] =
-      reinterpret_cast<uint64_t>(__junction_syscall_intercept);
+  // Transfer the signal to the syscall stack
+  uint64_t *rsp = &thread_self()->syscallstack->usable[STACK_PTR_SIZE];
+  k_sigframe *new_frame =
+      sigframe->CopyToStack(reinterpret_cast<uint64_t>(rsp));
+  new_frame->InvalidateAltStack();
+
+  // force return to syscall_trap_return
+  new_frame->pretcode = reinterpret_cast<char *>(syscall_trap_return);
+
+  sysfn_t target_ip;
+
+  // Special case for clone* syscalls, need to save registers
+  if (sysn == SYS_clone || sysn == SYS_clone3) {
+    thread_tf &tf = thread_self()->junction_tf;
+
+    tf.r8 = ctx->uc_mcontext.r8;
+    tf.r9 = ctx->uc_mcontext.r9;
+    tf.r10 = ctx->uc_mcontext.r10;
+    tf.r11 = ctx->uc_mcontext.r11;
+    tf.r12 = ctx->uc_mcontext.r12;
+    tf.r13 = ctx->uc_mcontext.r13;
+    tf.r14 = ctx->uc_mcontext.r14;
+    tf.r15 = ctx->uc_mcontext.r15;
+    tf.rdi = ctx->uc_mcontext.rdi;
+    tf.rsi = ctx->uc_mcontext.rsi;
+    tf.rbp = ctx->uc_mcontext.rbp;
+    tf.rbx = ctx->uc_mcontext.rbx;
+    tf.rdx = ctx->uc_mcontext.rdx;
+    tf.rcx = ctx->uc_mcontext.rcx;
+    tf.rip = ctx->uc_mcontext.rcx;
+
+    if (sysn == SYS_clone)
+      target_ip = reinterpret_cast<sysfn_t>(usys_clone);
+    else
+      target_ip = reinterpret_cast<sysfn_t>(usys_clone3);
+  } else if (unlikely(GetCfg().strace_enabled())) {
+    target_ip = sys_tbl_strace[sysn];
+  } else {
+    target_ip = sys_tbl[sysn];
+  }
+
+  // switch stacks and jmp to signal handler
+  asm volatile(
+      "movq %0, %%r8\n\t"
+      "movq %1, %%r9\n\t"
+      "movq %2, %%rsp\n\t"
+      "jmpq *%3"
+      :
+      : "r"(ctx->uc_mcontext.r8), "r"(ctx->uc_mcontext.r9), "r"(new_frame),
+        "r"(target_ip), "D"(ctx->uc_mcontext.rdi), "S"(ctx->uc_mcontext.rsi),
+        "d"(ctx->uc_mcontext.rdx), "c"(ctx->uc_mcontext.r10)
+      : "%r8", "%r9", "memory");
+
+  __builtin_unreachable();
 }
 
 Status<void> _install_signal_handler() {
