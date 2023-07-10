@@ -121,24 +121,14 @@ caladan_signal_handler(int signo, siginfo_t *info, void *context) {
     return;
   }
 
+  preempt_disable();
+
   // cache a pointer to the sigframe in the struct thread
   k_ucontext *uc = reinterpret_cast<k_ucontext *>(context);
   k_sigframe *sigframe = container_of(uc, k_sigframe, uc);
   thread_self()->stashed_sigframe = sigframe;
 
-  if (signo == SIGUSR1) {
-    WARN_ON_ONCE(!preempt_cede_needed(myk()));
-    preempt_disable();
-    jmp_runtime_nosave(DeliverCaladanSignal);
-    __builtin_unreachable();
-  }
-
-  assert(signo == SIGUSR2);
-  /* check if yield request is still relevant */
-  if (preempt_yield_needed(myk())) {
-    jmp_runtime_nosave(DeliverCaladanSignal);
-    __builtin_unreachable();
-  }
+  jmp_runtime_nosave(DeliverCaladanSignal);
 }
 
 // Trampoline to kernel's rt_sigreturn, places the sigframe at rsp where kernel

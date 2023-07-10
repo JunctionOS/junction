@@ -1,4 +1,4 @@
-From 441db4852b7a6707f77490f73813a13087e6d462 Mon Sep 17 00:00:00 2001
+From cca4c967516f99732c3c8fae56fff8b6ab4b2e97 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
 Subject: [PATCH 23/23] preemption and signal updates
@@ -7,8 +7,8 @@ Subject: [PATCH 23/23] preemption and signal updates
  inc/runtime/thread.h |  3 ++-
  runtime/cfg.c        |  2 +-
  runtime/preempt.c    |  3 ---
- runtime/sched.c      | 21 +++++++++++++++++++--
- 4 files changed, 22 insertions(+), 7 deletions(-)
+ runtime/sched.c      | 23 +++++++++++++++++++++--
+ 4 files changed, 24 insertions(+), 7 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index 6a465efe..c2235beb 100644
@@ -52,7 +52,7 @@ index ee376d6b..f0a308ec 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 1c04bc87..51c59130 100644
+index f80def0e..443da582 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -142,7 +142,7 @@ static void jmp_runtime(runtime_fn_t fn)
@@ -64,7 +64,7 @@ index 1c04bc87..51c59130 100644
  {
  	assert_preempt_disabled();
  
-@@ -716,7 +716,24 @@ void thread_ready_head(thread_t *th)
+@@ -716,7 +716,26 @@ void thread_ready_head(thread_t *th)
  	putk();
  }
  
@@ -72,17 +72,19 @@ index 1c04bc87..51c59130 100644
 +void thread_finish_yield(void)
 +{
 +	thread_t *curth = thread_self();
-+	struct kthread *k;
++	struct kthread *k = myk();
++
++	assert_preempt_disabled();
++
++	spin_lock(&k->lock);
 +
 +	/* check for softirqs */
-+	softirq_run();
++	softirq_run_locked(k);
 +
-+	k = getk();
 +	curth->thread_ready = false;
 +	curth->last_cpu = k->curr_cpu;
 +	thread_ready(curth);
 +
-+	spin_lock(&k->lock);
 +	schedule();
 +}
 +
