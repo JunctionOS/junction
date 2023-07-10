@@ -18,65 +18,16 @@ void thread_finish_yield(void);
 #include "junction/bindings/log.h"
 #include "junction/junction.h"
 #include "junction/kernel/proc.h"
-#include "junction/kernel/ucontext.h"
+#include "junction/kernel/sigframe.h"
 #include "junction/kernel/usys.h"
 #include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
 
 namespace junction {
 
-inline constexpr size_t kRedzoneSize = 128;
-inline constexpr size_t kXsaveAlignment = 64;
-
 inline void print_msg_abort(const char *msg) {
   std::ignore = write(2, msg, strlen(msg));
   syscall_exit(-1);
-}
-
-inline bool IsOnStack(uint64_t cur_rsp, const stack_t &ss) {
-  uint64_t sp = reinterpret_cast<uint64_t>(ss.ss_sp);
-
-  return cur_rsp >= sp && cur_rsp < sp + ss.ss_size;
-}
-
-// The kernel will replace the altstack when we call __rt_sigreturn. Since this
-// call may happen from a different kernel thread then the one that the signal
-// was delivered to, invalidate the altstack recorded in the sigframe.
-inline void InvalidateAltStack(k_sigframe *sigframe) {
-  sigframe->uc.uc_stack.ss_flags = 4;
-}
-
-// Transfer a kernel-delivered sigframe from to a new stack
-k_sigframe *CopySigFrame(uint64_t dest_rsp, const k_sigframe *sigframe) {
-  // validate that the kernel used xsave
-  BUG_ON(!(sigframe->uc.uc_flags & kUCFpXstate));
-
-  k_xstate *xstate =
-      reinterpret_cast<k_xstate *>(sigframe->uc.uc_mcontext.fpstate);
-  k_fpx_sw_bytes *fpxs = &xstate->fpstate.sw_reserved;
-
-  // validate magic numbers
-  BUG_ON(fpxs->magic1 != kFpXstateMagic1);
-  auto *magic2 = reinterpret_cast<unsigned char *>(xstate) + fpxs->xstate_size;
-  BUG_ON(*reinterpret_cast<uint32_t *>(magic2) != kFpXstateMagic2);
-
-  // allocate space for xstate
-  dest_rsp = AlignDown(dest_rsp - fpxs->extended_size, kXsaveAlignment);
-  void *dst_fx_buf = reinterpret_cast<void *>(dest_rsp);
-  std::memcpy(dst_fx_buf, xstate, fpxs->extended_size);
-
-  // allocate remainder of sigframe
-  dest_rsp -= sizeof(k_sigframe);
-  k_sigframe *dst_sigframe = reinterpret_cast<k_sigframe *>(dest_rsp);
-
-  // copy full sigframe
-  *dst_sigframe = *sigframe;
-
-  // fix fpstate pointer
-  dst_sigframe->uc.uc_mcontext.fpstate =
-      reinterpret_cast<_fpstate *>(dst_fx_buf);
-
-  return dst_sigframe;
 }
 
 // Transfer sigframe and route signals delivered by IOKernel
@@ -96,8 +47,8 @@ extern "C" void DeliverCaladanSignal(void) {
 
   // Transfer sigframe to the appropriate stack
   k_sigframe *new_frame =
-      CopySigFrame(reinterpret_cast<uint64_t>(rsp), sigframe);
-  InvalidateAltStack(new_frame);
+      sigframe->CopyToStack(reinterpret_cast<uint64_t>(rsp));
+  new_frame->InvalidateAltStack();
 
   // Ensure the sigframe is immediately restored when this thread next runs
   struct thread_tf &tf = thread_self()->tf;
@@ -157,7 +108,7 @@ extern "C" long usys_rt_sigreturn(uint64_t rsp) {
   hand.SigAltStack(&sigframe->uc.uc_stack, nullptr);
 
   // Clear sigaltstack and signal mask before using kernel to restore
-  InvalidateAltStack(sigframe);
+  sigframe->InvalidateAltStack();
   sigframe->uc.mask = 0;
 
   jmp_rt_sigreturn(rsp);
@@ -215,7 +166,7 @@ bool DeliverUserSignal(int signo, siginfo_t *info, k_sigframe *sigframe) {
   }
 
   // transfer the frame
-  k_sigframe *new_frame = CopySigFrame(rsp, sigframe);
+  k_sigframe *new_frame = sigframe->CopyToStack(rsp);
 
   // fixup the frame
   TransformSigFrame(*new_frame, act, hand);

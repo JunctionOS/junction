@@ -10,6 +10,8 @@ extern "C" {
 inline constexpr uint64_t kUCFpXstate = 0x1;
 inline constexpr uint32_t kFpXstateMagic1 = 0x46505853U;
 inline constexpr uint32_t kFpXstateMagic2 = 0x46505845U;
+inline constexpr size_t kRedzoneSize = 128;
+inline constexpr size_t kXsaveAlignment = 64;
 
 namespace junction {
 
@@ -95,5 +97,19 @@ struct k_sigframe {
   char *pretcode;
   struct k_ucontext uc;
   siginfo_t info;
+
+  // The kernel will replace the altstack when we call __rt_sigreturn. Since
+  // this call may happen from a different kernel thread then the one that the
+  // signal was delivered to, invalidate the altstack recorded in the sigframe.
+  inline void InvalidateAltStack() { uc.uc_stack.ss_flags = 4; }
+
+  k_sigframe *CopyToStack(uint64_t dest_rsp) const;
 };
+
+inline bool IsOnStack(uint64_t cur_rsp, const stack_t &ss) {
+  uint64_t sp = reinterpret_cast<uint64_t>(ss.ss_sp);
+
+  return cur_rsp >= sp && cur_rsp < sp + ss.ss_size;
+}
+
 }  // namespace junction

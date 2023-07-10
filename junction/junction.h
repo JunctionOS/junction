@@ -51,6 +51,8 @@ class JunctionCfg {
   Status<void> FillFromArgs(int argc, char *argv[]);
   void Print();
 
+  static JunctionCfg &get() { return singleton_; };
+
  private:
   std::string chroot_path{"/"};
   std::string fs_config_path;
@@ -59,9 +61,11 @@ class JunctionCfg {
   std::string preload_path{CUSTOM_GLIBC_PRELOAD};
   std::vector<std::string> binary_envp;
   bool strace{false};
+  static JunctionCfg singleton_;
 };
 
-JunctionCfg &GetCfg();
+inline JunctionCfg &GetCfg() { return JunctionCfg::get(); }
+
 std::string_view GetCwd();
 
 Status<void> init();

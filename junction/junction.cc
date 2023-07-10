@@ -19,13 +19,9 @@
 namespace junction {
 
 std::string cwd;
-
 std::string_view GetCwd() { return cwd; }
 
-JunctionCfg &GetCfg() {
-  static JunctionCfg cfg;
-  return cfg;
-}
+JunctionCfg JunctionCfg::singleton_;
 
 namespace po = boost::program_options;
 
