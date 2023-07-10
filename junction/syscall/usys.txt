@@ -84,6 +84,7 @@ getpeername
 getsockname
 rt_sigaction
 rt_sigprocmask
+rt_sigreturn
 sigaltstack
 sched_getaffinity
 eventfd

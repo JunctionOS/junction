@@ -19,20 +19,6 @@ extern "C" {
 
 namespace junction {
 
-// Note:
-// glibc uses a larger sigset_t size (1024 bits) than Linux kernel (64 bits).
-// We follow the Linux kernel.
-//
-// Sources:
-//  https://unix.stackexchange.com/questions/399342/why-is-sigset-t-in-glibc-musl-128-bytes-large-on-64-bit-linux/399356#399356
-//  https://elixir.bootlin.com/linux/latest/source/arch/x86/include/asm/signal.h#L25
-struct kernel_sigset_t {
-  unsigned long sig;
-};
-
-inline constexpr size_t kSigSetSizeBytes = 8;
-inline constexpr rlim_t kDefaultNoFile = 8192;
-
 class Process;
 
 // Thread is a UNIX thread object.
@@ -60,13 +46,16 @@ class Thread {
   [[nodiscard]] pid_t get_tid() const { return tid_; }
   [[nodiscard]] Process &get_process() const { return *proc_; }
   [[nodiscard]] uint32_t *get_child_tid() const { return child_tid_; }
-  [[nodiscard]] kernel_sigset_t get_sigset() const { return cur_sigset_; }
   [[nodiscard]] bool needs_interrupt() const {
-    return sig_pending_.load(std::memory_order_acquire);
+    return interrupt_pending_.load(std::memory_order_acquire);
+  }
+  [[nodiscard]] bool in_syscall() const {
+    return in_syscall_.load(std::memory_order_acquire);
   }
 
+  [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
+
   void set_child_tid(uint32_t *tid) { child_tid_ = tid; }
-  void set_sigset(kernel_sigset_t sigset) { cur_sigset_ = sigset; }
   void set_xstate(int xstate) { xstate_ = xstate; }
 
   thread_t *GetCaladanThread() {
@@ -75,11 +64,22 @@ class Thread {
     return container_of(ptr, thread_t, junction_tstate_buf);
   }
 
-  // Deliver an interrupt to this thread.
+  void EnterSyscall() {
+    in_syscall_ = true;
+    if (unlikely(needs_interrupt())) HandleInterrupt();
+  }
+
+  void ExitSyscall() {
+    if (unlikely(needs_interrupt())) HandleInterrupt();
+    in_syscall_ = false;
+  }
+
+  // Interrupt this thread.
   void Interrupt() {
-    // For now just mark signal pending
     rt::SpinGuard g(lock_);
-    sig_pending_ = true;
+    interrupt_pending_ = true;
+
+    // TODO: IPI, if needed
   }
 
   // Called by a thread to run pending interrupts.
@@ -89,11 +89,11 @@ class Thread {
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   uint32_t *child_tid_;            // Used for clone3/exit
   const pid_t tid_;                // the thread identifier
-
-  rt::Spin lock_;                 // protects sigstate, waiters, etc
-  kernel_sigset_t cur_sigset_;    // blocked signals
-  std::atomic_bool sig_pending_;  // has a pending signal
-  int xstate_;                    // exit state
+  rt::Spin lock_;                  // protects interrupt_pending_
+  std::atomic_bool in_syscall_;
+  std::atomic_bool interrupt_pending_;  // has a pending signal
+  int xstate_;                          // exit state
+  ThreadSignalHandler sighand_;
 };
 
 // Make sure that Caladan's thread def has enough room for the Thread class
@@ -162,6 +162,8 @@ class Process : public std::enable_shared_from_this<Process> {
   const pid_t pid_;     // the process identifier
   int xstate_;          // exit state
   bool exited_{false};  // If true, the process has been killed
+
+  // TODO: enforce limit
   rlimit limit_nofile_{kDefaultNoFile,
                        kDefaultNoFile};  // current rlimit for RLIMIT_NOFILE
   std::string binary_path_;

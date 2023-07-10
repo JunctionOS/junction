@@ -86,6 +86,24 @@ clone_fast_start:
 
 	jmpq *%r11
 
+.align 16
+.global usys_rt_sigreturn_enter
+.type usys_rt_sigreturn_enter, @function
+usys_rt_sigreturn_enter:
+	// get address of syscall stack
+	movq    %gs:__perthread___self(%rip), %r11
+	movq    JUNCTION_STACK_OFFSET(%r11), %r11 // stack
+	addq    $JUNCTION_STACK_SIZE, %r11
+
+	// use current rsp as first argument to sigreturn()
+	movq %rsp, %rdi
+
+	// switch to syscall stack temporarily
+	movq %r11, %rsp
+
+	call usys_rt_sigreturn
+
+
 /**
  * junction_syscall_full_trap - syscall instruction entry point
  * @rax: syscall number

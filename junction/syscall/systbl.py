@@ -183,7 +183,10 @@ with open(USYS_LIST) as f:
 			continue
 		sysnr = syscall_name_to_nr.get(name)
 
-		if len(ns) > 1 and ns[1] == "savetrapframe":
+		if name == "rt_sigreturn":
+			systabl_targets[sysnr] = "usys_rt_sigreturn_enter"
+			systabl_strace_targets[sysnr] = "usys_rt_sigreturn_enter"
+		elif len(ns) > 1 and ns[1] == "savetrapframe":
 			main_entry = emit_regular_target(name, dispatch_file)
 			strace_entry =  emit_strace_target(name, main_entry, dispatch_file)
 			systabl_targets[sysnr] = emit_trapframe_save_entry(main_entry, dispatch_file)

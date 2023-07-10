@@ -16,9 +16,7 @@ unset LD_LIBRARY_PATH
 
 # Apply patches
 cd $GLIBC_DIR
-for patch in $GLIBC_PATCHES_DIR/*; do
-  git am $patch
-done
+git am $GLIBC_PATCHES_DIR/*
 
 # Build and install glibc
 mkdir -p build

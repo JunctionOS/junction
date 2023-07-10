@@ -131,6 +131,12 @@ __signal_handler(int nr, siginfo_t* info, void* void_context) {
     syscall_exit(-1);
   }
 
+  if (sysn == SYS_rt_sigreturn) {
+    ctx->uc_mcontext.gregs[REG_RIP] =
+        reinterpret_cast<uint64_t>(usys_rt_sigreturn_enter);
+    return;
+  }
+
   // redirect to syscall handler that will save state for us
   ctx->uc_mcontext.gregs[REG_RIP] =
       reinterpret_cast<uint64_t>(__junction_syscall_intercept);

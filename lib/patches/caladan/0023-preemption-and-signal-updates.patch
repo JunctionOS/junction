@@ -1,0 +1,95 @@
+From 441db4852b7a6707f77490f73813a13087e6d462 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Mon, 10 Jul 2023 03:17:58 -0400
+Subject: [PATCH 23/23] preemption and signal updates
+
+---
+ inc/runtime/thread.h |  3 ++-
+ runtime/cfg.c        |  2 +-
+ runtime/preempt.c    |  3 ---
+ runtime/sched.c      | 21 +++++++++++++++++++--
+ 4 files changed, 22 insertions(+), 7 deletions(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 6a465efe..c2235beb 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -113,7 +113,8 @@ struct thread {
+      // Trapframe used by junction to stash registers on syscall entry
+     struct thread_tf	junction_tf;
+     void 		*xsave_area;
+-    unsigned long    junction_tstate_buf[8];
++    void        *stashed_sigframe;
++    unsigned long    junction_tstate_buf[24];
+ #ifdef GC
+     struct list_node    gc_link;
+     unsigned int        onk;
+diff --git a/runtime/cfg.c b/runtime/cfg.c
+index 7936ce12..b4267b9b 100644
+--- a/runtime/cfg.c
++++ b/runtime/cfg.c
+@@ -18,7 +18,7 @@ static size_t arp_static_sz;
+ size_t arp_static_count;
+ struct cfg_arp_static_entry *static_entries;
+ int preferred_socket = 0;
+-bool use_sigaltstack = false;
++bool use_sigaltstack = true;
+ 
+ /*
+  * Configuration Options
+diff --git a/runtime/preempt.c b/runtime/preempt.c
+index ee376d6b..f0a308ec 100644
+--- a/runtime/preempt.c
++++ b/runtime/preempt.c
+@@ -125,9 +125,6 @@ int preempt_init(void)
+ {
+ 	struct sigaction act;
+ 
+-	if (use_sigaltstack)
+-		return 0;
+-
+ 	act.sa_flags = SA_SIGINFO | SA_NODEFER;
+ 
+ 	if (sigemptyset(&act.sa_mask) != 0) {
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 1c04bc87..51c59130 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -142,7 +142,7 @@ static void jmp_runtime(runtime_fn_t fn)
+  *			caller's state
+  * @fn: the runtime function to call
+  */
+-static __noreturn void jmp_runtime_nosave(runtime_fn_t fn)
++__noreturn void jmp_runtime_nosave(runtime_fn_t fn)
+ {
+ 	assert_preempt_disabled();
+ 
+@@ -716,7 +716,24 @@ void thread_ready_head(thread_t *th)
+ 	putk();
+ }
+ 
+-static void thread_finish_cede(void)
++void thread_finish_yield(void)
++{
++	thread_t *curth = thread_self();
++	struct kthread *k;
++
++	/* check for softirqs */
++	softirq_run();
++
++	k = getk();
++	curth->thread_ready = false;
++	curth->last_cpu = k->curr_cpu;
++	thread_ready(curth);
++
++	spin_lock(&k->lock);
++	schedule();
++}
++
++void thread_finish_cede(void)
+ {
+ 	struct kthread *k = myk();
+ 	thread_t *myth = thread_self();
+-- 
+2.39.2
+

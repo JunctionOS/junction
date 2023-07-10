@@ -12,7 +12,7 @@ void LogSyscall(long retval, std::string_view name, Args... args) {
   std::stringstream ss;
   ss << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] ";
   ss << name << "(";
-  size_t i = 0;
+  [[maybe_unused]] size_t i = 0;
 
   (
       [&ss, &i, n = sizeof...(args)](auto arg) {
@@ -31,7 +31,7 @@ void LogSyscall(std::string_view name, Args... args) {
 
   ss << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] ";
   ss << name << "(";
-  size_t i = 0;
+  [[maybe_unused]] size_t i = 0;
 
   (
       [&](auto arg) {

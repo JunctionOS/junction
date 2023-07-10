@@ -14,13 +14,9 @@ namespace junction {
 Status<void> SyscallInit();
 
 // Called every time a thread enters/exits a usyscall
-inline void usyscall_on_enter() {
-  if (unlikely(mythread().needs_interrupt())) mythread().HandleInterrupt();
-}
+inline void usyscall_on_enter() { mythread().EnterSyscall(); }
 
-inline void usyscall_on_exit() {
-  if (unlikely(mythread().needs_interrupt())) mythread().HandleInterrupt();
-}
+inline void usyscall_on_exit() { mythread().ExitSyscall(); }
 
 // Update in entry.S if changed.
 static_assert(offsetof(thread, junction_tf) == JUNCTION_TF_OFF);
@@ -40,6 +36,7 @@ long junction_fncall_stackswitch_clone_enter(long arg0, long arg1, long arg2,
                                              long arg3, long arg4, long arg5);
 void __junction_syscall_intercept();
 void __junction_syscall_intercept_clone_ret() __noreturn;
+void usys_rt_sigreturn_enter();
 }
 
 }  // namespace junction

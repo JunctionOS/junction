@@ -11,6 +11,7 @@
 #include "junction/junction.h"
 #include "junction/kernel/fs.h"
 #include "junction/kernel/proc.h"
+#include "junction/kernel/signal.h"
 #include "junction/shim/backend/init.h"
 #include "junction/syscall/seccomp.h"
 #include "junction/syscall/syscall.h"
@@ -123,6 +124,9 @@ Status<void> init() {
   GetCfg().Print();
 
   Status<void> ret = InitFS();
+  if (unlikely(!ret)) return ret;
+
+  ret = InitSignal();
   if (unlikely(!ret)) return ret;
 
   ret = SyscallInit();

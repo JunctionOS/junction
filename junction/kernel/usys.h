@@ -19,7 +19,6 @@ struct clone_args;
 #include <cstdint>
 
 namespace junction {
-struct kernel_sigset_t;
 
 extern "C" {
 
@@ -155,10 +154,10 @@ long usys_prlimit64(pid_t pid, int resource, const struct rlimit *new_limit,
 long usys_ioctl(int fd, unsigned long request, char *argp);
 
 // Signals
-long usys_rt_sigaction(int sig, const struct sigaction *action,
-                       struct sigaction *oact, size_t sigsetsize);
-long usys_rt_sigprocmask(int how, const kernel_sigset_t *nset,
-                         kernel_sigset_t *oset, size_t sigsetsize);
+long usys_rt_sigaction(int sig, const struct k_sigaction *action,
+                       struct k_sigaction *oact, size_t sigsetsize);
+long usys_rt_sigprocmask(int how, const sigset_t *nset, sigset_t *oset,
+                         size_t sigsetsize);
 long usys_sigaltstack(const stack_t *ss, stack_t *old_ss);
 
 // Eventfd
