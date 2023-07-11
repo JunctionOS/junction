@@ -6,11 +6,12 @@ extern "C" {
 #include <signal.h>
 }
 
-#include <deque>
+#include <list>
 
 namespace junction {
 
 class Thread;
+struct k_sigframe;
 
 typedef unsigned long kernel_sigset_t;
 typedef void (*sighandler)(int, siginfo_t *info, void *uc);
@@ -20,25 +21,36 @@ inline constexpr int kNumSignals = 64;
 inline constexpr size_t kSigSetSizeBytes = 8;
 inline constexpr uint32_t kSigStackAutoDisarm = (1U << 31);
 inline constexpr int kSigRtMin = 32;
+inline constexpr uintptr_t kHandlerDefault = 0x0;
+inline constexpr uintptr_t kHandlerIgnore = 0x1;
 
-// TODO: use bitmap
-#define SIGMASK(sig) (1UL << ((sig)-1))
-#define SIGINMASK(sig, mask)                                       \
-  ((sig) > 0 && (unsigned long)(sig) < (unsigned long)kSigRtMin && \
-   (SIGMASK(sig) & (mask)))
+static_assert(SIG_DFL == nullptr);
+
+inline constexpr uint64_t SigMaskFromSigno(int signo) {
+  assert(signo > 0 && signo <= kNumSignals);
+  return 1UL << (signo - 1);
+}
+
+template <typename... Args>
+inline constexpr uint64_t MultiMask(Args... args) {
+  uint64_t mask = 0;
+  for (const auto a : {args...}) mask |= SigMaskFromSigno(a);
+  return mask;
+}
 
 inline constexpr uint64_t kSigDefaultCrash =
-    (SIGMASK(SIGQUIT) | SIGMASK(SIGILL) | SIGMASK(SIGTRAP) | SIGMASK(SIGABRT) |
-     SIGMASK(SIGFPE) | SIGMASK(SIGSEGV) | SIGMASK(SIGBUS) | SIGMASK(SIGSYS) |
-     SIGMASK(SIGXCPU) | SIGMASK(SIGXFSZ));
-
+    MultiMask(SIGQUIT, SIGILL, SIGTRAP, SIGABRT, SIGFPE, SIGSEGV, SIGBUS,
+              SIGSYS, SIGXCPU, SIGXFSZ);
 inline constexpr uint64_t kSigDefaultIgnore =
-    (SIGMASK(SIGCONT) | SIGMASK(SIGCHLD) | SIGMASK(SIGWINCH) | SIGMASK(SIGURG));
-
+    MultiMask(SIGCONT, SIGCHLD, SIGWINCH, SIGURG);
 inline constexpr uint64_t kSigSynchronous =
-    (SIGMASK(SIGSEGV) | SIGMASK(SIGBUS) | SIGMASK(SIGILL) | SIGMASK(SIGTRAP) |
-     SIGMASK(SIGFPE));
+    MultiMask(SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGFPE);
 
+inline bool CheckSignalInMask(int signo, unsigned long mask) {
+  return (mask & SigMaskFromSigno(signo)) > 0;
+}
+
+// Intended to be in sync with kernel definition
 struct k_sigaction {
   sighandler handler;
   unsigned long sa_flags;
@@ -49,21 +61,27 @@ struct k_sigaction {
     return (sa_flags & SA_ONSTACK) > 0;
   }
 
-  [[nodiscard]] bool is_nodefer() const { return (sa_flags & SA_NODEFER) > 0; }
-
-  [[nodiscard]] bool is_ignored() const {
-    return handler == reinterpret_cast<sighandler>(SIG_IGN);
+  [[nodiscard]] bool is_oneshot() const {
+    return (sa_flags & SA_RESETHAND) > 0;
   }
 
+  [[nodiscard]] bool is_nodefer() const { return (sa_flags & SA_NODEFER) > 0; }
+
   [[nodiscard]] bool is_default() const {
-    return handler == reinterpret_cast<sighandler>(SIG_DFL);
+    return handler == reinterpret_cast<sighandler>(kHandlerDefault);
+  }
+
+  [[nodiscard]] bool is_ignored(int signo) const {
+    if (handler == reinterpret_cast<sighandler>(kHandlerIgnore)) return true;
+
+    return is_default() && CheckSignalInMask(signo, kSigDefaultIgnore);
   }
 };
 
 namespace detail {
 
 struct signal_entry {
-  struct k_sigaction saction;
+  k_sigaction saction;
 };
 
 struct pending_signal {
@@ -77,21 +95,21 @@ class ThreadSignalHandler {
   ThreadSignalHandler() = default;
   ~ThreadSignalHandler() = default;
 
-  void set_sig_pending(int signo) { pending_ |= SIGMASK(signo); }
-  void set_sig_blocked(int signo) { blocked_ |= SIGMASK(signo); }
-  void clear_sig_pending(int signo) { pending_ &= ~SIGMASK(signo); }
-  void clear_sig_blocked(int signo) { blocked_ &= ~SIGMASK(signo); }
+  void set_sig_pending(int signo) { pending_ |= SigMaskFromSigno(signo); }
+  void set_sig_blocked(int signo) { blocked_ |= SigMaskFromSigno(signo); }
+  void clear_sig_pending(int signo) { pending_ &= ~SigMaskFromSigno(signo); }
+  void clear_sig_blocked(int signo) { blocked_ &= ~SigMaskFromSigno(signo); }
 
   [[nodiscard]] bool any_sig_pending() const {
-    return (pending_ & ~blocked_) > 0;
+    return (access_once(pending_) & ~(access_once(blocked_))) > 0;
   }
 
   [[nodiscard]] bool is_sig_pending(int signo) const {
-    return SIGINMASK(signo, pending_);
+    return CheckSignalInMask(signo, pending_);
   }
 
   [[nodiscard]] bool is_sig_blocked(int signo) const {
-    return SIGINMASK(signo, blocked_);
+    return CheckSignalInMask(signo, access_once(blocked_));
   }
 
   [[nodiscard]] bool has_altstack() const {
@@ -108,53 +126,41 @@ class ThreadSignalHandler {
     if (ss) sigaltstack_ = *ss;
   }
 
+  // Update blocked signal mask
   Status<void> SigProcMask(int how, const unsigned long *nset,
-                           unsigned long *oset) {
-    if (oset) *oset = blocked_;
-    if (!nset) return {};
+                           unsigned long *oset);
 
-    switch (how) {
-      case SIG_BLOCK:
-        blocked_ |= *nset;
-        break;
-      case SIG_UNBLOCK:
-        blocked_ ^= *nset;
-        break;
-      case SIG_SETMASK:
-        blocked_ = *nset;
-        break;
-      default:
-        return MakeError(EINVAL);
-    }
-    return {};
-  }
+  // Add a queued signal. Returns true if signal is queued and not blocked.
+  bool EnqueueSignal(int signo, siginfo_t *info);
 
-  [[nodiscard]] bool check_signal_ignored(int signo,
-                                          struct k_sigaction &sa) const {
-    // is it a legacy signal that is already enqueued?
-    if (signo < kSigRtMin && is_sig_pending(signo)) return true;
+  // Called by this thread when in syscall context to run any pending signals
+  void RunPending();
 
-    // is the handler set to SIG_IGN?
-    if (sa.is_ignored()) return true;
+  // Entry point for a kernel delivered signal.
+  void DeliverKernelSigToUser(int signo, siginfo_t *info, k_sigframe *sigframe);
 
-    // if handler is SIG_DFL, is the default action to ignore?
-    return sa.is_default() && SIGINMASK(signo, kSigDefaultIgnore);
-  }
-
-  [[nodiscard]] bool check_signal_crash(int signo,
-                                        struct k_sigaction &sa) const {
-    return sa.is_default() && SIGINMASK(signo, kSigDefaultCrash);
-  }
-
-  void EnqueueSignal(int signo, siginfo_t *info);
-
+  // Replace set of blocked signals with @blocked
   void UpdateBlocked(unsigned long blocked) { blocked_ = blocked; }
 
  private:
-  std::deque<detail::pending_signal> pending_q_;
+  rt::Spin lock_;  // protects @pending_q_, @pending_
+  std::list<detail::pending_signal> pending_q_;
   unsigned long pending_{0};
   unsigned long blocked_{0};
   stack_t sigaltstack_{nullptr, SS_DISABLE, 0};
+
+  // Check if signal can be delivered, and returns the action if so.
+  // May modifies the sigaction if it is set to SA_ONESHOT
+  std::optional<k_sigaction> GetAction(int signo);
+
+  // Pop next queued signal from pending_q_
+  siginfo_t PopNextSignal();
+
+  // Update a Linux sigframe with correct altstack, blocked mask, and restorer
+  void TransformSigFrame(k_sigframe &sigframe, const k_sigaction &act) const;
+
+  // Setup a function call for a queued signal's handler
+  void DeliverQueuedSigToUser(siginfo_t *info, k_sigaction &act);
 };
 
 class SignalTable {
@@ -162,12 +168,12 @@ class SignalTable {
   SignalTable() : table_(){};
   ~SignalTable() = default;
 
-  [[nodiscard]] struct k_sigaction get_action(int sig) {
-    assert(sig > 0 && sig < kNumSignals);
+  [[nodiscard]] k_sigaction get_action(int sig) {
+    assert(sig > 0 && sig <= kNumSignals);
 
     // Try to read action without acquiring a lock
     unsigned long sgen = signal_tbl_gen_.load(std::memory_order_acquire);
-    struct k_sigaction act = table_[sig].saction;
+    k_sigaction act = table_[sig].saction;
     unsigned long fgen = signal_tbl_gen_.load();
     if (likely(sgen % 2 == 0 && sgen == fgen)) return act;
 
@@ -175,9 +181,20 @@ class SignalTable {
     return table_[sig].saction;
   }
 
-  void set_action(int sig, const struct k_sigaction *sa,
-                  struct k_sigaction *osa) {
-    assert(sig > 0 && sig < kNumSignals);
+  std::optional<k_sigaction> atomic_reset_oneshot(int signo) {
+    rt::SpinGuard g(lock_);
+
+    k_sigaction sig = table_[signo].saction;
+    if (!sig.is_default() && sig.is_oneshot()) {
+      table_[signo].saction.handler =
+          reinterpret_cast<sighandler>(kHandlerDefault);
+      return sig;
+    }
+    return {};
+  }
+
+  void set_action(int sig, const k_sigaction *sa, k_sigaction *osa) {
+    assert(sig > 0 && sig <= kNumSignals);
     rt::SpinGuard g(lock_);
     if (osa) *osa = table_[sig].saction;
     if (sa) {
@@ -186,6 +203,8 @@ class SignalTable {
       table_[sig].saction = *sa;
       signal_tbl_gen_.store(signal_tbl_gen_ + 1);
     }
+
+    // TODO: setting an action SIG_IGN should flush any pending signals
   }
 
  private:

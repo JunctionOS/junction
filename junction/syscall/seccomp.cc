@@ -113,8 +113,8 @@ asm(R"(
     jmp syscall_rt_sigreturn
 )");
 
-extern "C" __attribute__((__optimize__("-fno-stack-protector"))) void
-__signal_handler(int nr, siginfo_t *info, void *void_context) {
+extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
+                                                  void *void_context) {
   k_ucontext *ctx = reinterpret_cast<k_ucontext *>(void_context);
   k_sigframe *sigframe = container_of(ctx, k_sigframe, uc);
 
@@ -208,7 +208,7 @@ __signal_handler(int nr, siginfo_t *info, void *void_context) {
         "d"(ctx->uc_mcontext.rdx), "c"(ctx->uc_mcontext.r10)
       : "%r8", "%r9", "memory");
 
-  __builtin_unreachable();
+  std::unreachable();
 }
 
 Status<void> _install_signal_handler() {
@@ -216,7 +216,7 @@ Status<void> _install_signal_handler() {
 
   if (sigemptyset(&act.sa_mask) != 0) return MakeError(-errno);
 
-  act.sa_sigaction = &__signal_handler;
+  act.sa_sigaction = &syscall_trap_handler;
   act.sa_flags = SA_SIGINFO | SA_NODEFER | SA_ONSTACK;
 
   if (base_sigaction(SIGSYS, &act, NULL) < 0) {

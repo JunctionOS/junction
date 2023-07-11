@@ -156,19 +156,6 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
 
 rt::WaitGroup Process::all_procs;
 
-void Thread::HandleInterrupt() {
-  assert(thread_self() == GetCaladanThread());
-
-  rt::SpinGuard g(lock_);
-  if (unlikely(myproc().exited())) {
-    lock_.Unlock();
-    usys_exit(0);
-    __builtin_unreachable();
-  }
-
-  // TODO: deliver signals
-}
-
 Thread::~Thread() {
   uint32_t *child_tid = get_child_tid();
   if (child_tid) {
@@ -272,7 +259,7 @@ void Process::DoExit(int status) {
   exited_ = true;
   xstate_ = status;
   barrier();
-  for (const auto &[pid, th] : thread_map_) th->Interrupt();
+  for (const auto &[pid, th] : thread_map_) th->Kill();
   FutexTable::GetFutexTable().CleanupProcess(this);
 }
 

@@ -47,7 +47,7 @@ class Thread {
   [[nodiscard]] Process &get_process() const { return *proc_; }
   [[nodiscard]] uint32_t *get_child_tid() const { return child_tid_; }
   [[nodiscard]] bool needs_interrupt() const {
-    return interrupt_pending_.load(std::memory_order_acquire);
+    return sighand_.any_sig_pending();
   }
   [[nodiscard]] bool in_syscall() const {
     return in_syscall_.load(std::memory_order_acquire);
@@ -74,25 +74,29 @@ class Thread {
     in_syscall_ = false;
   }
 
-  // Interrupt this thread.
-  void Interrupt() {
-    rt::SpinGuard g(lock_);
-    interrupt_pending_ = true;
-
-    // TODO: IPI, if needed
+  void Kill() {
+    siginfo_t info;
+    info.si_signo = SIGKILL;
+    if (sighand_.EnqueueSignal(SIGKILL, &info)) SendIpi();
   }
 
+  // TODO!
+  void SendIpi(){};
+
   // Called by a thread to run pending interrupts.
-  void HandleInterrupt();
+  void HandleInterrupt() {
+    assert(thread_self() == GetCaladanThread());
+    sighand_.RunPending();
+  }
+
+  friend class ThreadSignalHandler;
 
  private:
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   uint32_t *child_tid_;            // Used for clone3/exit
   const pid_t tid_;                // the thread identifier
-  rt::Spin lock_;                  // protects interrupt_pending_
   std::atomic_bool in_syscall_;
-  std::atomic_bool interrupt_pending_;  // has a pending signal
-  int xstate_;                          // exit state
+  int xstate_;  // exit state
   ThreadSignalHandler sighand_;
 };
 
@@ -157,6 +161,20 @@ class Process : public std::enable_shared_from_this<Process> {
   void DoExit(int status);
 
   static void WaitAll() { all_procs.Wait(); }
+
+  Status<void> SignalThread(pid_t tid, int signo) {
+    siginfo_t si;
+    si.si_signo = signo;
+
+    rt::SpinGuard g(thread_map_lock_);
+
+    auto it = thread_map_.find(tid);
+    if (it == thread_map_.end()) return MakeError(ESRCH);
+
+    Thread &th = *it->second;
+    if (th.get_sighand().EnqueueSignal(signo, &si)) th.SendIpi();
+    return {};
+  }
 
  private:
   const pid_t pid_;     // the process identifier

@@ -62,8 +62,8 @@ extern "C" void DeliverCaladanSignal(void) {
 }
 
 // Signal handler for IOKernel sent signals (SIGUSR1 + SIGUSR2)
-extern "C" __attribute__((__optimize__("-fno-stack-protector"))) void
-caladan_signal_handler(int signo, siginfo_t *info, void *context) {
+extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
+                                                    void *context) {
   STAT(PREEMPTIONS)++;
 
   /* resume execution if preemption is disabled */
@@ -82,20 +82,11 @@ caladan_signal_handler(int signo, siginfo_t *info, void *context) {
   jmp_runtime_nosave(DeliverCaladanSignal);
 }
 
-// Trampoline to kernel's rt_sigreturn, places the sigframe at rsp where kernel
-// expects it
-extern "C" [[noreturn]] void jmp_rt_sigreturn(uint64_t rsp);
-asm(R"(
-    .globl jmp_rt_sigreturn
-    .type jmp_rt_sigreturn, @function
-    jmp_rt_sigreturn:
-
-    movq %rdi, %rsp
-    jmp syscall_rt_sigreturn
-)");
-
-// Unwind a sigframe from a Junction process's thread
-extern "C" long usys_rt_sigreturn(uint64_t rsp) {
+// Unwind a sigframe from a Junction process's thread.
+// Note Linux's rt_sigreturn expects the sigframe to be on the stack.
+// Our rt_sigreturn assembly target switches stacks and calls this function with
+// the old rsp as an argument.
+extern "C" [[noreturn]] void usys_rt_sigreturn(uint64_t rsp) {
   k_sigframe *sigframe = reinterpret_cast<k_sigframe *>(rsp - 8);
   ThreadSignalHandler &hand = mythread().get_sighand();
 
@@ -111,56 +102,81 @@ extern "C" long usys_rt_sigreturn(uint64_t rsp) {
   sigframe->InvalidateAltStack();
   sigframe->uc.mask = 0;
 
-  jmp_rt_sigreturn(rsp);
+  // switch stack back to rsp and jmp to the real rt_sigreturn
+  asm volatile(
+      "movq %0, %%rsp\n\t"
+      "jmp syscall_rt_sigreturn"
+      :
+      : "r"(rsp)
+      : "memory");
+
+  std::unreachable();
 }
 
 // Sigframes delivered to Junction procs need some fields replaced
-void TransformSigFrame(k_sigframe &sigframe, const k_sigaction &act,
-                       const ThreadSignalHandler &hand) {
+void ThreadSignalHandler::TransformSigFrame(k_sigframe &sigframe,
+                                            const k_sigaction &act) const {
   // fix restorer
   sigframe.pretcode = reinterpret_cast<char *>(act.restorer);
 
   // fix blocked signal mask
-  sigframe.uc.mask = hand.get_blocked_mask();
+  sigframe.uc.mask = get_blocked_mask();
 
   // fix altstack
-  sigframe.uc.uc_stack = hand.get_altstack();
+  sigframe.uc.uc_stack = get_altstack();
 }
 
-extern "C" [[noreturn]] void jmp_sighandler(int signo, siginfo_t *info,
-                                            k_ucontext *uc, uint64_t rsp,
-                                            uint64_t rip);
-asm(R"(
-    .globl jmp_sighandler
-    .type jmp_sighandler, @function
-    jmp_sighandler:
-
-    movq %rcx, %rsp
-    jmpq    *%r8
-)");
-
-bool DeliverUserSignal(int signo, siginfo_t *info, k_sigframe *sigframe) {
-  ThreadSignalHandler &hand = mythread().get_sighand();
+std::optional<k_sigaction> ThreadSignalHandler::GetAction(int signo) {
   k_sigaction act = myproc().get_signal_table().get_action(signo);
 
-  if (hand.check_signal_ignored(signo, act)) return false;
+  // is it a legacy signal that is already enqueued?
+  if (signo < kSigRtMin && is_sig_pending(signo)) return std::nullopt;
+
+  // is the handler set to SIG_IGN?
+  if (act.is_ignored(signo)) return std::nullopt;
 
   // TODO: better crash?
-  if (hand.check_signal_crash(signo, act)) panic("program got fatal signal");
+  if (act.is_default() && CheckSignalInMask(signo, kSigDefaultCrash))
+    panic("program got fatal signal");
 
-  if (hand.is_sig_blocked(signo)) {
-    hand.EnqueueSignal(signo, info);
-    return false;
+  if (act.is_oneshot()) {
+    std::optional<k_sigaction> tmp =
+        myproc().get_signal_table().atomic_reset_oneshot(signo);
+    if (!tmp) return std::nullopt;
+    act = *tmp;
   }
 
-  // signal delivered via non-kernel-sigaction
-  if (sigframe == nullptr) return true;
+  return act;
+}
+
+void ThreadSignalHandler::DeliverQueuedSigToUser(siginfo_t *info,
+                                                 k_sigaction &act) {
+  mythread().in_syscall_ = false;
+
+  // For now, we cheat and just invoke the signal handler on this stack.
+  // Try passing a nullptr for context and see if anyone cares!
+  act.handler(info->si_signo, info, nullptr);
+
+  mythread().in_syscall_ = true;
+}
+
+void ThreadSignalHandler::DeliverKernelSigToUser(int signo, siginfo_t *info,
+                                                 k_sigframe *sigframe) {
+  if (is_sig_blocked(signo)) {
+    EnqueueSignal(signo, info);
+    return;
+  }
+
+  std::optional<k_sigaction> tmp = GetAction(signo);
+  if (!tmp) return;
+
+  k_sigaction &act = *tmp;
 
   // Determine stack to use
   uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
   bool switched_to_altstack = false;
-  const stack_t &ss = hand.get_altstack();
-  if (act.wants_altstack() && hand.has_altstack() && !IsOnStack(rsp, ss)) {
+  const stack_t &ss = get_altstack();
+  if (act.wants_altstack() && has_altstack() && !IsOnStack(rsp, ss)) {
     switched_to_altstack = true;
     rsp = reinterpret_cast<uint64_t>(ss.ss_sp) + ss.ss_size;
   }
@@ -169,25 +185,32 @@ bool DeliverUserSignal(int signo, siginfo_t *info, k_sigframe *sigframe) {
   k_sigframe *new_frame = sigframe->CopyToStack(rsp);
 
   // fixup the frame
-  TransformSigFrame(*new_frame, act, hand);
+  TransformSigFrame(*new_frame, act);
 
   // disarm sigstack if needed
-  if (switched_to_altstack && ss.ss_flags & kSigStackAutoDisarm)
-    hand.DisableAltStack();
+  if (switched_to_altstack && (ss.ss_flags & kSigStackAutoDisarm))
+    DisableAltStack();
 
   // mask signals
-  if (!act.is_nodefer()) hand.set_sig_blocked(signo);
+  if (!act.is_nodefer()) set_sig_blocked(signo);
 
-  jmp_sighandler(signo, &new_frame->info, &new_frame->uc,
-                 reinterpret_cast<uint64_t>(new_frame),
-                 reinterpret_cast<uint64_t>(act.handler));
-  __builtin_unreachable();
+  // switch stacks and call sighandler
+  asm volatile(
+      "movq %0, %%rsp\n\t"
+      "jmpq *%1"
+      :
+      : "r"(new_frame), "r"(act.handler), "D"(signo), "S"(&new_frame->info),
+        "d"(&new_frame->uc)
+      : "memory");
+
+  std::unreachable();
 }
 
 // Signal handler for synchronous fault signals generated by user code. We
 // don't expect there to be recursive signals.
-extern "C" __attribute__((__optimize__("-fno-stack-protector"))) void
-synchronous_signal_handler(int signo, siginfo_t *info, void *context) {
+extern "C" __sighandler void synchronous_signal_handler(int signo,
+                                                        siginfo_t *info,
+                                                        void *context) {
   k_ucontext *uc = reinterpret_cast<k_ucontext *>(context);
   k_sigframe *sigframe = container_of(uc, k_sigframe, uc);
 
@@ -205,17 +228,78 @@ synchronous_signal_handler(int signo, siginfo_t *info, void *context) {
 
   if (unlikely(!context)) return;
 
-  DeliverUserSignal(signo, info, sigframe);
+  mythread().get_sighand().DeliverKernelSigToUser(signo, info, sigframe);
 }
 
-void ThreadSignalHandler::EnqueueSignal(int signo, siginfo_t *info) {
-  if (unlikely(pending_q_.size() >= kMaxQueuedRT)) {
+bool ThreadSignalHandler::EnqueueSignal(int signo, siginfo_t *info) {
+  rt::SpinGuard g(lock_);
+
+  if (unlikely(pending_q_.size() >= kMaxQueuedRT) && signo >= kSigRtMin) {
     LOG_ONCE(ERR) << "Dropping RT signals";
-    return;
+    return false;
   }
 
+  assert(info->si_signo == signo);
   pending_q_.emplace_back(*info);
   set_sig_pending(signo);
+
+  return !is_sig_blocked(signo);
+}
+
+siginfo_t ThreadSignalHandler::PopNextSignal() {
+  assert(lock_.IsHeld());
+
+  if (unlikely(is_sig_pending(SIGKILL))) {
+    lock_.Unlock();
+    usys_exit(0);
+    std::unreachable();
+  }
+
+  int signo = __builtin_ffsl(pending_ & ~blocked_);
+  BUG_ON(signo <= 0);
+
+  siginfo_t si;
+  si.si_signo = 0;
+  bool multiple = false;
+
+  for (auto p = pending_q_.begin(); p != pending_q_.end();) {
+    if (p->sig.si_signo != signo) {
+      p++;
+      continue;
+    }
+
+    if (si.si_signo) {
+      multiple = true;
+      break;
+    }
+
+    si = p->sig;
+    p = pending_q_.erase(p);
+  }
+
+  BUG_ON(!si.si_signo);
+  if (!multiple) clear_sig_pending(signo);
+  return si;
+}
+
+void ThreadSignalHandler::RunPending() {
+  std::optional<k_sigaction> act;
+  siginfo_t sig;
+
+  unsigned long prev_blocked;
+
+  while (any_sig_pending()) {
+    {
+      rt::SpinGuard g(lock_);
+      sig = PopNextSignal();
+      act = GetAction(sig.si_signo);
+      if (!act) continue;
+      prev_blocked = blocked_;
+      if (act->is_nodefer()) set_sig_blocked(sig.si_signo);
+    }
+    DeliverQueuedSigToUser(&sig, *act);
+    UpdateBlocked(prev_blocked);
+  }
 }
 
 long usys_rt_sigaction(int sig, const struct k_sigaction *action,
@@ -223,6 +307,28 @@ long usys_rt_sigaction(int sig, const struct k_sigaction *action,
   if (unlikely(sigsetsize != kSigSetSizeBytes)) return -EINVAL;
   myproc().get_signal_table().set_action(sig, action, oact);
   return 0;
+}
+
+Status<void> ThreadSignalHandler::SigProcMask(int how,
+                                              const unsigned long *nset,
+                                              unsigned long *oset) {
+  if (oset) *oset = blocked_;
+  if (!nset) return {};
+
+  switch (how) {
+    case SIG_BLOCK:
+      blocked_ |= *nset;
+      break;
+    case SIG_UNBLOCK:
+      blocked_ ^= *nset;
+      break;
+    case SIG_SETMASK:
+      blocked_ = *nset;
+      break;
+    default:
+      return MakeError(EINVAL);
+  }
+  return {};
 }
 
 long usys_rt_sigprocmask(int how, const sigset_t *nset, sigset_t *oset,
@@ -240,6 +346,14 @@ long usys_sigaltstack(const stack_t *ss, stack_t *old_ss) {
   return 0;
 }
 
+long usys_tgkill(pid_t tgid, pid_t tid, int sig)
+{
+  if (tgid != myproc().get_pid()) return -EPERM;
+  Status<void> ret = myproc().SignalThread(tid, sig);
+  if (unlikely(!ret)) return MakeCError(ret);
+  return 0;
+}
+
 Status<void> InitSignal() {
   struct sigaction act;
 
@@ -249,7 +363,7 @@ Status<void> InitSignal() {
   act.sa_flags = SA_ONSTACK | SA_SIGINFO | SA_NODEFER;
 
   for (size_t sig = 1; sig <= 31; sig++) {
-    if (!SIGINMASK(sig, kSigSynchronous)) continue;
+    if (!CheckSignalInMask(sig, kSigSynchronous)) continue;
 
     if (unlikely(base_sigaction(sig, &act, nullptr) != 0))
       return MakeError(errno);

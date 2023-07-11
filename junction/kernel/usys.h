@@ -115,8 +115,8 @@ int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
 pid_t usys_getpid();
 pid_t usys_gettid();
 pid_t usys_set_tid_address(int *tidptr);
-void usys_exit_group(int status);
-void usys_exit(int status);
+[[noreturn]] void usys_exit_group(int status);
+[[noreturn]] void usys_exit(int status);
 int usys_arch_prctl(int code, unsigned long addr);
 long usys_clone(unsigned long clone_flags, unsigned long newsp,
                 uintptr_t parent_tidptr, uintptr_t child_tidptr,
@@ -159,6 +159,7 @@ long usys_rt_sigaction(int sig, const struct k_sigaction *action,
 long usys_rt_sigprocmask(int how, const sigset_t *nset, sigset_t *oset,
                          size_t sigsetsize);
 long usys_sigaltstack(const stack_t *ss, stack_t *old_ss);
+long usys_tgkill(pid_t tgid, pid_t tid, int sig);
 
 // Eventfd
 long usys_eventfd2(unsigned int initval, int flags);

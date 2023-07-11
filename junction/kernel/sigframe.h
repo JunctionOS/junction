@@ -7,6 +7,8 @@ extern "C" {
 
 #include <cstdint>
 
+#define __sighandler __attribute__((__optimize__("-fno-stack-protector")))
+
 inline constexpr uint64_t kUCFpXstate = 0x1;
 inline constexpr uint32_t kFpXstateMagic1 = 0x46505853U;
 inline constexpr uint32_t kFpXstateMagic2 = 0x46505845U;
