@@ -87,6 +87,8 @@ rt_sigprocmask
 rt_sigreturn
 sigaltstack
 tgkill
+rt_tgsigqueueinfo
+rt_sigpending
 sched_getaffinity
 eventfd
 eventfd2

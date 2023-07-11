@@ -348,9 +348,28 @@ long usys_sigaltstack(const stack_t *ss, stack_t *old_ss) {
 
 long usys_tgkill(pid_t tgid, pid_t tid, int sig)
 {
+  // TODO: support interprocess signals if needed
   if (tgid != myproc().get_pid()) return -EPERM;
   Status<void> ret = myproc().SignalThread(tid, sig);
   if (unlikely(!ret)) return MakeCError(ret);
+  return 0;
+}
+
+long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info)
+{
+  // TODO: support interprocess signals if needed
+  if (tgid != myproc().get_pid()) return -EPERM;
+  info->si_signo = sig;
+  Status<void> ret = myproc().SignalThread(tid, sig, info);
+  if (unlikely(!ret)) return MakeCError(ret);
+  return 0;
+}
+
+long usys_rt_sigpending(sigset_t *sig, size_t sigsetsize)
+{
+  if (unlikely(sigsetsize != kSigSetSizeBytes)) return -EINVAL;
+  kernel_sigset_t blocked_pending = mythread().get_sighand().get_blocked_pending();
+  *reinterpret_cast<kernel_sigset_t *>(sig) = blocked_pending;
   return 0;
 }
 

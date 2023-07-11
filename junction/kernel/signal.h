@@ -119,6 +119,10 @@ class ThreadSignalHandler {
   [[nodiscard]] const stack_t &get_altstack() const { return sigaltstack_; }
   [[nodiscard]] unsigned long get_blocked_mask() const { return blocked_; }
 
+  [[nodiscard]] unsigned long get_blocked_pending() const {
+    return access_once(pending_) & blocked_;
+  }
+
   void DisableAltStack() { sigaltstack_.ss_flags = SS_DISABLE; }
 
   void SigAltStack(const stack_t *ss, stack_t *old_ss) {

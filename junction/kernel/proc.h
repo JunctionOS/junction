@@ -162,18 +162,21 @@ class Process : public std::enable_shared_from_this<Process> {
 
   static void WaitAll() { all_procs.Wait(); }
 
-  Status<void> SignalThread(pid_t tid, int signo) {
-    siginfo_t si;
-    si.si_signo = signo;
-
+  Status<void> SignalThread(pid_t tid, int signo, siginfo_t *si) {
     rt::SpinGuard g(thread_map_lock_);
 
     auto it = thread_map_.find(tid);
     if (it == thread_map_.end()) return MakeError(ESRCH);
 
     Thread &th = *it->second;
-    if (th.get_sighand().EnqueueSignal(signo, &si)) th.SendIpi();
+    if (th.get_sighand().EnqueueSignal(signo, si)) th.SendIpi();
     return {};
+  }
+
+  Status<void> SignalThread(pid_t tid, int signo) {
+    siginfo_t si;
+    si.si_signo = signo;
+    return SignalThread(tid, signo, &si);
   }
 
  private:

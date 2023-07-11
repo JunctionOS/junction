@@ -160,6 +160,8 @@ long usys_rt_sigprocmask(int how, const sigset_t *nset, sigset_t *oset,
                          size_t sigsetsize);
 long usys_sigaltstack(const stack_t *ss, stack_t *old_ss);
 long usys_tgkill(pid_t tgid, pid_t tid, int sig);
+long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info);
+long usys_rt_sigpending(sigset_t *sig, size_t sigsetsize);
 
 // Eventfd
 long usys_eventfd2(unsigned int initval, int flags);
