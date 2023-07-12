@@ -14,6 +14,7 @@ add_custom_command(
 add_library(syscall
   syscall.cc
   seccomp.cc
+  strace.cc
   syscall_tbl.cc
   entry.S
 )
