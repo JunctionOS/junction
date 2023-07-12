@@ -44,4 +44,6 @@ void LogSyscall(std::string_view name, Args... args) {
   LOG(INFO) << ss.str();
 }
 
+void LogSignal(const siginfo_t &info);
+
 }  // namespace junction

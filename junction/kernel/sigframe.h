@@ -92,7 +92,7 @@ struct k_ucontext {
   struct ucontext *uc_link;
   stack_t uc_stack;
   struct sigcontext uc_mcontext;
-  unsigned int mask; /* mask last for extensibility */
+  unsigned long mask; /* mask last for extensibility */
 };
 
 struct k_sigframe {

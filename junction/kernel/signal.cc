@@ -93,7 +93,7 @@ extern "C" [[noreturn]] void usys_rt_sigreturn(uint64_t rsp) {
   if (unlikely(GetCfg().strace_enabled())) LogSyscall("rt_sigreturn");
 
   // set blocked
-  hand.UpdateBlocked(sigframe->uc.mask);
+  hand.SigProcMask(SIG_SETMASK, &sigframe->uc.mask, nullptr);
 
   // update altstack
   hand.SigAltStack(&sigframe->uc.uc_stack, nullptr);
@@ -151,6 +151,8 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int signo) {
 
 void ThreadSignalHandler::DeliverQueuedSigToUser(siginfo_t *info,
                                                  k_sigaction &act) {
+  if (unlikely(GetCfg().strace_enabled())) LogSignal(*info);
+
   mythread().in_syscall_ = false;
 
   // For now, we cheat and just invoke the signal handler on this stack.
@@ -192,7 +194,9 @@ void ThreadSignalHandler::DeliverKernelSigToUser(int signo, siginfo_t *info,
     DisableAltStack();
 
   // mask signals
-  if (!act.is_nodefer()) set_sig_blocked(signo);
+  SigProcMask(SIG_BLOCK, &act.sa_mask, nullptr);
+
+  if (unlikely(GetCfg().strace_enabled())) LogSignal(*info);
 
   // switch stacks and call sighandler
   asm volatile(
@@ -295,10 +299,10 @@ void ThreadSignalHandler::RunPending() {
       act = GetAction(sig.si_signo);
       if (!act) continue;
       prev_blocked = blocked_;
-      if (act->is_nodefer()) set_sig_blocked(sig.si_signo);
+      SigProcMask(SIG_BLOCK, &act->sa_mask, nullptr);
     }
     DeliverQueuedSigToUser(&sig, *act);
-    UpdateBlocked(prev_blocked);
+    SigProcMask(SIG_SETMASK, &prev_blocked, nullptr);
   }
 }
 
@@ -307,28 +311,6 @@ long usys_rt_sigaction(int sig, const struct k_sigaction *action,
   if (unlikely(sigsetsize != kSigSetSizeBytes)) return -EINVAL;
   myproc().get_signal_table().set_action(sig, action, oact);
   return 0;
-}
-
-Status<void> ThreadSignalHandler::SigProcMask(int how,
-                                              const unsigned long *nset,
-                                              unsigned long *oset) {
-  if (oset) *oset = blocked_;
-  if (!nset) return {};
-
-  switch (how) {
-    case SIG_BLOCK:
-      blocked_ |= *nset;
-      break;
-    case SIG_UNBLOCK:
-      blocked_ ^= *nset;
-      break;
-    case SIG_SETMASK:
-      blocked_ = *nset;
-      break;
-    default:
-      return MakeError(EINVAL);
-  }
-  return {};
 }
 
 long usys_rt_sigprocmask(int how, const sigset_t *nset, sigset_t *oset,
@@ -346,8 +328,7 @@ long usys_sigaltstack(const stack_t *ss, stack_t *old_ss) {
   return 0;
 }
 
-long usys_tgkill(pid_t tgid, pid_t tid, int sig)
-{
+long usys_tgkill(pid_t tgid, pid_t tid, int sig) {
   // TODO: support interprocess signals if needed
   if (tgid != myproc().get_pid()) return -EPERM;
   Status<void> ret = myproc().SignalThread(tid, sig);
@@ -355,8 +336,7 @@ long usys_tgkill(pid_t tgid, pid_t tid, int sig)
   return 0;
 }
 
-long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info)
-{
+long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info) {
   // TODO: support interprocess signals if needed
   if (tgid != myproc().get_pid()) return -EPERM;
   info->si_signo = sig;
@@ -365,10 +345,10 @@ long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info)
   return 0;
 }
 
-long usys_rt_sigpending(sigset_t *sig, size_t sigsetsize)
-{
+long usys_rt_sigpending(sigset_t *sig, size_t sigsetsize) {
   if (unlikely(sigsetsize != kSigSetSizeBytes)) return -EINVAL;
-  kernel_sigset_t blocked_pending = mythread().get_sighand().get_blocked_pending();
+  kernel_sigset_t blocked_pending =
+      mythread().get_sighand().get_blocked_pending();
   *reinterpret_cast<kernel_sigset_t *>(sig) = blocked_pending;
   return 0;
 }

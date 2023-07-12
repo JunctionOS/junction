@@ -131,8 +131,27 @@ class ThreadSignalHandler {
   }
 
   // Update blocked signal mask
-  Status<void> SigProcMask(int how, const unsigned long *nset,
-                           unsigned long *oset);
+  inline Status<void> SigProcMask(int how, const unsigned long *nset,
+                                  unsigned long *oset) {
+    if (oset) *oset = blocked_;
+    if (!nset) return {};
+
+    switch (how) {
+      case SIG_BLOCK:
+        blocked_ |= *nset;
+        break;
+      case SIG_UNBLOCK:
+        blocked_ &= ~(*nset);
+        break;
+      case SIG_SETMASK:
+        blocked_ = *nset;
+        break;
+      default:
+        return MakeError(EINVAL);
+    }
+
+    return {};
+  }
 
   // Add a queued signal. Returns true if signal is queued and not blocked.
   bool EnqueueSignal(int signo, siginfo_t *info);
@@ -142,9 +161,6 @@ class ThreadSignalHandler {
 
   // Entry point for a kernel delivered signal.
   void DeliverKernelSigToUser(int signo, siginfo_t *info, k_sigframe *sigframe);
-
-  // Replace set of blocked signals with @blocked
-  void UpdateBlocked(unsigned long blocked) { blocked_ = blocked; }
 
  private:
   rt::Spin lock_;  // protects @pending_q_, @pending_
@@ -205,6 +221,9 @@ class SignalTable {
       // Ensure a concurrent reader can detect a partially updated struct
       signal_tbl_gen_.store(signal_tbl_gen_ + 1);
       table_[sig].saction = *sa;
+      // If signal is not marked as nodefer, make sure its mask includes sig
+      if (!sa->is_nodefer())
+        table_[sig].saction.sa_mask |= SigMaskFromSigno(sig);
       signal_tbl_gen_.store(signal_tbl_gen_ + 1);
     }
 
