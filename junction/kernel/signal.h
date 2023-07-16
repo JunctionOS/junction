@@ -8,10 +8,11 @@ extern "C" {
 
 #include <list>
 
+#include "junction/kernel/sigframe.h"
+
 namespace junction {
 
 class Thread;
-struct k_sigframe;
 
 typedef unsigned long kernel_sigset_t;
 typedef void (*sighandler)(int, siginfo_t *info, void *uc);
@@ -123,12 +124,12 @@ class ThreadSignalHandler {
     return access_once(pending_) & blocked_;
   }
 
-  void DisableAltStack() { sigaltstack_.ss_flags = SS_DISABLE; }
-
-  void SigAltStack(const stack_t *ss, stack_t *old_ss) {
-    if (old_ss) *old_ss = sigaltstack_;
-    if (ss) sigaltstack_ = *ss;
+  void DisableAltStack() {
+    sigaltstack_.ss_flags = SS_DISABLE;
+    thread_self()->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
   }
+
+  Status<void> SigAltStack(const stack_t *ss, stack_t *old_ss);
 
   // Update blocked signal mask
   inline Status<void> SigProcMask(int how, const unsigned long *nset,
@@ -157,7 +158,9 @@ class ThreadSignalHandler {
   bool EnqueueSignal(int signo, siginfo_t *info);
 
   // Called by this thread when in syscall context to run any pending signals
-  void RunPending();
+  // rax is provided if this is called after a syscall finishes before returning
+  // to userspace. This function may not return.
+  void RunPending(std::optional<long> rax);
 
   // Entry point for a kernel delivered signal.
   void DeliverKernelSigToUser(int signo, siginfo_t *info, k_sigframe *sigframe);
@@ -178,9 +181,6 @@ class ThreadSignalHandler {
 
   // Update a Linux sigframe with correct altstack, blocked mask, and restorer
   void TransformSigFrame(k_sigframe &sigframe, const k_sigaction &act) const;
-
-  // Setup a function call for a queued signal's handler
-  void DeliverQueuedSigToUser(siginfo_t *info, k_sigaction &act);
 };
 
 class SignalTable {
@@ -237,5 +237,6 @@ class SignalTable {
 };
 
 Status<void> InitSignal();
+extern "C" [[noreturn]] void usys_rt_sigreturn(uint64_t rsp);
 
 }  // namespace junction

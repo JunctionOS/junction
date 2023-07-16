@@ -118,8 +118,15 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
   k_ucontext *ctx = reinterpret_cast<k_ucontext *>(void_context);
   k_sigframe *sigframe = container_of(ctx, k_sigframe, uc);
 
-  if (unlikely(info->si_code != SYS_SECCOMP)) return;
-  if (unlikely(!ctx)) return;
+  if (unlikely(info->si_code != SYS_SECCOMP)) {
+    log_syscall_msg("Unexpected signal delivered to syscall handler", 0);
+    syscall_exit(-1);
+  }
+
+  if (unlikely(!ctx)) {
+    log_syscall_msg("Missing context in syscall handler", 0);
+    syscall_exit(-1);
+  }
 
   long sysn = static_cast<long>(ctx->uc_mcontext.rax);
 
@@ -134,6 +141,9 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
     ctx->uc_mcontext.rax = static_cast<unsigned long>(res);
     return;
   }
+
+  preempt_disable();
+  assert_on_runtime_stack();
 
   if (unlikely(!thread_self())) {
     log_syscall_msg("Unexpected syscall from Caladan", sysn);
@@ -151,15 +161,26 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
   // signal frame, since rt_sigreturn is doing a full restore of a different
   // signal frame.
   if (sysn == SYS_rt_sigreturn) {
-    ctx->uc_mcontext.rip = reinterpret_cast<uint64_t>(usys_rt_sigreturn_enter);
-    return;
+    usys_rt_sigreturn(ctx->uc_mcontext.rsp);
+    std::unreachable();
   }
 
-  // Transfer the signal to the syscall stack
-  uint64_t *rsp = &thread_self()->syscallstack->usable[STACK_PTR_SIZE];
-  k_sigframe *new_frame =
-      sigframe->CopyToStack(reinterpret_cast<uint64_t>(rsp));
+  uint64_t rsp = ctx->uc_mcontext.rsp - 128;
+  bool alt_syscall_stack = false;
+
+  if (thread_self()->tlsvar ==
+      static_cast<uint64_t>(ThreadState::kArmedAltstack)) {
+    // use syscall stack
+    rsp = reinterpret_cast<uint64_t>(
+        &thread_self()->stack->usable[STACK_PTR_SIZE]);
+    alt_syscall_stack = true;
+  }
+
+  k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
   new_frame->InvalidateAltStack();
+
+  // stash a pointer to the sigframe in case we need to restart the syscall
+  if (alt_syscall_stack) mythread().SetSyscallFrame(new_frame);
 
   // force return to syscall_trap_return
   new_frame->pretcode = reinterpret_cast<char *>(syscall_trap_return);
@@ -196,18 +217,18 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
     target_ip = sys_tbl[sysn];
   }
 
-  // switch stacks and jmp to signal handler
-  asm volatile(
-      "movq %0, %%r8\n\t"
-      "movq %1, %%r9\n\t"
-      "movq %2, %%rsp\n\t"
-      "jmpq *%3"
-      :
-      : "r"(ctx->uc_mcontext.r8), "r"(ctx->uc_mcontext.r9), "r"(new_frame),
-        "r"(target_ip), "D"(ctx->uc_mcontext.rdi), "S"(ctx->uc_mcontext.rsi),
-        "d"(ctx->uc_mcontext.rdx), "c"(ctx->uc_mcontext.r10)
-      : "%r8", "%r9", "memory");
+  thread_tf tf;
+  tf.rsp = reinterpret_cast<uint64_t>(new_frame);
+  tf.rip = reinterpret_cast<uint64_t>(target_ip);
+  tf.rdi = ctx->uc_mcontext.rdi;
+  tf.rsi = ctx->uc_mcontext.rsi;
+  tf.rdx = ctx->uc_mcontext.rdx;
+  tf.r8 = ctx->uc_mcontext.r8;
+  tf.r9 = ctx->uc_mcontext.r9;
+  tf.rcx = ctx->uc_mcontext.r10;
 
+  // switch stacks and jmp to syscall handler
+  __restore_tf_full_and_preempt_enable(&tf);
   std::unreachable();
 }
 

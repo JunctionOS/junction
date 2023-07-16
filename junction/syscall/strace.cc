@@ -23,7 +23,8 @@ void LogSignal(const siginfo_t &info) {
   else
     signame = "unknown";
 
-  LOG(INFO) << "--- " << signame << " {si_signo=" << info.si_signo
+  LOG(INFO) << "[" << myproc().get_pid() << ":" << mythread().get_tid()
+            << "] --- " << signame << " {si_signo=" << info.si_signo
             << ", si_code = " << info.si_code << ", si_addr = " << info.si_addr
             << "} ---";
 }

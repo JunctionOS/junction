@@ -7,8 +7,7 @@
 
 namespace junction {
 
-// Copy a kernel-delivered sigframe to a new stack
-k_sigframe *k_sigframe::CopyToStack(uint64_t dest_rsp) const {
+void *k_sigframe::CopyXstateToStack(uint64_t *dest_rsp) const {
   // validate that the kernel used xsave
   BUG_ON(!(uc.uc_flags & kUCFpXstate));
 
@@ -21,21 +20,32 @@ k_sigframe *k_sigframe::CopyToStack(uint64_t dest_rsp) const {
   BUG_ON(*reinterpret_cast<uint32_t *>(magic2) != kFpXstateMagic2);
 
   // allocate space for xstate
-  dest_rsp = AlignDown(dest_rsp - fpxs->extended_size, kXsaveAlignment);
-  void *dst_fx_buf = reinterpret_cast<void *>(dest_rsp);
+  *dest_rsp = AlignDown(*dest_rsp - fpxs->extended_size, kXsaveAlignment);
+  void *dst_fx_buf = reinterpret_cast<void *>(*dest_rsp);
   std::memcpy(dst_fx_buf, xstate, fpxs->extended_size);
 
+  return dst_fx_buf;
+}
+
+k_sigframe *k_sigframe::CopyToStack(uint64_t *dest_rsp, void *fx_buf) const {
   // allocate remainder of sigframe
-  dest_rsp -= sizeof(k_sigframe);
-  k_sigframe *dst_sigframe = reinterpret_cast<k_sigframe *>(dest_rsp);
+  *dest_rsp -= sizeof(k_sigframe);
+  k_sigframe *dst_sigframe = reinterpret_cast<k_sigframe *>(*dest_rsp);
 
   // copy full sigframe
   *dst_sigframe = *this;
 
   // fix fpstate pointer
-  dst_sigframe->uc.uc_mcontext.fpstate =
-      reinterpret_cast<_fpstate *>(dst_fx_buf);
+  dst_sigframe->uc.uc_mcontext.fpstate = reinterpret_cast<_fpstate *>(fx_buf);
 
   return dst_sigframe;
 }
+
+// Copy a kernel-delivered sigframe to a new stack
+k_sigframe *k_sigframe::CopyToStack(uint64_t *dest_rsp) const {
+  // Copy xstate
+  void *dst_fx_buf = CopyXstateToStack(dest_rsp);
+  return CopyToStack(dest_rsp, dst_fx_buf);
+}
+
 }  // namespace junction

@@ -21,6 +21,12 @@ namespace junction {
 
 class Process;
 
+enum class ThreadState : uint64_t {
+  kInvalid = 0,
+  kActive = 1,
+  kArmedAltstack = 2
+};
+
 // Thread is a UNIX thread object.
 class Thread {
  public:
@@ -54,6 +60,7 @@ class Thread {
   }
 
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
+  [[nodiscard]] bool has_altstack() const { return sighand_.has_altstack(); }
 
   void set_child_tid(uint32_t *tid) { child_tid_ = tid; }
   void set_xstate(int xstate) { xstate_ = xstate; }
@@ -64,14 +71,22 @@ class Thread {
     return container_of(ptr, thread_t, junction_tstate_buf);
   }
 
-  void EnterSyscall() {
-    in_syscall_ = true;
-    if (unlikely(needs_interrupt())) HandleInterrupt();
+  const thread_t *GetCaladanThread() const {
+    const auto *ptr =
+        reinterpret_cast<decltype(thread_t::junction_tstate_buf) *>(
+            const_cast<Thread *>(this));
+    return container_of(ptr, thread_t, junction_tstate_buf);
   }
 
-  void ExitSyscall() {
-    if (unlikely(needs_interrupt())) HandleInterrupt();
+  void OnSyscallEnter() {
+    in_syscall_ = true;
+    if (unlikely(needs_interrupt())) HandleInterrupt(std::nullopt);
+  }
+
+  void OnSyscallLeave(long rax) {
+    if (unlikely(needs_interrupt())) HandleInterrupt(rax);
     in_syscall_ = false;
+    SetSyscallFrame(nullptr);
   }
 
   void Kill() {
@@ -83,11 +98,14 @@ class Thread {
   // TODO!
   void SendIpi(){};
 
-  // Called by a thread to run pending interrupts.
-  void HandleInterrupt() {
+  // Called by a thread to run pending interrupts. This function may not return.
+  void HandleInterrupt(std::optional<long> rax) {
     assert(thread_self() == GetCaladanThread());
-    sighand_.RunPending();
+    sighand_.RunPending(rax);
   }
+
+  void SetSyscallFrame(void *frame) { cur_syscall_frame_ = frame; }
+  [[nodiscard]] void *GetSyscallFrame() const { return cur_syscall_frame_; }
 
   friend class ThreadSignalHandler;
 
@@ -98,6 +116,7 @@ class Thread {
   std::atomic_bool in_syscall_;
   int xstate_;  // exit state
   ThreadSignalHandler sighand_;
+  void *cur_syscall_frame_;
 };
 
 // Make sure that Caladan's thread def has enough room for the Thread class

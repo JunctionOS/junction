@@ -2,7 +2,10 @@
 #pragma once
 
 extern "C" {
+#include <runtime/thread.h>
 #include <signal.h>
+
+#include "lib/caladan/runtime/defs.h"
 }
 
 #include <cstdint>
@@ -14,6 +17,7 @@ inline constexpr uint32_t kFpXstateMagic1 = 0x46505853U;
 inline constexpr uint32_t kFpXstateMagic2 = 0x46505845U;
 inline constexpr size_t kRedzoneSize = 128;
 inline constexpr size_t kXsaveAlignment = 64;
+inline constexpr uint64_t kJunctionFrameMagic = 0x696e63656e64696fUL;
 
 namespace junction {
 
@@ -95,6 +99,12 @@ struct k_ucontext {
   unsigned long mask; /* mask last for extensibility */
 };
 
+enum class SigframeType : unsigned long {
+  kKernelSignal = 0,
+  kJunctionUIPI,
+  kJunctionDeferred,
+};
+
 struct k_sigframe {
   char *pretcode;
   struct k_ucontext uc;
@@ -105,13 +115,57 @@ struct k_sigframe {
   // signal was delivered to, invalidate the altstack recorded in the sigframe.
   inline void InvalidateAltStack() { uc.uc_stack.ss_flags = 4; }
 
-  k_sigframe *CopyToStack(uint64_t dest_rsp) const;
+  // Copy this signal frame's xstate to the stack @dest_rsp
+  void *CopyXstateToStack(uint64_t *dest_rsp) const;
+
+  // Copy this signal frame to the @dest_rsp, xstate state is at @fx_buf
+  k_sigframe *CopyToStack(uint64_t *dest_rsp, void *fx_buf) const;
+
+  // Copy the full signal frame (xstate included) to @dest_rsp
+  k_sigframe *CopyToStack(uint64_t *dest_rsp) const;
 };
+
+struct JunctionSigframe {
+  SigframeType type;
+  unsigned long magic;
+  thread_tf *restore_tf;
+  unsigned long pad;
+};
+
+static_assert(sizeof(JunctionSigframe) % 16 == 0);
+
+inline uint64_t GetRsp() {
+  uint64_t rsp;
+  asm volatile("movq %%rsp, %0" : "=r"(rsp));
+  return rsp;
+}
 
 inline bool IsOnStack(uint64_t cur_rsp, const stack_t &ss) {
   uint64_t sp = reinterpret_cast<uint64_t>(ss.ss_sp);
 
-  return cur_rsp >= sp && cur_rsp < sp + ss.ss_size;
+  return cur_rsp > sp && cur_rsp <= sp + ss.ss_size;
+}
+
+inline bool IsOnStack(uint64_t cur_rsp, const struct stack &ss) {
+  uint64_t sp = reinterpret_cast<uint64_t>(&ss.usable[0]);
+
+  return cur_rsp > sp && cur_rsp <= sp + RUNTIME_STACK_SIZE;
+}
+
+template <typename T>
+inline bool IsOnStack(const T &ss) {
+  return IsOnStack(GetRsp(), ss);
+}
+
+// returns the bottom of the Caladan runtime stack
+inline uint64_t GetRuntimeStack() {
+  return reinterpret_cast<uint64_t>(perthread_read(runtime_stack)) + 8;
+}
+
+inline void assert_on_runtime_stack() {
+  assert_preempt_disabled();
+  assert(GetRsp() <= GetRuntimeStack() &&
+         GetRsp() > GetRuntimeStack() - RUNTIME_STACK_SIZE);
 }
 
 }  // namespace junction

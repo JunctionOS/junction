@@ -1,48 +1,122 @@
-From a7da9fa1ab5dfdaf882182fbc6b490752b632b2d Mon Sep 17 00:00:00 2001
+From de9b49bd11b483f3e065fcbae298aaee1c9f3615 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
 Subject: [PATCH 23/23] preemption and signal updates
 
 ---
- inc/runtime/thread.h |  4 ++--
- runtime/cfg.c        |  2 +-
- runtime/preempt.c    |  3 ---
- runtime/sched.c      | 25 +++++++++++++++++++++----
- 4 files changed, 24 insertions(+), 10 deletions(-)
+ inc/runtime/thread.h |  4 +---
+ runtime/cfg.c        |  9 ---------
+ runtime/defs.h       |  2 +-
+ runtime/preempt.c    | 20 --------------------
+ runtime/sched.c      | 44 +++++++++++++++++++++++++++++---------------
+ 5 files changed, 31 insertions(+), 48 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 6a465efe..e4ca5bb6 100644
+index 6a465efe..a1868881 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -112,8 +112,8 @@ struct thread {
+@@ -100,7 +100,6 @@ struct stack;
+ struct thread {
+     struct thread_tf    tf;
+     struct list_node    link;
+-    struct stack        *syscallstack;
+     struct stack        *stack;
+     unsigned int        main_thread:1;
+     unsigned int        has_fsbase:1;
+@@ -112,8 +111,7 @@ struct thread {
      uint64_t        tlsvar;
       // Trapframe used by junction to stash registers on syscall entry
      struct thread_tf	junction_tf;
 -    void 		*xsave_area;
 -    unsigned long    junction_tstate_buf[8];
-+    void        *stashed_sigframe;
 +    unsigned long    junction_tstate_buf[24];
  #ifdef GC
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index 7936ce12..b4267b9b 100644
+index 7936ce12..1043ede4 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
-@@ -18,7 +18,7 @@ static size_t arp_static_sz;
+@@ -18,7 +18,6 @@ static size_t arp_static_sz;
  size_t arp_static_count;
  struct cfg_arp_static_entry *static_entries;
  int preferred_socket = 0;
 -bool use_sigaltstack = false;
-+bool use_sigaltstack = true;
  
  /*
   * Configuration Options
+@@ -358,13 +357,6 @@ static int parse_enable_gc(const char *name, const char *val)
+ #endif
+ }
+ 
+-static int parse_use_sigaltstack(const char *name, const char *val)
+-{
+-	use_sigaltstack = true;
+-	log_warn("cfg: using sigaltstack, preemption is not supported");
+-	return 0;
+-}
+-
+ 
+ /*
+  * Parsing Infrastructure
+@@ -401,7 +393,6 @@ static const struct cfg_handler cfg_handlers[] = {
+ 	{ "enable_storage", parse_enable_storage, false },
+ 	{ "enable_directpath", parse_enable_directpath, false },
+ 	{ "enable_gc", parse_enable_gc, false },
+-	{ "use_sigaltstack", parse_use_sigaltstack, false },
+ };
+ 
+ /**
+diff --git a/runtime/defs.h b/runtime/defs.h
+index f40c8196..88d71b2d 100644
+--- a/runtime/defs.h
++++ b/runtime/defs.h
+@@ -68,6 +68,7 @@ struct stack {
+ };
+ 
+ DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
++DECLARE_PERTHREAD(void *, runtime_stack);
+ 
+ /**
+  * stack_alloc - allocates a stack
+@@ -447,7 +448,6 @@ extern unsigned int cfg_request_hardware_queues;
+ extern uint64_t cfg_ht_punish_us;
+ extern uint64_t cfg_qdelay_us;
+ extern uint64_t cfg_quantum_us;
+-extern bool use_sigaltstack;
+ 
+ extern void kthread_park(void);
+ extern void kthread_park_now(void);
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index ee376d6b..f0a308ec 100644
+index ee376d6b..b49ab728 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -125,9 +125,6 @@ int preempt_init(void)
+@@ -94,24 +94,7 @@ void preempt(void)
+ 
+ int preempt_init_thread(void)
+ {
+-	stack_t ss;
+-	struct stack *stk;
+-
+ 	perthread_store(preempt_cnt, PREEMPT_NOT_PENDING);
+-
+-	if (!use_sigaltstack)
+-		return 0;
+-
+-	stk = stack_alloc();
+-	if (!stk)
+-		return -ENOMEM;
+-
+-	ss.ss_sp = &stk->usable[0];
+-	ss.ss_size = RUNTIME_STACK_SIZE;
+-	ss.ss_flags = 0;
+-	if (sigaltstack(&ss, NULL) == -1)
+-		return -errno;
+-
+ 	return 0;
+ }
+ 
+@@ -125,9 +108,6 @@ int preempt_init(void)
  {
  	struct sigaction act;
  
@@ -53,19 +127,27 @@ index ee376d6b..f0a308ec 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f80def0e..43ea6d6d 100644
+index f80def0e..a7ee817e 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -142,7 +142,7 @@ static void jmp_runtime(runtime_fn_t fn)
-  *			caller's state
-  * @fn: the runtime function to call
+@@ -3,6 +3,7 @@
   */
--static __noreturn void jmp_runtime_nosave(runtime_fn_t fn)
-+__noreturn void jmp_runtime_nosave(runtime_fn_t fn)
- {
- 	assert_preempt_disabled();
  
-@@ -716,7 +716,26 @@ void thread_ready_head(thread_t *th)
+ #include <sched.h>
++#include <signal.h>
+ #include <immintrin.h>
+ 
+ #include <base/stddef.h>
+@@ -21,7 +22,7 @@
+ /* the current running thread, or NULL if there isn't one */
+ DEFINE_PERTHREAD(thread_t *, __self);
+ /* a pointer to the top of the per-kthread (TLS) runtime stack */
+-static DEFINE_PERTHREAD(void *, runtime_stack);
++DEFINE_PERTHREAD(void *, runtime_stack);
+ DEFINE_PERTHREAD(uint64_t, runtime_fsbase);
+ /* Flag to prevent watchdog from running */
+ bool disable_watchdog;
+@@ -716,7 +717,26 @@ void thread_ready_head(thread_t *th)
  	putk();
  }
  
@@ -93,7 +175,18 @@ index f80def0e..43ea6d6d 100644
  {
  	struct kthread *k = myk();
  	thread_t *myth = thread_self();
-@@ -804,7 +823,6 @@ static __always_inline thread_t *__thread_create_nostack(void)
+@@ -791,10 +811,6 @@ static __always_inline thread_t *__thread_create_nostack(void)
+ 		return NULL;
+ 	}
+ 
+-	 th->syscallstack = stack_alloc();
+-        BUG_ON(!th->syscallstack);
+-
+-
+ 	th->last_cpu = myk()->curr_cpu;
+ 	preempt_enable();
+ 
+@@ -804,7 +820,6 @@ static __always_inline thread_t *__thread_create_nostack(void)
  	th->thread_ready = false;
  	th->thread_running = false;
  	th->tlsvar = 0;
@@ -101,7 +194,17 @@ index f80def0e..43ea6d6d 100644
  
  	return th;
  }
-@@ -842,7 +860,6 @@ static __always_inline thread_t *__thread_create(void)
+@@ -832,17 +847,11 @@ static __always_inline thread_t *__thread_create(void)
+ 	preempt_enable();
+ 
+ 	th->stack = s;
+-	th->syscallstack = stack_alloc();
+-
+-	BUG_ON(!th->syscallstack);
+-
+-
+ 	th->main_thread = false;
+ 	th->has_fsbase = false;
  	th->thread_ready = false;
  	th->thread_running = false;
  	th->tlsvar = 0;
@@ -109,6 +212,36 @@ index f80def0e..43ea6d6d 100644
  
  	return th;
  }
+@@ -960,8 +969,6 @@ void thread_free(thread_t *th)
+ 	gc_remove_thread(th);
+ 	if (th->stack)
+ 		stack_free(th->stack);
+-	if (th->syscallstack)
+-		stack_free(th->syscallstack);
+ 	tcache_free(perthread_ptr(thread_pt), th);
+ }
+ 
+@@ -1037,6 +1044,7 @@ static void runtime_top_of_stack(void)
+  */
+ int sched_init_thread(void)
+ {
++	stack_t ss;
+ 	struct stack *s;
+ 
+ 	tcache_init_perthread(thread_tcache, perthread_ptr(thread_pt));
+@@ -1048,6 +1056,12 @@ int sched_init_thread(void)
+ 	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
+ 	perthread_store(runtime_fsbase, _readfsbase_u64());
+ 
++	ss.ss_sp = &s->usable[0];
++	ss.ss_size = RUNTIME_STACK_SIZE;
++	ss.ss_flags = 0;
++	if (sigaltstack(&ss, NULL) == -1)
++		return -errno;
++
+ 	return 0;
+ }
+ 
 -- 
 2.39.2
 

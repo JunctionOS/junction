@@ -211,7 +211,7 @@ Thread &Process::CreateTestThread() {
   thread_t *th = thread_self();
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), 1);
-  th->tlsvar = 1;  // Mark tstate as initialized
+  th->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
   thread_map_[1] = tstate;
   return *tstate;
 }
@@ -222,7 +222,7 @@ Status<std::unique_ptr<Thread>> Process::CreateThreadMain() {
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), get_pid());
-  th->tlsvar = 1;  // Mark tstate as initialized
+  th->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
   thread_map_[get_pid()] = tstate;
   return std::unique_ptr<Thread>(tstate);
 }
@@ -239,7 +239,7 @@ Status<std::unique_ptr<Thread>> Process::CreateThread() {
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), *tid);
-  th->tlsvar = 1;  // Mark tstate as initialized
+  th->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
   std::unique_ptr<Thread> th_ptr(tstate);
 
   {

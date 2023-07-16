@@ -90,7 +90,7 @@ def emit_regular_target(syscall_name, output):
 	extern "C" uint64_t {wrapper_name}(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}
 		usyscall_on_enter();
 		uint64_t ret = reinterpret_cast<sysfn_t>(&usys_{syscall_name})(arg0, arg1, arg2, arg3, arg4, arg5);
-		usyscall_on_exit();
+		usyscall_on_leave(ret);
 		return ret;
 	{'}'}"""
 	output.append(fn)
@@ -100,7 +100,7 @@ def emit_trapframe_save_entry(function_target, output):
 	wrapper_name = f"{function_target}_tfsave"
 	fn = f"""
 
-	static_assert(JUNCTION_TF_OFF == 216);
+	static_assert(JUNCTION_TF_OFF == 208);
 	static_assert(offsetof(thread_tf, rbx) == 64);
 	static_assert(offsetof(thread_tf, rbp) == 72);
 	static_assert(offsetof(thread_tf, r12) == 80);
@@ -116,7 +116,7 @@ def emit_trapframe_save_entry(function_target, output):
 	.type {wrapper_name}, @function
 	{wrapper_name}:
 	movq %gs:__perthread___self(%rip), %r11
-	addq $216, %r11
+	addq $208, %r11
 
 	/* save registers */
 	movq    %rbx, 64(%r11)
