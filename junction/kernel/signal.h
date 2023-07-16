@@ -126,7 +126,7 @@ class ThreadSignalHandler {
 
   void DisableAltStack() {
     sigaltstack_.ss_flags = SS_DISABLE;
-    thread_self()->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
+    thread_self()->tlsvar = 1;
   }
 
   Status<void> SigAltStack(const stack_t *ss, stack_t *old_ss);
