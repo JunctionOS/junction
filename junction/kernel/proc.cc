@@ -217,7 +217,7 @@ Thread &Process::CreateTestThread() {
 }
 
 Status<std::unique_ptr<Thread>> Process::CreateThreadMain() {
-  thread_t *th = thread_create(nullptr, 0);
+  thread_t *th = thread_create_nostack(nullptr, 0);
   if (!th) return MakeError(ENOMEM);
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);

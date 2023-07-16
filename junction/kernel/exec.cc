@@ -178,8 +178,12 @@ Status<thread_t *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   th->tf.rip = reinterpret_cast<uintptr_t>(junction_exec_start);
   th->tf.rdi = reinterpret_cast<uintptr_t>(entry);
 
-  // remove the existing exit function pointer
-  th->tf.rsp += 8;
+  // setup a stack
+  void *rsp = mm.ReserveForMapping(RUNTIME_GUARD_SIZE + RUNTIME_STACK_SIZE);
+  Status<void *> ret = KernelMMap(rsp + RUNTIME_GUARD_SIZE, RUNTIME_STACK_SIZE,
+                                  PROT_READ | PROT_WRITE, 0);
+  if (!ret) return MakeError(ret);
+  th->tf.rsp = reinterpret_cast<uint64_t>(*ret) + RUNTIME_STACK_SIZE;
 
   SetupStack(&th->tf.rsp, argv, envp, *edata);
 
