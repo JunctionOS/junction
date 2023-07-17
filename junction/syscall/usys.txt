@@ -12,6 +12,8 @@ ftruncate
 fallocate
 exit_group
 exit
+readlinkat
+readlink
 read
 readv
 write

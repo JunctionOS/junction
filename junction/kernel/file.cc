@@ -526,6 +526,32 @@ long usys_ioctl(int fd, unsigned long request, char *argp) {
   return 0;
 }
 
+// TODO: fix this implementation
+ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz) {
+  if (std::string_view(pathname) == "/proc/self/exe") {
+    auto str = myproc().get_bin_path();
+    size_t copy = std::min(bufsiz, str.size());
+    std::memcpy(buf, str.data(), copy);
+    return copy;
+  }
+
+  // otherwise just say this path is not a link, good enough for Java
+  return -EINVAL;
+}
+
+// TODO: fix this implementation
+ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
+                        size_t bufsiz) {
+  if (std::string_view(pathname) == "/proc/self/exe") {
+    auto str = myproc().get_bin_path();
+    size_t copy = std::min(bufsiz, str.size());
+    std::memcpy(buf, str.data(), copy);
+  }
+
+  // otherwise just say this path is not a link, good enough for Java
+  return -EINVAL;
+}
+
 mode_t usys_umask(mode_t mask) {
   FileSystem *fs = get_fs();
   mode_t old = fs->get_umask();

@@ -63,6 +63,10 @@ long usys_getcwd(char *buf, size_t size);
 // long usys_chdir(const char *path);
 mode_t usys_umask(mode_t mask);
 
+ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz);
+ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
+                        size_t bufsiz);
+
 // Memory
 uintptr_t usys_brk(uintptr_t addr);
 intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
