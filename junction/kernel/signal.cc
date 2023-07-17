@@ -101,7 +101,7 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int signo) {
 
   // TODO: better crash?
   if (act.is_default() && CheckSignalInMask(signo, kSigDefaultCrash))
-    panic("program got fatal signal");
+    print_msg_abort("program got fatal signal");
 
   if (act.is_oneshot()) {
     std::optional<k_sigaction> tmp =
@@ -399,6 +399,7 @@ thread_tf *SetupRestoreFrame(uint64_t *rsp, std::optional<long> rax) {
   tf.r12 = src_tf.r12;
   tf.r13 = src_tf.r13;
   tf.r13 = src_tf.r13;
+  tf.r14 = src_tf.r14;
   tf.r15 = src_tf.r15;
   tf.rsp = src_tf.rsp;
 
