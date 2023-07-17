@@ -23,8 +23,6 @@ static_assert(offsetof(thread, junction_tf) == JUNCTION_TF_OFF);
 static_assert(offsetof(thread, stack) == JUNCTION_STACK_OFFSET);
 static_assert(sizeof(struct stack) == JUNCTION_STACK_SIZE);
 static_assert(offsetof(thread, tlsvar) == THREAD_STRUCT_TVAR);
-static_assert(static_cast<uint64_t>(ThreadState::kArmedAltstack) ==
-              THREAD_STATE_ALTSTACK);
 
 unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
                            long arg4, long arg5, long syscall);

@@ -129,7 +129,11 @@ class ThreadSignalHandler {
     thread_self()->tlsvar = 1;
   }
 
-  Status<void> SigAltStack(const stack_t *ss, stack_t *old_ss);
+  inline Status<void> SigAltStack(const stack_t *ss, stack_t *old_ss) {
+    if (old_ss) *old_ss = sigaltstack_;
+    if (ss) sigaltstack_ = *ss;
+    return {};
+  }
 
   // Update blocked signal mask
   inline Status<void> SigProcMask(int how, const unsigned long *nset,

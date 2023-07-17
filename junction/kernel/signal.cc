@@ -33,13 +33,10 @@ void MoveSigframeForImmediateUnwind(k_sigframe *sigframe, thread_tf &tf) {
   uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
 
   // In a Junction proc thread?
-  if (thread_self()->tlsvar ==
-      static_cast<uint64_t>(ThreadState::kArmedAltstack)) {
-    const stack_t &ss = mythread().get_sighand().get_altstack();
-    if (!(ss.ss_flags & SS_DISABLE)) {
-      if (!IsOnStack(rsp, ss))
-        rsp = reinterpret_cast<uint64_t>(ss.ss_sp) + ss.ss_size;
-    }
+  if (get_uthread_specific()) {
+    struct stack *stk = thread_self()->stack;
+    if (!IsOnStack(rsp, *stk))
+      rsp = reinterpret_cast<uint64_t>(&stk->usable[STACK_PTR_SIZE]);
   }
 
   // Transfer sigframe to the appropriate stack
@@ -324,14 +321,12 @@ struct SigHandlerSetupArgs {
   thread_tf *caller_tf;
 };
 
-extern "C" [[noreturn]] void SetupUserSigFrame(void *arg) {
-  SigHandlerSetupArgs &args = *reinterpret_cast<SigHandlerSetupArgs *>(arg);
+[[noreturn]] void SetupUserSigFrame(SigHandlerSetupArgs &args) {
   ThreadSignalHandler &hand = mythread().get_sighand();
 
   assert_preempt_disabled();
-  assert_on_runtime_stack();
 
-  uint64_t rsp = args.rsp ? args.rsp : args.caller_tf->rsp - kRedzoneSize;
+  uint64_t rsp = args.rsp ? args.rsp : args.caller_tf->rsp;
 
   // Use xsave's stack alignment even though we aren't using it here
   rsp = AlignDown(rsp, kXsaveAlignment);
@@ -367,6 +362,11 @@ extern "C" [[noreturn]] void SetupUserSigFrame(void *arg) {
   tf.rdx = reinterpret_cast<uint64_t>(&kframe->uc);
   __switch_and_preempt_enable(&tf);
   std::unreachable();
+}
+
+extern "C" [[noreturn]] void SetupUserSigFrameTrampoline(void *arg) {
+  SigHandlerSetupArgs *args = reinterpret_cast<SigHandlerSetupArgs *>(arg);
+  SetupUserSigFrame(*args);
 }
 
 thread_tf *SetupRestoreFrame(uint64_t *rsp, std::optional<long> rax) {
@@ -482,15 +482,13 @@ void ThreadSignalHandler::RunPending(std::optional<long> rax) {
   preempt_disable();
 
   if (on_syscall_stack) {
-    // stack memory for @args should be valid until the next syscall
-    __nosave_switch(SetupUserSigFrame, perthread_read(runtime_stack),
-                    reinterpret_cast<uint64_t>(&args));
+    SetupUserSigFrame(args);
     std::unreachable();
   }
 
-  __save_tf_switch(&tf_link, SetupUserSigFrame, perthread_read(runtime_stack),
+  __save_tf_switch(&tf_link, SetupUserSigFrameTrampoline,
+                   perthread_read(runtime_stack),
                    reinterpret_cast<uint64_t>(&args));
-
   mythread().in_syscall_ = true;
 }
 
@@ -509,27 +507,6 @@ long usys_rt_sigprocmask(int how, const sigset_t *nset, sigset_t *oset,
       reinterpret_cast<kernel_sigset_t *>(oset));
   if (unlikely(!ret)) return MakeCError(ret);
   return 0;
-}
-
-Status<void> ThreadSignalHandler::SigAltStack(const stack_t *ss,
-                                              stack_t *old_ss) {
-  if (old_ss) *old_ss = sigaltstack_;
-  if (ss) {
-    thread_t *myth = thread_self();
-    sigaltstack_ = *ss;
-    if (has_altstack())
-      myth->tlsvar = static_cast<uint64_t>(ThreadState::kArmedAltstack);
-    else
-      myth->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
-
-    // Ensure that a stack exists to use on syscall entry
-    if (!myth->stack) {
-      myth->stack = stack_alloc();
-      if (unlikely(!myth->stack)) return MakeError(ENOMEM);
-    }
-  }
-
-  return {};
 }
 
 long usys_sigaltstack(const stack_t *ss, stack_t *old_ss) {

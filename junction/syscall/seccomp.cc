@@ -165,22 +165,16 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
     std::unreachable();
   }
 
-  uint64_t rsp = ctx->uc_mcontext.rsp - 128;
-  bool alt_syscall_stack = false;
+  assert(!IsOnStack(ctx->uc_mcontext.rsp, *thread_self()->stack));
 
-  if (thread_self()->tlsvar ==
-      static_cast<uint64_t>(ThreadState::kArmedAltstack)) {
-    // use syscall stack
-    rsp = reinterpret_cast<uint64_t>(
-        &thread_self()->stack->usable[STACK_PTR_SIZE]);
-    alt_syscall_stack = true;
-  }
+  uint64_t rsp =
+      reinterpret_cast<uint64_t>(&thread_self()->stack->usable[STACK_PTR_SIZE]);
 
   k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
   new_frame->InvalidateAltStack();
 
   // stash a pointer to the sigframe in case we need to restart the syscall
-  if (alt_syscall_stack) mythread().SetSyscallFrame(new_frame);
+  mythread().SetSyscallFrame(new_frame);
 
   // force return to syscall_trap_return
   new_frame->pretcode = reinterpret_cast<char *>(syscall_trap_return);

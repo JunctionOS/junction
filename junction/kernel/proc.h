@@ -24,7 +24,6 @@ class Process;
 enum class ThreadState : uint64_t {
   kInvalid = 0,
   kActive = 1,
-  kArmedAltstack = 2
 };
 
 // Thread is a UNIX thread object.
@@ -111,7 +110,7 @@ class Thread {
 
  private:
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
-  uint32_t *child_tid_;            // Used for clone3/exit
+  uint32_t *child_tid_{nullptr};   // Used for clone3/exit
   const pid_t tid_;                // the thread identifier
   std::atomic_bool in_syscall_;
   int xstate_;  // exit state

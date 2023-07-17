@@ -1,15 +1,15 @@
-From de9b49bd11b483f3e065fcbae298aaee1c9f3615 Mon Sep 17 00:00:00 2001
+From b686ec2ec4202b5ec6cbab8fa54af6d33487c219 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
 Subject: [PATCH 23/23] preemption and signal updates
 
 ---
- inc/runtime/thread.h |  4 +---
- runtime/cfg.c        |  9 ---------
+ inc/runtime/thread.h |  4 +-
+ runtime/cfg.c        |  9 -----
  runtime/defs.h       |  2 +-
- runtime/preempt.c    | 20 --------------------
- runtime/sched.c      | 44 +++++++++++++++++++++++++++++---------------
- 5 files changed, 31 insertions(+), 48 deletions(-)
+ runtime/preempt.c    | 20 ----------
+ runtime/sched.c      | 89 +++++++++++++++-----------------------------
+ 5 files changed, 31 insertions(+), 93 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index 6a465efe..a1868881 100644
@@ -127,7 +127,7 @@ index ee376d6b..b49ab728 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f80def0e..a7ee817e 100644
+index f80def0e..a61cbe48 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -175,26 +175,44 @@ index f80def0e..a7ee817e 100644
  {
  	struct kthread *k = myk();
  	thread_t *myth = thread_self();
-@@ -791,10 +811,6 @@ static __always_inline thread_t *__thread_create_nostack(void)
- 		return NULL;
- 	}
+@@ -780,36 +800,6 @@ void thread_yield(void)
+ 	enter_schedule(curth);
+ }
  
+-static __always_inline thread_t *__thread_create_nostack(void)
+-{
+-	struct thread *th;
+-
+-	preempt_disable();
+-	th = tcache_alloc(perthread_ptr(thread_pt));
+-	if (unlikely(!th)) {
+-		preempt_enable();
+-		return NULL;
+-	}
+-
 -	 th->syscallstack = stack_alloc();
 -        BUG_ON(!th->syscallstack);
 -
 -
- 	th->last_cpu = myk()->curr_cpu;
- 	preempt_enable();
- 
-@@ -804,7 +820,6 @@ static __always_inline thread_t *__thread_create_nostack(void)
- 	th->thread_ready = false;
- 	th->thread_running = false;
- 	th->tlsvar = 0;
+-	th->last_cpu = myk()->curr_cpu;
+-	preempt_enable();
+-
+-	th->stack = NULL;
+-	th->main_thread = false;
+-	th->has_fsbase = false;
+-	th->thread_ready = false;
+-	th->thread_running = false;
+-	th->tlsvar = 0;
 -	th->xsave_area = NULL;
- 
- 	return th;
- }
-@@ -832,17 +847,11 @@ static __always_inline thread_t *__thread_create(void)
+-
+-	return th;
+-}
+-
+-
+ static __always_inline thread_t *__thread_create(void)
+ {
+ 	struct thread *th;
+@@ -832,41 +822,15 @@ static __always_inline thread_t *__thread_create(void)
  	preempt_enable();
  
  	th->stack = s;
@@ -212,7 +230,31 @@ index f80def0e..a7ee817e 100644
  
  	return th;
  }
-@@ -960,8 +969,6 @@ void thread_free(thread_t *th)
+ 
+-/**
+- * thread_create_nostack - creates a new thread with no stack
+- * @fn: a function pointer to the starting method of the thread
+- * @arg: an argument passed to @fn
+- *
+- * Returns 0 if successful, otherwise -ENOMEM if out of memory.
+- */
+-thread_t *thread_create_nostack(thread_fn_t fn, void *arg)
+-{
+-	thread_t *th = __thread_create_nostack();
+-	if (unlikely(!th))
+-		return NULL;
+-
+-	th->tf.rdi = (uint64_t)arg;
+-	th->tf.rbp = (uint64_t)0; /* just in case base pointers are enabled */
+-	th->tf.rip = (uint64_t)fn;
+-	gc_register_thread(th);
+-	return th;
+-}
+-
+ /**
+  * thread_create - creates a new thread
+  * @fn: a function pointer to the starting method of the thread
+@@ -960,8 +924,6 @@ void thread_free(thread_t *th)
  	gc_remove_thread(th);
  	if (th->stack)
  		stack_free(th->stack);
@@ -221,7 +263,7 @@ index f80def0e..a7ee817e 100644
  	tcache_free(perthread_ptr(thread_pt), th);
  }
  
-@@ -1037,6 +1044,7 @@ static void runtime_top_of_stack(void)
+@@ -1037,6 +999,7 @@ static void runtime_top_of_stack(void)
   */
  int sched_init_thread(void)
  {
@@ -229,7 +271,7 @@ index f80def0e..a7ee817e 100644
  	struct stack *s;
  
  	tcache_init_perthread(thread_tcache, perthread_ptr(thread_pt));
-@@ -1048,6 +1056,12 @@ int sched_init_thread(void)
+@@ -1048,6 +1011,12 @@ int sched_init_thread(void)
  	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
  	perthread_store(runtime_fsbase, _readfsbase_u64());
  

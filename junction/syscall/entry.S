@@ -297,10 +297,6 @@ junction_fncall_stackswitch_enter:
 
 	// check if this thread currently has an altstack setup
 	movq    %gs:__perthread___self(%rip), %r11
-	cmpq    $THREAD_STATE_ALTSTACK, THREAD_STRUCT_TVAR(%r11)
-
-	// dont switch if no altstack is setup
-	jne     1f
 
 	// save some registers into a trapframe so we can potentially
 	// restart this syscall if a signal is delivered
@@ -349,28 +345,6 @@ junction_fncall_stackswitch_enter:
 
 	ret
 
-1:
-	// otherwise just pass the function call along
-	// cache current rsp in r15
-	pushq   %r15
-	movq    %rsp, %r15
-
-	// align stack
-	andq    $-16, %rsp
-
-	// compute syscall handler address in %rax
-	shlq    $3, %rax
-	addq    $0x200000, %rax
-
-	// call signal handler
-	callq   *(%rax)
-
-	// restore stack and return
-	movq    %r15, %rsp
-	popq    %r15
-	ret
-
-
 .align 16
 .global junction_fncall_stackswitch_clone_enter
 .type junction_fncall_stackswitch_clone_enter, @function
@@ -395,15 +369,10 @@ junction_fncall_stackswitch_clone_enter:
 
 	// get address of syscall stack and switch
 	movq    %gs:__perthread___self(%rip), %r11
-	cmpq    $THREAD_STATE_ALTSTACK, THREAD_STRUCT_TVAR(%r11)
-
-	jne 1f
-
 	movq    JUNCTION_STACK_OFFSET(%r11), %r11 // stack
 	addq    $JUNCTION_STACK_SIZE, %r11
 	movq    %r11, %rsp
 
-1:
 	andq    $-16, %rsp
 	callq   usys_clone
 

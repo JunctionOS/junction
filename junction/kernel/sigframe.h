@@ -162,10 +162,15 @@ inline uint64_t GetRuntimeStack() {
   return reinterpret_cast<uint64_t>(perthread_read(runtime_stack)) + 8;
 }
 
+inline bool on_runtime_stack() {
+  uint64_t rsp = GetRsp();
+  return rsp <= GetRuntimeStack() &&
+         rsp > GetRuntimeStack() - RUNTIME_STACK_SIZE;
+}
+
 inline void assert_on_runtime_stack() {
   assert_preempt_disabled();
-  assert(GetRsp() <= GetRuntimeStack() &&
-         GetRsp() > GetRuntimeStack() - RUNTIME_STACK_SIZE);
+  assert(on_runtime_stack());
 }
 
 }  // namespace junction
