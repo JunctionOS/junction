@@ -25,7 +25,7 @@ void thread_finish_yield(void);
 namespace junction {
 
 inline void print_msg_abort(const char *msg) {
-  std::ignore = write(2, msg, strlen(msg));
+  syscall_write(2, msg, strlen(msg));
   syscall_exit(-1);
 }
 
