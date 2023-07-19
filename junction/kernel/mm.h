@@ -62,6 +62,15 @@ class alignas(kCacheLineSize) MemoryMap {
     return reinterpret_cast<void *>(base_);
   }
 
+  [[nodiscard]] size_t get_mem_usage() const {
+    size_t b = access_once(brk_addr_);
+    size_t m = access_once(map_addr_);
+
+    if (likely(b > m)) return len_ - (b - m);
+
+    return len_;
+  }
+
  private:
   rt::Spin lock_;
   const uintptr_t base_;

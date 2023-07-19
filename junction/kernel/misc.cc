@@ -3,6 +3,7 @@
 extern "C" {
 #include <asm/unistd_64.h>
 #include <sys/resource.h>
+#include <sys/sysinfo.h>
 #include <sys/utsname.h>
 }
 
@@ -31,6 +32,24 @@ int usys_socketpair(int domain, int type, int protocol, int sv[2]) {
 long usys_uname(struct utsname *buf) {
   if (!buf) return -EFAULT;
   std::memcpy(buf, &utsname, sizeof(utsname));
+  return 0;
+}
+
+long usys_sysinfo(struct sysinfo *info) {
+  info->uptime = microtime() / 1000000UL;
+  info->loads[0] = 0;
+  info->loads[1] = 0;
+  info->loads[2] = 0;
+  info->totalram = kMemoryMappingSize;
+  info->freeram = info->totalram - myproc().get_mem_map().get_mem_usage();
+  info->sharedram = 0;
+  info->bufferram = 0;
+  info->totalswap = 0;
+  info->freeswap = 0;
+  info->procs = 1;  // TODO (jsf): fix
+  info->totalhigh = 0;
+  info->freehigh = 0;
+  info->mem_unit = 1;  // bytes
   return 0;
 }
 

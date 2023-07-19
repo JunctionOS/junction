@@ -9,6 +9,7 @@ extern "C" {
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/statfs.h>
+#include <sys/sysinfo.h>
 #include <sys/time.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
@@ -156,6 +157,7 @@ long usys_setrlimit(int resource, const struct rlimit *rlim);
 long usys_prlimit64(pid_t pid, int resource, const struct rlimit *new_limit,
                     struct rlimit *old_limit);
 long usys_ioctl(int fd, unsigned long request, char *argp);
+long usys_sysinfo(struct sysinfo *info);
 
 // Signals
 long usys_rt_sigaction(int sig, const struct k_sigaction *action,
