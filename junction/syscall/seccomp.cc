@@ -41,15 +41,12 @@ Status<void> _install_seccomp_filter() {
       ALLOW_CALADAN_SYSCALL(pwritev2),
       ALLOW_CALADAN_SYSCALL(writev),
 
-      // ALLOW_JUNCTION_SYSCALL(ioctl),
-      // ALLOW_JUNCTION_SYSCALL(prctl),
-      // ALLOW_JUNCTION_SYSCALL(statfs),
-      // ALLOW_JUNCTION_SYSCALL(read),
-      // ALLOW_JUNCTION_SYSCALL(chdir),
-
+      // TODO: remove these
+      ALLOW_JUNCTION_SYSCALL(access),
       ALLOW_JUNCTION_SYSCALL(getdents),
       ALLOW_JUNCTION_SYSCALL(getdents64),
       ALLOW_JUNCTION_SYSCALL(newfstatat),
+
       ALLOW_JUNCTION_SYSCALL(mmap),
       ALLOW_JUNCTION_SYSCALL(munmap),
       ALLOW_JUNCTION_SYSCALL(mprotect),
