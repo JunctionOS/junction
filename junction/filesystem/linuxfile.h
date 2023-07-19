@@ -41,8 +41,19 @@ class LinuxFile : public File {
 
   [[nodiscard]] int get_fd() const { return fd_; }
 
+  // Hacky get_size, calls fstatat and then caches the result
+  [[nodiscard]] size_t get_size() {
+    if (size_ != -1) return size_;
+    struct stat buf;
+    Status<void> ret = Stat(&buf, AT_EMPTY_PATH);
+    if (unlikely(!ret)) throw std::runtime_error("bad stat");
+    size_ = buf.st_size;
+    return size_;
+  }
+
  private:
   int fd_{-1};
+  ssize_t size_{-1};
 };
 
 }  // namespace junction

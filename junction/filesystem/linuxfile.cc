@@ -42,12 +42,16 @@ Status<size_t> LinuxFile::Write(std::span<const std::byte> buf, off_t *off) {
 }
 
 Status<off_t> LinuxFile::Seek(off_t off, SeekFrom origin) {
-  if (origin == SeekFrom::kStart)
-    return off;
-  else if (origin == SeekFrom::kCurrent)
-    return get_off_ref() + off;
-  else
-    return MakeError(EINVAL);
+  switch (origin) {
+    case SeekFrom::kStart:
+      return off;
+    case SeekFrom::kCurrent:
+      return get_off_ref() + off;
+    case SeekFrom::kEnd:
+      return get_size() + off;
+    default:
+      return MakeError(EINVAL);
+  }
 }
 
 Status<void *> LinuxFile::MMap(void *addr, size_t length, int prot, int flags,
