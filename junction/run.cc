@@ -54,7 +54,9 @@ void JunctionMain(int argc, char *argv[]) {
   // Initialize environment and arguments
   std::stringstream ld_path_s;
   ld_path_s << "LD_LIBRARY_PATH=" << GetCfg().get_ld_path()
-            << ":/lib/x86_64-linux-gnu/";
+            << ":/lib/x86_64-linux-gnu"
+            << ":/usr/lib/x86_64-linux-gnu"
+            << ":/usr/lib/jvm/java-19-openjdk-amd64/lib";
   std::string ld_path = ld_path_s.str();
   std::stringstream preload_path_s;
   preload_path_s << "LD_PRELOAD=" << GetCfg().get_preload_path();
