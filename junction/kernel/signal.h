@@ -33,7 +33,7 @@ inline constexpr uint64_t SigMaskFromSigno(int signo) {
 }
 
 template <typename... Args>
-inline constexpr uint64_t MultiMask(Args... args) {
+constexpr uint64_t MultiMask(Args... args) {
   uint64_t mask = 0;
   for (const auto a : {args...}) mask |= SigMaskFromSigno(a);
   return mask;
@@ -51,7 +51,11 @@ inline bool CheckSignalInMask(int signo, unsigned long mask) {
   return (mask & SigMaskFromSigno(signo)) > 0;
 }
 
-// Intended to be in sync with kernel definition
+inline void assert_signal_valid(int sig) {
+  assert(sig > 0 && sig <= kNumSignals);
+}
+
+// k_sigaction defines the action for a signal (in sync with Linux definition)
 struct k_sigaction {
   sighandler handler;
   unsigned long sa_flags;
@@ -74,22 +78,14 @@ struct k_sigaction {
 
   [[nodiscard]] bool is_ignored(int signo) const {
     if (handler == reinterpret_cast<sighandler>(kHandlerIgnore)) return true;
-
     return is_default() && CheckSignalInMask(signo, kSigDefaultIgnore);
   }
+
+  void reset() {
+    handler = reinterpret_cast<sighandler>(kHandlerDefault);
+    sa_flags = 0;
+  }
 };
-
-namespace detail {
-
-struct signal_entry {
-  k_sigaction saction;
-};
-
-struct pending_signal {
-  siginfo_t sig;
-};
-
-}  // namespace detail
 
 class ThreadSignalHandler {
  public:
@@ -136,8 +132,8 @@ class ThreadSignalHandler {
   }
 
   // Update blocked signal mask
-  inline Status<void> SigProcMask(int how, const unsigned long *nset,
-                                  unsigned long *oset) {
+  Status<void> SigProcMask(int how, const unsigned long *nset,
+                           unsigned long *oset) {
     if (oset) *oset = blocked_;
     if (!nset) return {};
 
@@ -170,12 +166,6 @@ class ThreadSignalHandler {
   void DeliverKernelSigToUser(int signo, siginfo_t *info, k_sigframe *sigframe);
 
  private:
-  rt::Spin lock_;  // protects @pending_q_, @pending_
-  std::list<detail::pending_signal> pending_q_;
-  unsigned long pending_{0};
-  unsigned long blocked_{0};
-  stack_t sigaltstack_{nullptr, SS_DISABLE, 0};
-
   // Check if signal can be delivered, and returns the action if so.
   // May modifies the sigaction if it is set to SA_ONESHOT
   std::optional<k_sigaction> GetAction(int signo);
@@ -185,59 +175,39 @@ class ThreadSignalHandler {
 
   // Update a Linux sigframe with correct altstack, blocked mask, and restorer
   void TransformSigFrame(k_sigframe &sigframe, const k_sigaction &act) const;
+
+  rt::Spin lock_;  // protects @pending_q_, @pending_
+  std::list<siginfo_t> pending_q_;
+  unsigned long pending_{0};
+  unsigned long blocked_{0};
+  stack_t sigaltstack_{nullptr, SS_DISABLE, 0};
 };
 
-class SignalTable {
+// SignalTable is a table of the signal actions for a process.
+class alignas(kCacheLineSize) SignalTable {
  public:
-  SignalTable() : table_(){};
+  SignalTable() = default;
   ~SignalTable() = default;
 
   [[nodiscard]] k_sigaction get_action(int sig) {
-    assert(sig > 0 && sig <= kNumSignals);
-
-    // Try to read action without acquiring a lock
-    unsigned long sgen = signal_tbl_gen_.load(std::memory_order_acquire);
-    k_sigaction act = table_[sig].saction;
-    unsigned long fgen = signal_tbl_gen_.load();
-    if (likely(sgen % 2 == 0 && sgen == fgen)) return act;
+    assert_signal_valid(sig);
 
     rt::SpinGuard g(lock_);
-    return table_[sig].saction;
+    k_sigaction sa = table_[sig];
+    if (sa.is_oneshot()) table_[sig].reset();
+    return sa;
   }
 
-  std::optional<k_sigaction> atomic_reset_oneshot(int signo) {
+  k_sigaction exchange_action(int sig, k_sigaction sa) {
+    assert_signal_valid(sig);
+
     rt::SpinGuard g(lock_);
-
-    k_sigaction sig = table_[signo].saction;
-    if (!sig.is_default() && sig.is_oneshot()) {
-      table_[signo].saction.handler =
-          reinterpret_cast<sighandler>(kHandlerDefault);
-      return sig;
-    }
-    return {};
-  }
-
-  void set_action(int sig, const k_sigaction *sa, k_sigaction *osa) {
-    assert(sig > 0 && sig <= kNumSignals);
-    rt::SpinGuard g(lock_);
-    if (osa) *osa = table_[sig].saction;
-    if (sa) {
-      // Ensure a concurrent reader can detect a partially updated struct
-      signal_tbl_gen_.store(signal_tbl_gen_ + 1);
-      table_[sig].saction = *sa;
-      // If signal is not marked as nodefer, make sure its mask includes sig
-      if (!sa->is_nodefer())
-        table_[sig].saction.sa_mask |= SigMaskFromSigno(sig);
-      signal_tbl_gen_.store(signal_tbl_gen_ + 1);
-    }
-
-    // TODO: setting an action SIG_IGN should flush any pending signals
+    return std::exchange(table_[sig], sa);
   }
 
  private:
-  rt::Spin lock_;
-  std::atomic_size_t signal_tbl_gen_;
-  detail::signal_entry table_[kNumSignals];
+  rt::Spin lock_;  // protects @table_
+  k_sigaction table_[kNumSignals]{};
 };
 
 Status<void> InitSignal();

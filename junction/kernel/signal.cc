@@ -100,13 +100,6 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int signo) {
   if (act.is_default() && CheckSignalInMask(signo, kSigDefaultCrash))
     print_msg_abort("program got fatal signal");
 
-  if (act.is_oneshot()) {
-    std::optional<k_sigaction> tmp =
-        myproc().get_signal_table().atomic_reset_oneshot(signo);
-    if (!tmp) return std::nullopt;
-    act = *tmp;
-  }
-
   return act;
 }
 
@@ -253,7 +246,7 @@ siginfo_t ThreadSignalHandler::PopNextSignal() {
   bool multiple = false;
 
   for (auto p = pending_q_.begin(); p != pending_q_.end();) {
-    if (p->sig.si_signo != signo) {
+    if (p->si_signo != signo) {
       p++;
       continue;
     }
@@ -263,7 +256,7 @@ siginfo_t ThreadSignalHandler::PopNextSignal() {
       break;
     }
 
-    si = p->sig;
+    si = *p;
     p = pending_q_.erase(p);
   }
 
@@ -492,10 +485,12 @@ void ThreadSignalHandler::RunPending(std::optional<long> rax) {
   mythread().in_syscall_ = true;
 }
 
-long usys_rt_sigaction(int sig, const struct k_sigaction *action,
+long usys_rt_sigaction(int sig, const struct k_sigaction *iact,
                        struct k_sigaction *oact, size_t sigsetsize) {
   if (unlikely(sigsetsize != kSigSetSizeBytes)) return -EINVAL;
-  myproc().get_signal_table().set_action(sig, action, oact);
+  if (unlikely(sig == SIGKILL || sig == SIGSTOP)) return -EINVAL;
+  k_sigaction sa = myproc().get_signal_table().exchange_action(sig, *iact);
+  if (oact) *oact = sa;
   return 0;
 }
 
