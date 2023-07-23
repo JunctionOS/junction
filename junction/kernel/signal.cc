@@ -24,6 +24,70 @@ void thread_finish_yield(void);
 
 namespace junction {
 
+namespace {
+
+// Disable the altstack after delivering the signal.
+inline constexpr uint32_t kSigStackAutoDisarm = (1U << 31);
+
+template <typename... Args>
+constexpr k_sigset_t MultiSignalMask(Args... args) {
+  k_sigset_t mask = 0;
+  for (const auto a : {args...}) mask |= SignalMask(a);
+  return mask;
+}
+
+// Mask of signals that can only be handling in the kernel.
+constexpr k_sigset_t kSignalKernelOnlyMask = MultiSignalMask(SIGKILL, SIGSTOP);
+// Mask of signals that must be handled synchronously.
+constexpr k_sigset_t kSignalSynchronousMask =
+    MultiSignalMask(SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGFPE);
+// Mask of signals that have SI codes defined.
+constexpr k_sigset_t kSignalSicodesMask = MultiSignalMask(
+    SIGILL, SIGFPE, SIGSEGV, SIGBUS, SIGTRAP, SIGCHLD, SIGPOLL, SIGSYS);
+
+//
+// Default signal behaviors (specifies action when handler is SIG_DFL)
+//
+
+// Mask of signals that stop the process by default.
+constexpr k_sigset_t kSignalStopMask =
+    MultiSignalMask(SIGSTOP, SIGTSTP, SIGTTIN, SIGTTOU);
+// Mask of signals that coredump by default.
+constexpr k_sigset_t kSignalCoredumpMask =
+    MultiSignalMask(SIGQUIT, SIGILL, SIGTRAP, SIGABRT, SIGFPE, SIGSEGV, SIGBUS,
+                    SIGSYS, SIGXCPU, SIGXFSZ);
+// Mask of signals that are ignored by default.
+constexpr k_sigset_t kSignalIgnoreMask =
+    MultiSignalMask(SIGCONT, SIGCHLD, SIGWINCH, SIGURG);
+
+enum class SignalAction : int {
+  kStop,       // pause the thread on delivery
+  kContinue,   // continue the thread if stopped
+  kCoredump,   // terminate the process, and generate a core dump
+  kTerminate,  // terminate the process
+  kIgnore,     // do nothing
+  kNormal,     // invoke the handler function normally
+};
+
+// ParseAction determines the appropriate action for a signal, considering the
+// default behavior if applicable
+constexpr SignalAction ParseAction(const k_sigaction &act, int sig) {
+  // check if the signal has an action specified
+  if (reinterpret_cast<uintptr_t>(act.handler) == 1)
+    return SignalAction::kIgnore;
+  else if (act.handler != kDefaultHandler)
+    return SignalAction::kNormal;
+
+  // otherwise lookup the default action
+  if (sig == SIGCONT) return SignalAction::kContinue;
+  if (SignalInMask(kSignalStopMask, sig)) return SignalAction::kStop;
+  if (SignalInMask(kSignalCoredumpMask, sig)) return SignalAction::kCoredump;
+  if (SignalInMask(kSignalIgnoreMask, sig)) return SignalAction::kIgnore;
+  return SignalAction::kTerminate;
+}
+
+}  // namespace
+
 inline void print_msg_abort(const char *msg) {
   syscall_write(2, msg, strlen(msg));
   syscall_exit(-1);
@@ -87,17 +151,18 @@ extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
   std::unreachable();
 }
 
-std::optional<k_sigaction> ThreadSignalHandler::GetAction(int signo) {
-  k_sigaction act = myproc().get_signal_table().get_action(signo);
+std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
+  k_sigaction act = myproc().get_signal_table().get_action(sig);
 
   // is it a legacy signal that is already enqueued?
-  if (signo < kSigRtMin && is_sig_pending(signo)) return std::nullopt;
+  if (sig <= kNumStandardSignals && is_sig_pending(sig)) return std::nullopt;
 
-  // is the handler set to SIG_IGN?
-  if (act.is_ignored(signo)) return std::nullopt;
+  // parse the type of signal action to perform
+  SignalAction action = ParseAction(act, sig);
+  if (action == SignalAction::kIgnore) return std::nullopt;
 
-  // TODO: better crash?
-  if (act.is_default() && CheckSignalInMask(signo, kSigDefaultCrash))
+  // TODO: We don't support the other signal actions yet
+  if (action != SignalAction::kNormal)
     print_msg_abort("program got fatal signal");
 
   return act;
@@ -217,7 +282,8 @@ extern "C" __sighandler void synchronous_signal_handler(int signo,
 bool ThreadSignalHandler::EnqueueSignal(int signo, siginfo_t *info) {
   rt::SpinGuard g(lock_);
 
-  if (unlikely(pending_q_.size() >= kMaxQueuedRT) && signo >= kSigRtMin) {
+  if (unlikely(pending_q_.size() >= kMaxQueuedRT) &&
+      signo >= kNumStandardSignals) {
     LOG_ONCE(ERR) << "Dropping RT signals";
     return false;
   }
@@ -487,8 +553,8 @@ void ThreadSignalHandler::RunPending(std::optional<long> rax) {
 
 long usys_rt_sigaction(int sig, const struct k_sigaction *iact,
                        struct k_sigaction *oact, size_t sigsetsize) {
-  if (unlikely(sigsetsize != kSigSetSizeBytes)) return -EINVAL;
-  if (unlikely(sig == SIGKILL || sig == SIGSTOP)) return -EINVAL;
+  if (unlikely(sigsetsize != sizeof(k_sigset_t))) return -EINVAL;
+  if (unlikely(SignalInMask(kSignalKernelOnlyMask, sig))) return -EINVAL;
   k_sigaction sa = myproc().get_signal_table().exchange_action(sig, *iact);
   if (oact) *oact = sa;
   return 0;
@@ -496,10 +562,10 @@ long usys_rt_sigaction(int sig, const struct k_sigaction *iact,
 
 long usys_rt_sigprocmask(int how, const sigset_t *nset, sigset_t *oset,
                          size_t sigsetsize) {
-  if (unlikely(sigsetsize != kSigSetSizeBytes)) return -EINVAL;
+  if (unlikely(sigsetsize != sizeof(k_sigset_t))) return -EINVAL;
   Status<void> ret = mythread().get_sighand().SigProcMask(
-      how, reinterpret_cast<const kernel_sigset_t *>(nset),
-      reinterpret_cast<kernel_sigset_t *>(oset));
+      how, reinterpret_cast<const k_sigset_t *>(nset),
+      reinterpret_cast<k_sigset_t *>(oset));
   if (unlikely(!ret)) return MakeCError(ret);
   return 0;
 }
@@ -528,24 +594,22 @@ long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info) {
 }
 
 long usys_rt_sigpending(sigset_t *sig, size_t sigsetsize) {
-  if (unlikely(sigsetsize != kSigSetSizeBytes)) return -EINVAL;
-  kernel_sigset_t blocked_pending =
-      mythread().get_sighand().get_blocked_pending();
-  *reinterpret_cast<kernel_sigset_t *>(sig) = blocked_pending;
+  if (unlikely(sigsetsize != sizeof(k_sigset_t))) return -EINVAL;
+  k_sigset_t blocked_pending = mythread().get_sighand().get_blocked_pending();
+  *reinterpret_cast<k_sigset_t *>(sig) = blocked_pending;
   return 0;
 }
 
 Status<void> InitSignal() {
   struct sigaction act;
-
-  if (unlikely(sigemptyset(&act.sa_mask) != 0)) return MakeError(1);
-
+  sigemptyset(&act.sa_mask);
   act.sa_sigaction = synchronous_signal_handler;
   act.sa_flags = SA_ONSTACK | SA_SIGINFO | SA_NODEFER;
 
-  for (size_t sig = 1; sig <= 31; sig++) {
-    if (!CheckSignalInMask(sig, kSigSynchronous)) continue;
-
+  // Only synchronous signals need be delivered by the host kernel. Other
+  // signal numbers will be emulated fully inside Junction.
+  for (size_t sig = 1; sig <= kNumStandardSignals; sig++) {
+    if (!SignalInMask(kSignalSynchronousMask, sig)) continue;
     if (unlikely(base_sigaction(sig, &act, nullptr) != 0))
       return MakeError(errno);
   }

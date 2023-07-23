@@ -14,75 +14,50 @@ namespace junction {
 
 class Thread;
 
-typedef unsigned long kernel_sigset_t;
-typedef void (*sighandler)(int, siginfo_t *info, void *uc);
+typedef uint64_t k_sigset_t;
+typedef void (*sighandler)(int sig, siginfo_t *info, void *uc);
 
-// The maximum number of signals supported.
+// The maximum number of signals.
 inline constexpr int kNumSignals = 64;
-inline constexpr size_t kSigSetSizeBytes = 8;
-inline constexpr uint32_t kSigStackAutoDisarm = (1U << 31);
-inline constexpr int kSigRtMin = 32;
-inline constexpr uintptr_t kHandlerDefault = 0x0;
-inline constexpr uintptr_t kHandlerIgnore = 0x1;
-
+// The maximum number of standard signals (defined in POSIX).
+inline constexpr int kNumStandardSignals = 32;
+// If set as the handler, the default action will be performed.
+inline constexpr sighandler kDefaultHandler = nullptr;
 static_assert(SIG_DFL == nullptr);
 
-inline constexpr uint64_t SigMaskFromSigno(int signo) {
-  assert(signo > 0 && signo <= kNumSignals);
-  return 1UL << (signo - 1);
+// SignalValid returns true if the signal number is valid.
+inline constexpr bool SignalValid(int sig) {
+  return sig > 0 && sig <= kNumSignals;
 }
 
-template <typename... Args>
-constexpr uint64_t MultiMask(Args... args) {
-  uint64_t mask = 0;
-  for (const auto a : {args...}) mask |= SigMaskFromSigno(a);
-  return mask;
+// Assertion for valid signal
+inline void assert_signal_valid(int sig) { assert(SignalValid(sig)); }
+
+// SignalMask converts a signal number to a mask with the signal's bit set.
+inline constexpr k_sigset_t SignalMask(int sig) { return 1UL << (sig - 1); }
+
+// SignalInMask returns true if the signal number is in the mask.
+inline constexpr bool SignalInMask(k_sigset_t mask, int sig) {
+  return (mask & SignalMask(sig)) > 0;
 }
 
-inline constexpr uint64_t kSigDefaultCrash =
-    MultiMask(SIGQUIT, SIGILL, SIGTRAP, SIGABRT, SIGFPE, SIGSEGV, SIGBUS,
-              SIGSYS, SIGXCPU, SIGXFSZ);
-inline constexpr uint64_t kSigDefaultIgnore =
-    MultiMask(SIGCONT, SIGCHLD, SIGWINCH, SIGURG);
-inline constexpr uint64_t kSigSynchronous =
-    MultiMask(SIGSEGV, SIGBUS, SIGILL, SIGTRAP, SIGFPE);
-
-inline bool CheckSignalInMask(int signo, unsigned long mask) {
-  return (mask & SigMaskFromSigno(signo)) > 0;
-}
-
-inline void assert_signal_valid(int sig) {
-  assert(sig > 0 && sig <= kNumSignals);
-}
-
-// k_sigaction defines the action for a signal (in sync with Linux definition)
+// k_sigaction defines the actions for a signal (in sync with Linux definition)
 struct k_sigaction {
   sighandler handler;
   unsigned long sa_flags;
   void (*restorer)(void);
-  kernel_sigset_t sa_mask;
+  k_sigset_t sa_mask;
 
   [[nodiscard]] bool wants_altstack() const {
     return (sa_flags & SA_ONSTACK) > 0;
   }
-
   [[nodiscard]] bool is_oneshot() const {
     return (sa_flags & SA_RESETHAND) > 0;
   }
-
   [[nodiscard]] bool is_nodefer() const { return (sa_flags & SA_NODEFER) > 0; }
 
-  [[nodiscard]] bool is_default() const {
-    return handler == reinterpret_cast<sighandler>(kHandlerDefault);
-  }
-
-  [[nodiscard]] bool is_ignored(int signo) const {
-    if (handler == reinterpret_cast<sighandler>(kHandlerIgnore)) return true;
-    return is_default() && CheckSignalInMask(signo, kSigDefaultIgnore);
-  }
-
   void reset() {
-    handler = reinterpret_cast<sighandler>(kHandlerDefault);
+    handler = kDefaultHandler;
     sa_flags = 0;
   }
 };
@@ -92,21 +67,21 @@ class ThreadSignalHandler {
   ThreadSignalHandler() = default;
   ~ThreadSignalHandler() = default;
 
-  void set_sig_pending(int signo) { pending_ |= SigMaskFromSigno(signo); }
-  void set_sig_blocked(int signo) { blocked_ |= SigMaskFromSigno(signo); }
-  void clear_sig_pending(int signo) { pending_ &= ~SigMaskFromSigno(signo); }
-  void clear_sig_blocked(int signo) { blocked_ &= ~SigMaskFromSigno(signo); }
+  void set_sig_pending(int signo) { pending_ |= SignalMask(signo); }
+  void set_sig_blocked(int signo) { blocked_ |= SignalMask(signo); }
+  void clear_sig_pending(int signo) { pending_ &= ~SignalMask(signo); }
+  void clear_sig_blocked(int signo) { blocked_ &= ~SignalMask(signo); }
 
   [[nodiscard]] bool any_sig_pending() const {
     return (access_once(pending_) & ~(access_once(blocked_))) > 0;
   }
 
   [[nodiscard]] bool is_sig_pending(int signo) const {
-    return CheckSignalInMask(signo, pending_);
+    return SignalInMask(signo, pending_);
   }
 
   [[nodiscard]] bool is_sig_blocked(int signo) const {
-    return CheckSignalInMask(signo, access_once(blocked_));
+    return SignalInMask(signo, access_once(blocked_));
   }
 
   [[nodiscard]] bool has_altstack() const {
@@ -125,7 +100,7 @@ class ThreadSignalHandler {
     thread_self()->tlsvar = 1;
   }
 
-  inline Status<void> SigAltStack(const stack_t *ss, stack_t *old_ss) {
+  Status<void> SigAltStack(const stack_t *ss, stack_t *old_ss) {
     if (old_ss) *old_ss = sigaltstack_;
     if (ss) sigaltstack_ = *ss;
     return {};
@@ -189,20 +164,22 @@ class alignas(kCacheLineSize) SignalTable {
   SignalTable() = default;
   ~SignalTable() = default;
 
+  // get_action gets an action for a signal (resetting if one shot).
   [[nodiscard]] k_sigaction get_action(int sig) {
     assert_signal_valid(sig);
 
     rt::SpinGuard g(lock_);
-    k_sigaction sa = table_[sig];
-    if (sa.is_oneshot()) table_[sig].reset();
+    k_sigaction sa = table_[sig - 1];
+    if (sa.is_oneshot()) table_[sig - 1].reset();
     return sa;
   }
 
+  // exchange_action sets a new action for a signal and returns the old one.
   k_sigaction exchange_action(int sig, k_sigaction sa) {
     assert_signal_valid(sig);
 
     rt::SpinGuard g(lock_);
-    return std::exchange(table_[sig], sa);
+    return std::exchange(table_[sig - 1], sa);
   }
 
  private:
