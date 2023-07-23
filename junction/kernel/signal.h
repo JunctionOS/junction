@@ -12,8 +12,6 @@ extern "C" {
 
 namespace junction {
 
-class Thread;
-
 typedef uint64_t k_sigset_t;
 typedef void (*sighandler)(int sig, siginfo_t *info, void *uc);
 
@@ -165,12 +163,12 @@ class alignas(kCacheLineSize) SignalTable {
   ~SignalTable() = default;
 
   // get_action gets an action for a signal (resetting if one shot).
-  [[nodiscard]] k_sigaction get_action(int sig) {
+  [[nodiscard]] k_sigaction get_action(int sig, bool reset = false) {
     assert_signal_valid(sig);
 
     rt::SpinGuard g(lock_);
     k_sigaction sa = table_[sig - 1];
-    if (sa.is_oneshot()) table_[sig - 1].reset();
+    if (reset && sa.is_oneshot()) table_[sig - 1].reset();
     return sa;
   }
 

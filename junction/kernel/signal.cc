@@ -152,7 +152,7 @@ extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
 }
 
 std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
-  k_sigaction act = myproc().get_signal_table().get_action(sig);
+  k_sigaction act = myproc().get_signal_table().get_action(sig, true);
 
   // is it a legacy signal that is already enqueued?
   if (sig <= kNumStandardSignals && is_sig_pending(sig)) return std::nullopt;
@@ -555,7 +555,12 @@ long usys_rt_sigaction(int sig, const struct k_sigaction *iact,
                        struct k_sigaction *oact, size_t sigsetsize) {
   if (unlikely(sigsetsize != sizeof(k_sigset_t))) return -EINVAL;
   if (unlikely(SignalInMask(kSignalKernelOnlyMask, sig))) return -EINVAL;
-  k_sigaction sa = myproc().get_signal_table().exchange_action(sig, *iact);
+  k_sigaction sa;
+  if (iact) {
+    sa = myproc().get_signal_table().exchange_action(sig, *iact);
+  } else {
+    sa = myproc().get_signal_table().get_action(sig);
+  }
   if (oact) *oact = sa;
   return 0;
 }
