@@ -75,11 +75,11 @@ class ThreadSignalHandler {
   }
 
   [[nodiscard]] bool is_sig_pending(int signo) const {
-    return SignalInMask(signo, pending_);
+    return SignalInMask(pending_, signo);
   }
 
   [[nodiscard]] bool is_sig_blocked(int signo) const {
-    return SignalInMask(signo, access_once(blocked_));
+    return SignalInMask(access_once(blocked_), signo);
   }
 
   [[nodiscard]] bool has_altstack() const {
