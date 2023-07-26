@@ -1,0 +1,381 @@
+From 27af25568c1c52ed64a928c80957123e5fb58442 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Wed, 26 Jul 2023 01:03:43 +0000
+Subject: [PATCH 28/28] timer wheel
+
+---
+ iokernel/defs.h        |  30 ++++++--
+ iokernel/main.c        |   1 +
+ iokernel/sched.c       |  59 +++++++++++++--
+ iokernel/timer_wheel.c | 160 +++++++++++++++++++++++++++++++++++++++++
+ 4 files changed, 237 insertions(+), 13 deletions(-)
+ create mode 100644 iokernel/timer_wheel.c
+
+diff --git a/iokernel/defs.h b/iokernel/defs.h
+index ff145c5..85ea182 100644
+--- a/iokernel/defs.h
++++ b/iokernel/defs.h
+@@ -159,12 +159,18 @@ struct proc {
+ 	unsigned int		removed:1;
+ 	unsigned int		started:1;
+ 	unsigned int		has_storage:1;
+-	struct runtime_info	*runtime_info;
+ 	unsigned long		policy_data;
+ 	unsigned long		directpath_data;
+ 	uint64_t		next_poll_tsc;
+ 
++	/* timer list expiry us */
++	uint64_t 		timer_pos_us;
++
++	/* list node for timer wheel or poll list */
++	struct list_node	link;
++
+ 	float			load;
++	struct runtime_info	*runtime_info;
+ 
+ 	/* runtime threads */
+ 	struct list_head	idle_threads;
+@@ -198,19 +204,28 @@ struct proc {
+ 	physaddr_t		page_paddrs[];
+ };
+ 
+-static inline void proc_enable_sched_poll(struct proc *p)
++extern void proc_timer_add(struct proc *p, uint64_t next_poll_tsc);
++extern void proc_timer_run(uint64_t now);
++extern uint64_t timer_pos;
++
++extern struct list_head poll_list;
++
++static inline bool proc_on_timer_wheel(struct proc *p)
+ {
+-	p->next_poll_tsc = 0;
++	return p->timer_pos_us > timer_pos;
+ }
+ 
+-static inline void proc_set_next_poll(struct proc *p, uint64_t tsc)
++static inline bool proc_is_sched_polled(struct proc *p)
+ {
+-	p->next_poll_tsc = tsc;
++	return !proc_on_timer_wheel(p) && p->next_poll_tsc != UINT64_MAX;
+ }
+ 
+-static inline void proc_disable_sched_poll(struct proc *p)
++static inline void proc_enable_sched_poll_nocheck(struct proc *p)
+ {
+-	p->next_poll_tsc = UINT64_MAX;
++	assert(!proc_on_timer_wheel(p));
++
++	p->next_poll_tsc = 0;
++	list_add_tail(&poll_list, &p->link);
+ }
+ 
+ 
+@@ -401,6 +416,7 @@ extern int dp_clients_init(void);
+ extern int dpdk_late_init(void);
+ extern int hw_timestamp_init(void);
+ extern int stats_init(void);
++extern int proc_timer_init(void);
+ 
+ extern char *nic_pci_addr_str;
+ extern struct pci_addr nic_pci_addr;
+diff --git a/iokernel/main.c b/iokernel/main.c
+index 2c1c48f..a9dafdf 100644
+--- a/iokernel/main.c
++++ b/iokernel/main.c
+@@ -44,6 +44,7 @@ static const struct init_entry iok_init_handlers[] = {
+ 	IOK_INITIALIZER(simple),
+ 	IOK_INITIALIZER(numa),
+ 	IOK_INITIALIZER(ias),
++	IOK_INITIALIZER(proc_timer),
+ 
+ 	/* control plane */
+ 	IOK_INITIALIZER(control),
+diff --git a/iokernel/sched.c b/iokernel/sched.c
+index e153585..03ffbed 100644
+--- a/iokernel/sched.c
++++ b/iokernel/sched.c
+@@ -19,6 +19,8 @@
+ #include "ksched.h"
+ #include "hw_timestamp.h"
+ 
++#define PROC_TIMER_WHEEL_THRESH_US 100
++
+ /* a bitmap of cores available to be allocated by the scheduler */
+ DEFINE_BITMAP(sched_allowed_cores, NCPU);
+ 
+@@ -39,6 +41,8 @@ int sched_cores_nr;
+ 
+ static int nr_guaranteed;
+ 
++LIST_HEAD(poll_list);
++
+ struct core_state {
+ 	struct thread	*last_th;     /* recently run thread, waiting for preemption to complete */
+ 	struct thread	*pending_th;  /* a thread waiting run */
+@@ -56,6 +60,46 @@ const struct sched_ops *sched_ops;
+ /* current hardware timestamp */
+ static uint64_t cur_tsc;
+ 
++static void proc_disable_sched_poll(struct proc *p)
++{
++	// proc already disabled
++	if (p->next_poll_tsc == UINT64_MAX)
++		return;
++
++	// otherwise delete it from the poll list or timer wheel
++	list_del(&p->link);
++	p->timer_pos_us = 0;
++	p->next_poll_tsc = UINT64_MAX;
++}
++
++static void proc_set_next_poll(struct proc *p, uint64_t tsc)
++{
++	assert(proc_is_sched_polled(p));
++
++	tsc = MAX(tsc, cur_tsc);
++	p->next_poll_tsc = tsc;
++
++	if (tsc - cur_tsc > PROC_TIMER_WHEEL_THRESH_US * cycles_per_us) {
++		list_del_from(&poll_list, &p->link);
++		if (tsc != UINT64_MAX)
++			proc_timer_add(p, tsc);
++	}
++}
++
++static void proc_enable_sched_poll(struct proc *p)
++{
++	if (proc_on_timer_wheel(p)) {
++		p->timer_pos_us = 0;
++		list_del(&p->link);
++	} else if (p->next_poll_tsc != UINT64_MAX) {
++		// already polled
++		return;
++	}
++
++	proc_enable_sched_poll_nocheck(p);
++}
++
++
+ 
+ /**
+  * sched_steer_flows - redirects flows to active kthreads
+@@ -610,6 +654,8 @@ static void sched_measure_delay(struct proc *p)
+ 	    posted_strides - consumed_strides < DIRECTPATH_STRIDE_REFILL_THRESH_HI) {
+ 		rx_send_to_runtime(p, 0, RX_REFILL_BUFS, 0);
+ 		STAT_INC(RX_REFILL, 1);
++		dl.has_work = true;
++		dl.parked_thread_busy |= sched_threads_active(p) == 0;
+ 	}
+ 
+ 	if (rxq_delay) {
+@@ -710,7 +756,7 @@ void sched_poll(void)
+ 	struct core_state *s;
+ 	uint64_t now;
+ 	int i, core, idle_cnt = 0;
+-	struct proc *p;
++	struct proc *p, *p_next;
+ 
+ 	/*
+ 	 * slow pass --- runs every IOKERNEL_POLL_INTERVAL
+@@ -725,11 +771,11 @@ void sched_poll(void)
+ 		/* retrieve current network device tick */
+ 		hw_timestamp_update();
+ 
++		proc_timer_run(now);
++
+ 		last_time = cur_tsc;
+-		for (i = 0; i < dp.nr_clients; i++) {
+-			if (i + 2 < dp.nr_clients)
+-				prefetch(dp.clients[i + 2]);
+-			p = dp.clients[i];
++		list_for_each_safe(&poll_list, p, p_next, link) {
++			prefetch(p_next);
+ 			sched_measure_delay(p);
+ 		}
+ 	} else if (!cfg.noidlefastwake && !cfg.vfio_directpath) {
+@@ -843,7 +889,7 @@ int sched_attach_proc(struct proc *p)
+ 		return ret;
+ 
+ 	nr_guaranteed += p->sched_cfg.guaranteed_cores;
+-	proc_enable_sched_poll(p);
++	proc_enable_sched_poll_nocheck(p);
+ 
+ 	return 0;
+ }
+@@ -854,6 +900,7 @@ int sched_attach_proc(struct proc *p)
+  */
+ void sched_detach_proc(struct proc *p)
+ {
++	proc_disable_sched_poll(p);
+ 	sched_ops->proc_detach(p);
+ 	nr_guaranteed -= p->sched_cfg.guaranteed_cores;
+ }
+diff --git a/iokernel/timer_wheel.c b/iokernel/timer_wheel.c
+new file mode 100644
+index 0000000..13a7eaa
+--- /dev/null
++++ b/iokernel/timer_wheel.c
+@@ -0,0 +1,160 @@
++/*
++ * timer_wheel.c - timer wheel to manage procs that need to be polled by the
++ * scheduler
++ *
++ * Code/design borrowed from IX.
++ *
++ * The design is inspired by "Hashed and Hierarchical Timing Wheels: Data
++ * Structures for the Efficient Implementation of a Timer Facility" by
++ * George Varghese and Tony Lauck. SOSP 87.
++ *
++ * Specificially, we use Scheme 7 described in the paper, where
++ * hierarchical sets of buckets are used.
++ */
++
++#include <base/log.h>
++#include <base/list.h>
++#include <base/time.h>
++
++#include "defs.h"
++
++/*
++ * Right now we have the following wheels:
++ *
++ * high precision wheel: 256 x 16 us increments
++ * medium precision wheel: 256 x 4 ms increments
++ * low precision wheel: 256 x 1 second increments
++ *
++ * Total range 0 to 256 seconds...
++ */
++
++#define WHEEL_SHIFT_LOG2	3UL
++#define WHEEL_SHIFT		(1UL << WHEEL_SHIFT_LOG2)
++#define WHEEL_SIZE		(1UL << WHEEL_SHIFT)
++#define WHEEL_MASK		(WHEEL_SIZE - 1)
++#define WHEEL_COUNT		3UL
++
++#define MIN_DELAY_SHIFT		4UL
++#define MIN_DELAY_US		(1UL << MIN_DELAY_SHIFT)
++#define MIN_DELAY_MASK		(MIN_DELAY_US - 1)
++#define MAX_DELAY_US \
++	(MIN_DELAY_US * (1UL << (WHEEL_COUNT * WHEEL_SHIFT)))
++
++#define WHEEL_IDX_TO_SHIFT(idx) \
++	((idx) * WHEEL_SHIFT + MIN_DELAY_SHIFT)
++#define WHEEL_OFFSET(val, idx) \
++	(((val) >> WHEEL_IDX_TO_SHIFT(idx)) & WHEEL_MASK)
++
++/* current timer position (in microtime) */
++uint64_t timer_pos;
++/* timer wheels */
++static struct list_head wheels[WHEEL_COUNT][WHEEL_SIZE];
++
++static void proc_timer_insert(struct proc *p)
++{
++	uint64_t expire_us, delay_us;
++	uint64_t index, offset;
++
++	/*
++	 * Round up to the next bucket because part of the time
++	 * between buckets has likely already passed.
++	 */
++	expire_us = p->timer_pos_us + MIN_DELAY_US;
++	assert(expire_us >= timer_pos);
++	delay_us = MIN(MAX_DELAY_US - 1, expire_us - timer_pos);
++
++	/*
++	 * This code looks a little strange because it was optimized to
++	 * calculate the correct bucket placement without using any
++	 * branch instructions, instead using count last zero (CLZ).
++	 *
++	 * NOTE: This assumes MIN_DELAY_US was added above. Otherwise
++	 * the index might be calculated as negative, so be careful
++	 * about this constraint when modifying this code.
++	 */
++	index = ((63 - __builtin_clzll(delay_us) - MIN_DELAY_SHIFT)
++		 >> WHEEL_SHIFT_LOG2);
++	offset = WHEEL_OFFSET(expire_us, index);
++	assert(index < WHEEL_COUNT);
++	assert(offset < WHEEL_SIZE);
++
++	list_add(&wheels[index][offset], &p->link);
++}
++
++static void proc_timer_run_bucket(struct list_head *h)
++{
++	list_append_list(&poll_list, h);
++}
++
++static void proc_timer_reinsert_bucket(struct list_head *h)
++{
++	struct proc *p, *tmp;
++
++	list_for_each_safe(h, p, tmp, link) {
++
++		prefetchnta(tmp);
++
++		list_del_from(h, &p->link);
++
++		if (p->timer_pos_us <= timer_pos) {
++			proc_enable_sched_poll_nocheck(p);
++			continue;
++		}
++
++		proc_timer_insert(p);
++	}
++}
++
++static void proc_timer_collapse(uint64_t pos)
++{
++	int wheel;
++
++	for (wheel = 1; wheel < WHEEL_COUNT; wheel++) {
++		int off = WHEEL_OFFSET(pos, wheel);
++
++		proc_timer_reinsert_bucket(&wheels[wheel][off]);
++
++		// only need to go to the next wheel if offset is zero
++		if (off)
++			break;
++	}
++}
++
++void proc_timer_add(struct proc *p, uint64_t next_poll_tsc)
++{
++	p->timer_pos_us = (next_poll_tsc - start_tsc) / cycles_per_us;
++
++	if (unlikely(p->timer_pos_us <= timer_pos)) {
++		proc_enable_sched_poll_nocheck(p);
++		return;
++	}
++
++	proc_timer_insert(p);
++}
++
++void proc_timer_run(uint64_t now)
++{
++	for (; timer_pos <= now; timer_pos += MIN_DELAY_US) {
++		int high_off = WHEEL_OFFSET(timer_pos, 0);
++
++		if (!high_off)
++			proc_timer_collapse(timer_pos);
++
++		prefetch(&wheels[0][WHEEL_OFFSET(timer_pos + MIN_DELAY_US, 0)]);
++
++		proc_timer_run_bucket(&wheels[0][high_off]);
++	}
++}
++
++int proc_timer_init(void)
++{
++	int i, j;
++
++	for (i = 0; i < WHEEL_COUNT; i++)
++		for (j = 0; j < WHEEL_SIZE; j++)
++			list_head_init(&wheels[i][j]);
++
++	timer_pos = microtime();
++
++	return 0;
++}
+-- 
+2.39.2
+

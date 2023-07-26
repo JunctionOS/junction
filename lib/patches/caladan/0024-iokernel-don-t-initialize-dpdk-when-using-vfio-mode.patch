@@ -1,0 +1,85 @@
+From 80e63a6fceed17a53f87f2cbe7479daa0e717ca9 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Wed, 7 Jun 2023 15:00:54 -0400
+Subject: [PATCH 24/28] iokernel: don't initialize dpdk when using vfio mode
+
+---
+ iokernel/dpdk.c |  4 ++++
+ iokernel/main.c | 33 +++++++++++++++++++++++++++++----
+ 2 files changed, 33 insertions(+), 4 deletions(-)
+
+diff --git a/iokernel/dpdk.c b/iokernel/dpdk.c
+index 874fb9a..c26ea4a 100644
+--- a/iokernel/dpdk.c
++++ b/iokernel/dpdk.c
+@@ -274,6 +274,10 @@ int dpdk_init(void)
+  */
+ int dpdk_late_init(void)
+ {
++
++	if (cfg.vfio_directpath)
++		return 0;
++
+ 	/* initialize port */
+ 	dp.port = 0;
+ 	if (dpdk_port_init(dp.port, dp.rx_mbuf_pool) != 0) {
+diff --git a/iokernel/main.c b/iokernel/main.c
+index b9cf908..2c1c48f 100644
+--- a/iokernel/main.c
++++ b/iokernel/main.c
+@@ -83,6 +83,31 @@ static int run_init_handlers(const char *phase, const struct init_entry *h,
+ 	return 0;
+ }
+ 
++static void dataplane_loop_vfio(void)
++{
++	bool work_done;
++
++	log_info("main: core %u running dataplane. [Ctrl+C to quit]",
++			rte_lcore_id());
++	fflush(stdout);
++
++	/* run until quit or killed */
++	for (;;) {
++		work_done = false;
++
++		/* adjust core assignments */
++		sched_poll();
++
++		work_done |= directpath_poll();
++
++		/* handle control messages */
++		if (!work_done)
++			dp_clients_rx_control_lrpcs();
++
++		STAT_INC(LOOPS, 1);
++	}
++}
++
+ /*
+  * The main dataplane thread.
+  */
+@@ -125,9 +150,6 @@ void dataplane_loop(void)
+ 		/* process a batch of commands from runtimes */
+ 		work_done |= commands_rx();
+ 
+-		if (cfg.vfio_directpath)
+-			work_done |= directpath_poll();
+-
+ 		/* handle control messages */
+ 		if (!work_done)
+ 			dp_clients_rx_control_lrpcs();
+@@ -255,6 +277,9 @@ int main(int argc, char *argv[])
+ 
+ 	pthread_barrier_wait(&init_barrier);
+ 
+-	dataplane_loop();
++	if (cfg.vfio_directpath)
++		dataplane_loop_vfio();
++	else
++		dataplane_loop();
+ 	return 0;
+ }
+-- 
+2.39.2
+
