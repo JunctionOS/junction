@@ -1,18 +1,18 @@
-From b686ec2ec4202b5ec6cbab8fa54af6d33487c219 Mon Sep 17 00:00:00 2001
+From e187a3c54f1783f2037af3b7b166b983af951bad Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
-Subject: [PATCH 23/23] preemption and signal updates
+Subject: [PATCH 23/28] preemption and signal updates
 
 ---
  inc/runtime/thread.h |  4 +-
  runtime/cfg.c        |  9 -----
  runtime/defs.h       |  2 +-
- runtime/preempt.c    | 20 ----------
+ runtime/preempt.c    | 31 ++++++---------
  runtime/sched.c      | 89 +++++++++++++++-----------------------------
- 5 files changed, 31 insertions(+), 93 deletions(-)
+ 5 files changed, 42 insertions(+), 93 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 6a465efe..a1868881 100644
+index 6a465ef..a186888 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -100,7 +100,6 @@ struct stack;
@@ -34,7 +34,7 @@ index 6a465efe..a1868881 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index 7936ce12..1043ede4 100644
+index 7936ce1..1043ede 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
 @@ -18,7 +18,6 @@ static size_t arp_static_sz;
@@ -68,7 +68,7 @@ index 7936ce12..1043ede4 100644
  
  /**
 diff --git a/runtime/defs.h b/runtime/defs.h
-index f40c8196..88d71b2d 100644
+index f40c819..88d71b2 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -68,6 +68,7 @@ struct stack {
@@ -88,10 +88,56 @@ index f40c8196..88d71b2d 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index ee376d6b..b49ab728 100644
+index ee376d6..02e24e3 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -94,24 +94,7 @@ void preempt(void)
+@@ -4,6 +4,7 @@
+ 
+ #include <signal.h>
+ #include <string.h>
++#include <ucontext.h>
+ 
+ #include <base/log.h>
+ #include <base/signal.h>
+@@ -26,6 +27,8 @@ static void set_preempt_needed(void)
+ /* handles preemptive cede signals from the iokernel */
+ static void handle_sigusr1(int s, siginfo_t *si, void *c)
+ {
++	ucontext_t *ctx = (ucontext_t *)c;
++
+ 	STAT(PREEMPTIONS)++;
+ 
+ 	/* resume execution if preemption is disabled */
+@@ -36,6 +39,9 @@ static void handle_sigusr1(int s, siginfo_t *si, void *c)
+ 
+ 	WARN_ON_ONCE(!preempt_cede_needed(myk()));
+ 
++	// prevent sigreturn from updating altstack
++	ctx->uc_stack.ss_flags = 4;
++
+ 	preempt_disable();
+ 	thread_cede();
+ }
+@@ -43,6 +49,8 @@ static void handle_sigusr1(int s, siginfo_t *si, void *c)
+ /* handles preemptive yield signals from the iokernel */
+ static void handle_sigusr2(int s, siginfo_t *si, void *c)
+ {
++	ucontext_t *ctx = (ucontext_t *)c;
++
+ 	STAT(PREEMPTIONS)++;
+ 
+ 	/* resume execution if preemption is disabled */
+@@ -55,6 +63,9 @@ static void handle_sigusr2(int s, siginfo_t *si, void *c)
+ 	if (!preempt_yield_needed(myk()))
+ 		return;
+ 
++	// prevent sigreturn from updating altstack
++	ctx->uc_stack.ss_flags = 4;
++
+ 	thread_yield();
+ }
+ 
+@@ -94,24 +105,7 @@ void preempt(void)
  
  int preempt_init_thread(void)
  {
@@ -116,7 +162,7 @@ index ee376d6b..b49ab728 100644
  	return 0;
  }
  
-@@ -125,9 +108,6 @@ int preempt_init(void)
+@@ -125,9 +119,6 @@ int preempt_init(void)
  {
  	struct sigaction act;
  
@@ -127,7 +173,7 @@ index ee376d6b..b49ab728 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f80def0e..a61cbe48 100644
+index f80def0..a61cbe4 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
