@@ -133,7 +133,7 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
 
 // Sched
 long usys_sched_yield();
-long usys_getcpu();
+long usys_getcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *cache);
 int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask);
 long usys_sched_setscheduler(pid_t pid, int policy,
                              const struct sched_param *param);

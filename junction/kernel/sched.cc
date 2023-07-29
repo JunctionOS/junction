@@ -19,7 +19,12 @@ long usys_sched_yield() {
   return 0;
 }
 
-long usys_getcpu() { return rt::Preempt::get_cpu(); }
+long usys_getcpu(unsigned *cpu, unsigned *node,
+                 [[maybe_unused]] struct getcpu_cache *cache) {
+  if (cpu) *cpu = rt::Preempt::get_cpu();
+  if (node) *node = 0;
+  return 0;
+}
 
 int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) {
   // Fake response that can be used by programs to detect the number of cores
