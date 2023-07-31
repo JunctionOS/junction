@@ -54,9 +54,7 @@ class Thread {
   [[nodiscard]] bool needs_interrupt() const {
     return sighand_.any_sig_pending();
   }
-  [[nodiscard]] bool in_syscall() const {
-    return in_syscall_.load(std::memory_order_acquire);
-  }
+  [[nodiscard]] bool in_syscall() const { return access_once(in_syscall_); }
 
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
   [[nodiscard]] bool has_altstack() const { return sighand_.has_altstack(); }
@@ -78,13 +76,13 @@ class Thread {
   }
 
   void OnSyscallEnter() {
-    in_syscall_ = true;
+    access_once(in_syscall_) = true;
     if (unlikely(needs_interrupt())) HandleInterrupt(std::nullopt);
   }
 
   void OnSyscallLeave(long rax) {
     if (unlikely(needs_interrupt())) HandleInterrupt(rax);
-    in_syscall_ = false;
+    access_once(in_syscall_) = false;
     SetSyscallFrame(nullptr);
   }
 
@@ -112,7 +110,7 @@ class Thread {
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   uint32_t *child_tid_{nullptr};   // Used for clone3/exit
   const pid_t tid_;                // the thread identifier
-  std::atomic_bool in_syscall_;
+  bool in_syscall_;
   int xstate_;  // exit state
   ThreadSignalHandler sighand_;
   void *cur_syscall_frame_;
