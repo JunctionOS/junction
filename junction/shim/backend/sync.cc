@@ -21,10 +21,10 @@ struct ShimCondVar {
   uint32_t init_magic{kInitMagic};
   rt::CondVar cv;
   clockid_t clockid;
-  static void InitCheck(ShimCondVar *cv) {
+  static inline void InitCheck(ShimCondVar *cv) {
     if (unlikely(cv->init_magic != kInitMagic)) new (cv) ShimCondVar();
   }
-  static ShimCondVar *fromPthread(pthread_cond_t *m) {
+  static inline ShimCondVar *fromPthread(pthread_cond_t *m) {
     ShimCondVar *sm = reinterpret_cast<ShimCondVar *>(m);
     InitCheck(sm);
     return sm;
@@ -34,10 +34,10 @@ struct ShimCondVar {
 struct ShimMutex {
   uint32_t init_magic{kInitMagic};
   rt::Mutex mutex;
-  static void InitCheck(ShimMutex *m) {
+  static inline void InitCheck(ShimMutex *m) {
     if (unlikely(m->init_magic != kInitMagic)) new (m) ShimMutex();
   }
-  static ShimMutex *fromPthread(pthread_mutex_t *m) {
+  static inline ShimMutex *fromPthread(pthread_mutex_t *m) {
     ShimMutex *sm = reinterpret_cast<ShimMutex *>(m);
     InitCheck(sm);
     return sm;
@@ -47,10 +47,10 @@ struct ShimMutex {
 struct ShimRWMutex {
   uint32_t init_magic{kInitMagic};
   rt::RWMutex rwmutex;
-  static void InitCheck(ShimRWMutex *m) {
+  static inline void InitCheck(ShimRWMutex *m) {
     if (unlikely(m->init_magic != kInitMagic)) new (m) ShimRWMutex();
   }
-  static ShimRWMutex *fromPthread(pthread_rwlock_t *m) {
+  static inline ShimRWMutex *fromPthread(pthread_rwlock_t *m) {
     ShimRWMutex *sm = reinterpret_cast<ShimRWMutex *>(m);
     InitCheck(sm);
     return sm;
@@ -60,7 +60,7 @@ struct ShimRWMutex {
 struct ShimBarrier {
   rt::Barrier br;
   ShimBarrier(int count) : br(count) {}
-  static ShimBarrier *fromPthread(pthread_barrier_t *m) {
+  static inline ShimBarrier *fromPthread(pthread_barrier_t *m) {
     return reinterpret_cast<ShimBarrier *>(m);
   }
 };
