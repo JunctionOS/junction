@@ -68,7 +68,7 @@ void MainHandler() {
   if (f1.get() + f2.get() != 16) BUG();
 
   rt::Yield();
-  rt::Sleep(1 * rt::kMilliseconds);
+  rt::Sleep(Duration(1 * kMilliseconds));
 
   rt::RuntimeExit(EXIT_SUCCESS);
 }

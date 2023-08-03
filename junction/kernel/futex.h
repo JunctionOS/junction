@@ -10,6 +10,7 @@
 #include "junction/base/error.h"
 #include "junction/base/intrusive_list.h"
 #include "junction/bindings/sync.h"
+#include "junction/bindings/timer.h"
 #include "junction/kernel/proc.h"
 
 namespace junction {
@@ -50,7 +51,7 @@ class alignas(kCacheLineSize) FutexTable {
   // timeout expires, or EAGAIN if @val doesn't match the value in the address.
   Status<void> Wait(uint32_t *key, uint32_t val,
                     uint32_t bitset = kFutexBitsetAny,
-                    std::optional<uint64_t> timeout_us = {});
+                    std::optional<Duration> timeout = {});
 
   // Wake unblocks up to @n threads waiting on the address @key. Returns the
   // number of threads woken.

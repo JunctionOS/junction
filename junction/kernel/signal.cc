@@ -622,7 +622,7 @@ Status<void> InitSignal() {
   // Replace Caladan sighandler with one that receives signals on
   // alternate stacks and transfers frames to the correct altstacks
   act.sa_sigaction = caladan_signal_handler;
-  for (const auto &sig : {SIGUSR1, SIGUSR2}) {
+  for (auto sig : {SIGUSR1, SIGUSR2}) {
     if (unlikely(base_sigaction(sig, &act, nullptr) != 0)) {
       return MakeError(errno);
     }

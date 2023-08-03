@@ -10,6 +10,7 @@ extern "C" {
 #include <utility>
 
 #include "junction/base/compiler.h"
+#include "junction/base/time.h"
 
 namespace junction::rt {
 
@@ -23,9 +24,10 @@ extern "C" void TimerTrampoline(unsigned long arg);
 
 }  // namespace timer_internal
 
-inline constexpr uint64_t kMilliseconds = 1000;
-inline constexpr uint64_t kSeconds = 1000000;
-
+// Timer is an object that calls a function after a deadline
+//
+// The function runs in softirq context, so it should not block and must return
+// quickly. However, it can spawn a new thread if a longer time is needed.
 template <std::invocable<> Callable>
 class Timer : private timer_internal::timer_node {
  public:
@@ -34,31 +36,25 @@ class Timer : private timer_internal::timer_node {
     auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
     timer_init(&entry_, timer_internal::TimerTrampoline, arg);
   }
-  Timer(uint64_t us, Callable &&func) noexcept
-      : func_(std::forward<Callable>(func)) {
-    auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
-    timer_init(&entry_, timer_internal::TimerTrampoline, arg);
-    timer_start(&entry_, us);
-  }
   ~Timer() { BUG_ON(timer_busy(&entry_)); }
 
-  // Disable move.
-  Timer(Timer &&) = delete;
-  Timer &operator=(Timer &&) = delete;
+  // disable copy and move.
+  Timer(const Timer &) = delete;
+  Timer &operator=(const Timer &) = delete;
+  Timer(const Timer &&) = delete;
+  Timer &operator=(const Timer &&) = delete;
 
-  // Copy constructor is needed so that Timer can be inserted into containers.
-  // After copying, a timer starts out disarmed.
-  Timer(const Timer &t) : func_(t.func_) {
-    auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
-    timer_init(&entry_, timer_internal::TimerTrampoline, arg);
+  // Start arms the timer to fire after a duration.
+  void Start(Duration d) {
+    Time t = Time::Now() + d;
+    timer_start(&entry_, t.Microseconds());
   }
-  Timer &operator=(const Timer &t) { func_ = t.func_; }
 
-  // Arms the timer to fire after a microsecond duration.
-  void Start(uint64_t us) { timer_start(&entry_, microtime() + us); }
+  // StartAt arms the timer to fire at a point in time.
+  void StartAt(Time t) { timer_start(&entry_, t.Microseconds()); }
 
-  // Cancels the timer after it was armed. Returns true if the cancellation was
-  // successful (i.e., the timer did not already fire).
+  // Cancel stops the timer after it was armed. Returns true if the
+  // cancellation was successful (i.e., the timer did not already fire).
   bool Cancel() { return timer_cancel(&entry_); }
 
  private:
@@ -68,16 +64,13 @@ class Timer : private timer_internal::timer_node {
   std::decay_t<Callable> func_;
 };
 
-// Gets the current number of microseconds since the launch of the runtime.
-inline uint64_t MicroTime() { return microtime(); }
+// Busy-spins for a duration.
+inline void Delay(Duration d) { delay_us(d.Microseconds()); }
 
-// Busy-spins for a microsecond duration.
-inline void Delay(uint64_t us) { delay_us(us); }
+// Sleeps (blocks and reschedules) until a point in time.
+inline void SleepUntil(Time t) { timer_sleep_until(t.Microseconds()); }
 
-// Sleeps until a microsecond deadline.
-inline void SleepUntil(uint64_t deadline_us) { timer_sleep_until(deadline_us); }
-
-// Sleeps for a microsecond duration.
-inline void Sleep(uint64_t duration_us) { timer_sleep(duration_us); }
+// Sleeps (blocks and reschedules) for a duration.
+inline void Sleep(Duration d) { timer_sleep(d.Microseconds()); }
 
 }  // namespace junction::rt

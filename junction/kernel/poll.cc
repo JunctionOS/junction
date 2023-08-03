@@ -11,7 +11,6 @@
 #include "junction/bindings/timer.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
-#include "junction/kernel/time.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
@@ -23,7 +22,7 @@ constexpr unsigned int kEPollEdgeTriggered = EPOLLET;
 constexpr unsigned int kEPollOneShot = EPOLLONESHOT;
 constexpr unsigned int kEPollExclusive = EPOLLEXCLUSIVE;
 
-int DoPoll(pollfd *fds, nfds_t nfds, std::optional<uint64_t> timeout_us) {
+int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout) {
   int nevents = 0;
 
   // Check each file; if at least one has events, no need to block.
@@ -43,7 +42,7 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<uint64_t> timeout_us) {
   }
 
   // Fast path: Return without blocking.
-  if (nevents > 0 || (timeout_us && *timeout_us == 0)) return nevents;
+  if (nevents > 0 || (timeout && timeout->IsZero())) return nevents;
 
   // Otherwise, init state to block on the FDs and timeout.
   rt::Spin lock;
@@ -56,7 +55,7 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<uint64_t> timeout_us) {
     rt::SpinGuard g(lock);
     th.Wake();
   });
-  if (timeout_us) timer.Start(*timeout_us);
+  if (timeout) timer.Start(*timeout);
 
   // Pack args to avoid heap allocations.
   struct {
@@ -106,7 +105,7 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<uint64_t> timeout_us) {
     }
   }
 
-  if (timeout_us) timer.Cancel();
+  if (timeout) timer.Cancel();
   return nevents;
 }
 
@@ -175,7 +174,7 @@ int EncodeSelectFDs(const std::vector<select_fd> &sfds, fd_set *readfds,
 }
 
 int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-             std::optional<uint64_t> timeout_us) {
+             std::optional<Duration> timeout) {
   if (nfds > FD_SETSIZE) return -EINVAL;
 
   // Decode the events into a more convenient format.
@@ -198,7 +197,7 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 
   // Fast path: Return without blocking.
   if (nevents > 0) return EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
-  if (timeout_us && *timeout_us == 0) return 0;
+  if (timeout && timeout->IsZero()) return 0;
 
   // Otherwise, init state to block on the FDs and timeout.
   rt::Spin lock;
@@ -211,7 +210,7 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     rt::SpinGuard g(lock);
     th.Wake();
   });
-  if (timeout_us) timer.Start(*timeout_us);
+  if (timeout) timer.Start(*timeout);
 
   // Pack args to avoid heap allocations.
   struct {
@@ -258,7 +257,7 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     }
   }
 
-  if (timeout_us) timer.Cancel();
+  if (timeout) timer.Cancel();
   return EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
 }
 
@@ -306,7 +305,7 @@ class EPollFile : public File {
   bool Add(File &f, uint32_t events, uint64_t user_data);
   bool Modify(File &f, uint32_t events, uint64_t user_data);
   bool Delete(File &f);
-  int Wait(std::span<epoll_event> events, std::optional<uint64_t> timeout);
+  int Wait(std::span<epoll_event> events, std::optional<Duration> timeout);
 
   void AddEvent(EPollObserver &o) {
     rt::SpinGuard g(lock_);
@@ -393,7 +392,7 @@ bool EPollFile::Delete(File &f) {
 }
 
 int EPollFile::Wait(std::span<epoll_event> events_out,
-                    std::optional<uint64_t> timeout_us) {
+                    std::optional<Duration> timeout) {
   // Setup a timer for timeouts.
   bool timed_out = false;
   rt::Timer timer([this, &timed_out] {
@@ -408,10 +407,10 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     rt::SpinGuard g(lock_);
 
     // Arm the timer if needed.
-    if (events_.empty() && timeout_us) {
-      if (*timeout_us == 0) return 0;
+    if (events_.empty() && timeout) {
+      if (timeout->IsZero()) return 0;
       lock_.Unlock();
-      timer.Start(*timeout_us);
+      timer.Start(*timeout);
       lock_.Lock();
     }
 
@@ -461,14 +460,14 @@ int CreateEPollFile(bool cloexec = false) {
 }
 
 int DoEPollWait(int epfd, epoll_event *events, int maxevents,
-                std::optional<uint64_t> timeout_us) {
+                std::optional<Duration> timeout) {
   if (unlikely(maxevents < 0)) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(epfd);
   if (unlikely(!f)) return -EBADF;
   auto *epf = most_derived_cast<detail::EPollFile>(f);
   if (unlikely(!epf)) return -EINVAL;
-  return epf->Wait({events, static_cast<size_t>(maxevents)}, timeout_us);
+  return epf->Wait({events, static_cast<size_t>(maxevents)}, timeout);
 }
 
 }  // namespace
@@ -481,28 +480,29 @@ void PollSource::Notify() {
 
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
   if (timeout < 0) return DoPoll(fds, nfds, {});
-  return DoPoll(fds, nfds, static_cast<uint64_t>(timeout) * rt::kMilliseconds);
+  return DoPoll(fds, nfds,
+                Duration(static_cast<uint64_t>(timeout) * kMilliseconds));
 }
 
 int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *ts,
                const sigset_t *sigmask, size_t sigsetsize) {
   // TODO(amb): support signal masking
   if (!ts) return DoPoll(fds, nfds, {});
-  return DoPoll(fds, nfds, timespec_to_us(*ts));
+  return DoPoll(fds, nfds, Duration(*ts));
 }
 
 int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                 struct timeval *tv) {
   // TODO(amb): On linux, @tv is modified to reflect the time left.
   if (!tv) return DoSelect(nfds, readfds, writefds, exceptfds, {});
-  return DoSelect(nfds, readfds, writefds, exceptfds, timeval_to_us(*tv));
+  return DoSelect(nfds, readfds, writefds, exceptfds, Duration(*tv));
 }
 
 int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, const struct timespec *ts) {
   // TODO(amb): support signal masking
   if (!ts) return DoSelect(nfds, readfds, writefds, exceptfds, {});
-  return DoSelect(nfds, readfds, writefds, exceptfds, timespec_to_us(*ts));
+  return DoSelect(nfds, readfds, writefds, exceptfds, Duration(*ts));
 }
 
 // This variant is deprecated, and size is ignored.
@@ -543,28 +543,28 @@ int usys_epoll_ctl(int epfd, int op, int fd, const struct epoll_event *event) {
 }
 
 int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
-                    int timeout) {
-  std::optional<uint64_t> timeout_us;
-  if (timeout >= 0)
-    timeout_us = static_cast<uint64_t>(timeout * rt::kMilliseconds);
-  return DoEPollWait(epfd, events, maxevents, timeout_us);
+                    int timeout_ms) {
+  std::optional<Duration> timeout;
+  if (timeout_ms >= 0)
+    timeout = Duration(static_cast<uint64_t>(timeout_ms) * kMilliseconds);
+  return DoEPollWait(epfd, events, maxevents, timeout);
 }
 
 int usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
-                     int timeout, const sigset_t *sigmask) {
+                     int timeout_ms, const sigset_t *sigmask) {
   // TODO(amb): support signal masking
-  std::optional<uint64_t> timeout_us;
-  if (timeout >= 0)
-    timeout_us = static_cast<uint64_t>(timeout * rt::kMilliseconds);
-  return DoEPollWait(epfd, events, maxevents, timeout_us);
+  std::optional<Duration> timeout;
+  if (timeout_ms >= 0)
+    timeout = Duration(static_cast<uint64_t>(timeout_ms) * kMilliseconds);
+  return DoEPollWait(epfd, events, maxevents, timeout);
 }
 
 int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
-                      const struct timespec *timeout, const sigset_t *sigmask) {
+                      const struct timespec *ts, const sigset_t *sigmask) {
   // TODO(amb): support signal masking
-  std::optional<uint64_t> timeout_us;
-  if (timeout) timeout_us = timespec_to_us(*timeout);
-  return DoEPollWait(epfd, events, maxevents, timeout_us);
+  std::optional<Duration> timeout;
+  if (ts) timeout = Duration(*ts);
+  return DoEPollWait(epfd, events, maxevents, timeout);
 }
 
 }  // namespace junction

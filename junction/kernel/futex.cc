@@ -9,7 +9,6 @@ extern "C" {
 #include "junction/bindings/timer.h"
 #include "junction/kernel/futex.h"
 #include "junction/kernel/proc.h"
-#include "junction/kernel/time.h"
 #include "junction/kernel/usys.h"
 
 namespace junction {
@@ -36,7 +35,7 @@ void FutexTable::CleanupProcess(Process *p) {
 }
 
 Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
-                              std::optional<uint64_t> timeout_us) {
+                              std::optional<Duration> timeout) {
   // Hot path: Don't need to block for a false condition.
   if (read_once(*key) != val) return MakeError(EAGAIN);
 
@@ -53,7 +52,7 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
     }
   });
   auto f = finally([&timer] { timer.Cancel(); });
-  if (timeout_us) timer.Start(*timeout_us);
+  if (timeout) timer.Start(*timeout);
 
   // Wait for a wakeup.
   bucket.lock.Lock();
@@ -110,13 +109,11 @@ constexpr bool FutexCmdHasTimeout(uint32_t cmd) {
 }
 
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
-                const struct timespec *timeout, uint32_t *uaddr2,
-                uint32_t val3) {
+                const struct timespec *ts, uint32_t *uaddr2, uint32_t val3) {
   futex_op &= ~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME);
   FutexTable &t = FutexTable::GetFutexTable();
-  std::optional<uint64_t> timeout_us;
-  if (timeout && FutexCmdHasTimeout(futex_op))
-    timeout_us = timespec_to_us(*timeout);
+  std::optional<Duration> timeout;
+  if (ts && FutexCmdHasTimeout(futex_op)) timeout = Duration(*ts);
   Status<void> ret;
 
   switch (futex_op) {
@@ -125,11 +122,11 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
     case FUTEX_WAKE_BITSET:
       return t.Wake(uaddr, val, val3);
     case FUTEX_WAIT:
-      ret = t.Wait(uaddr, val, kFutexBitsetAny, timeout_us);
+      ret = t.Wait(uaddr, val, kFutexBitsetAny, timeout);
       if (!ret) return MakeCError(ret);
       break;
     case FUTEX_WAIT_BITSET:
-      ret = t.Wait(uaddr, val, val3, timeout_us);
+      ret = t.Wait(uaddr, val, val3, timeout);
       if (!ret) return MakeCError(ret);
       break;
     default:

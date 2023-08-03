@@ -160,8 +160,8 @@ int shim_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex,
   timespec now_ts;
   BUG_ON(clock_gettime(c->clockid, &now_ts));
 
-  uint64_t wait_us = abstime->tv_sec * rt::kSeconds + abstime->tv_nsec / 1000;
-  uint64_t now_us = now_ts.tv_sec * rt::kSeconds + now_ts.tv_nsec / 1000;
+  uint64_t wait_us = abstime->tv_sec * kSeconds + abstime->tv_nsec / 1000;
+  uint64_t now_us = now_ts.tv_sec * kSeconds + now_ts.tv_nsec / 1000;
 
   if (wait_us <= now_us) return ETIMEDOUT;
   bool done = c->cv.WaitFor(m->mutex, wait_us - now_us);
