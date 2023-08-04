@@ -72,6 +72,12 @@ class Duration {
 
   // Microseconds converts the duration into microseconds (can be negative).
   constexpr int64_t Microseconds() const { return duration_; }
+  // Milliseconds converts the duration into milliseconds (can be negative).
+  constexpr int64_t Milliseconds() const { return duration_ / kMilliseconds; }
+  // Seconds converts the duration into seconds (can be negative).
+  constexpr double Seconds() const {
+    return static_cast<double>(duration_) / static_cast<double>(kSeconds);
+  }
 
   // IsZero checks if the duration is zero.
   constexpr bool IsZero() const { return duration_ == 0; }
@@ -80,11 +86,7 @@ class Duration {
   //
   // TODO(amb): Make the formatting nicer.
   // Currently displayed in seconds (e.g., 5500 us would be '5.5s')
-  std::string ToString() const {
-    return std::to_string(static_cast<float>(duration_) /
-                          static_cast<float>(kSeconds)) +
-           "s";
-  }
+  std::string ToString() const { return std::to_string(Seconds()) + "s"; }
 
   // Enable comparisons
   constexpr auto operator<=>(const Duration &) const = default;
@@ -92,6 +94,18 @@ class Duration {
  private:
   int64_t duration_;
 };
+
+// Literals representing different time durations
+//
+// Example usage:
+//  Sleep(10_ms);
+constexpr Duration operator""_s(unsigned long long s) {
+  return Duration(s * kSeconds);
+}
+constexpr Duration operator""_ms(unsigned long long ms) {
+  return Duration(ms * kMilliseconds);
+}
+constexpr Duration operator""_us(unsigned long long us) { return Duration(us); }
 
 // Time specifies a point in time.
 class Time {
@@ -114,16 +128,18 @@ class Time {
 
   // Microseconds converts the time into microseconds.
   constexpr uint64_t Microseconds() const { return time_; }
+  // Milliseconds converts the time into milliseconds.
+  constexpr int64_t Milliseconds() const { return time_ / kMilliseconds; }
+  // Seconds converts the time into seconds.
+  constexpr double Seconds() const {
+    return static_cast<double>(time_) / static_cast<double>(kSeconds);
+  }
 
   // ToString converts to a string representation.
   //
   // TODO(amb): Make the formatting nicer.
   // Currently displayed in seconds (e.g., 5500 us would be '5.5s')
-  std::string ToString() const {
-    return std::to_string(static_cast<float>(time_) /
-                          static_cast<float>(kSeconds)) +
-           "s";
-  }
+  std::string ToString() const { return std::to_string(Seconds()) + "s"; }
 
   // Enable comparisons
   constexpr auto operator<=>(const Time &) const = default;
