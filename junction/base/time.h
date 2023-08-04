@@ -48,6 +48,7 @@ class Time;
 // Duration specifies an interval of time.
 class Duration {
  public:
+  constexpr Duration() = default;
   constexpr explicit Duration(int64_t us) : duration_(us) {}
   constexpr explicit Duration(const timeval &tv)
       : duration_(detail::timeval_to_us(tv)) {}
@@ -95,6 +96,7 @@ class Duration {
 // Time specifies a point in time.
 class Time {
  public:
+  constexpr Time() = default;
   constexpr explicit Time(uint64_t us) : time_(us) {}
   constexpr explicit Time(const timeval &tv)
       : time_(detail::timeval_to_us(tv)) {}

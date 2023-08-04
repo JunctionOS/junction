@@ -7,6 +7,7 @@ extern "C" {
 #include <runtime/timer.h>
 }
 
+#include <optional>
 #include <utility>
 
 #include "junction/base/compiler.h"
@@ -46,22 +47,29 @@ class Timer : private timer_internal::timer_node {
 
   // Start arms the timer to fire after a duration.
   void Start(Duration d) {
-    Time t = Time::Now() + d;
-    timer_start(&entry_, t.Microseconds());
+    start_time_ = Time::Now() + d;
+    timer_start(&entry_, start_time_.Microseconds());
   }
 
   // StartAt arms the timer to fire at a point in time.
-  void StartAt(Time t) { timer_start(&entry_, t.Microseconds()); }
+  void StartAt(Time t) {
+    start_time_ = t;
+    timer_start(&entry_, t.Microseconds());
+  }
 
-  // Cancel stops the timer after it was armed. Returns true if the
-  // cancellation was successful (i.e., the timer did not already fire).
-  bool Cancel() { return timer_cancel(&entry_); }
+  // Cancel stops the timer after it was armed. Returns the duration left if
+  // the cancellation was successful (i.e., the timer did not already fire).
+  std::optional<Duration> Cancel() {
+    if (timer_cancel(&entry_)) return std::nullopt;
+    return Duration::Until(start_time_);
+  }
 
  private:
   void Run() override { func_(); }
 
   struct timer_entry entry_;
   std::decay_t<Callable> func_;
+  Time start_time_;
 };
 
 // Busy-spins for a duration.

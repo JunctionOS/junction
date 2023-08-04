@@ -173,9 +173,12 @@ int EncodeSelectFDs(const std::vector<select_fd> &sfds, fd_set *readfds,
   return count;
 }
 
-int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-             std::optional<Duration> timeout) {
-  if (nfds > FD_SETSIZE) return -EINVAL;
+std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
+                                   fd_set *exceptfds,
+                                   std::optional<Duration> timeout) {
+  // Check if maximum number of FDs has been exceeded.
+  if (nfds > FD_SETSIZE)
+    return std::make_tuple(-EINVAL, Duration(0));
 
   // Decode the events into a more convenient format.
   std::vector<select_fd> sfds =
@@ -186,7 +189,7 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   int nevents = 0;
   for (auto &sfd : sfds) {
     File *f = ftbl.Get(sfd.fd);
-    if (unlikely(!f)) return -EBADF;
+    if (unlikely(!f)) return std::make_tuple(-EBADF, Duration(0));
     PollSource &src = f->get_poll_source();
     short pev = static_cast<short>(src.get_events());
     if ((pev & sfd.events) != 0) {
@@ -196,8 +199,12 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   }
 
   // Fast path: Return without blocking.
-  if (nevents > 0) return EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
-  if (timeout && timeout->IsZero()) return 0;
+  if (nevents > 0) {
+    int ret = EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
+    Duration d = timeout.value_or(Duration(0));
+    return std::make_tuple(ret, d);
+  }
+  if (timeout && timeout->IsZero()) return std::make_tuple(0, Duration(0));
 
   // Otherwise, init state to block on the FDs and timeout.
   rt::Spin lock;
@@ -257,8 +264,13 @@ int DoSelect(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
     }
   }
 
-  if (timeout) timer.Cancel();
-  return EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
+  Duration d;
+  if (timeout) {
+    std::optional<Duration> ret = timer.Cancel();
+    if (ret) d = *ret;
+  }
+  int ret = EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
+  return std::make_tuple(ret, d);
 }
 
 }  // namespace
@@ -493,16 +505,20 @@ int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *ts,
 
 int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                 struct timeval *tv) {
-  // TODO(amb): On linux, @tv is modified to reflect the time left.
-  if (!tv) return DoSelect(nfds, readfds, writefds, exceptfds, {});
-  return DoSelect(nfds, readfds, writefds, exceptfds, Duration(*tv));
+  std::optional<Duration> d;
+  if (tv) d = Duration(*tv);
+  auto [ret, left] = DoSelect(nfds, readfds, writefds, exceptfds, d);
+  if (tv) *tv = left.Timeval();
+  return ret;
 }
 
 int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
                   fd_set *exceptfds, const struct timespec *ts) {
   // TODO(amb): support signal masking
-  if (!ts) return DoSelect(nfds, readfds, writefds, exceptfds, {});
-  return DoSelect(nfds, readfds, writefds, exceptfds, Duration(*ts));
+  std::optional<Duration> d;
+  if (ts) d = Duration(*ts);
+  auto [ret, left] = DoSelect(nfds, readfds, writefds, exceptfds, d);
+  return ret;
 }
 
 // This variant is deprecated, and size is ignored.
