@@ -105,7 +105,7 @@ int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p,
 int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                 struct timeval *tv);
 int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, const struct timespec *ts);
+                  fd_set *exceptfds, struct timespec *ts);
 int usys_epoll_create(int size);
 int usys_epoll_create1(int flags);
 int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event);

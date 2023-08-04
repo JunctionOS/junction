@@ -177,8 +177,7 @@ std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
                                    fd_set *exceptfds,
                                    std::optional<Duration> timeout) {
   // Check if maximum number of FDs has been exceeded.
-  if (nfds > FD_SETSIZE)
-    return std::make_tuple(-EINVAL, Duration(0));
+  if (nfds > FD_SETSIZE) return std::make_tuple(-EINVAL, Duration(0));
 
   // Decode the events into a more convenient format.
   std::vector<select_fd> sfds =
@@ -513,11 +512,12 @@ int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 }
 
 int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, const struct timespec *ts) {
+                  fd_set *exceptfds, struct timespec *ts) {
   // TODO(amb): support signal masking
   std::optional<Duration> d;
   if (ts) d = Duration(*ts);
   auto [ret, left] = DoSelect(nfds, readfds, writefds, exceptfds, d);
+  if (ts) *ts = left.Timespec();
   return ret;
 }
 
