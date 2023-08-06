@@ -507,7 +507,7 @@ int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   std::optional<Duration> d;
   if (tv) d = Duration(*tv);
   auto [ret, left] = DoSelect(nfds, readfds, writefds, exceptfds, d);
-  if (tv) *tv = left.Timeval();
+  if (ret >= 0 && tv) *tv = left.Timeval();
   return ret;
 }
 
@@ -517,7 +517,7 @@ int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
   std::optional<Duration> d;
   if (ts) d = Duration(*ts);
   auto [ret, left] = DoSelect(nfds, readfds, writefds, exceptfds, d);
-  if (ts) *ts = left.Timespec();
+  if (ret >= 0 && ts) *ts = left.Timespec();
   return ret;
 }
 

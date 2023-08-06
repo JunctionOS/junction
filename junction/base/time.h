@@ -129,7 +129,7 @@ class Time {
   // Microseconds converts the time into microseconds.
   constexpr uint64_t Microseconds() const { return time_; }
   // Milliseconds converts the time into milliseconds.
-  constexpr int64_t Milliseconds() const { return time_ / kMilliseconds; }
+  constexpr uint64_t Milliseconds() const { return time_ / kMilliseconds; }
   // Seconds converts the time into seconds.
   constexpr double Seconds() const {
     return static_cast<double>(time_) / static_cast<double>(kSeconds);
