@@ -114,7 +114,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
     Status<std::shared_ptr<Process>> forkp =
         myproc().CreateProcessVfork(std::move(waker));
     if (!forkp) return MakeCError(forkp);
-    tptr = (*forkp)->CreateThread();
+    tptr = (*forkp)->CreateThreadMain();
   } else {
     tptr = myproc().CreateThread();
   }
