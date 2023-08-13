@@ -119,8 +119,6 @@ extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
 
   k_ucontext *uc = reinterpret_cast<k_ucontext *>(context);
 
-  assert_on_runtime_stack();
-
   /* resume execution if preemption is disabled */
   if (!preempt_enabled()) {
     perthread_andi(preempt_cnt, 0x7fffffff);
@@ -137,6 +135,7 @@ extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
   }
 
   preempt_disable();
+  assert_on_runtime_stack();
 
   k_sigframe *sigframe = container_of(uc, k_sigframe, uc);
 

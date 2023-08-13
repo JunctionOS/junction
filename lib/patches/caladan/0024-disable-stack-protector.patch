@@ -1,0 +1,25 @@
+From 1114647fe68b719a82be20399f839940e9f912a1 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sun, 13 Aug 2023 16:56:31 +0000
+Subject: [PATCH 24/24] disable stack protector
+
+---
+ build/shared.mk | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/build/shared.mk b/build/shared.mk
+index 1d5bc4e..27f0ae9 100644
+--- a/build/shared.mk
++++ b/build/shared.mk
+@@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
+ 
+ # shared toolchain definitions
+ INC = -I$(ROOT_PATH)/inc
+-FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -mfsgsbase
++FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -mfsgsbase -fno-stack-protector
+ LDFLAGS = -T $(ROOT_PATH)/base/base.ld
+ LD      = gcc
+ CC      = gcc
+-- 
+2.39.2
+

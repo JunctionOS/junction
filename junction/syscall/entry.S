@@ -155,6 +155,7 @@ __restore_tf_full_and_preempt_enable:
 	nop
 
 1:	/* cold-path, save RIP and park the kthread */
+	pushq   %r11
 	pushq   %rax
 	pushq	%rdi
 	pushq	%rsi
@@ -177,7 +178,8 @@ __restore_tf_full_and_preempt_enable:
 	popq	%rsi
 	popq	%rdi
 	popq    %rax
-	jmpq	*%rcx
+	popq    %r11
+	jmpq	*%r11
 
 /**
  * __switch_and_preempt_enable - switches stacks,
