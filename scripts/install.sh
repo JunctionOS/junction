@@ -13,7 +13,7 @@ sudo -E apt install -y perl libboost-dev libboost-program-options-dev bison gcc-
 sudo -E apt install -y clang-tidy-16 clang-format-16 || true
 
 # Initialize submodules
-git submodule update --init --recursive
+git submodule update --init --recursive --jobs=`nproc`
 
 # Install modules
 cd $SCRIPT_DIR

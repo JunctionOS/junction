@@ -536,6 +536,7 @@ void ThreadSignalHandler::RunPending(std::optional<long> rax) {
     args.rsp = 0;
     // save current function state in tf_link so we can return to this function
     args.caller_tf = &tf_link;
+    args.info = &sig;
   }
 
   mythread().in_syscall_ = false;
