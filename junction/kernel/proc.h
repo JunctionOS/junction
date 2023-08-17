@@ -31,7 +31,7 @@ enum class ThreadState : uint64_t {
 class Thread {
  public:
   Thread(std::shared_ptr<Process> proc, pid_t tid)
-      : proc_(std::move(proc)), tid_(tid) {}
+      : proc_(std::move(proc)), tid_(tid), sighand_(proc_.get()) {}
   ~Thread();
 
   Thread(Thread &&) = delete;
@@ -90,7 +90,7 @@ class Thread {
   void Kill() {
     siginfo_t info;
     info.si_signo = SIGKILL;
-    if (sighand_.EnqueueSignal(SIGKILL, &info)) SendIpi();
+    if (sighand_.EnqueueSignal(&info)) SendIpi();
   }
 
   // TODO!
@@ -147,6 +147,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
   [[nodiscard]] MemoryMap &get_mem_map() { return *mem_map_; }
   [[nodiscard]] SignalTable &get_signal_table() { return signal_tbl_; }
+  [[nodiscard]] SignalQueue &get_signal_queue() { return shared_sig_q_; }
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
   [[nodiscard]] bool exited() const { return exited_; }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
@@ -181,15 +182,12 @@ class Process : public std::enable_shared_from_this<Process> {
   static void WaitAll() { all_procs.Wait(); }
 
   Status<void> Signal(siginfo_t &si) {
-    // TODO(jf): Need a process-wide shared signal queue
-    rt::SpinGuard g(thread_map_lock_);
+    {
+      rt::SpinGuard g(shared_sig_q_);
+      shared_sig_q_.Enqueue(&si);
+    }
 
-    // process may be exiting
-    if (unlikely(thread_map_.size() == 0)) return {};
-
-    // for now just pick the first thread
-    Thread &th = *thread_map_.begin()->second;
-    if (th.get_sighand().EnqueueSignal(si.si_signo, &si)) th.SendIpi();
+    // TODO(jf): find thread to send an IPI to
     return {};
   }
 
@@ -199,21 +197,21 @@ class Process : public std::enable_shared_from_this<Process> {
     return Signal(si);
   }
 
-  Status<void> SignalThread(pid_t tid, int signo, siginfo_t *si) {
+  Status<void> SignalThread(pid_t tid, siginfo_t *si) {
     rt::SpinGuard g(thread_map_lock_);
 
     auto it = thread_map_.find(tid);
     if (it == thread_map_.end()) return MakeError(ESRCH);
 
     Thread &th = *it->second;
-    if (th.get_sighand().EnqueueSignal(signo, si)) th.SendIpi();
+    if (th.get_sighand().EnqueueSignal(si)) th.SendIpi();
     return {};
   }
 
   Status<void> SignalThread(pid_t tid, int signo) {
     siginfo_t si;
     si.si_signo = signo;
-    return SignalThread(tid, signo, &si);
+    return SignalThread(tid, &si);
   }
 
  private:
@@ -241,8 +239,10 @@ class Process : public std::enable_shared_from_this<Process> {
   FileTable file_tbl_;
   // Memory mappings
   std::shared_ptr<MemoryMap> mem_map_;
+
   // Signal table
   SignalTable signal_tbl_;
+  SignalQueue shared_sig_q_;
 
   // Timers
   ITimer it_real_{this};

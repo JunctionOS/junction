@@ -60,22 +60,42 @@ struct k_sigaction {
   }
 };
 
+class SignalQueue : public rt::Spin {
+ public:
+  SignalQueue() = default;
+  ~SignalQueue() = default;
+
+  // Pop next queued signal from pending_q_
+  siginfo_t PopNextSignal(k_sigset_t mask);
+  // Enqueue a new signal, returns true if successful
+  bool Enqueue(siginfo_t *info);
+
+  [[nodiscard]] k_sigset_t get_pending() const { return access_once(pending_); }
+  [[nodiscard]] bool is_sig_pending(int signo) const {
+    return SignalInMask(get_pending(), signo);
+  }
+
+ private:
+  void set_sig_pending(int signo) { pending_ |= SignalMask(signo); }
+  void clear_sig_pending(int signo) { pending_ &= ~SignalMask(signo); }
+
+  std::list<siginfo_t> pending_q_;
+  k_sigset_t pending_{0};
+};
+
 class ThreadSignalHandler {
  public:
-  ThreadSignalHandler() = default;
+  ThreadSignalHandler(Process *proc) : proc_(proc){};
   ~ThreadSignalHandler() = default;
 
-  void set_sig_pending(int signo) { pending_ |= SignalMask(signo); }
-  void set_sig_blocked(int signo) { blocked_ |= SignalMask(signo); }
-  void clear_sig_pending(int signo) { pending_ &= ~SignalMask(signo); }
-  void clear_sig_blocked(int signo) { blocked_ &= ~SignalMask(signo); }
+  [[nodiscard]] k_sigset_t get_pending() const;
 
   [[nodiscard]] bool any_sig_pending() const {
-    return (access_once(pending_) & ~(access_once(blocked_))) > 0;
+    return (get_pending() & ~access_once(blocked_)) > 0;
   }
 
   [[nodiscard]] bool is_sig_pending(int signo) const {
-    return SignalInMask(pending_, signo);
+    return SignalInMask(get_pending(), signo);
   }
 
   [[nodiscard]] bool is_sig_blocked(int signo) const {
@@ -87,10 +107,10 @@ class ThreadSignalHandler {
   }
 
   [[nodiscard]] const stack_t &get_altstack() const { return sigaltstack_; }
-  [[nodiscard]] unsigned long get_blocked_mask() const { return blocked_; }
+  [[nodiscard]] k_sigset_t get_blocked_mask() const { return blocked_; }
 
-  [[nodiscard]] unsigned long get_blocked_pending() const {
-    return access_once(pending_) & blocked_;
+  [[nodiscard]] k_sigset_t get_blocked_pending() const {
+    return get_pending() & access_once(blocked_);
   }
 
   void DisableAltStack() {
@@ -128,7 +148,10 @@ class ThreadSignalHandler {
   }
 
   // Add a queued signal. Returns true if signal is queued and not blocked.
-  bool EnqueueSignal(int signo, siginfo_t *info);
+  bool EnqueueSignal(siginfo_t *info) {
+    rt::SpinGuard g(sig_q_);
+    return sig_q_.Enqueue(info) && !is_sig_blocked(info->si_signo);
+  }
 
   // Called by this thread when in syscall context to run any pending signals
   // rax is provided if this is called after a syscall finishes before returning
@@ -143,17 +166,17 @@ class ThreadSignalHandler {
   // May modifies the sigaction if it is set to SA_ONESHOT
   std::optional<k_sigaction> GetAction(int signo);
 
-  // Pop next queued signal from pending_q_
-  siginfo_t PopNextSignal();
-
   // Update a Linux sigframe with correct altstack, blocked mask, and restorer
   void TransformSigFrame(k_sigframe &sigframe, const k_sigaction &act) const;
 
-  rt::Spin lock_;  // protects @pending_q_, @pending_
-  std::list<siginfo_t> pending_q_;
-  unsigned long pending_{0};
-  unsigned long blocked_{0};
+  // @sig_q_ lock used to synchronize blocked signals
+  SignalQueue sig_q_;
+  k_sigset_t blocked_{0};
   stack_t sigaltstack_{nullptr, SS_DISABLE, 0};
+  Process *proc_;
+
+  void set_sig_blocked(int signo) { blocked_ |= SignalMask(signo); }
+  void clear_sig_blocked(int signo) { blocked_ &= ~SignalMask(signo); }
 };
 
 // SignalTable is a table of the signal actions for a process.

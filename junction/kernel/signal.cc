@@ -153,11 +153,16 @@ extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
   std::unreachable();
 }
 
-std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
-  k_sigaction act = myproc().get_signal_table().get_action(sig, true);
+// LTO seems to inline this...
+[[nodiscard]] k_sigset_t ThreadSignalHandler::get_pending() const {
+  return sig_q_.get_pending() | proc_->get_signal_queue().get_pending();
+}
 
+std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
   // is it a legacy signal that is already enqueued?
   if (sig <= kNumStandardSignals && is_sig_pending(sig)) return std::nullopt;
+
+  k_sigaction act = proc_->get_signal_table().get_action(sig, true);
 
   // parse the type of signal action to perform
   SignalAction action = ParseAction(act, sig);
@@ -188,7 +193,8 @@ void ThreadSignalHandler::DeliverKernelSigToUser(int signo, siginfo_t *info,
   assert_on_runtime_stack();
 
   if (is_sig_blocked(signo)) {
-    EnqueueSignal(signo, info);
+    assert(info->si_signo == signo);
+    EnqueueSignal(info);
     return;
   }
 
@@ -281,8 +287,8 @@ extern "C" __sighandler void synchronous_signal_handler(int signo,
   std::unreachable();
 }
 
-bool ThreadSignalHandler::EnqueueSignal(int signo, siginfo_t *info) {
-  rt::SpinGuard g(lock_);
+bool SignalQueue::Enqueue(siginfo_t *info) {
+  int signo = info->si_signo;
 
   if (unlikely(pending_q_.size() >= kMaxQueuedRT) &&
       signo >= kNumStandardSignals) {
@@ -290,23 +296,13 @@ bool ThreadSignalHandler::EnqueueSignal(int signo, siginfo_t *info) {
     return false;
   }
 
-  assert(info->si_signo == signo);
   pending_q_.emplace_back(*info);
   set_sig_pending(signo);
-
-  return !is_sig_blocked(signo);
+  return true;
 }
 
-siginfo_t ThreadSignalHandler::PopNextSignal() {
-  assert(lock_.IsHeld());
-
-  if (unlikely(is_sig_pending(SIGKILL))) {
-    lock_.Unlock();
-    usys_exit(0);
-    std::unreachable();
-  }
-
-  int signo = __builtin_ffsl(pending_ & ~blocked_);
+siginfo_t SignalQueue::PopNextSignal(k_sigset_t blocked) {
+  int signo = __builtin_ffsl(pending_ & ~blocked);
   BUG_ON(signo <= 0);
 
   siginfo_t si;
@@ -377,7 +373,7 @@ extern "C" [[noreturn]] void usys_rt_sigreturn(uint64_t rsp) {
 struct SigHandlerSetupArgs {
   k_sigaction act;
   siginfo_t *info;
-  unsigned long prev_blocked;
+  k_sigset_t prev_blocked;
   uint64_t rsp;
   thread_tf *caller_tf;
 };
@@ -486,17 +482,29 @@ thread_tf *SetupRestoreFrame(uint64_t *rsp, std::optional<long> rax) {
 
 // May not return
 void ThreadSignalHandler::RunPending(std::optional<long> rax) {
-  if (!any_sig_pending()) return;
-
   std::optional<k_sigaction> act;
   siginfo_t sig;
   SigHandlerSetupArgs args;
   thread_tf tf_link;
 
   {
-    rt::SpinGuard g(lock_);
-    if (!any_sig_pending()) return;
-    sig = PopNextSignal();
+    rt::SpinGuard g(sig_q_);
+
+    if (unlikely(is_sig_pending(SIGKILL))) {
+      sig_q_.Unlock();
+      usys_exit(0);
+      std::unreachable();
+    }
+
+    if ((sig_q_.get_pending() & ~blocked_) > 0) {
+      sig = sig_q_.PopNextSignal(blocked_);
+    } else {
+      SignalQueue &shared_q = proc_->get_signal_queue();
+      rt::SpinGuard g(shared_q);
+      if ((shared_q.get_pending() & ~blocked_) == 0) return;
+      sig = shared_q.PopNextSignal(blocked_);
+    }
+
     act = GetAction(sig.si_signo);
     if (!act) return;
     args.prev_blocked = blocked_;
@@ -596,7 +604,7 @@ long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info) {
   // TODO: support interprocess signals if needed
   if (tgid != myproc().get_pid()) return -EPERM;
   info->si_signo = sig;
-  Status<void> ret = myproc().SignalThread(tid, sig, info);
+  Status<void> ret = myproc().SignalThread(tid, info);
   if (unlikely(!ret)) return MakeCError(ret);
   return 0;
 }
