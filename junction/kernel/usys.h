@@ -149,6 +149,11 @@ long usys_clock_nanosleep(clockid_t clockid, int flags,
                           const struct timespec *request,
                           struct timespec *remain);
 
+long usys_setitimer(int which, const struct itimerval *new_value,
+                    struct itimerval *old_value);
+long usys_getitimer(int which, struct itimerval *curr_value);
+long usys_alarm(unsigned int seconds);
+
 // Misc
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);
 long usys_uname(struct utsname *buf);

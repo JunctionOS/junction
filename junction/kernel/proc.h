@@ -13,6 +13,7 @@ extern "C" {
 
 #include "junction/base/uid.h"
 #include "junction/kernel/file.h"
+#include "junction/kernel/itimer.h"
 #include "junction/kernel/mm.h"
 #include "junction/kernel/signal.h"
 #include "junction/limits.h"
@@ -148,6 +149,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] SignalTable &get_signal_table() { return signal_tbl_; }
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
   [[nodiscard]] bool exited() const { return exited_; }
+  [[nodiscard]] ITimer &get_itimer() { return it_real_; }
 
   [[nodiscard]] const std::string_view get_bin_path() const {
     return binary_path_;
@@ -177,6 +179,25 @@ class Process : public std::enable_shared_from_this<Process> {
   void DoExit(int status);
 
   static void WaitAll() { all_procs.Wait(); }
+
+  Status<void> Signal(siginfo_t &si) {
+    // TODO(jf): Need a process-wide shared signal queue
+    rt::SpinGuard g(thread_map_lock_);
+
+    // process may be exiting
+    if (unlikely(thread_map_.size() == 0)) return {};
+
+    // for now just pick the first thread
+    Thread &th = *thread_map_.begin()->second;
+    if (th.get_sighand().EnqueueSignal(si.si_signo, &si)) th.SendIpi();
+    return {};
+  }
+
+  Status<void> Signal(int signo) {
+    siginfo_t si;
+    si.si_signo = signo;
+    return Signal(si);
+  }
 
   Status<void> SignalThread(pid_t tid, int signo, siginfo_t *si) {
     rt::SpinGuard g(thread_map_lock_);
@@ -222,6 +243,9 @@ class Process : public std::enable_shared_from_this<Process> {
   std::shared_ptr<MemoryMap> mem_map_;
   // Signal table
   SignalTable signal_tbl_;
+
+  // Timers
+  ITimer it_real_{this};
 
   static rt::WaitGroup all_procs;
 };

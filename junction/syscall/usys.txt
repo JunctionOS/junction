@@ -111,3 +111,6 @@ sched_get_priority_min
 execve
 execveat
 sysinfo
+getitimer
+setitimer
+alarm
