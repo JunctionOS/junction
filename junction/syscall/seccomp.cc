@@ -128,6 +128,15 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
   long sysn = static_cast<long>(ctx->uc_mcontext.rax);
 
   if (unlikely(!preempt_enabled())) {  // call probably from junction libc
+
+    // avoid infinitely looping when Junction's glibc makes a blocked syscall
+    if (unlikely(ctx->uc_mcontext.rip >= static_cast<uint64_t>(ksys_start) &&
+                 ctx->uc_mcontext.rip < static_cast<uint64_t>(ksys_end))) {
+      ctx->uc_mcontext.rax = -ENOSYS;
+      log_syscall_msg("bad syscall: ", sysn);
+      return;
+    }
+
     long arg0 = static_cast<long>(ctx->uc_mcontext.rdi);
     long arg1 = static_cast<long>(ctx->uc_mcontext.rsi);
     long arg2 = static_cast<long>(ctx->uc_mcontext.rdx);
