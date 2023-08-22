@@ -125,16 +125,20 @@ static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 // Process is a UNIX process object.
 class Process : public std::enable_shared_from_this<Process> {
  public:
-  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm)
-      : pid_(pid), mem_map_(std::move(mm)) {
+  // Constructor for init process
+  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm, pid_t pgid)
+      : pid_(pid), pgid_(pgid), mem_map_(std::move(mm)), parent_(nullptr) {
     all_procs.Add(1);
   }
+  // Constructor for all other processes
   Process(pid_t pid, std::shared_ptr<MemoryMap> mm, FileTable &ftbl,
-          rt::ThreadWaker &&w)
+          rt::ThreadWaker &&w, std::shared_ptr<Process> parent, pid_t pgid)
       : pid_(pid),
+        pgid_(pgid),
         vfork_waker_(std::move(w)),
         file_tbl_(ftbl),
-        mem_map_(std::move(mm)) {
+        mem_map_(std::move(mm)),
+        parent_(std::move(parent)) {
     all_procs.Add(1);
   }
 
@@ -146,12 +150,13 @@ class Process : public std::enable_shared_from_this<Process> {
   Process &operator=(const Process &) = delete;
 
   [[nodiscard]] pid_t get_pid() const { return pid_; }
+  [[nodiscard]] pid_t get_pgid() const { return pgid_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
   [[nodiscard]] MemoryMap &get_mem_map() { return *mem_map_; }
   [[nodiscard]] SignalTable &get_signal_table() { return signal_tbl_; }
   [[nodiscard]] SignalQueue &get_signal_queue() { return shared_sig_q_; }
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
-  [[nodiscard]] bool exited() const { return exited_; }
+  [[nodiscard]] bool exited() const { return access_once(exited_); }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
 
   [[nodiscard]] const std::string_view get_bin_path() const {
@@ -176,7 +181,11 @@ class Process : public std::enable_shared_from_this<Process> {
   void FinishExec(std::shared_ptr<MemoryMap> &&new_mm);
 
   // Called by a thread to notify that it is exiting.
-  void ThreadFinish(Thread *th);
+  // Returns true if this was the last thread.
+  bool ThreadFinish(Thread *th);
+
+  // Called when the process finishes
+  void ProcessFinish();
 
   // Called when a process exits, will attempt to notify all threads.
   void DoExit(int status);
@@ -187,6 +196,11 @@ class Process : public std::enable_shared_from_this<Process> {
     {
       rt::SpinGuard g(shared_sig_q_);
       shared_sig_q_.Enqueue(&si);
+      if (si.si_signo == SIGCLD && !child_waiters_.empty()) {
+        child_waiters_.WakeAll();
+        // skip IPI
+        return {};
+      }
     }
 
     // TODO(jf): find thread to send an IPI to
@@ -218,6 +232,7 @@ class Process : public std::enable_shared_from_this<Process> {
 
  private:
   const pid_t pid_;     // the process identifier
+  pid_t pgid_;          // the process group identifier
   int xstate_;          // exit state
   bool exited_{false};  // If true, the process has been killed
 
@@ -244,7 +259,12 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Signal table
   SignalTable signal_tbl_;
+
+  // Protected by shared_sig_q_lock_
   SignalQueue shared_sig_q_;
+  rt::WaitQueue child_waiters_;
+  std::shared_ptr<Process> parent_;
+  std::vector<std::shared_ptr<Process>> child_procs_;
 
   // Timers
   ITimer it_real_{this};
@@ -253,7 +273,7 @@ class Process : public std::enable_shared_from_this<Process> {
 };
 
 // Create a new process.
-Status<std::shared_ptr<Process>> CreateProcess();
+Status<std::shared_ptr<Process>> CreateInitProcess();
 
 // mythread returns the Thread object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.

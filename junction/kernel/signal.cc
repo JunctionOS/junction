@@ -302,31 +302,10 @@ bool SignalQueue::Enqueue(siginfo_t *info) {
 }
 
 siginfo_t SignalQueue::PopNextSignal(k_sigset_t blocked) {
-  int signo = __builtin_ffsl(pending_ & ~blocked);
-  BUG_ON(signo <= 0);
-
-  siginfo_t si;
-  si.si_signo = 0;
-  bool multiple = false;
-
-  for (auto p = pending_q_.begin(); p != pending_q_.end();) {
-    if (p->si_signo != signo) {
-      p++;
-      continue;
-    }
-
-    if (si.si_signo) {
-      multiple = true;
-      break;
-    }
-
-    si = *p;
-    p = pending_q_.erase(p);
-  }
-
-  BUG_ON(!si.si_signo);
-  if (!multiple) clear_sig_pending(signo);
-  return si;
+  std::optional<siginfo_t> sig = GetSignal(
+      blocked, [](siginfo_t &) { return true; }, true);
+  BUG_ON(!sig);
+  return *sig;
 }
 
 // Unwind a sigframe from a Junction process's thread.

@@ -15,7 +15,7 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, const std::vector<std::string_view> &argv,
     const std::vector<std::string_view> &envp) {
   // Create the process object
-  Status<std::shared_ptr<Process>> proc = CreateProcess();
+  Status<std::shared_ptr<Process>> proc = CreateInitProcess();
   if (!proc) return MakeError(proc);
 
   // Create and insert STDIN, STDOUT, STDERR files

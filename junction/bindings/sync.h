@@ -28,6 +28,8 @@ class WaitQueue {
   WaitQueue(const WaitQueue &&) = delete;
   WaitQueue &operator=(const WaitQueue &&) = delete;
 
+  [[nodiscard]] bool empty() const { return list_empty(&waiters_); }
+
   // Prepares the running thread to block. Can only be called once,
   // must be synchronized by caller.
   void Arm() { list_add_tail(&waiters_, &thread_self()->link); }

@@ -47,17 +47,30 @@ namespace {
 // Global allocation of PIDs
 rt::Spin process_lock;
 UIDGenerator<kMaxProcesses> pid_generator;
+std::map<pid_t, unsigned long> pid_ref_count;
+std::shared_ptr<Process> init_proc;
 
-Status<pid_t> AllocPid() {
+Status<pid_t> AllocPid(std::optional<pid_t> pgid = std::nullopt) {
   rt::SpinGuard guard(process_lock);
   std::optional<size_t> tmp = pid_generator();
   if (!tmp) return MakeError(ENOSPC);
+  pid_ref_count[*tmp] = 1;
+  if (pgid) pid_ref_count[*pgid] += 1;
   return *tmp;
 }
 
-void ReleasePid(pid_t pid) {
+void ReleasePid(pid_t pid, std::optional<pid_t> pgid = std::nullopt) {
   rt::SpinGuard guard(process_lock);
-  pid_generator.Release(pid);
+
+  if (--pid_ref_count[pid] == 0) {
+    pid_generator.Release(pid);
+    pid_ref_count.erase(pid);
+  }
+
+  if (pgid && --pid_ref_count[*pgid] == 0) {
+    pid_generator.Release(*pgid);
+    pid_ref_count.erase(*pgid);
+  }
 }
 
 void CopyCalleeRegs(thread_tf &newtf, const thread_tf &oldtf) {
@@ -162,15 +175,33 @@ Thread::~Thread() {
     *child_tid = 0;
     FutexTable::GetFutexTable().Wake(child_tid);
   }
-  proc_->ThreadFinish(this);
+  bool proc_done = proc_->ThreadFinish(this);
   if (tid_ != proc_->get_pid()) ReleasePid(tid_);
+  if (proc_done) proc_->ProcessFinish();
 }
 
-Process::~Process() {
+void Process::ProcessFinish() {
   vfork_waker_.Wake();
-  ReleasePid(pid_);
-  all_procs.Done();
+  // Check if init has died
+  if (unlikely(get_pid() == 1)) {
+    syscall_exit(xstate_);
+    std::unreachable();
+  }
+
+  // safe to access child_procs_ with no lock since the process is dead
+
+  if (!child_procs_.size()) return;
+
+  // reparent
+  rt::SpinGuard g(init_proc->shared_sig_q_);
+  for (auto &child : child_procs_) {
+    rt::SpinGuard g(child->shared_sig_q_);
+    child->parent_ = init_proc;
+    init_proc->child_procs_.push_back(std::move(child));
+  }
 }
+
+Process::~Process() { ReleasePid(pid_, pgid_); }
 
 void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
   file_tbl_.DoCloseOnExec();
@@ -178,14 +209,16 @@ void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
   vfork_waker_.Wake();
 }
 
-void Process::ThreadFinish(Thread *th) {
+bool Process::ThreadFinish(Thread *th) {
   rt::SpinGuard g(thread_map_lock_);
   thread_map_.erase(th->get_tid());
+  return thread_map_.size() == 0;
 }
 
-Status<std::shared_ptr<Process>> CreateProcess() {
-  Status<pid_t> pid = AllocPid();
+Status<std::shared_ptr<Process>> CreateInitProcess() {
+  Status<pid_t> pid = AllocPid(1);
   if (!pid) return MakeError(pid);
+  BUG_ON(*pid != 1);
 
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
@@ -195,15 +228,19 @@ Status<std::shared_ptr<Process>> CreateProcess() {
             << ", mapping=" << base << "-"
             << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(base) +
                                         kMemoryMappingSize);
-  return std::make_shared<Process>(*pid, std::move(*mm));
+  return std::make_shared<Process>(*pid, std::move(*mm), *pid);
 }
 
 Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
     rt::ThreadWaker &&w) {
-  Status<pid_t> pid = AllocPid();
+  Status<pid_t> pid = AllocPid(get_pgid());
   if (!pid) return MakeError(pid);
 
-  return std::make_shared<Process>(*pid, mem_map_, file_tbl_, std::move(w));
+  auto p = std::make_shared<Process>(*pid, mem_map_, file_tbl_, std::move(w),
+                                     shared_from_this(), get_pgid());
+  rt::SpinGuard g(shared_sig_q_);
+  child_procs_.push_back(p);
+  return p;
 }
 
 // Attach calling thread to this process; used for testing.
@@ -256,9 +293,24 @@ void Process::DoExit(int status) {
   rt::SpinGuard g(thread_map_lock_);
   if (exited_) return;
 
-  exited_ = true;
   xstate_ = status;
-  barrier();
+  store_release(&exited_, true);
+
+  // Signal the parent and drop the reference to it
+  siginfo_t sig;
+  sig.si_signo = SIGCHLD;
+  sig.si_pid = get_pid();
+  sig.si_status = xstate_;
+  sig.si_code = CLD_EXITED;
+
+  {
+    rt::SpinGuard g(shared_sig_q_);
+    if (parent_) {
+      parent_->Signal(sig);
+      parent_.reset();
+    }
+  }
+
   for (const auto &[pid, th] : thread_map_) th->Kill();
   FutexTable::GetFutexTable().CleanupProcess(this);
 }

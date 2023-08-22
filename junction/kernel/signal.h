@@ -65,6 +65,38 @@ class SignalQueue : public rt::Spin {
   SignalQueue() = default;
   ~SignalQueue() = default;
 
+  template <typename Filter>
+  std::optional<siginfo_t> GetSignal(k_sigset_t blocked, Filter f,
+                                     bool remove) {
+    int signo = __builtin_ffsl(pending_ & ~blocked);
+    if (signo <= 0) return std::nullopt;
+
+    siginfo_t si;
+    si.si_signo = 0;
+    size_t signo_count = 0;
+
+    for (auto p = pending_q_.begin(); p != pending_q_.end();) {
+      if (p->si_signo != signo) {
+        p++;
+        continue;
+      }
+
+      signo_count++;
+
+      if (!si.si_signo && f(*p)) {
+        if (!remove) return *p;
+        si = *p;
+        p = pending_q_.erase(p);
+      }
+
+      if (si.si_signo && signo_count > 1) break;
+    }
+
+    if (!si.si_signo) return std::nullopt;
+    if (signo_count == 1) clear_sig_pending(signo);
+    return si;
+  }
+
   // Pop next queued signal from pending_q_
   siginfo_t PopNextSignal(k_sigset_t mask);
   // Enqueue a new signal, returns true if successful

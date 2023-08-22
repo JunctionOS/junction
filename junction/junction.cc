@@ -88,7 +88,7 @@ void JunctionCfg::Print() {
 }
 
 Status<std::shared_ptr<Process>> CreateTestProc() {
-  Status<std::shared_ptr<Process>> p = CreateProcess();
+  Status<std::shared_ptr<Process>> p = CreateInitProcess();
   if (p) (*p)->CreateTestThread();
   return p;
 }
