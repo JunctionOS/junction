@@ -18,11 +18,10 @@ namespace junction {
 namespace detail {
 
 struct futex_waiter {
-  futex_waiter(Process *proc, thread_t *th, uint32_t *key, uint32_t bitset)
-      : proc(proc), th(th), key(key), bitset(bitset) {}
+  futex_waiter(Thread *th, uint32_t *key, uint32_t bitset)
+      : th(th), key(key), bitset(bitset) {}
 
-  Process *proc;
-  thread_t *th;
+  Thread *th;
   uint32_t *key;
   uint32_t bitset;
   IntrusiveListNode node;

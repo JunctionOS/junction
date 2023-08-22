@@ -76,6 +76,8 @@ class Thread {
     return container_of(ptr, thread_t, junction_tstate_buf);
   }
 
+  void ThreadReady() { thread_ready(GetCaladanThread()); }
+
   void OnSyscallEnter() {
     access_once(in_syscall_) = true;
     if (unlikely(needs_interrupt())) HandleInterrupt(std::nullopt);

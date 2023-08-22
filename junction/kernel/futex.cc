@@ -22,14 +22,14 @@ void FutexTable::CleanupProcess(Process *p) {
     rt::SpinGuard g(bucket.lock);
     for (auto it = bucket.futexes.begin(); it != bucket.futexes.end();) {
       detail::futex_waiter &w = *it;
-      if (w.proc != p) {
+      if (&w.th->get_process() != p) {
         ++it;
         continue;
       }
       // Must remove the waiter from the list *before* waking it
-      thread_t *th = w.th;
+      Thread *th = w.th;
       it = bucket.futexes.erase(it);
-      thread_ready(th);
+      th->ThreadReady();
     }
   }
 }
@@ -39,7 +39,7 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
   // Hot path: Don't need to block for a false condition.
   if (read_once(*key) != val) return MakeError(EAGAIN);
 
-  detail::futex_waiter waiter{&myproc(), thread_self(), key, bitset};
+  detail::futex_waiter waiter{&mythread(), key, bitset};
   detail::futex_bucket &bucket = get_bucket(key);
 
   // Setup a timer for the timeout (if needed).
@@ -48,7 +48,7 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
     if (waiter.th) {
       bucket.futexes.erase(decltype(bucket.futexes)::s_iterator_to(waiter));
       // Must remove the waiter from the list *before* waking it
-      thread_ready(waiter.th);
+      waiter.th->ThreadReady();
     }
   });
   auto f = finally([&timer] { timer.Cancel(); });
@@ -88,9 +88,9 @@ int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
     }
 
     // Must remove the waiter from the list *before* waking it
-    thread_t *th = std::exchange(w.th, nullptr);
+    Thread *th = std::exchange(w.th, nullptr);
     it = bucket.futexes.erase(it);
-    thread_ready(th);
+    th->ThreadReady();
     if (++i >= n) break;
   }
   return i;
