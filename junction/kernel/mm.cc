@@ -90,7 +90,6 @@ int usys_munmap(void *addr, size_t len) {
 }
 
 long usys_madvise(void *addr, size_t length, int advice) {
-  if (advice != MADV_DONTNEED) return -EINVAL;
   return ksys_madvise(addr, length, advice);
 }
 
