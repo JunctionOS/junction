@@ -34,6 +34,8 @@ long junction_fncall_stackswitch_enter(long arg0, long arg1, long arg2,
                                        long arg3, long arg4, long arg5);
 long junction_fncall_stackswitch_clone_enter(long arg0, long arg1, long arg2,
                                              long arg3, long arg4, long arg5);
+long junction_fncall_stackswitch_vfork_enter(long arg0, long arg1, long arg2,
+                                             long arg3, long arg4, long arg5);
 void usys_rt_sigreturn_enter() __noreturn;
 
 void __switch_and_preempt_enable(struct thread_tf *tf) __noreturn;

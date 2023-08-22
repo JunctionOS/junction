@@ -4,6 +4,7 @@ access:::passthrough
 getpid
 gettid
 arch_prctl
+vfork:::savetrapframe
 clone3:::savetrapframe
 clone:::savetrapframe
 set_tid_address

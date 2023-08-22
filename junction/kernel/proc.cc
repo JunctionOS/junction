@@ -34,6 +34,14 @@ extern "C" {
 
 namespace junction {
 
+inline constexpr uint64_t kThreadRequiredFlags =
+    (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD | CLONE_SIGHAND);
+
+inline constexpr uint64_t kVforkRequiredFlags = (CLONE_VM | CLONE_VFORK);
+
+inline constexpr uint64_t kCheckFlags =
+    (kThreadRequiredFlags | kVforkRequiredFlags);
+
 namespace {
 
 // Global allocation of PIDs
@@ -86,14 +94,6 @@ void CloneTrapframe(thread_t *newth, const thread_t *oldth) {
 }
 
 long DoClone(clone_args *cl_args, uint64_t rsp) {
-  static constexpr uint64_t kThreadRequiredFlags =
-      (CLONE_VM | CLONE_FILES | CLONE_FS | CLONE_THREAD | CLONE_SIGHAND);
-
-  static constexpr uint64_t kVforkRequiredFlags = (CLONE_VM | CLONE_VFORK);
-
-  static constexpr uint64_t kCheckFlags =
-      (kThreadRequiredFlags | kVforkRequiredFlags);
-
   bool do_vfork = false;
 
   switch (cl_args->flags & kCheckFlags) {
@@ -279,6 +279,18 @@ pid_t usys_set_tid_address(int *tidptr) {
   return tstate.get_tid();
 }
 
+long usys_vfork() {
+  clone_args cl_args;
+  memset(&cl_args, 0, sizeof(cl_args));
+
+  cl_args.flags = kVforkRequiredFlags;
+
+  long ret = DoClone(&cl_args, thread_self()->junction_tf.rsp);
+  if (unlikely(GetCfg().strace_enabled())) LogSyscall(ret, "vfork");
+
+  return ret;
+}
+
 long usys_clone3(struct clone_args *cl_args, size_t size) {
   long ret;
   if (unlikely(!cl_args->stack))
@@ -301,6 +313,8 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
                 uintptr_t parent_tidptr, uintptr_t child_tidptr,
                 unsigned long tls) {
   clone_args cl_args;
+  memset(&cl_args, 0, sizeof(cl_args));
+
   cl_args.flags = clone_flags;
   cl_args.child_tid = child_tidptr;
   cl_args.parent_tid = parent_tidptr;

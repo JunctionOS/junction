@@ -386,3 +386,45 @@ junction_fncall_stackswitch_clone_enter:
 
 	ret
 
+.align 16
+.global junction_fncall_stackswitch_vfork_enter
+.type junction_fncall_stackswitch_vfork_enter, @function
+junction_fncall_stackswitch_vfork_enter:
+
+	// get address of junction trapframe
+	movq    %gs:__perthread___self(%rip), %r11
+	addq    $JUNCTION_TF_OFF, %r11
+
+	// Save registers
+	SAVETF_CALLEE(%r11)
+	SAVETF_CALLER(%r11)
+
+	// save RIP
+	movq    (%rsp), %r10
+	movq    %r10, RIP(%r11)
+
+	// pop RIP off stack and save
+	leaq    8(%rsp), %r10
+	movq    %r10, RSP(%r11)
+
+	// get address of syscall stack and switch
+	movq    %gs:__perthread___self(%rip), %r11
+	movq    JUNCTION_STACK_OFFSET(%r11), %r11 // stack
+	addq    $JUNCTION_STACK_SIZE, %r11
+	movq    %r11, %rsp
+
+	andq    $-16, %rsp
+	callq   usys_vfork
+
+	// get address of junction trapframe
+	movq    %gs:__perthread___self(%rip), %r11
+	addq    $JUNCTION_TF_OFF, %r11
+
+
+	movq    RSP(%r11), %rsp
+	movq    RIP(%r11), %rcx
+
+	// glibc uses this register
+	movq    RDI(%r11), %rdi
+
+	jmpq    *%rcx

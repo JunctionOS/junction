@@ -188,7 +188,7 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
   sysfn_t target_ip;
 
   // Special case for clone* syscalls, need to save registers
-  if (sysn == SYS_clone || sysn == SYS_clone3) {
+  if (sysn == SYS_clone || sysn == SYS_clone3 || sysn == SYS_vfork) {
     thread_tf &tf = thread_self()->junction_tf;
 
     tf.r8 = ctx->uc_mcontext.r8;
@@ -206,9 +206,12 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
     tf.rdx = ctx->uc_mcontext.rdx;
     tf.rcx = ctx->uc_mcontext.rcx;
     tf.rip = ctx->uc_mcontext.rcx;
+    tf.rsp = ctx->uc_mcontext.rsp;
 
     if (sysn == SYS_clone)
       target_ip = reinterpret_cast<sysfn_t>(usys_clone);
+    else if (sysn == SYS_vfork)
+      target_ip = reinterpret_cast<sysfn_t>(usys_vfork);
     else
       target_ip = reinterpret_cast<sysfn_t>(usys_clone3);
   } else if (unlikely(GetCfg().strace_enabled())) {

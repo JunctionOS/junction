@@ -8,7 +8,7 @@ assert len(sys.argv) == 3
 USYS_LIST = sys.argv[1]
 OUTPUT_FILE = sys.argv[2]
 
-SYS_NR = 453
+SYS_NR = 454
 
 # Header files scanned in the given order to get a list of syscall numbers.
 # The first file found is used.
@@ -108,6 +108,7 @@ def emit_trapframe_save_entry(function_target, output):
 	static_assert(offsetof(thread_tf, r14) == 96);
 	static_assert(offsetof(thread_tf, r15) == 104);
 	static_assert(offsetof(thread_tf, rip) == 120);
+	static_assert(offsetof(thread_tf, rsp) == 128);
 
 	extern "C" void {wrapper_name}(void);
 	asm(R"(
@@ -125,6 +126,7 @@ def emit_trapframe_save_entry(function_target, output):
 	movq    %r13, 88(%r11)
 	movq    %r14, 96(%r11)
 	movq    %r15, 104(%r11)
+	movq	%rsp, 128(%r11)
 
 	/* save RIP */
 	movq    (%rsp), %r10
@@ -213,8 +215,10 @@ for i in range(SYS_NR):
 # TODO: fix
 systabl_targets[451] = "junction_fncall_stackswitch_enter"
 systabl_targets[452] = "junction_fncall_stackswitch_clone_enter"
+systabl_targets[453] = "junction_fncall_stackswitch_vfork_enter"
 systabl_strace_targets[451] = "junction_fncall_stackswitch_enter"
 systabl_strace_targets[452] = "junction_fncall_stackswitch_clone_enter"
+systabl_strace_targets[453] = "junction_fncall_stackswitch_vfork_enter"
 
 # generate the sysfn table
 dispatch_file += [f"sysfn_t sys_tbl[SYS_NR] = {'{'}"]

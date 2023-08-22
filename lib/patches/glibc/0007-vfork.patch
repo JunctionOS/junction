@@ -1,0 +1,36 @@
+From 524d53b30b90eafd57b4eab4c3382fa364924ec8 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Tue, 22 Aug 2023 15:56:03 +0000
+Subject: [PATCH 7/7] vfork
+
+---
+ sysdeps/unix/sysv/linux/x86_64/vfork.S | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/sysdeps/unix/sysv/linux/x86_64/vfork.S b/sysdeps/unix/sysv/linux/x86_64/vfork.S
+index 1a1e3039c7..e5845a803f 100644
+--- a/sysdeps/unix/sysv/linux/x86_64/vfork.S
++++ b/sysdeps/unix/sysv/linux/x86_64/vfork.S
+@@ -25,6 +25,8 @@
+    replaced by a call to `execve'.  Return -1 for errors, 0 to the new process,
+    and the process ID of the new process to the old process.  */
+ 
++#define SYSTBL_NR_ADDR(sysnr) (sysnr * 8ULL + SYS_TBL_ADDR)
++
+ ENTRY (__vfork)
+ 
+ 	/* Pop the return PC value into RDI.  We need a register that
+@@ -33,9 +35,7 @@ ENTRY (__vfork)
+ 	cfi_adjust_cfa_offset(-8)
+ 	cfi_register(%rip, %rdi)
+ 
+-	/* Stuff the syscall number in RAX and enter into the kernel.  */
+-	movl	$SYS_ify (vfork), %eax
+-	syscall
++	call *(SYSTBL_NR_ADDR(453))
+ 
+ 	/* Push back the return PC.  */
+ 	pushq	%rdi
+-- 
+2.39.2
+
