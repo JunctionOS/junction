@@ -1,7 +1,7 @@
-From e187a3c54f1783f2037af3b7b166b983af951bad Mon Sep 17 00:00:00 2001
+From 1471e0c7c2ec5f4ce9b16da7614f88875c27e302 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
-Subject: [PATCH 23/28] preemption and signal updates
+Subject: [PATCH 23/25] preemption and signal updates
 
 ---
  inc/runtime/thread.h |  4 +-
@@ -68,7 +68,7 @@ index 7936ce1..1043ede 100644
  
  /**
 diff --git a/runtime/defs.h b/runtime/defs.h
-index f40c819..88d71b2 100644
+index cb7c495..b63d7f9 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -68,6 +68,7 @@ struct stack {
@@ -173,7 +173,7 @@ index ee376d6..02e24e3 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f80def0..a61cbe4 100644
+index f80def0..81b1d55 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -212,7 +212,7 @@ index f80def0..a61cbe4 100644
 +
 +	curth->thread_ready = false;
 +	curth->last_cpu = k->curr_cpu;
-+	thread_ready(curth);
++	thread_ready_locked(curth);
 +
 +	schedule();
 +}
@@ -331,5 +331,5 @@ index f80def0..a61cbe4 100644
  }
  
 -- 
-2.39.2
+2.34.1
 
