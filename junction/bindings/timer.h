@@ -60,7 +60,7 @@ class Timer : private timer_internal::timer_node {
   // Cancel stops the timer after it was armed. Returns the duration left if
   // the cancellation was successful (i.e., the timer did not already fire).
   std::optional<Duration> Cancel() {
-    if (timer_cancel(&entry_)) return std::nullopt;
+    if (!timer_cancel(&entry_)) return std::nullopt;
     return Duration::Until(start_time_);
   }
 

@@ -27,7 +27,7 @@ void FutexTable::CleanupProcess(Process *p) {
         continue;
       }
       // Must remove the waiter from the list *before* waking it
-      Thread *th = w.th;
+      Thread *th = std::exchange(w.th, nullptr);
       it = bucket.futexes.erase(it);
       th->ThreadReady();
     }
@@ -39,12 +39,13 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
   // Hot path: Don't need to block for a false condition.
   if (read_once(*key) != val) return MakeError(EAGAIN);
 
-  detail::futex_waiter waiter{&mythread(), key, bitset};
+  detail::futex_waiter waiter{nullptr, key, bitset};
   detail::futex_bucket &bucket = get_bucket(key);
 
   // Setup a timer for the timeout (if needed).
   rt::Timer timer([&bucket, &waiter] {
     rt::SpinGuard g(bucket.lock);
+    // th != nullptr implies that the waiter is still in the futex bucket list
     if (waiter.th) {
       bucket.futexes.erase(decltype(bucket.futexes)::s_iterator_to(waiter));
       // Must remove the waiter from the list *before* waking it
@@ -67,6 +68,8 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
     bucket.lock.Unlock();
     return MakeError(EAGAIN);
   }
+
+  waiter.th = &mythread();
   bucket.futexes.push_back(waiter);
   bucket.lock.UnlockAndPark();
 
