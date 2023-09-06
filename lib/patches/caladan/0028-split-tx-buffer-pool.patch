@@ -1,0 +1,529 @@
+From 43b1bbbe8c99e6b7b0b3299c7c43094776f70103 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Wed, 6 Sep 2023 14:44:32 -0400
+Subject: [PATCH 28/28] split tx buffer pool
+
+---
+ inc/base/mempool.h                           |  5 ++
+ inc/net/mbuf.h                               |  2 +-
+ runtime/net/core.c                           | 90 ++++++++++++++++++--
+ runtime/net/defs.h                           | 16 ++++
+ runtime/net/directpath/mlx5/mlx5_rx_stride.c | 27 +-----
+ runtime/net/tcp_out.c                        | 64 +++++++++-----
+ runtime/net/udp.c                            |  4 +-
+ 7 files changed, 151 insertions(+), 57 deletions(-)
+
+diff --git a/inc/base/mempool.h b/inc/base/mempool.h
+index 829c7696..8ae96457 100644
+--- a/inc/base/mempool.h
++++ b/inc/base/mempool.h
+@@ -25,6 +25,11 @@ static inline void __mempool_alloc_debug_check(struct mempool *m, void *item) {}
+ static inline void __mempool_free_debug_check(struct mempool *m, void *item) {}
+ #endif /* DEBUG */
+ 
++static inline bool mempool_member(struct mempool *m, void *addr)
++{
++	return addr >= m->buf && addr < m->buf + m->len;
++}
++
+ /**
+  * mempool_alloc - allocates an item from the pool
+  * @m: the memory pool to allocate from
+diff --git a/inc/net/mbuf.h b/inc/net/mbuf.h
+index 3acef82d..12a98af4 100644
+--- a/inc/net/mbuf.h
++++ b/inc/net/mbuf.h
+@@ -16,7 +16,7 @@
+ #include <iokernel/queue.h>
+ 
+ #define MBUF_DEFAULT_LEN	2048
+-#define MBUF_DEFAULT_HEADROOM	128
++#define MBUF_DEFAULT_HEADROOM	64
+ 
+ 
+ struct mbuf {
+diff --git a/runtime/net/core.c b/runtime/net/core.c
+index 7a6e2fb3..6fa87b4b 100644
+--- a/runtime/net/core.c
++++ b/runtime/net/core.c
+@@ -28,32 +28,56 @@ static struct mempool net_tx_buf_mp;
+ static struct tcache *net_tx_buf_tcache;
+ static DEFINE_PERTHREAD(struct tcache_perthread, net_tx_buf_pt);
+ 
++static struct mempool net_tx_buf_sm_mp;
++static struct tcache *net_tx_buf_sm_tcache;
++static DEFINE_PERTHREAD(struct tcache_perthread, net_tx_buf_sm_pt);
++
++/* slab allocator for mbuf structs */
++static struct slab mbuf_slab;
++static struct tcache *mbuf_tcache;
++DEFINE_PERTHREAD(struct tcache_perthread, mbuf_pt);
++
+ int net_init_mempool_threads(void)
+ {
+ 	int i;
+ 
+-	for (i = 0; i < maxks; i++)
++	for (i = 0; i < maxks; i++) {
+ 		tcache_init_perthread(net_tx_buf_tcache,
+ 			&perthread_get_remote(net_tx_buf_pt, i));
+ 
++		tcache_init_perthread(net_tx_buf_sm_tcache,
++			&perthread_get_remote(net_tx_buf_sm_pt, i));
++	}
++
+ 	return 0;
+ }
+ 
+ int net_init_mempool(void)
+ {
+ 	int ret;
++	size_t pool_sz = iok.tx_len / 2;
+ 
+-	ret = mempool_create(&net_tx_buf_mp, iok.tx_buf, iok.tx_len, PGSIZE_2MB,
+-			     align_up(net_get_mtu() + MBUF_HEAD_LEN + MBUF_DEFAULT_HEADROOM,
++	ret = mempool_create(&net_tx_buf_mp, iok.tx_buf, pool_sz, PGSIZE_2MB,
++			     align_up(net_get_mtu() + MBUF_HEAD_LEN,
+ 				      CACHE_LINE_SIZE * 2));
+ 	if (unlikely(ret))
+ 		return ret;
+ 
++	ret = mempool_create(&net_tx_buf_sm_mp, iok.tx_buf + pool_sz, pool_sz, PGSIZE_2MB,
++			     align_up(SMALL_BUF_SIZE + MBUF_DEFAULT_HEADROOM, CACHE_LINE_SIZE * 2));
++	if (unlikely(ret))
++		return ret;
++
+ 	net_tx_buf_tcache = mempool_create_tcache(&net_tx_buf_mp,
+ 		"runtime_tx_bufs", TCACHE_DEFAULT_MAG_SIZE);
+ 	if (unlikely(!net_tx_buf_tcache))
+ 		return -ENOMEM;
+ 
++	net_tx_buf_sm_tcache = mempool_create_tcache(&net_tx_buf_sm_mp,
++		"runtime_tx_sm_bufs", TCACHE_DEFAULT_MAG_SIZE);
++	if (unlikely(!net_tx_buf_sm_tcache))
++		return -ENOMEM;
++
+ 	return 0;
+ }
+ 
+@@ -323,8 +347,15 @@ static void iokernel_softirq(void *arg)
+  */
+ void net_tx_release_mbuf(struct mbuf *m)
+ {
++	bool lg = mempool_member(&net_tx_buf_mp, m);
++
+ 	preempt_disable();
+-	tcache_free(perthread_ptr(net_tx_buf_pt), m);
++	if (lg) {
++		tcache_free(perthread_ptr(net_tx_buf_pt), m);
++	} else {
++		tcache_free(perthread_ptr(net_tx_buf_sm_pt), m->head);
++		tcache_free(perthread_ptr(mbuf_pt), m);
++	}
+ 	preempt_enable();
+ }
+ 
+@@ -341,16 +372,45 @@ struct mbuf *net_tx_alloc_mbuf(void)
+ 	preempt_disable();
+ 	m = tcache_alloc(perthread_ptr(net_tx_buf_pt));
+ 	if (unlikely(!m)) {
+-		preempt_enable();
+ 		log_warn_ratelimited("net: out of tx buffers");
++		preempt_enable();
+ 		return NULL;
+ 	}
++
+ 	preempt_enable();
+ 
+ 	buf = (unsigned char *)m + MBUF_HEAD_LEN;
+ 	mbuf_init(m, buf, net_get_mtu(), MBUF_DEFAULT_HEADROOM);
+ 	m->txflags = 0;
+-	m->release_data = 0;
++	m->release = net_tx_release_mbuf;
++	return m;
++}
++
++struct mbuf *net_tx_alloc_mbuf_small(void)
++{
++	struct mbuf *m;
++	unsigned char *buf;
++
++	preempt_disable();
++	buf = tcache_alloc(perthread_ptr(net_tx_buf_sm_pt));
++	if (unlikely(!buf)) {
++		log_warn_ratelimited("net: out of tx buffers");
++		preempt_enable();
++		return NULL;
++	}
++
++	m = tcache_alloc(perthread_ptr(mbuf_pt));
++	if (unlikely(!m)) {
++		tcache_free(perthread_ptr(net_tx_buf_sm_pt), buf);
++		log_warn_ratelimited("net: out of mbufs");
++		preempt_enable();
++		return NULL;
++	}
++
++	preempt_enable();
++
++	mbuf_init(m, buf, SMALL_BUF_SIZE + MBUF_DEFAULT_HEADROOM, MBUF_DEFAULT_HEADROOM);
++	m->txflags = 0;
+ 	m->release = net_tx_release_mbuf;
+ 	return m;
+ }
+@@ -670,8 +730,12 @@ int net_init_thread(void)
+ 
+ 	k->iokernel_softirq = th;
+ 
+-	if (!cfg_directpath_external())
++	tcache_init_perthread(mbuf_tcache, &perthread_get(mbuf_pt));
++
++	if (!cfg_directpath_external()) {
+ 		tcache_init_perthread(net_tx_buf_tcache, &perthread_get(net_tx_buf_pt));
++		tcache_init_perthread(net_tx_buf_sm_tcache, &perthread_get(net_tx_buf_sm_pt));
++	}
+ 
+ 	return 0;
+ }
+@@ -718,6 +782,18 @@ static struct net_driver_ops iokernel_ops = {
+  */
+ int net_init(void)
+ {
++	size_t sz;
++	int ret;
++
++	sz = sizeof(struct mbuf) + MBUF_INL_DATA_SZ;
++	ret = slab_create(&mbuf_slab, "mbufs", sz, 0);
++	if (ret)
++		return ret;
++
++	mbuf_tcache = slab_create_tcache(&mbuf_slab, TCACHE_DEFAULT_MAG_SIZE);
++	if (!mbuf_tcache)
++		return -ENOMEM;
++
+ 	log_info("net: started network stack");
+ 	net_dump_config();
+ 
+diff --git a/runtime/net/defs.h b/runtime/net/defs.h
+index 9f08afec..6cc1a423 100644
+--- a/runtime/net/defs.h
++++ b/runtime/net/defs.h
+@@ -12,6 +12,9 @@
+ 
+ #include "../defs.h"
+ 
++#define SMALL_BUF_SIZE 64
++#define MBUF_INL_DATA_SZ (2 * CACHE_LINE_SIZE)
++
+ /*
+  * Network Error Reporting Functions
+  */
+@@ -42,7 +45,20 @@ extern void net_rx_batch(struct mbuf **ms, unsigned int nr);
+ 
+ extern int arp_lookup(uint32_t daddr, struct eth_addr *dhost_out,
+ 		      struct mbuf *m) __must_use_return;
++
++
+ extern struct mbuf *net_tx_alloc_mbuf(void);
++extern struct mbuf *net_tx_alloc_mbuf_small(void);
++DECLARE_PERTHREAD(struct tcache_perthread, mbuf_pt);
++
++static inline struct mbuf *net_tx_alloc_mbuf_sz(size_t len)
++{
++	if (len <= SMALL_BUF_SIZE)
++		return net_tx_alloc_mbuf_small();
++
++	return net_tx_alloc_mbuf();
++}
++
+ extern void net_tx_release_mbuf(struct mbuf *m);
+ extern void net_tx_eth(struct mbuf *m, uint16_t proto,
+ 		       struct eth_addr dhost);
+diff --git a/runtime/net/directpath/mlx5/mlx5_rx_stride.c b/runtime/net/directpath/mlx5/mlx5_rx_stride.c
+index b4d47cdb..c0f6bf11 100644
+--- a/runtime/net/directpath/mlx5/mlx5_rx_stride.c
++++ b/runtime/net/directpath/mlx5/mlx5_rx_stride.c
+@@ -17,8 +17,6 @@
+ #define MLX5_MPRQ_STRIDE_NUM_SHIFT 16
+ #define MLX5_MPRQ_FILLER_MASK 0x80000000
+ 
+-#define MBUF_COPY_THRESH (2 * CACHE_LINE_SIZE)
+-
+ /* number of total buffers in rx mempool */
+ static size_t nrbufs;
+ /* array of ref counters for buffers in rx mempool */
+@@ -32,11 +30,6 @@ static void **sw_pending_buffers;
+ static uint64_t sw_pending_head;
+ static uint64_t sw_pending_tail;
+ 
+-/* slab allocator for mbuf structs */
+-static struct slab mbuf_slab;
+-static struct tcache *mbuf_tcache;
+-static DEFINE_PERTHREAD(struct tcache_perthread, mbuf_pt);
+-
+ static inline bool shared_rmp_enabled(void)
+ {
+ 	return cfg_directpath_mode == DIRECTPATH_MODE_EXTERNAL;
+@@ -311,7 +304,7 @@ static struct mbuf *mbuf_fill_cqe(void *dbuf, struct mlx5_cqe64 *cqe,
+ 	}
+ 
+ 	/* copy small packets directly into mbuf */
+-	if (len <= MBUF_COPY_THRESH) {
++	if (len <= MBUF_INL_DATA_SZ) {
+ 		void *buf = (void *)m + sizeof(*m);
+ 		memcpy(buf, dbuf + 2, len);
+ 		dec_sw_ref(dbuf, num_strides);
+@@ -463,28 +456,12 @@ int mlx5_rx_stride_init_thread(void)
+ 
+ 	myk()->q_ptrs->directpath_strides_consumed = 0;
+ 
+-	tcache_init_perthread(mbuf_tcache, &perthread_get(mbuf_pt));
+ 	return 0;
+ }
+ 
+ int mlx5_rx_stride_init(void)
+ {
+-	int ret;
+-	size_t sz;
+-
+-	if (!cfg_directpath_strided)
+-		return 0;
+-
+-	sz = sizeof(struct mbuf) + MBUF_COPY_THRESH;
+-	ret = slab_create(&mbuf_slab, "mbufs", sz, 0);
+-	if (ret)
+-		return ret;
+-
+-	mbuf_tcache = slab_create_tcache(&mbuf_slab, TCACHE_DEFAULT_MAG_SIZE);
+-	if (!mbuf_tcache)
+-		return -ENOMEM;
+-
+-	if (cfg_directpath_external())
++	if (!cfg_directpath_strided || cfg_directpath_external())
+ 		return 0;
+ 
+ 	return mlx5_rx_stride_init_bufs();
+diff --git a/runtime/net/tcp_out.c b/runtime/net/tcp_out.c
+index 682173ca..e49b92ae 100644
+--- a/runtime/net/tcp_out.c
++++ b/runtime/net/tcp_out.c
+@@ -28,8 +28,8 @@ static uint16_t tcp_hdr_chksum(uint32_t local_ip, uint32_t remote_ip,
+ }
+ 
+ static __always_inline struct tcp_hdr *
+-tcp_push_tcphdr(struct mbuf *m, tcpconn_t *c, uint8_t flags,
+-		uint8_t off, uint16_t l4len)
++__tcp_add_tcphdr(struct mbuf *m, tcpconn_t *c, uint8_t flags,
++		uint8_t off, uint16_t l4len, bool push)
+ {
+ 	struct tcp_hdr *tcphdr;
+ 	uint64_t rcv_nxt_wnd = load_acquire(&c->pcb.rcv_nxt_wnd);
+@@ -37,7 +37,10 @@ tcp_push_tcphdr(struct mbuf *m, tcpconn_t *c, uint8_t flags,
+ 	uint32_t win = c->tx_last_win = rcv_nxt_wnd >> 32;
+ 
+ 	/* write the tcp header */
+-	tcphdr = mbuf_push_hdr(m, *tcphdr);
++	if (push)
++		tcphdr = mbuf_push_hdr(m, *tcphdr);
++	else
++		tcphdr = mbuf_put_hdr(m, *tcphdr);
+ 	mbuf_mark_transport_offset(m);
+ 	tcphdr->sport = hton16(c->e.laddr.port);
+ 	tcphdr->dport = hton16(c->e.raddr.port);
+@@ -51,6 +54,18 @@ tcp_push_tcphdr(struct mbuf *m, tcpconn_t *c, uint8_t flags,
+ 	return tcphdr;
+ }
+ 
++static __always_inline struct tcp_hdr *
++tcp_push_tcphdr(struct mbuf *m, tcpconn_t *c, uint8_t flags,
++		uint8_t off, uint16_t l4len) {
++	return __tcp_add_tcphdr(m, c, flags, off, l4len, true);
++}
++
++static __always_inline struct tcp_hdr *
++tcp_put_tcphdr(struct mbuf *m, tcpconn_t *c, uint8_t flags,
++		uint8_t off, uint16_t l4len) {
++	return __tcp_add_tcphdr(m, c, flags, off, l4len, false);
++}
++
+ /**
+  * tcp_tx_raw_rst - send a RST without an established connection
+  * @laddr: the local address
+@@ -65,14 +80,14 @@ int tcp_tx_raw_rst(struct netaddr laddr, struct netaddr raddr, tcp_seq seq)
+ 	struct mbuf *m;
+ 	int ret;
+ 
+-	m = net_tx_alloc_mbuf();
++	m = net_tx_alloc_mbuf_sz(sizeof(*tcphdr));
+ 	if (unlikely((!m)))
+ 		return -ENOMEM;
+ 
+ 	m->txflags = OLFLAG_TCP_CHKSUM;
+ 
+ 	/* write the tcp header */
+-	tcphdr = mbuf_push_hdr(m, *tcphdr);
++	tcphdr = mbuf_put_hdr(m, *tcphdr);
+ 	tcphdr->sport = hton16(laddr.port);
+ 	tcphdr->dport = hton16(raddr.port);
+ 	tcphdr->seq = hton32(seq);
+@@ -105,14 +120,14 @@ int tcp_tx_raw_rst_ack(struct netaddr laddr, struct netaddr raddr,
+ 	struct mbuf *m;
+ 	int ret;
+ 
+-	m = net_tx_alloc_mbuf();
++	m = net_tx_alloc_mbuf_sz(sizeof(*tcphdr));
+ 	if (unlikely((!m)))
+ 		return -ENOMEM;
+ 
+ 	m->txflags = OLFLAG_TCP_CHKSUM;
+ 
+ 	/* write the tcp header */
+-	tcphdr = mbuf_push_hdr(m, *tcphdr);
++	tcphdr = mbuf_put_hdr(m, *tcphdr);
+ 	tcphdr->sport = hton16(laddr.port);
+ 	tcphdr->dport = hton16(raddr.port);
+ 	tcphdr->seq = hton32(seq);
+@@ -140,13 +155,13 @@ int tcp_tx_ack(tcpconn_t *c)
+ 	struct mbuf *m;
+ 	int ret;
+ 
+-	m = net_tx_alloc_mbuf();
++	m = net_tx_alloc_mbuf_sz(sizeof(struct tcp_hdr));
+ 	if (unlikely(!m))
+ 		return -ENOMEM;
+ 
+ 	m->txflags = OLFLAG_TCP_CHKSUM;
+ 	m->seg_seq = load_acquire(&c->pcb.snd_nxt);
+-	tcp_push_tcphdr(m, c, TCP_ACK, 5, 0);
++	tcp_put_tcphdr(m, c, TCP_ACK, 5, 0);
+ 
+ 	/* transmit packet */
+ 	tcp_debug_egress_pkt(c, m);
+@@ -171,13 +186,13 @@ int tcp_tx_probe_window(tcpconn_t *c)
+ 	struct mbuf *m;
+ 	int ret;
+ 
+-	m = net_tx_alloc_mbuf();
++	m = net_tx_alloc_mbuf_sz(sizeof(struct tcp_hdr));
+ 	if (unlikely(!m))
+ 		return -ENOMEM;
+ 
+ 	m->txflags = OLFLAG_TCP_CHKSUM;
+ 	m->seg_seq = load_acquire(&c->pcb.snd_una) - 1;
+-	tcp_push_tcphdr(m, c, TCP_ACK, 5, 0);
++	tcp_put_tcphdr(m, c, TCP_ACK, 5, 0);
+ 
+ 	/* transmit packet */
+ 	tcp_debug_egress_pkt(c, m);
+@@ -187,7 +202,7 @@ int tcp_tx_probe_window(tcpconn_t *c)
+ 	return ret;
+ }
+ 
+-static int tcp_push_options(struct mbuf *m, const struct tcp_options *opts)
++static int tcp_put_options(struct mbuf *m, const struct tcp_options *opts)
+ {
+ 	uint32_t *ptr;
+ 	int len = 0;
+@@ -195,13 +210,13 @@ static int tcp_push_options(struct mbuf *m, const struct tcp_options *opts)
+ 	/* WARNING: the order matters, as some devices are broken */
+ 
+ 	if (opts->opt_en & TCP_OPTION_WSCALE) {
+-		ptr = (uint32_t *)mbuf_push(m, sizeof(uint32_t));
++		ptr = (uint32_t *)mbuf_put(m, sizeof(uint32_t));
+ 		*ptr = hton32((TCP_OPT_NOP << 24) | (TCP_OPT_WSCALE << 16) |
+ 			      (TCP_OLEN_WSCALE << 8) | opts->wscale);
+ 		len++;
+ 	}
+ 	if (opts->opt_en & TCP_OPTION_MSS) {
+-		ptr = (uint32_t *)mbuf_push(m, sizeof(uint32_t));
++		ptr = (uint32_t *)mbuf_put(m, sizeof(uint32_t));
+ 		*ptr = hton32((TCP_OPT_MSS << 24) | (TCP_OLEN_MSS << 16) |
+ 			      opts->mss);
+ 		len++;
+@@ -238,7 +253,7 @@ int tcp_tx_ctl(tcpconn_t *c, uint8_t flags, const struct tcp_options *opts)
+ 	m->flags = flags;
+ 
+ 	if (opts)
+-		ret = tcp_push_options(m, opts);
++		ret = tcp_put_options(m, opts);
+ 	tcp_push_tcphdr(m, c, flags, 5 + ret, 0);
+ 	store_release(&c->pcb.snd_nxt, c->pcb.snd_nxt + 1);
+ 	list_add_tail(&c->txq, &m->link);
+@@ -276,7 +291,7 @@ ssize_t tcp_tx_send(tcpconn_t *c, const void *buf, size_t len, bool push)
+ 	const char *pos = buf;
+ 	const char *end = pos + len;
+ 	ssize_t ret = 0;
+-	size_t seglen;
++	size_t seglen, bufsz;
+ 	uint32_t mss = c->pcb.snd_mss;
+ 
+ 	assert(c->pcb.state >= TCP_STATE_ESTABLISHED);
+@@ -294,12 +309,16 @@ ssize_t tcp_tx_send(tcpconn_t *c, const void *buf, size_t len, bool push)
+ 			seglen = MIN(end - pos, mss - mbuf_length(m));
+ 			m->seg_end += seglen;
+ 		} else {
+-			m = net_tx_alloc_mbuf();
++			seglen = MIN(end - pos, mss);
++			if (push && pos + seglen == end)
++				bufsz = seglen;
++			else
++				bufsz = mss;
++			m = net_tx_alloc_mbuf_sz(bufsz);
+ 			if (unlikely(!m)) {
+ 				ret = -ENOBUFS;
+ 				break;
+ 			}
+-			seglen = MIN(end - pos, mss);
+ 			m->seg_seq = c->pcb.snd_nxt;
+ 			m->seg_end = c->pcb.snd_nxt + seglen;
+ 			m->flags = TCP_ACK;
+@@ -346,6 +365,7 @@ static int tcp_tx_retransmit_one(tcpconn_t *c, struct mbuf *m)
+ 	int ret;
+ 	uint8_t opts_len;
+ 	uint16_t l4len;
++	size_t sz;
+ 
+ 	l4len = m->seg_end - m->seg_seq;
+ 	if (m->flags & (TCP_SYN | TCP_FIN))
+@@ -360,12 +380,12 @@ static int tcp_tx_retransmit_one(tcpconn_t *c, struct mbuf *m)
+ 	 * in such corner cases.
+ 	 */
+ 	if (unlikely(atomic_read(&m->ref) != 1)) {
+-		struct mbuf *newm = net_tx_alloc_mbuf();
++		sz = sizeof(uint32_t) * opts_len + l4len;
++		struct mbuf *newm = net_tx_alloc_mbuf_sz(sz);
+ 		if (unlikely(!newm))
+ 			return -ENOMEM;
+-		memcpy(mbuf_put(newm, sizeof(uint32_t) * opts_len + l4len),
+-		       mbuf_transport_offset(m) + sizeof(struct tcp_hdr),
+-		       sizeof(uint32_t) * opts_len + l4len);
++		memcpy(mbuf_put(newm, sz),
++		       mbuf_transport_offset(m) + sizeof(struct tcp_hdr), sz);
+ 		newm->flags = m->flags;
+ 		newm->seg_seq = m->seg_seq;
+ 		newm->seg_end = m->seg_end;
+diff --git a/runtime/net/udp.c b/runtime/net/udp.c
+index e79e6330..153df4b7 100644
+--- a/runtime/net/udp.c
++++ b/runtime/net/udp.c
+@@ -454,7 +454,7 @@ ssize_t udp_write_to(udpconn_t *c, const void *buf, size_t len,
+ 	}
+ 	spin_unlock_np(&c->outq_lock);
+ 
+-	m = net_tx_alloc_mbuf();
++	m = net_tx_alloc_mbuf_sz(len);
+ 	if (unlikely(!m))
+ 		return -ENOBUFS;
+ 
+@@ -764,7 +764,7 @@ ssize_t udp_send(const void *buf, size_t len,
+ 	if (raddr.ip == MAKE_IP_ADDR(127, 0, 0, 1))
+ 		raddr.ip = netcfg.addr;
+ 
+-	m = net_tx_alloc_mbuf();
++	m = net_tx_alloc_mbuf_sz(len);
+ 	if (unlikely(!m))
+ 		return -ENOBUFS;
+ 
+-- 
+2.39.2
+
