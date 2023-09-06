@@ -1,0 +1,72 @@
+From 316204a65c70c886e7f7e2f7ec7252219abbac92 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Wed, 6 Sep 2023 03:26:18 -0400
+Subject: [PATCH 27/27] latency tuning
+
+---
+ iokernel/directpath/core.c | 2 +-
+ iokernel/sched.c           | 7 +++++++
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/iokernel/directpath/core.c b/iokernel/directpath/core.c
+index d0358f0c..14bc62d6 100644
+--- a/iokernel/directpath/core.c
++++ b/iokernel/directpath/core.c
+@@ -571,7 +571,7 @@ static int create_cq(struct directpath_ctx *dp, struct cq *cq, uint32_t log_nr_c
+ 		CQ_PERIOD_MODE_UPON_CQE = 1,
+ 	};
+ 
+-	DEVX_SET(cqc, cq_ctx, cq_period_mode, 1); // TODO figure this out
++	DEVX_SET(cqc, cq_ctx, cq_period_mode, 0); // TODO figure this out
+ 	DEVX_SET(cqc, cq_ctx, cqe_comp_en, 0 /* no compression */); // TODO enable this
+ 	// DEVX_SET(cqc, cq_ctx, mini_cqe_res_format, );
+ 	// DEVX_SET(cqc, cq_ctx, cqe_comp_layout, 0 /* BASIC_CQE_COMPRESSION */);
+diff --git a/iokernel/sched.c b/iokernel/sched.c
+index 564bd515..ff4816f4 100644
+--- a/iokernel/sched.c
++++ b/iokernel/sched.c
+@@ -20,6 +20,7 @@
+ #include "hw_timestamp.h"
+ 
+ #define PROC_TIMER_WHEEL_THRESH_US 100
++#define PROC_TIMER_WHEEL_ENABLE_THRESH 200
+ 
+ /* a bitmap of cores available to be allocated by the scheduler */
+ DEFINE_BITMAP(sched_allowed_cores, NCPU);
+@@ -40,6 +41,7 @@ unsigned int sched_cores_tbl[NCPU];
+ int sched_cores_nr;
+ 
+ static int nr_guaranteed;
++static unsigned long nr_procs;
+ 
+ LIST_HEAD(poll_list);
+ 
+@@ -575,6 +577,9 @@ static bool sched_proc_can_unpoll(struct proc *p)
+ 	if (unlikely(!p->started))
+ 		return false;
+ 
++	if (nr_procs < PROC_TIMER_WHEEL_ENABLE_THRESH)
++		return false;
++
+ 	return !p->has_directpath || p->has_vfio_directpath;
+ }
+ 
+@@ -890,6 +895,7 @@ int sched_attach_proc(struct proc *p)
+ 
+ 	nr_guaranteed += p->sched_cfg.guaranteed_cores;
+ 	proc_enable_sched_poll_nocheck(p);
++	nr_procs++;
+ 
+ 	return 0;
+ }
+@@ -903,6 +909,7 @@ void sched_detach_proc(struct proc *p)
+ 	proc_disable_sched_poll(p);
+ 	sched_ops->proc_detach(p);
+ 	nr_guaranteed -= p->sched_cfg.guaranteed_cores;
++	nr_procs--;
+ }
+ 
+ static int sched_scan_node(int node)
+-- 
+2.39.2
+
