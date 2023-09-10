@@ -1,17 +1,17 @@
-From 43b1bbbe8c99e6b7b0b3299c7c43094776f70103 Mon Sep 17 00:00:00 2001
+From feb1a3e1e2b93aac1afa960c0d7cdbe019e87159 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 6 Sep 2023 14:44:32 -0400
 Subject: [PATCH 28/28] split tx buffer pool
 
 ---
- inc/base/mempool.h                           |  5 ++
+ inc/base/mempool.h                           |  5 +
  inc/net/mbuf.h                               |  2 +-
- runtime/net/core.c                           | 90 ++++++++++++++++++--
+ runtime/net/core.c                           | 98 ++++++++++++++++++--
  runtime/net/defs.h                           | 16 ++++
  runtime/net/directpath/mlx5/mlx5_rx_stride.c | 27 +-----
- runtime/net/tcp_out.c                        | 64 +++++++++-----
+ runtime/net/tcp_out.c                        | 64 ++++++++-----
  runtime/net/udp.c                            |  4 +-
- 7 files changed, 151 insertions(+), 57 deletions(-)
+ 7 files changed, 158 insertions(+), 58 deletions(-)
 
 diff --git a/inc/base/mempool.h b/inc/base/mempool.h
 index 829c7696..8ae96457 100644
@@ -43,10 +43,10 @@ index 3acef82d..12a98af4 100644
  
  struct mbuf {
 diff --git a/runtime/net/core.c b/runtime/net/core.c
-index 7a6e2fb3..6fa87b4b 100644
+index 7a6e2fb3..e13f1063 100644
 --- a/runtime/net/core.c
 +++ b/runtime/net/core.c
-@@ -28,32 +28,56 @@ static struct mempool net_tx_buf_mp;
+@@ -28,32 +28,62 @@ static struct mempool net_tx_buf_mp;
  static struct tcache *net_tx_buf_tcache;
  static DEFINE_PERTHREAD(struct tcache_perthread, net_tx_buf_pt);
  
@@ -58,6 +58,8 @@ index 7a6e2fb3..6fa87b4b 100644
 +static struct slab mbuf_slab;
 +static struct tcache *mbuf_tcache;
 +DEFINE_PERTHREAD(struct tcache_perthread, mbuf_pt);
++
++static size_t tx_mbuf_headroom;
 +
  int net_init_mempool_threads(void)
  {
@@ -79,6 +81,10 @@ index 7a6e2fb3..6fa87b4b 100644
  {
  	int ret;
 +	size_t pool_sz = iok.tx_len / 2;
++
++	tx_mbuf_headroom = MBUF_DEFAULT_HEADROOM;
++	if (!cfg_directpath_enabled())
++		tx_mbuf_headroom += sizeof(struct tx_net_hdr);
  
 -	ret = mempool_create(&net_tx_buf_mp, iok.tx_buf, iok.tx_len, PGSIZE_2MB,
 -			     align_up(net_get_mtu() + MBUF_HEAD_LEN + MBUF_DEFAULT_HEADROOM,
@@ -89,7 +95,7 @@ index 7a6e2fb3..6fa87b4b 100644
  		return ret;
  
 +	ret = mempool_create(&net_tx_buf_sm_mp, iok.tx_buf + pool_sz, pool_sz, PGSIZE_2MB,
-+			     align_up(SMALL_BUF_SIZE + MBUF_DEFAULT_HEADROOM, CACHE_LINE_SIZE * 2));
++			     align_up(SMALL_BUF_SIZE + tx_mbuf_headroom, CACHE_LINE_SIZE * 2));
 +	if (unlikely(ret))
 +		return ret;
 +
@@ -106,7 +112,7 @@ index 7a6e2fb3..6fa87b4b 100644
  	return 0;
  }
  
-@@ -323,8 +347,15 @@ static void iokernel_softirq(void *arg)
+@@ -323,8 +353,15 @@ static void iokernel_softirq(void *arg)
   */
  void net_tx_release_mbuf(struct mbuf *m)
  {
@@ -123,7 +129,7 @@ index 7a6e2fb3..6fa87b4b 100644
  	preempt_enable();
  }
  
-@@ -341,16 +372,45 @@ struct mbuf *net_tx_alloc_mbuf(void)
+@@ -341,16 +378,45 @@ struct mbuf *net_tx_alloc_mbuf(void)
  	preempt_disable();
  	m = tcache_alloc(perthread_ptr(net_tx_buf_pt));
  	if (unlikely(!m)) {
@@ -136,9 +142,9 @@ index 7a6e2fb3..6fa87b4b 100644
  	preempt_enable();
  
  	buf = (unsigned char *)m + MBUF_HEAD_LEN;
- 	mbuf_init(m, buf, net_get_mtu(), MBUF_DEFAULT_HEADROOM);
- 	m->txflags = 0;
--	m->release_data = 0;
+-	mbuf_init(m, buf, net_get_mtu(), MBUF_DEFAULT_HEADROOM);
++	mbuf_init(m, buf, net_get_mtu(), tx_mbuf_headroom);
++	m->txflags = 0;
 +	m->release = net_tx_release_mbuf;
 +	return m;
 +}
@@ -166,12 +172,13 @@ index 7a6e2fb3..6fa87b4b 100644
 +
 +	preempt_enable();
 +
-+	mbuf_init(m, buf, SMALL_BUF_SIZE + MBUF_DEFAULT_HEADROOM, MBUF_DEFAULT_HEADROOM);
-+	m->txflags = 0;
++	mbuf_init(m, buf, SMALL_BUF_SIZE + tx_mbuf_headroom, tx_mbuf_headroom);
+ 	m->txflags = 0;
+-	m->release_data = 0;
  	m->release = net_tx_release_mbuf;
  	return m;
  }
-@@ -670,8 +730,12 @@ int net_init_thread(void)
+@@ -670,8 +736,12 @@ int net_init_thread(void)
  
  	k->iokernel_softirq = th;
  
@@ -185,7 +192,7 @@ index 7a6e2fb3..6fa87b4b 100644
  
  	return 0;
  }
-@@ -718,6 +782,18 @@ static struct net_driver_ops iokernel_ops = {
+@@ -718,6 +788,18 @@ static struct net_driver_ops iokernel_ops = {
   */
  int net_init(void)
  {
