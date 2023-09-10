@@ -143,7 +143,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   CloneTrapframe(th, thread_self());
 
   // Set FSBASE if requested
-  if (cl_args->flags & CLONE_SETTLS) set_fsbase(th, cl_args->tls);
+  if (cl_args->flags & CLONE_SETTLS) thread_set_fsbase(th, cl_args->tls);
 
   // Write this thread's tid into
   if (cl_args->flags & CLONE_PARENT_SETTID)
@@ -321,7 +321,7 @@ pid_t usys_gettid() { return mythread().get_tid(); }
 
 int usys_arch_prctl(int code, unsigned long addr) {
   if (code != ARCH_SET_FS) return -EINVAL;
-  set_fsbase(thread_self(), addr);
+  thread_set_fsbase(thread_self(), addr);
   return 0;
 }
 

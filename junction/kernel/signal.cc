@@ -140,7 +140,7 @@ extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
   k_sigframe *sigframe = container_of(uc, k_sigframe, uc);
 
   // restore runtime FS register
-  _writefsbase_u64(perthread_read(runtime_fsbase));
+  SetFSBase(perthread_read(runtime_fsbase));
 
   // set up unwinding from uthread stack
   MoveSigframeForImmediateUnwind(sigframe, thread_self()->tf);

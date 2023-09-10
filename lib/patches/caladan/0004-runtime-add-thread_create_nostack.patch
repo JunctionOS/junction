@@ -1,7 +1,7 @@
-From 8f75c86b8c57d31d30858fb802a1332400b37c37 Mon Sep 17 00:00:00 2001
+From 73cf37193f70caa5f6f641b2fab355e6e564ce79 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 24 Nov 2022 21:55:35 -0500
-Subject: [PATCH 04/20] runtime: add thread_create_nostack
+Subject: [PATCH 04/28] runtime: add thread_create_nostack
 
 ---
  inc/runtime/thread.h |  1 +
@@ -9,7 +9,7 @@ Subject: [PATCH 04/20] runtime: add thread_create_nostack
  2 files changed, 48 insertions(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 67dcceb..ccc5380 100644
+index c653e681..77c1d374 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -26,6 +26,7 @@ extern void thread_ready(thread_t *thread);
@@ -19,12 +19,12 @@ index 67dcceb..ccc5380 100644
 +extern thread_t *thread_create_nostack(thread_fn_t fn, void *arg);
  extern void __set_uthread_specific(thread_t *th, uint64_t val);
  extern uint64_t __get_uthread_specific(thread_t *th);
- extern void set_fsbase(thread_t *th, uint64_t fsbase);
+ extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 0bf4d43..4f56ccf 100644
+index 4e1d37e3..d29df9b8 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -792,6 +792,31 @@ void thread_yield(void)
+@@ -797,6 +797,31 @@ void thread_yield(void)
  	enter_schedule(curth);
  }
  
@@ -56,7 +56,7 @@ index 0bf4d43..4f56ccf 100644
  static __always_inline thread_t *__thread_create(void)
  {
  	struct thread *th;
-@@ -823,6 +848,26 @@ static __always_inline thread_t *__thread_create(void)
+@@ -828,6 +853,26 @@ static __always_inline thread_t *__thread_create(void)
  	return th;
  }
  
@@ -83,7 +83,7 @@ index 0bf4d43..4f56ccf 100644
  /**
   * thread_create - creates a new thread
   * @fn: a function pointer to the starting method of the thread
-@@ -916,7 +961,8 @@ static void thread_finish_exit(void)
+@@ -921,7 +966,8 @@ static void thread_finish_exit(void)
  	struct thread *th = thread_self();
  
  	gc_remove_thread(th);
@@ -94,5 +94,5 @@ index 0bf4d43..4f56ccf 100644
  	perthread_store(__self, NULL);
  
 -- 
-2.37.2
+2.39.2
 

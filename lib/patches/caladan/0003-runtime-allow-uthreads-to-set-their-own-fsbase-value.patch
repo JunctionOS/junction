@@ -1,18 +1,19 @@
-From 33cc90c67a2578838a1d0f67ca027091a0713f1e Mon Sep 17 00:00:00 2001
+From 6e09d4c994ac7b94942e2832f0f4fc3094382fc6 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
-Subject: [PATCH 03/20] runtime: allow uthreads to set their own fsbase values
+Subject: [PATCH 03/28] runtime: allow uthreads to set their own fsbase values
 
 ---
  build/shared.mk      |  2 +-
+ inc/asm/ops.h        |  6 ++++++
  inc/runtime/thread.h | 14 ++++++++++++--
- runtime/defs.h       | 14 ++++++++------
- runtime/sched.c      | 37 ++++++++++++++++++++++++++++---------
- runtime/switch.S     | 17 +++++++++++++++++
- 5 files changed, 66 insertions(+), 18 deletions(-)
+ runtime/defs.h       | 10 ++++++----
+ runtime/sched.c      | 40 +++++++++++++++++++++++++++++++++-------
+ runtime/switch.S     |  3 +++
+ 6 files changed, 61 insertions(+), 14 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
-index 1e087d8..1d5bc4e 100644
+index 1e087d8b..1d5bc4ea 100644
 --- a/build/shared.mk
 +++ b/build/shared.mk
 @@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
@@ -24,8 +25,32 @@ index 1e087d8..1d5bc4e 100644
  LDFLAGS = -T $(ROOT_PATH)/base/base.ld
  LD      = gcc
  CC      = gcc
+diff --git a/inc/asm/ops.h b/inc/asm/ops.h
+index f07f2204..98ed53b8 100644
+--- a/inc/asm/ops.h
++++ b/inc/asm/ops.h
+@@ -4,6 +4,7 @@
+ 
+ #pragma once
+ 
++#include <immintrin.h>
+ #include <features.h>
+ #include <base/types.h>
+ 
+@@ -33,6 +34,11 @@ static inline void cpuid(int leaf, struct cpuid_info *regs)
+ 	asm volatile("cpuid" : "=a" (regs->eax), "=b" (regs->ebx), "=c" (regs->ecx), "=d" (regs->edx) : "a" (leaf));
+ }
+ 
++static inline void set_fsbase(uint64_t val)
++{
++	_writefsbase_u64(val);
++}
++
+ static inline uint64_t rdtsc(void)
+ {
+ #if __GNUC_PREREQ(10, 0)
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index d71d30f..67dcceb 100644
+index d71d30f1..c653e681 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -26,9 +26,13 @@ extern void thread_ready(thread_t *thread);
@@ -34,7 +59,7 @@ index d71d30f..67dcceb 100644
  extern thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t len);
 +extern void __set_uthread_specific(thread_t *th, uint64_t val);
 +extern uint64_t __get_uthread_specific(thread_t *th);
-+extern void set_fsbase(thread_t *th, uint64_t fsbase);
++extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
  
  DECLARE_PERTHREAD(thread_t *, __self);
  DECLARE_PERTHREAD(unsigned int, kthread_idx);
@@ -61,7 +86,7 @@ index d71d30f..67dcceb 100644
  
  /*
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 3dbb57d..295fce9 100644
+index 58df7144..18c1f5ce 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -72,6 +72,7 @@ struct thread_tf {
@@ -80,17 +105,6 @@ index 3dbb57d..295fce9 100644
  	unsigned int		thread_ready;
  	unsigned int		thread_running;
  	unsigned int		last_cpu;
-@@ -113,8 +115,8 @@ extern void __jmp_thread_direct(struct thread_tf *oldtf,
- 				struct thread_tf *newtf,
- 				unsigned int *thread_running);
- extern void __jmp_runtime(struct thread_tf *tf, runtime_fn_t fn,
--			  void *stack);
--extern void __jmp_runtime_nosave(runtime_fn_t fn, void *stack) __noreturn;
-+			  void *stack, uint64_t fsbase);
-+extern void __jmp_runtime_nosave(runtime_fn_t fn, void *stack, uint64_t fsbase) __noreturn;
- 
- 
- /*
 @@ -140,10 +142,10 @@ DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
   */
  static inline struct stack *stack_alloc(void)
@@ -115,7 +129,7 @@ index 3dbb57d..295fce9 100644
  	hd_parity = !!(ACCESS_ONCE(*addr) & q->parity_bit_mask);
  
 diff --git a/runtime/sched.c b/runtime/sched.c
-index a5e1149..0bf4d43 100644
+index 3a82ca52..4e1d37e3 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -153,7 +167,7 @@ index a5e1149..0bf4d43 100644
  }
  
 -void set_uthread_specific(uint64_t val)
-+void set_fsbase(thread_t *th, uint64_t fsbase)
++void thread_set_fsbase(thread_t *th, uint64_t fsbase)
  {
 -	BUG_ON(!perthread_read_stable(__self));
 -	(perthread_read_stable(__self))->tlsvar = val;
@@ -161,11 +175,11 @@ index a5e1149..0bf4d43 100644
 +	barrier();
 +	th->has_fsbase = true;
 +	if (thread_self() == th)
-+		_writefsbase_u64(fsbase);
++		set_fsbase(fsbase);
  }
  
  /**
-@@ -85,6 +93,10 @@ static __noreturn void jmp_thread(thread_t *th)
+@@ -85,6 +93,12 @@ static __noreturn void jmp_thread(thread_t *th)
  		while (load_acquire(&th->thread_running))
  			cpu_relax();
  	}
@@ -173,10 +187,12 @@ index a5e1149..0bf4d43 100644
 +	if (!th->has_fsbase)
 +		th->tf.fsbase = perthread_read(runtime_fsbase);
 +
++	set_fsbase(th->tf.fsbase);
++
  	th->thread_running = true;
  	__jmp_thread(&th->tf);
  }
-@@ -109,6 +121,10 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
+@@ -109,6 +123,12 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
  		while (load_acquire(&newth->thread_running))
  			cpu_relax();
  	}
@@ -184,28 +200,29 @@ index a5e1149..0bf4d43 100644
 +	if (!newth->has_fsbase)
 +		newth->tf.fsbase = perthread_read(runtime_fsbase);
 +
++	set_fsbase(newth->tf.fsbase);
++
  	newth->thread_running = true;
  	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
  }
-@@ -128,7 +144,7 @@ static void jmp_runtime(runtime_fn_t fn)
+@@ -128,6 +148,8 @@ static void jmp_runtime(runtime_fn_t fn)
  	assert_preempt_disabled();
  	assert(thread_self() != NULL);
  
--	__jmp_runtime(&thread_self()->tf, fn, perthread_read(runtime_stack));
-+	__jmp_runtime(&thread_self()->tf, fn, perthread_read(runtime_stack), perthread_read(runtime_fsbase));
++	set_fsbase(perthread_read(runtime_fsbase));
++
+ 	__jmp_runtime(&thread_self()->tf, fn, perthread_read(runtime_stack));
  }
  
- /**
-@@ -140,7 +156,7 @@ static __noreturn void jmp_runtime_nosave(runtime_fn_t fn)
+@@ -140,6 +162,7 @@ static __noreturn void jmp_runtime_nosave(runtime_fn_t fn)
  {
  	assert_preempt_disabled();
  
--	__jmp_runtime_nosave(fn, perthread_read(runtime_stack));
-+	__jmp_runtime_nosave(fn, perthread_read(runtime_stack), perthread_read(runtime_fsbase));
++	set_fsbase(perthread_read(runtime_fsbase));
+ 	__jmp_runtime_nosave(fn, perthread_read(runtime_stack));
  }
  
- static void drain_overflow(struct kthread *l)
-@@ -799,8 +815,10 @@ static __always_inline thread_t *__thread_create(void)
+@@ -797,8 +820,10 @@ static __always_inline thread_t *__thread_create(void)
  
  	th->stack = s;
  	th->main_thread = false;
@@ -216,7 +233,7 @@ index a5e1149..0bf4d43 100644
  
  	return th;
  }
-@@ -976,6 +994,7 @@ int sched_init_thread(void)
+@@ -974,6 +999,7 @@ int sched_init_thread(void)
  		return -ENOMEM;
  
  	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
@@ -225,7 +242,7 @@ index a5e1149..0bf4d43 100644
  	return 0;
  }
 diff --git a/runtime/switch.S b/runtime/switch.S
-index fbca860..1ccab11 100644
+index fbca8606..054ffed0 100644
 --- a/runtime/switch.S
 +++ b/runtime/switch.S
 @@ -36,6 +36,7 @@
@@ -236,29 +253,7 @@ index fbca860..1ccab11 100644
  
  /**
   * __jmp_thread - executes a thread from the runtime
-@@ -61,6 +62,10 @@ __jmp_thread:
- 	movq    R14(%rdi), %r14
- 	movq    R15(%rdi), %r15
- 
-+	/* restore FS base */
-+	movq	FSBASE(%rdi), %r8
-+	wrfsbase	%r8
-+
- 	/* set first argument (in case new thread) */
- 	movq    RDI(%rdi), %rdi /* ARG0 */
- 
-@@ -128,6 +133,10 @@ __jmp_thread_direct:
- 	movq    R14(%rsi), %r14
- 	movq    R15(%rsi), %r15
- 
-+	/* restore FS */
-+	movq	FSBASE(%rsi), %rdi
-+	wrfsbase	%rdi
-+
- 	/* set first argument (in case new thread) */
- 	movq    RDI(%rsi), %rdi /* ARG0 */
- 
-@@ -158,6 +167,7 @@ __jmp_thread_direct:
+@@ -158,6 +159,7 @@ __jmp_thread_direct:
   * @tf: the struct thread_tf to save state (%rdi)
   * @fn: the function pointer to call (%rsi)
   * @stack: the start of the runtime stack (%rdx)
@@ -266,17 +261,7 @@ index fbca860..1ccab11 100644
   *
   * This low-level variant isn't intended to be called directly.
   * Must be called with preemption disabled.
-@@ -181,6 +191,9 @@ __jmp_runtime:
- 	leaq    8(%rsp), %r8
- 	movq    %r8, RSP(%rdi)
- 
-+	/* restore fs */
-+	wrfsbase %rcx
-+
- 	/* jump into runtime function */
- 	movq    %rdx, %rsp
- 
-@@ -192,6 +205,7 @@ __jmp_runtime:
+@@ -192,6 +194,7 @@ __jmp_runtime:
   *			  current stack frame
   * @fn: the function pointer to call (%rdi)
   * @stack: the start of the runtime stack (%rsi)
@@ -284,15 +269,6 @@ index fbca860..1ccab11 100644
   *
   * This low-level variant isn't intended to be called directly.
   * Must be called with preemption disabled.
-@@ -206,5 +220,8 @@ __jmp_runtime_nosave:
- 	movq    %rsi, %rsp
- 	movq	%rdi, %rsi
- 
-+	/* restore fs */
-+	wrfsbase %rdx
-+
- 	/* jump into runtime code */
- 	jmpq    *%rsi
 -- 
-2.37.2
+2.39.2
 

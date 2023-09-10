@@ -1,7 +1,7 @@
-From 7564f8feda421516cb1338f0f5479897a6313f31 Mon Sep 17 00:00:00 2001
+From 275dfebffca4b3365673cd9cd8200a87018573c5 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 14 Feb 2023 18:16:43 -0500
-Subject: [PATCH 15/20] expose thread struct
+Subject: [PATCH 15/28] expose thread struct
 
 ---
  inc/runtime/thread.h | 85 +++++++++++++++++++++++++++++++++++++++++---
@@ -10,7 +10,7 @@ Subject: [PATCH 15/20] expose thread struct
  3 files changed, 81 insertions(+), 78 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index ccc5380..10ed588 100644
+index 77c1d374..97a58509 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -4,6 +4,7 @@
@@ -27,7 +27,7 @@ index ccc5380..10ed588 100644
  extern thread_t *thread_create_nostack(thread_fn_t fn, void *arg);
 -extern void __set_uthread_specific(thread_t *th, uint64_t val);
 -extern uint64_t __get_uthread_specific(thread_t *th);
- extern void set_fsbase(thread_t *th, uint64_t fsbase);
+ extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
  
  DECLARE_PERTHREAD(thread_t *, __self);
 @@ -48,14 +47,92 @@ inline thread_t *thread_self(void)
@@ -126,7 +126,7 @@ index ccc5380..10ed588 100644
  
  
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 295fce9..c08b82f 100644
+index 18c1f5ce..b489d668 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -39,74 +39,10 @@
@@ -205,7 +205,7 @@ index 295fce9..c08b82f 100644
  
  /* assembly helper routines from switch.S */
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 4f56ccf..ee7fcf0 100644
+index d29df9b8..8c15250e 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -44,16 +44,6 @@ static DEFINE_PERTHREAD(uint64_t, last_tsc);
@@ -222,9 +222,9 @@ index 4f56ccf..ee7fcf0 100644
 -	th->tlsvar = val;
 -}
 -
- void set_fsbase(thread_t *th, uint64_t fsbase)
+ void thread_set_fsbase(thread_t *th, uint64_t fsbase)
  {
  	th->tf.fsbase = fsbase;
 -- 
-2.37.2
+2.39.2
 
