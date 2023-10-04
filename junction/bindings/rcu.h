@@ -101,4 +101,19 @@ inline void RCUFree(std::unique_ptr<T> ptr) {
   rt::Spawn([p = std::move(ptr)]() mutable { RCUSynchronize(); });
 }
 
+template <typename T>
+struct RCUObject {
+  struct rcu_head rcu_head;
+};
+
+template <typename T, typename D = std::default_delete<T>>
+struct RCUDeleter {
+  static void RCUCallback(struct rcu_head *head) {
+    struct RCUObject<T> *obj = container_of(head, RCUObject<T>, rcu_head);
+    T *ptr = static_cast<T *>(obj);
+    D()(ptr);
+  }
+  void operator()(T *p) { rcu_free(&p->rcu_head, RCUCallback); }
+};
+
 }  // namespace junction::rt

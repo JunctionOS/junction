@@ -182,6 +182,8 @@ class ThreadSignalHandler {
   // Add a queued signal. Returns true if signal is queued and not blocked.
   bool EnqueueSignal(siginfo_t *info) {
     rt::SpinGuard g(sig_q_);
+    // TODO: this check for blocked signals is racy and likely needs to be
+    // fixed.
     return sig_q_.Enqueue(info) && !is_sig_blocked(info->si_signo);
   }
 
@@ -192,6 +194,14 @@ class ThreadSignalHandler {
 
   // Entry point for a kernel delivered signal.
   void DeliverKernelSigToUser(int signo, siginfo_t *info, k_sigframe *sigframe);
+
+  // Save and restore blocked mask for system calls that manipulate the mask
+  void SaveBlocked() { saved_blocked_ = blocked_; }
+  void RestoreBlocked() {
+    if (!saved_blocked_) return;
+    blocked_ = *saved_blocked_;
+    saved_blocked_ = std::nullopt;
+  }
 
  private:
   // Check if signal can be delivered, and returns the action if so.
@@ -204,6 +214,7 @@ class ThreadSignalHandler {
   // @sig_q_ lock used to synchronize blocked signals
   SignalQueue sig_q_;
   k_sigset_t blocked_{0};
+  std::optional<k_sigset_t> saved_blocked_;
   stack_t sigaltstack_{nullptr, SS_DISABLE, 0};
   Process *proc_;
 

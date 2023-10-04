@@ -5,6 +5,7 @@
 extern "C" {
 #include <base/lock.h>
 #include <base/stddef.h>
+#include <runtime/interruptible_wait.h>
 #include <runtime/sync.h>
 #include <runtime/thread.h>
 }
@@ -14,7 +15,13 @@ extern "C" {
 
 #include "junction/base/compiler.h"
 
-namespace junction::rt {
+namespace junction {
+
+class WakeOnSignal;
+
+namespace rt {
+
+class Spin;
 
 // WaitQueue is used to wake a group of threads.
 class WaitQueue {
@@ -32,12 +39,16 @@ class WaitQueue {
 
   // Prepares the running thread to block. Can only be called once,
   // must be synchronized by caller.
-  void Arm() { list_add_tail(&waiters_, &thread_self()->link); }
+  void Arm() {
+    arm_waker();
+    list_add_tail(&waiters_, &thread_self()->link);
+  }
 
   // Wake up to one thread waiter (must be synchronized by caller)
   void WakeOne(bool head = false) {
     thread_t *th = list_pop(&waiters_, thread_t, link);
     if (th == nullptr) return;
+    disarm_waker(th);
     if (head)
       thread_ready_head(th);
     else
@@ -49,11 +60,19 @@ class WaitQueue {
     while (true) {
       thread_t *th = list_pop(&waiters_, thread_t, link);
       if (th == nullptr) return;
+      disarm_waker(th);
       if (head)
         thread_ready_head(th);
       else
         thread_ready(th);
     }
+  }
+
+  void WakeThread(thread_t *th) {
+    if (!try_disarm_waker(th)) return;
+
+    list_del_from(&waiters_, &th->link);
+    thread_ready(th);
   }
 
  private:
@@ -79,7 +98,10 @@ class ThreadWaker {
   }
 
   // Prepares the running thread for waking after it parks.
-  void Arm() { th_ = thread_self(); }
+  void Arm() {
+    th_ = thread_self();
+    arm_waker_nolink();
+  }
 
   // Makes the parked thread runnable. Must be called by another thread after
   // the prior thread has called Arm() and has parked (or will park in the
@@ -87,11 +109,17 @@ class ThreadWaker {
   void Wake(bool head = false) {
     if (th_ == nullptr) return;
     thread_t *th = std::exchange(th_, nullptr);
+    if (!try_disarm_waker(th)) return;
     if (head) {
       thread_ready_head(th);
     } else {
       thread_ready(th);
     }
+  }
+
+  void WakeThread(thread_t *th) {
+    assert(!th_ || th_ == th);
+    Wake();
   }
 
  private:
@@ -138,6 +166,8 @@ class Preempt {
 
 // Spin lock support.
 class Spin {
+  friend class junction::WakeOnSignal;
+
  public:
   Spin() noexcept { spin_lock_init(&lock_); }
   ~Spin() { assert(!spin_lock_held(&lock_)); }
@@ -479,5 +509,6 @@ class SharedMutex {
  private:
   rwmutex_t mu_;
 };
+}  // namespace rt
 
-}  // namespace junction::rt
+}  // namespace junction

@@ -7,6 +7,7 @@ extern "C" {
 #include "junction/base/finally.h"
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
+#include "junction/bindings/wait.h"
 #include "junction/kernel/futex.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -17,65 +18,36 @@ static FutexTable f;
 
 FutexTable &FutexTable::GetFutexTable() { return f; }
 
-void FutexTable::CleanupProcess(Process *p) {
-  for (auto &bucket : buckets_) {
-    rt::SpinGuard g(bucket.lock);
-    for (auto it = bucket.futexes.begin(); it != bucket.futexes.end();) {
-      detail::futex_waiter &w = *it;
-      if (&w.th->get_process() != p) {
-        ++it;
-        continue;
-      }
-      // Must remove the waiter from the list *before* waking it
-      Thread *th = std::exchange(w.th, nullptr);
-      it = bucket.futexes.erase(it);
-      th->ThreadReady();
-    }
-  }
-}
-
 Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
                               std::optional<Duration> timeout) {
   // Hot path: Don't need to block for a false condition.
   if (read_once(*key) != val) return MakeError(EAGAIN);
 
-  detail::futex_waiter waiter{nullptr, key, bitset};
   detail::futex_bucket &bucket = get_bucket(key);
 
-  // Setup a timer for the timeout (if needed).
-  rt::Timer timer([&bucket, &waiter] {
+  rt::ThreadWaker w;
+  WakeOnTimeout timed_out(bucket.lock, w, timeout);
+  WakeOnSignal signaled(bucket.lock);
+  detail::futex_waiter waiter{&w, key, bitset};
+
+  {
     rt::SpinGuard g(bucket.lock);
-    // th != nullptr implies that the waiter is still in the futex bucket list
-    if (waiter.th) {
+
+    if (read_once(*key) != val) return MakeError(EAGAIN);
+
+    bucket.futexes.push_back(waiter);
+    g.Park(w, [&waiter, &timed_out, &signaled] {
+      return !waiter.waker || timed_out || signaled;
+    });
+
+    if (waiter.waker)
       bucket.futexes.erase(decltype(bucket.futexes)::s_iterator_to(waiter));
-      // Must remove the waiter from the list *before* waking it
-      waiter.th->ThreadReady();
-    }
-  });
-  auto f = finally([&timer] { timer.Cancel(); });
-  if (timeout) timer.Start(*timeout);
-
-  // Wait for a wakeup.
-  bucket.lock.Lock();
-
-  // Check if proc is killed to avoid a race with CleanupProcess.
-  if (unlikely(myproc().exited())) {
-    bucket.lock.Unlock();
-    return {};
   }
 
-  if (read_once(*key) != val) {
-    bucket.lock.Unlock();
-    return MakeError(EAGAIN);
-  }
+  if (!waiter.waker) return {};
 
-  waiter.th = &mythread();
-  bucket.futexes.push_back(waiter);
-  bucket.lock.UnlockAndPark();
-
-  // Detect if there was a timeout and return.
-  if (waiter.th) return MakeError(ETIMEDOUT);
-  return {};
+  assert(signaled || timed_out);
+  return signaled ? MakeError(EINTR) : MakeError(ETIMEDOUT);
 }
 
 int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
@@ -91,9 +63,9 @@ int FutexTable::Wake(uint32_t *key, int n, uint32_t bitset) {
     }
 
     // Must remove the waiter from the list *before* waking it
-    Thread *th = std::exchange(w.th, nullptr);
+    rt::ThreadWaker *waker = std::exchange(w.waker, nullptr);
     it = bucket.futexes.erase(it);
-    th->ThreadReady();
+    waker->Wake();
     if (++i >= n) break;
   }
   return i;

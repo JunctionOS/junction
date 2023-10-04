@@ -93,11 +93,35 @@ inline void print_msg_abort(const char *msg) {
   syscall_exit(-1);
 }
 
+// override Caladan's implementation for interrupt checking
+extern "C" bool thread_signal_pending(thread_t *th) {
+  if (unlikely(!IsJunctionThread(th))) return false;
+
+  return Thread::fromCaladanThread(th).needs_interrupt();
+}
+
+extern "C" bool sched_needs_signal_check(thread_t *th) {
+  if (unlikely(!IsJunctionThread(th))) return false;
+
+  return !Thread::fromCaladanThread(th).in_syscall();
+}
+
+// Hook thread scheduling for threads that need interrupts
+extern "C" void deliver_signals_jmp_thread(thread_t *th) {
+  assert(sched_needs_signal_check(th));
+  assert(thread_signal_pending(th));
+  assert_preempt_disabled();
+  assert_on_runtime_stack();
+  assert(th->thread_running);
+
+  // TODO: setup signal frames
+}
+
 void MoveSigframeForImmediateUnwind(k_sigframe *sigframe, thread_tf &tf) {
   uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
 
   // In a Junction proc thread?
-  if (get_uthread_specific()) {
+  if (likely(IsJunctionThread())) {
     struct stack *stk = thread_self()->stack;
     if (!IsOnStack(rsp, *stk))
       rsp = reinterpret_cast<uint64_t>(&stk->usable[STACK_PTR_SIZE]);
@@ -258,7 +282,7 @@ extern "C" __sighandler void synchronous_signal_handler(int signo,
   if (unlikely(!thread_self()))
     print_msg_abort("Unexpected signal delivered to Caladan code");
 
-  if (unlikely(!get_uthread_specific()))
+  if (unlikely(!IsJunctionThread()))
     print_msg_abort("Unexpected signal delivered to Junction code");
 
   if (unlikely(!preempt_enabled()))
@@ -459,6 +483,7 @@ thread_tf *SetupRestoreFrame(uint64_t *rsp, std::optional<long> rax) {
   return &tf;
 }
 
+// TODO(jf): this function needs to be reworked to deliver all pending signals
 // May not return
 void ThreadSignalHandler::RunPending(std::optional<long> rax) {
   std::optional<k_sigaction> act;
@@ -526,7 +551,7 @@ void ThreadSignalHandler::RunPending(std::optional<long> rax) {
     args.info = &sig;
   }
 
-  mythread().in_syscall_ = false;
+  mythread().set_in_syscall(false);
 
   preempt_disable();
 
@@ -538,7 +563,7 @@ void ThreadSignalHandler::RunPending(std::optional<long> rax) {
   __save_tf_switch(&tf_link, SetupUserSigFrameTrampoline,
                    perthread_read(runtime_stack),
                    reinterpret_cast<uint64_t>(&args));
-  mythread().in_syscall_ = true;
+  mythread().set_in_syscall(true);
 }
 
 long usys_rt_sigaction(int sig, const struct k_sigaction *iact,

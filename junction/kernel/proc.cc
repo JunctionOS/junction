@@ -312,7 +312,6 @@ void Process::DoExit(int status) {
   }
 
   for (const auto &[pid, th] : thread_map_) th->Kill();
-  FutexTable::GetFutexTable().CleanupProcess(this);
 }
 
 pid_t usys_getpid() { return myproc().get_pid(); }

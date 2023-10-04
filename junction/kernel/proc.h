@@ -3,6 +3,7 @@
 #pragma once
 
 extern "C" {
+#include <runtime/interruptible_wait.h>
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <ucontext.h>
@@ -57,6 +58,8 @@ class Thread {
   }
   [[nodiscard]] bool in_syscall() const { return access_once(in_syscall_); }
 
+  void set_in_syscall(bool val) { access_once(in_syscall_) = val; }
+
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
   [[nodiscard]] bool has_altstack() const { return sighand_.has_altstack(); }
 
@@ -76,16 +79,22 @@ class Thread {
     return container_of(ptr, thread_t, junction_tstate_buf);
   }
 
+  static Thread &fromCaladanThread(thread_t *th) {
+    assert(static_cast<ThreadState>(th->tlsvar) == ThreadState::kActive);
+    auto *ts = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+    return *reinterpret_cast<Thread *>(ts);
+  }
+
   void ThreadReady() { thread_ready(GetCaladanThread()); }
 
   void OnSyscallEnter() {
-    access_once(in_syscall_) = true;
+    set_in_syscall(true);
     if (unlikely(needs_interrupt())) HandleInterrupt(std::nullopt);
   }
 
   void OnSyscallLeave(long rax) {
     if (unlikely(needs_interrupt())) HandleInterrupt(rax);
-    access_once(in_syscall_) = false;
+    set_in_syscall(false);
     SetSyscallFrame(nullptr);
   }
 
@@ -96,7 +105,30 @@ class Thread {
   }
 
   // TODO!
-  void SendIpi(){};
+  void SendIpi() {
+    /*
+     * Signals can be delivered at the following points:
+     * (1) When returning from syscalls: delivery is arranged for any pending
+     * signals.
+     * (2) When Caladan's jmp_thread* runs a thread: this will check if
+     * both a signal is pending and the resuming thread is not in a syscall,
+     * then it will arrange for a signal handler to run.
+     * (3) Upon IPI delivery, if a thread is running and not in a syscall.
+     */
+
+    /*
+     * Sequence of events to ensure that a signal is delivered:
+     * (1) A signal is enqueued using in a thread's sighand_.EnqueueSignal().
+     * (2) try_wake_blocked_thread() checks if a lock is registered protecting
+     * an interruptible wait. If so, it synchronizes with the waiter using that
+     * lock, waking the waiter if necessary. Interruptible waiters check for
+     * signals before sleeping (while holding this lock).
+     * (3) Check if either the thread is in a in_syscall or the stack is not
+     * busy.
+     * (4) If neither is true, send an IPI to the core hosting the thread.
+     */
+    try_wake_blocked_thread(GetCaladanThread());
+  };
 
   // Called by a thread to run pending interrupts. This function may not return.
   void HandleInterrupt(std::optional<long> rax) {
@@ -109,12 +141,15 @@ class Thread {
 
   friend class ThreadSignalHandler;
 
+  rt::Spin &get_waker_lock() { return waker_lock_; }
+
  private:
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   uint32_t *child_tid_{nullptr};   // Used for clone3/exit
   const pid_t tid_;                // the thread identifier
   bool in_syscall_;
   int xstate_;  // exit state
+  rt::Spin waker_lock_;
   ThreadSignalHandler sighand_;
   void *cur_syscall_frame_;
 };
@@ -277,14 +312,14 @@ Status<std::shared_ptr<Process>> CreateInitProcess();
 
 // mythread returns the Thread object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.
-inline Thread &mythread() {
-  thread_t *th = thread_self();
-  auto *ts = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  return *reinterpret_cast<Thread *>(ts);
-}
+inline Thread &mythread() { return Thread::fromCaladanThread(thread_self()); }
 
 // myproc returns the Process object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.
 inline Process &myproc() { return mythread().get_process(); }
+
+inline bool IsJunctionThread(thread_t *th = thread_self()) {
+  return static_cast<ThreadState>(th->tlsvar) != ThreadState::kInvalid;
+}
 
 }  // namespace junction

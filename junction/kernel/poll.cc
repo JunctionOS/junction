@@ -8,7 +8,8 @@
 
 #include "junction/base/compiler.h"
 #include "junction/base/intrusive_list.h"
-#include "junction/bindings/timer.h"
+#include "junction/bindings/rcu.h"
+#include "junction/bindings/wait.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -45,17 +46,9 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout) {
   if (nevents > 0 || (timeout && timeout->IsZero())) return nevents;
 
   // Otherwise, init state to block on the FDs and timeout.
-  rt::Spin lock;
-  bool timed_out = false;
+  rt::Spin &lock = mythread().get_waker_lock();
   rt::ThreadWaker th;
-
-  // Setup a trigger for the timer (if needed).
-  rt::Timer timer([&lock, &th, &timed_out] {
-    timed_out = true;
-    rt::SpinGuard g(lock);
-    th.Wake();
-  });
-  if (timeout) timer.Start(*timeout);
+  WakeOnTimeout timed_out(lock, th, timeout);
 
   // Pack args to avoid heap allocations.
   struct {
@@ -105,7 +98,6 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout) {
     }
   }
 
-  if (timeout) timer.Cancel();
   return nevents;
 }
 
@@ -206,17 +198,9 @@ std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
   if (timeout && timeout->IsZero()) return std::make_tuple(0, Duration(0));
 
   // Otherwise, init state to block on the FDs and timeout.
-  rt::Spin lock;
-  bool timed_out = false;
+  rt::Spin &lock = mythread().get_waker_lock();
   rt::ThreadWaker th;
-
-  // Setup a trigger for the timer (if needed).
-  rt::Timer timer([&lock, &th, &timed_out] {
-    timed_out = true;
-    rt::SpinGuard g(lock);
-    th.Wake();
-  });
-  if (timeout) timer.Start(*timeout);
+  WakeOnTimeout timed_out(lock, th, timeout);
 
   // Pack args to avoid heap allocations.
   struct {
@@ -264,10 +248,7 @@ std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
   }
 
   Duration d;
-  if (timeout) {
-    std::optional<Duration> ret = timer.Cancel();
-    if (ret) d = *ret;
-  }
+  if (timeout) d = timed_out.TimeLeft();
   int ret = EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
   return std::make_tuple(ret, d);
 }
@@ -306,9 +287,12 @@ class EPollObserver : public PollObserver {
   IntrusiveListNode node_;
 };
 
-class EPollFile : public File {
+class EPollFile : public File,
+                  public std::enable_shared_from_this<EPollFile>,
+                  public rt::RCUObject<EPollFile> {
  public:
-  EPollFile() : File(FileType::kSpecial, 0, 0) {}
+  EPollFile()
+      : File(FileType::kSpecial, 0, 0), proc_(myproc().shared_from_this()) {}
   ~EPollFile();
 
   static void Notify(PollSource &s);
@@ -335,10 +319,14 @@ class EPollFile : public File {
   rt::Spin lock_;
   rt::ThreadWaker waker_;
   IntrusiveList<EPollObserver, &EPollObserver::node_> events_;
+  // store a reference to the process so that the EPollFile can be RCU freed in
+  // a non-Junction thread
+  std::shared_ptr<Process> proc_;
 };
 
+// Called in RCU context
 EPollFile::~EPollFile() {
-  FileTable &ftbl = myproc().get_file_table();
+  FileTable &ftbl = proc_->get_file_table();
   ftbl.ForEach([this](File &f) { Delete(f); });
 }
 
@@ -404,26 +392,14 @@ bool EPollFile::Delete(File &f) {
 
 int EPollFile::Wait(std::span<epoll_event> events_out,
                     std::optional<Duration> timeout) {
-  // Setup a timer for timeouts.
-  bool timed_out = false;
-  rt::Timer timer([this, &timed_out] {
-    timed_out = true;
-    rt::SpinGuard g(lock_);
-    waker_.Wake();
-  });
+  WakeOnTimeout timed_out(lock_, waker_, timeout);
 
   // Block until an event has triggered.
   auto it = events_out.begin();
   {
     rt::SpinGuard g(lock_);
 
-    // Arm the timer if needed.
-    if (events_.empty() && timeout) {
-      if (timeout->IsZero()) return 0;
-      lock_.Unlock();
-      timer.Start(*timeout);
-      lock_.Lock();
-    }
+    if (events_.empty() && timeout && timeout->IsZero()) return 0;
 
     // Wait for events to be ready.
     g.Park(waker_,
@@ -448,7 +424,6 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     events_.splice(events_.end(), tmp);
   }
 
-  timer.Cancel();
   return std::distance(events_out.begin(), it);
 }
 
@@ -466,7 +441,8 @@ namespace {
 
 // Creates a new EPoll file.
 int CreateEPollFile(bool cloexec = false) {
-  auto f = std::make_shared<detail::EPollFile>();
+  std::shared_ptr<detail::EPollFile> f(new detail::EPollFile,
+                                       rt::RCUDeleter<detail::EPollFile>());
   return myproc().get_file_table().Insert(std::move(f), cloexec);
 }
 

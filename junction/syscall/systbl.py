@@ -9,6 +9,7 @@ USYS_LIST = sys.argv[1]
 OUTPUT_FILE = sys.argv[2]
 
 SYS_NR = 454
+JUNCTION_TF_OFF = 400
 
 # Header files scanned in the given order to get a list of syscall numbers.
 # The first file found is used.
@@ -100,7 +101,7 @@ def emit_trapframe_save_entry(function_target, output):
 	wrapper_name = f"{function_target}_tfsave"
 	fn = f"""
 
-	static_assert(JUNCTION_TF_OFF == 208);
+	static_assert(JUNCTION_TF_OFF == {JUNCTION_TF_OFF});
 	static_assert(offsetof(thread_tf, rbx) == 64);
 	static_assert(offsetof(thread_tf, rbp) == 72);
 	static_assert(offsetof(thread_tf, r12) == 80);
@@ -117,7 +118,7 @@ def emit_trapframe_save_entry(function_target, output):
 	.type {wrapper_name}, @function
 	{wrapper_name}:
 	movq %gs:__perthread___self(%rip), %r11
-	addq $208, %r11
+	addq ${JUNCTION_TF_OFF}, %r11
 
 	/* save registers */
 	movq    %rbx, 64(%r11)

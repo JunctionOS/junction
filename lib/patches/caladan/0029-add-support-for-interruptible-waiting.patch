@@ -1,0 +1,487 @@
+From d82bdd5c0291ae981e69740ef67a483ffca1b9c8 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 28 Sep 2023 22:57:58 +0000
+Subject: [PATCH 29/30] add support for interruptible waiting
+
+---
+ inc/runtime/interruptible_wait.h | 124 +++++++++++++++++++++++++++++++
+ inc/runtime/thread.h             |  12 ++-
+ inc/runtime/timer.h              |   1 +
+ runtime/defs.h                   |   4 +-
+ runtime/interruptible_wait.c     |  49 ++++++++++++
+ runtime/sched.c                  |  33 +++++---
+ runtime/switch.S                 |   2 +-
+ runtime/timer.c                  |  61 ++++++++++++++-
+ 8 files changed, 266 insertions(+), 20 deletions(-)
+ create mode 100644 inc/runtime/interruptible_wait.h
+ create mode 100644 runtime/interruptible_wait.c
+
+diff --git a/inc/runtime/interruptible_wait.h b/inc/runtime/interruptible_wait.h
+new file mode 100644
+index 00000000..56409875
+--- /dev/null
++++ b/inc/runtime/interruptible_wait.h
+@@ -0,0 +1,124 @@
++/*
++ * interruptible_wait.h - support for interrupting blocked threads
++ */
++
++#pragma once
++
++#include <base/list.h>
++#include <base/lock.h>
++#include <runtime/thread.h>
++
++extern bool thread_signal_pending(thread_t *th);
++extern bool sched_needs_signal_check(thread_t *th);
++extern bool try_wake_blocked_thread(thread_t *th);
++extern void deliver_signals_jmp_thread(thread_t *th);
++
++/*
++ * thread_interrupted - check if thread has been interrupted
++ *
++ * Returns true if this thread has been interupted
++ */
++static inline bool thread_interrupted()
++{
++	return thread_signal_pending(thread_self());
++}
++
++/*
++ * register_waker_lock - register a lock with this thread that will be used to
++ * protect the wait condition that the thread is about to use to block. This
++ * enables an interruptor to intervene and wake the thread. The caller should
++ * make sure to check thread_interrupted() *after* registering the waker lock.
++ *
++ * @l: the spinlock protecting the wake condition and thread
++ *
++ */
++static inline void register_waker_lock(spinlock_t *l)
++{
++	thread_self()->waiter_lock = l;
++	barrier();
++}
++
++/*
++ * clear_waker_lock - clears the lock previously registered for interrupting the
++ * thread.
++ */
++static inline void clear_waker_lock(void)
++{
++	thread_t *th = thread_self();
++	assert(!th->waiter_lock || spin_lock_held(th->waiter_lock));
++	th->waiter_lock = NULL;
++}
++
++/*
++ * waker_is_armed - check if thread waker is armed
++ *
++ * @th: thread to check
++ *
++ * Returns true if the thread is armed
++ */
++static inline bool waker_is_armed(thread_t *th)
++{
++	return th->thread_blocked;
++}
++
++/*
++ * arm_waker - marks this thread as blocking. If a waker lock is registered, it
++ * must be held.
++ */
++static inline void arm_waker(void)
++{
++	thread_t *th = thread_self();
++
++	assert(!th->waiter_lock || spin_lock_held(th->waiter_lock));
++	th->thread_blocked = true;
++}
++
++/*
++ * arm_waker_nolink - marks this thread as blocking and not intending to use its
++ * intrusive list node for waking. If a waker lock is registered, it must be
++ * held.
++ */
++static inline void arm_waker_nolink(void)
++{
++	thread_t *th = thread_self();
++
++	assert(!th->waiter_lock || spin_lock_held(th->waiter_lock));
++
++	th->thread_blocked = true;
++
++	/* point to self, allowing list_del to be called in interrupt code */
++	th->link.next = th->link.prev = &th->link;
++}
++
++/*
++ * disarm_waker - marks @th as unblocked. If a waker lock is registered, it must
++ * be held.
++ *
++ * @th - the thread to unblock
++ */
++static inline void disarm_waker(thread_t *th)
++{
++	assert(!th->waiter_lock || spin_lock_held(th->waiter_lock));
++	assert(th->thread_blocked);
++	th->thread_blocked = false;
++}
++
++/*
++ * try_disarm_waker - tries to mark @th as unblocked. If a waker lock is
++ * registered, it must be held.
++ *
++ * @th - the thread to unblock
++ *
++ * Returns true if the thread was succesfully changed from blocked to unblocked
++ */
++static inline bool try_disarm_waker(thread_t *th)
++{
++	assert(!th->waiter_lock || spin_lock_held(th->waiter_lock));
++
++	if (th->thread_blocked) {
++		th->thread_blocked = false;
++		return true;
++	}
++
++	return false;
++}
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index e4867405..6cf242d1 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -103,15 +103,19 @@ struct thread {
+     struct stack        *stack;
+     unsigned int        main_thread:1;
+     unsigned int        has_fsbase:1;
+-    unsigned int        thread_ready;
+-    unsigned int        thread_running;
++    bool                thread_ready;
++    bool                thread_running;
++    bool                thread_blocked;
+     unsigned int        last_cpu;
+     uint64_t        run_start_tsc;
+     uint64_t        ready_tsc;
+     uint64_t        tlsvar;
+-     // Trapframe used by junction to stash registers on syscall entry
+-    struct thread_tf	junction_tf;
++    spinlock_t      *waiter_lock;
+     unsigned long    junction_tstate_buf[24];
++
++    // Trapframe used by junction to stash registers on syscall entry
++    struct thread_tf    junction_tf;
++
+ #ifdef GC
+     struct list_node    gc_link;
+     unsigned int        onk;
+diff --git a/inc/runtime/timer.h b/inc/runtime/timer.h
+index 09b2adca..bf92ed42 100644
+--- a/inc/runtime/timer.h
++++ b/inc/runtime/timer.h
+@@ -91,3 +91,4 @@ extern bool timer_cancel_recurring(struct timer_entry *e);
+ 
+ extern void timer_sleep_until(uint64_t deadline_us);
+ extern void timer_sleep(uint64_t duration_us);
++extern void timer_sleep_interruptible(uint64_t duration_us);
+\ No newline at end of file
+diff --git a/runtime/defs.h b/runtime/defs.h
+index a0c94f9d..dda5ed71 100644
+--- a/runtime/defs.h
++++ b/runtime/defs.h
+@@ -46,10 +46,10 @@
+ typedef void (*runtime_fn_t)(void);
+ 
+ /* assembly helper routines from switch.S */
+-extern void __jmp_thread(struct thread_tf *tf) __noreturn;
++extern void __jmp_thread(struct thread_tf *tf);
+ extern void __jmp_thread_direct(struct thread_tf *oldtf,
+ 				struct thread_tf *newtf,
+-				unsigned int *thread_running);
++				bool *thread_running);
+ extern void __jmp_runtime(struct thread_tf *tf, runtime_fn_t fn,
+ 			  void *stack);
+ extern void __jmp_runtime_nosave(runtime_fn_t fn, void *stack) __noreturn;
+diff --git a/runtime/interruptible_wait.c b/runtime/interruptible_wait.c
+new file mode 100644
+index 00000000..779cc522
+--- /dev/null
++++ b/runtime/interruptible_wait.c
+@@ -0,0 +1,49 @@
++/*
++ * interruptible_wait.c - support for interrupting blocked threads
++ */
++
++#include <runtime/sync.h>
++#include <runtime/interruptible_wait.h>
++
++#include "defs.h"
++
++// Junction overrides these symbols
++bool __weak thread_signal_pending(thread_t *th) { return false; }
++bool __weak sched_needs_signal_check(thread_t *th) { return false; }
++void __weak deliver_signals_jmp_thread(thread_t *th) {}
++
++/*
++ * try_wake_blocked_thread - try to wake a sleeping thread.
++ * returns true if the thread was woken
++ */
++bool try_wake_blocked_thread(thread_t *th)
++{
++	spinlock_t *l;
++
++	preempt_disable();
++
++	l = ACCESS_ONCE(th->waiter_lock);
++	if (!l) {
++		preempt_enable();
++		return false;
++	}
++
++	spin_lock(l);
++
++	/*
++	 * We might have raced with a thread switching to a different waker lock.
++	 * Detect this by checking that the lock we hold now is still registered.
++	 */
++	if (unlikely(l != th->waiter_lock) || !th->thread_blocked) {
++		spin_unlock_np(l);
++		return false;
++	}
++
++	list_del(&th->link);
++	disarm_waker(th);
++	spin_unlock_np(l);
++
++	thread_ready(th);
++
++	return true;
++}
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 7a90ec3f..f5e5d117 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -16,6 +16,7 @@
+ #include <base/log.h>
+ #include <runtime/sync.h>
+ #include <runtime/thread.h>
++#include <runtime/interruptible_wait.h>
+ 
+ #include "defs.h"
+ 
+@@ -72,7 +73,7 @@ static inline bool cores_have_affinity(unsigned int cpua, unsigned int cpub)
+  * This function restores the state of the thread and switches from the runtime
+  * stack to the thread's stack. Runtime state is not saved.
+  */
+-static __noreturn void jmp_thread(thread_t *th)
++static void jmp_thread(thread_t *th)
+ {
+ 	assert_preempt_disabled();
+ 	assert(th->thread_ready);
+@@ -90,7 +91,13 @@ static __noreturn void jmp_thread(thread_t *th)
+ 
+ 	set_fsbase(th->tf.fsbase);
+ 
+-	th->thread_running = true;
++	th->last_cpu = myk()->curr_cpu;
++	store_release(&th->thread_running, true);
++	barrier();
++
++	if (unlikely(sched_needs_signal_check(th) & thread_signal_pending(th)))
++		deliver_signals_jmp_thread(th);
++
+ 	__jmp_thread(&th->tf);
+ }
+ 
+@@ -120,7 +127,9 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
+ 
+ 	set_fsbase(newth->tf.fsbase);
+ 
+-	newth->thread_running = true;
++	newth->last_cpu = myk()->curr_cpu;
++	store_release(&newth->thread_running, true);
++
+ 	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
+ }
+ 
+@@ -328,7 +337,7 @@ static __noinline bool do_watchdog(struct kthread *l)
+ }
+ 
+ /* the main scheduler routine, decides what to run next */
+-static __noreturn __noinline void schedule(void)
++static __noinline void schedule(void)
+ {
+ 	struct kthread *r = NULL, *l = myk();
+ 	uint64_t start_tsc;
+@@ -492,15 +501,15 @@ static __always_inline void enter_schedule(thread_t *curth)
+ 
+ 	assert_preempt_disabled();
+ 
+-	/* prepare current thread for sleeping */
+-	curth->last_cpu = k->curr_cpu;
+-
+ 	spin_lock(&k->lock);
+ 	now_tsc = rdtsc();
+ 
++	th = k->rq[k->rq_tail % RUNTIME_RQ_SIZE];
++
+ 	/* slow path: switch from the uthread stack to the runtime stack */
+ 	if (k->rq_head == k->rq_tail ||
+ 	    preempt_cede_needed(k) ||
++	    sched_needs_signal_check(th) ||
+ #ifdef GC
+ 	    get_gc_gen() != k->local_gc_gen ||
+ #endif
+@@ -516,7 +525,7 @@ static __always_inline void enter_schedule(thread_t *curth)
+ 	perthread_get_stable(last_tsc) = now_tsc;
+ 
+ 	/* pop the next runnable thread from the queue */
+-	th = k->rq[k->rq_tail++ % RUNTIME_RQ_SIZE];
++	k->rq_tail++;
+ 	ACCESS_ONCE(k->q_ptrs->rq_tail)++;
+ 
+ 	/* move overflow tasks into the runqueue */
+@@ -737,7 +746,7 @@ void thread_finish_yield(void)
+ 	softirq_run_locked(k);
+ 
+ 	curth->thread_ready = false;
+-	curth->last_cpu = k->curr_cpu;
++
+ 	thread_ready_locked(curth);
+ 
+ 	schedule();
+@@ -751,7 +760,7 @@ void thread_finish_cede(void)
+ 
+ 	/* update stats and scheduler state */
+ 	myth->thread_running = false;
+-	myth->last_cpu = k->curr_cpu;
++
+ 	perthread_store(__self, NULL);
+ 	STAT(PROGRAM_CYCLES) += tsc - perthread_get_stable(last_tsc);
+ 
+@@ -834,6 +843,8 @@ static __always_inline thread_t *__thread_create(void)
+ 	th->thread_ready = false;
+ 	th->thread_running = false;
+ 	th->tlsvar = 0;
++	th->waiter_lock = NULL;
++	th->thread_blocked = false;
+ 
+ 	return th;
+ }
+@@ -963,7 +974,7 @@ void thread_exit(void)
+  * immediately park each kthread when it first starts up, only schedule it once
+  * the iokernel has granted it a core
+  */
+-static __noreturn void schedule_start(void)
++static void schedule_start(void)
+ {
+ 	struct kthread *k = myk();
+ 
+diff --git a/runtime/switch.S b/runtime/switch.S
+index 054ffed0..e98bb702 100644
+--- a/runtime/switch.S
++++ b/runtime/switch.S
+@@ -119,7 +119,7 @@ __jmp_thread_direct:
+ 	movq    RIP(%rsi), %r8
+ 
+ 	/* clear the stack busy flag */
+-	movl	$0, (%rdx)
++	movb	$0, (%rdx)
+ 
+ 	/* restore callee regs */
+ 	movq    RBX(%rsi), %rbx
+diff --git a/runtime/timer.c b/runtime/timer.c
+index 9c3ae258..bc321ca2 100644
+--- a/runtime/timer.c
++++ b/runtime/timer.c
+@@ -12,6 +12,7 @@
+ #include <runtime/sync.h>
+ #include <runtime/thread.h>
+ #include <runtime/timer.h>
++#include <runtime/interruptible_wait.h>
+ 
+ #include "defs.h"
+ 
+@@ -268,8 +269,7 @@ static void __timer_sleep(uint64_t deadline_us)
+ 	timer_init(&e, timer_finish_sleep, (unsigned long)thread_self());
+ 
+ 	k = getk();
+-	spin_lock_np(&k->timer_lock);
+-	putk();
++	spin_lock(&k->timer_lock);
+ 	timer_start_locked(k, &e, deadline_us);
+ 	update_q_ptrs(k);
+ 	thread_park_and_unlock_np(&k->timer_lock);
+@@ -277,6 +277,54 @@ static void __timer_sleep(uint64_t deadline_us)
+ 	timer_finish(&e);
+ }
+ 
++static void timer_finish_interruptible_sleep(unsigned long arg)
++{
++	thread_t *th = (thread_t *)arg;
++	try_wake_blocked_thread(th);
++}
++
++
++static void __timer_sleep_interruptible(uint64_t deadline_us)
++{
++	struct kthread *k;
++	struct timer_entry e;
++
++	timer_init(&e, timer_finish_interruptible_sleep, (unsigned long)thread_self());
++
++	k = getk();
++
++	spin_lock(&k->timer_lock);
++
++	register_waker_lock(&k->timer_lock);
++	if (thread_interrupted(thread_self())) {
++		clear_waker_lock();
++		spin_unlock_np(&k->timer_lock);
++		return;
++	}
++
++	arm_waker_nolink();
++	timer_start_locked(k, &e, deadline_us);
++	update_q_ptrs(k);
++	thread_park_and_unlock_np(&k->timer_lock);
++
++	// Must use the previous k reference, even if now running on a different
++	// kthread
++	spin_lock_np(&k->timer_lock);
++
++	clear_waker_lock();
++
++	// Cancel the timer
++	if (e.armed)
++		timer_remove_armed(k, &e);
++
++	spin_unlock_np(&k->timer_lock);
++
++	if (unlikely(load_acquire(&e.executing))) {
++		while (load_acquire(&e.executing))
++			cpu_relax();
++	}
++}
++
+ /**
+  * timer_sleep_until - sleeps until a deadline
+  * @deadline_us: the deadline time in microseconds
+@@ -298,6 +346,15 @@ void timer_sleep(uint64_t duration_us)
+ 	__timer_sleep(microtime() + duration_us);
+ }
+ 
++/**
++ * timer_sleep - sleeps for a duration
++ * @duration_us: the duration time in microseconds
++ */
++void timer_sleep_interruptible(uint64_t duration_us)
++{
++	__timer_sleep_interruptible(microtime() + duration_us);
++}
++
+ static void timer_softirq_one(struct kthread *k)
+ {
+ 	struct timer_entry *e;
+-- 
+2.39.2
+

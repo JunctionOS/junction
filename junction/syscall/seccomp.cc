@@ -156,7 +156,7 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
     syscall_exit(-1);
   }
 
-  if (unlikely(!get_uthread_specific())) {
+  if (unlikely(!IsJunctionThread())) {
     log_syscall_msg("Intercepted syscall originating in junction", sysn);
     syscall_exit(-1);
   }
