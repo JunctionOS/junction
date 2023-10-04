@@ -162,6 +162,15 @@ inline uint64_t GetRuntimeStack() {
   return reinterpret_cast<uint64_t>(perthread_read(runtime_stack)) + 8;
 }
 
+// returns the bottom of the local thread's syscall stack
+inline struct stack &GetSyscallStack() { return *thread_self()->stack; }
+
+// returns the bottom of the local thread's syscall stack
+inline uint64_t GetSyscallStackBottom() {
+  uint64_t *rsp = &thread_self()->stack->usable[STACK_PTR_SIZE - 1];
+  return reinterpret_cast<uint64_t>(rsp);
+}
+
 inline bool on_runtime_stack() {
   uint64_t rsp = GetRsp();
   return rsp <= GetRuntimeStack() &&

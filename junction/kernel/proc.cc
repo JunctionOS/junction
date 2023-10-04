@@ -381,19 +381,25 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   return ret;
 }
 
-void usys_exit(int status) {
-  Thread *tptr = reinterpret_cast<Thread *>(thread_self()->junction_tstate_buf);
+extern "C" [[noreturn]] void usys_exit_finish(int status) {
+  Thread *tptr = &mythread();
   tptr->set_xstate(status);
   tptr->~Thread();
   rt::Exit();
 }
 
+void usys_exit(int status) {
+  if (IsOnStack(GetSyscallStack())) usys_exit_finish(status);
+
+  __nosave_switch(reinterpret_cast<thread_fn_t>(usys_exit_finish),
+                  GetSyscallStackBottom(), status);
+}
+
 void usys_exit_group(int status) {
   // TODO(jfried): this must kill all other threads in this thread group...
-  Thread *tptr = reinterpret_cast<Thread *>(thread_self()->junction_tstate_buf);
   myproc().DoExit(status);
-  tptr->~Thread();
-  rt::Exit();
+
+  usys_exit(status);
 }
 
 }  // namespace junction

@@ -41,7 +41,7 @@ void usys_rt_sigreturn_enter() __noreturn;
 void __switch_and_preempt_enable(struct thread_tf *tf) __noreturn;
 void __restore_tf_full_and_preempt_enable(struct thread_tf *tf);
 
-void __nosave_switch(thread_fn_t fn, void *stack, uint64_t arg0) __noreturn;
+void __nosave_switch(thread_fn_t fn, uint64_t stack, uint64_t arg0) __noreturn;
 void __save_tf_switch(struct thread_tf *tf, thread_fn_t fn, void *stack,
                       uint64_t arg0);
 }

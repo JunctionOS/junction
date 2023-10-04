@@ -495,7 +495,7 @@ void ThreadSignalHandler::RunPending(std::optional<long> rax) {
   const stack_t &ss = mythread().get_sighand().get_altstack();
 
   // Check if we are using the special per-uthread syscall stack
-  bool on_syscall_stack = IsOnStack(*thread_self()->stack);
+  bool on_syscall_stack = IsOnStack(GetSyscallStack());
   uint64_t caller_rsp =
       on_syscall_stack ? thread_self()->junction_tf.rsp : GetRsp();
 

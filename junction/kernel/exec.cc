@@ -18,6 +18,7 @@ extern "C" {
 #include "junction/kernel/elf.h"
 #include "junction/kernel/exec.h"
 #include "junction/kernel/usys.h"
+#include "junction/syscall/syscall.h"
 
 namespace junction {
 namespace {
@@ -158,9 +159,9 @@ asm(R"(
 )");
 }  // namespace
 
-Status<thread_t *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
-                        const std::vector<std::string_view> &argv,
-                        const std::vector<std::string_view> &envp) {
+Status<Thread *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
+                      const std::vector<std::string_view> &argv,
+                      const std::vector<std::string_view> &envp) {
   // load the ELF program image file
   auto edata = LoadELF(mm, pathname);
   if (!edata) return MakeError(edata);
@@ -190,7 +191,29 @@ Status<thread_t *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   SetupStack(&th->tf.rsp, argv, envp, *edata);
 
   tstate->release();
-  return th;
+  return reinterpret_cast<Thread *>(th->junction_tstate_buf);
+}
+
+struct exec_finish_args {
+  Thread *new_main;
+  std::shared_ptr<MemoryMap> mm;
+};
+
+extern "C" [[noreturn]] void usys_execve_finish(exec_finish_args *args) {
+  exec_finish_args arg_copy = std::move(*args);
+
+  // Destroy the previous thread and release its memory
+  Thread *tptr = &mythread();
+  tptr->~Thread();
+
+  // Complete the exec
+  tptr = arg_copy.new_main;
+  tptr->get_process().FinishExec(std::move(arg_copy.mm));
+
+  // Wake the new main thread
+  tptr->ThreadReady();
+
+  rt::Exit();
 }
 
 int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
@@ -208,30 +231,17 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
 
   // TODO(jfried): must stop all other threads
 
-  Status<thread_t *> ret = Exec(myproc(), **mm, filename, argv_view, envp_view);
+  Status<Thread *> ret = Exec(myproc(), **mm, filename, argv_view, envp_view);
   if (!ret) return MakeCError(ret);
 
-  // Finish exec from a different thread, since this stack may be unmapped when
+  // Finish exec from a different stack, since this stack may be unmapped when
   // replacing a proc's MM
-  rt::Spawn([oldth = thread_self(), newth = *ret, mm = std::move(*mm)] mutable {
-    // Ensure old thread has parked before proceeding
-    while (load_acquire(&oldth->thread_running)) rt::Yield();
+  exec_finish_args args{*ret, std::move(*mm)};
 
-    // Destroy the previous thread and release its memory
-    Thread *tptr = reinterpret_cast<Thread *>(oldth->junction_tstate_buf);
-    tptr->~Thread();
-    thread_free(oldth);
+  if (IsOnStack(GetSyscallStack())) usys_execve_finish(&args);
 
-    // Complete the exec
-    tptr = reinterpret_cast<Thread *>(newth->junction_tstate_buf);
-    tptr->get_process().FinishExec(std::move(mm));
-
-    // Wake the new main thread
-    thread_ready(newth);
-  });
-
-  rt::WaitForever();
-  std::unreachable();
+  __nosave_switch(reinterpret_cast<thread_fn_t>(usys_execve_finish),
+                  GetSyscallStackBottom(), reinterpret_cast<uint64_t>(&args));
 }
 
 int usys_execveat(int fd, const char *filename, const char *argv[],
