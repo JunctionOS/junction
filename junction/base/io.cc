@@ -54,7 +54,7 @@ Status<void> DoFull(VectorIO &io, std::span<const iovec> iov) {
   while (true) {
     s = PullIOV(s, *ret);
     if (s.empty()) break;
-    ret = (io.*func)(iov);
+    ret = (io.*func)(s);
     if (!ret) return MakeError(ret);
   }
 
