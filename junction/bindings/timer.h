@@ -81,4 +81,14 @@ inline void SleepUntil(Time t) { timer_sleep_until(t.Microseconds()); }
 // Sleeps (blocks and reschedules) for a duration.
 inline void Sleep(Duration d) { timer_sleep(d.Microseconds()); }
 
+// Sleeps until a point in time, wakes up if a signal is pending
+inline void SleepInterruptibleUntil(Time t) {
+  __timer_sleep_interruptible(t.Microseconds());
+}
+
+// Sleeps for a duration, wakes up if a signal is pending
+inline void SleepInterruptible(Duration d) {
+  timer_sleep_interruptible(d.Microseconds());
+}
+
 }  // namespace junction::rt

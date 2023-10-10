@@ -10,6 +10,17 @@
 
 namespace junction {
 
+Status<Time> AbstimeToBaseTime(clockid_t clockid, const struct timespec &ts) {
+  struct timespec curtime;
+  int ret = ksys_clock_gettime(clockid, &curtime);
+  Time base_now = Time::Now();
+
+  if (unlikely(ret)) return MakeError(ret);
+
+  Duration delta = Time(ts) - Time(curtime);
+  return base_now + delta;
+}
+
 long usys_clock_nanosleep(clockid_t clockid, int flags,
                           const struct timespec *request,
                           struct timespec *remain) {
@@ -19,22 +30,14 @@ long usys_clock_nanosleep(clockid_t clockid, int flags,
 
   Time end_time;
   if (flags & TIMER_ABSTIME) {
-    // convert absolute time to Caladan time
-    struct timespec curtime;
-    int ret = ksys_clock_gettime(clockid, &curtime);
-    if (unlikely(ret)) {
-      LOG_ONCE(ERR) << "Bad vdso gettime";
-      return ret;
-    }
-
-    Time clock_start(curtime), clock_end(*request);
-    if (clock_end <= clock_start) return 0;
-    end_time = Time::Now() + (clock_end - clock_start);
+    Status<Time> tmp = AbstimeToBaseTime(clockid, *request);
+    if (unlikely(!tmp)) return MakeCError(tmp);
+    end_time = *tmp;
   } else {
     end_time = Time::Now() + Duration(*request);
   }
 
-  __timer_sleep_interruptible(end_time.Microseconds());
+  rt::SleepInterruptibleUntil(end_time);
 
   if (mythread().needs_interrupt()) {
     if (remain && !(flags & TIMER_ABSTIME)) {
@@ -49,7 +52,19 @@ long usys_clock_nanosleep(clockid_t clockid, int flags,
 }
 
 long usys_nanosleep(const struct timespec *req, struct timespec *rem) {
-  rt::Sleep(Duration(*req));
+  Time end_time = Time::Now() + Duration(*req);
+
+  rt::SleepInterruptibleUntil(end_time);
+
+  if (mythread().needs_interrupt()) {
+    if (rem) {
+      Duration d = Duration::Until(end_time);
+      if (d < Duration(0)) d = Duration(0);
+      *rem = d.Timespec();
+    }
+    return -EINTR;
+  }
+
   return 0;
 }
 
