@@ -16,6 +16,9 @@ extern "C" {
 
 namespace junction {
 
+// VDSO syscalls
+extern int (*ksys_clock_gettime)(clockid_t clockid, struct timespec *tp);
+
 // Available Linux Kernel System Calls (after seccomp_filter is enabled)
 extern "C" {
 extern long ksys_start;

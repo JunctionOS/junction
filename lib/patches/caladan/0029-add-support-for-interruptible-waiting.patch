@@ -1,4 +1,4 @@
-From d82bdd5c0291ae981e69740ef67a483ffca1b9c8 Mon Sep 17 00:00:00 2001
+From 34f2c07c860536b5e755ca1094c7bc2eb8e46cf8 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 28 Sep 2023 22:57:58 +0000
 Subject: [PATCH 29/30] add support for interruptible waiting
@@ -6,13 +6,13 @@ Subject: [PATCH 29/30] add support for interruptible waiting
 ---
  inc/runtime/interruptible_wait.h | 124 +++++++++++++++++++++++++++++++
  inc/runtime/thread.h             |  12 ++-
- inc/runtime/timer.h              |   1 +
+ inc/runtime/timer.h              |   2 +
  runtime/defs.h                   |   4 +-
  runtime/interruptible_wait.c     |  49 ++++++++++++
  runtime/sched.c                  |  33 +++++---
  runtime/switch.S                 |   2 +-
  runtime/timer.c                  |  61 ++++++++++++++-
- 8 files changed, 266 insertions(+), 20 deletions(-)
+ 8 files changed, 267 insertions(+), 20 deletions(-)
  create mode 100644 inc/runtime/interruptible_wait.h
  create mode 100644 runtime/interruptible_wait.c
 
@@ -175,13 +175,14 @@ index e4867405..6cf242d1 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/inc/runtime/timer.h b/inc/runtime/timer.h
-index 09b2adca..bf92ed42 100644
+index 1c11df25..0c7d1e79 100644
 --- a/inc/runtime/timer.h
 +++ b/inc/runtime/timer.h
-@@ -91,3 +91,4 @@ extern bool timer_cancel_recurring(struct timer_entry *e);
+@@ -92,3 +92,5 @@ extern bool timer_cancel_recurring(struct timer_entry *e);
  
  extern void timer_sleep_until(uint64_t deadline_us);
  extern void timer_sleep(uint64_t duration_us);
++extern void __timer_sleep_interruptible(uint64_t deadline_us);
 +extern void timer_sleep_interruptible(uint64_t duration_us);
 \ No newline at end of file
 diff --git a/runtime/defs.h b/runtime/defs.h
@@ -390,7 +391,7 @@ index 054ffed0..e98bb702 100644
  	/* restore callee regs */
  	movq    RBX(%rsi), %rbx
 diff --git a/runtime/timer.c b/runtime/timer.c
-index 9c3ae258..bc321ca2 100644
+index 9c3ae258..e45ae2c7 100644
 --- a/runtime/timer.c
 +++ b/runtime/timer.c
 @@ -12,6 +12,7 @@
@@ -422,7 +423,7 @@ index 9c3ae258..bc321ca2 100644
 +}
 +
 +
-+static void __timer_sleep_interruptible(uint64_t deadline_us)
++void __timer_sleep_interruptible(uint64_t deadline_us)
 +{
 +	struct kthread *k;
 +	struct timer_entry e;

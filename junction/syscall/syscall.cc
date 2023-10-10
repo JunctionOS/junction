@@ -16,6 +16,7 @@ extern "C" {
 namespace junction {
 
 std::map<int, sysfn_t> debug_vdso_functions;
+int (*ksys_clock_gettime)(clockid_t clockid, struct timespec *tp);
 
 extern "C" long gettimeofday_strace(struct timeval *tv, struct timezone *tz) {
   long ret = reinterpret_cast<decltype(&gettimeofday_strace)>(
@@ -34,8 +35,7 @@ extern "C" long clock_getres_strace(clockid_t clockid, struct timespec *res) {
 #endif
 
 extern "C" long clock_gettime_strace(clockid_t clockid, struct timespec *tp) {
-  long ret = reinterpret_cast<decltype(&clock_gettime_strace)>(
-      debug_vdso_functions[SYS_clock_gettime])(clockid, tp);
+  int ret = ksys_clock_gettime(clockid, tp);
   LogSyscall(ret, "clock_gettime", clockid, tp);
   return ret;
 }
@@ -57,9 +57,12 @@ void SetupVdsoFunction(void *vdso, int sysnr, const char *fname) {
   // Set trampoline table pointer directly to vdso function
   sys_tbl[sysnr] = fptr;
 
+  const std::string_view fview = fname;
+  if (fview == "__vdso_clock_gettime")
+    ksys_clock_gettime = reinterpret_cast<decltype(ksys_clock_gettime)>(fptr);
+
   if (unlikely(GetCfg().strace_enabled())) {
     debug_vdso_functions[sysnr] = fptr;
-    const std::string_view fview = fname;
     if (fview == "__vdso_gettimeofday") {
       sys_tbl_strace[sysnr] = reinterpret_cast<sysfn_t>(gettimeofday_strace);
 #if 0
