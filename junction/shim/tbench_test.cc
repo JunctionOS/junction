@@ -483,7 +483,7 @@ class ThreadingTest : public ::testing::Test {
 
 std::vector<std::pair<const std::string, us>> ThreadingTest::results_({});
 
-#if 0
+#if 1
 TEST_F(ThreadingTest, BenchPosixSpawn) {
   Bench("BenchPosixSpawn", BenchPosixSpawn);
 }

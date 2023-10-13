@@ -115,3 +115,5 @@ sysinfo
 getitimer
 setitimer
 alarm
+wait4
+waitid

@@ -3,6 +3,7 @@ extern "C" {
 #include <linux/futex.h>
 #include <sys/prctl.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 
 #include "lib/caladan/runtime/defs.h"
 
@@ -21,6 +22,7 @@ extern "C" {
 #include "junction/bindings/runtime.h"
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
+#include "junction/bindings/wait.h"
 #include "junction/junction.h"
 #include "junction/kernel/futex.h"
 #include "junction/kernel/ksys.h"
@@ -210,7 +212,7 @@ void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
 }
 
 bool Process::ThreadFinish(Thread *th) {
-  rt::SpinGuard g(thread_map_lock_);
+  rt::SpinGuard g(shared_sig_q_);
   thread_map_.erase(th->get_tid());
   return thread_map_.size() == 0;
 }
@@ -280,7 +282,7 @@ Status<std::unique_ptr<Thread>> Process::CreateThread() {
   std::unique_ptr<Thread> th_ptr(tstate);
 
   {
-    rt::SpinGuard g(thread_map_lock_);
+    rt::SpinGuard g(shared_sig_q_);
     if (unlikely(exited())) return MakeError(1);
     thread_map_[*tid] = tstate;
   }
@@ -288,30 +290,161 @@ Status<std::unique_ptr<Thread>> Process::CreateThread() {
   return th_ptr;
 }
 
-void Process::DoExit(int status) {
-  // notify threads
-  rt::SpinGuard g(thread_map_lock_);
-  if (exited_) return;
+int WaitStateToSi(unsigned int state) {
+  switch (state) {
+      // TODO: differentiate killed and exited
+    case kWaitableExited:
+      return CLD_EXITED;
+    case kWaitableStopped:
+      return CLD_STOPPED;
+    case kWaitableContinued:
+      return CLD_CONTINUED;
+    default:
+      BUG();
+  }
+}
 
-  xstate_ = status;
-  store_release(&exited_, true);
+void Process::FillWaitInfo(siginfo_t &info) const {
+  info.si_signo = SIGCHLD;
+  info.si_pid = get_pid();
+  info.si_status = wait_status_;
+  info.si_code = WaitStateToSi(wait_state_);
+  info.si_uid = 0;
+}
 
-  // Signal the parent and drop the reference to it
-  siginfo_t sig;
-  sig.si_signo = SIGCHLD;
-  sig.si_pid = get_pid();
-  sig.si_status = xstate_;
-  sig.si_code = CLD_EXITED;
+int Process::GetWaitStatus() const {
+  switch (wait_state_) {
+    case kWaitableExited:
+      return __W_EXITCODE(wait_status_, 0);
+    case kWaitableStopped:
+      return __W_STOPCODE(SIGSTOP);
+    case kWaitableContinued:
+      return __W_CONTINUED;
+    default:
+      BUG();
+  }
+}
 
-  {
-    rt::SpinGuard g(shared_sig_q_);
-    if (parent_) {
-      parent_->Signal(sig);
-      parent_.reset();
-    }
+void Process::ReapChild(Process *child) {
+  assert(shared_sig_q_.IsHeld());
+
+  if (child->wait_state_ != kWaitableExited) {
+    child->wait_state_ = kNotWaitable;
+    return;
   }
 
-  for (const auto &[pid, th] : thread_map_) th->Kill();
+  child->parent_.reset();
+  std::erase_if(child_procs_, [child](std::shared_ptr<Process> &p) {
+    return p.get() == child;
+  });
+}
+
+void Process::NotifyParentWait(unsigned int state, int status) {
+  if (!parent_) return;
+
+  rt::SpinGuard g(parent_->shared_sig_q_);
+
+  wait_status_ = status;
+  wait_state_ = state;
+
+  siginfo_t sig;
+  FillWaitInfo(sig);
+
+  parent_->SignalLocked(sig);
+}
+
+void Process::DoExit(int status) {
+  // notify threads
+  {
+    rt::SpinGuard g(shared_sig_q_);
+    if (exited_) return;
+
+    xstate_ = status;
+    store_release(&exited_, true);
+
+    for (const auto &[pid, th] : thread_map_) th->Kill();
+  }
+
+  NotifyParentWait(kWaitableExited, status);
+}
+
+Status<Process *> Process::FindWaitableProcess(idtype_t idtype, id_t id,
+                                               unsigned int wait_flags) {
+  assert(shared_sig_q_.IsHeld());
+
+  if (idtype == P_PIDFD) return MakeError(EINVAL);
+  if (idtype == P_PGID && id == 0) id = get_pgid();
+
+  bool has_candidates = false;
+
+  for (auto &p : child_procs_) {
+    // Check filter conditions
+    if (idtype == P_PID && p->get_pid() != static_cast<pid_t>(id)) continue;
+    if (idtype == P_PGID && p->get_pgid() != static_cast<pid_t>(id)) continue;
+
+    has_candidates = true;
+    if (p->get_wait_state() & wait_flags) return p.get();
+  }
+
+  if (!has_candidates) return MakeError(ECHILD);
+  return nullptr;
+}
+
+Status<pid_t> Process::DoWait(idtype_t idtype, id_t id, int options,
+                              siginfo_t *infop, int *wstatus) {
+  unsigned int wait_state_flags = WEXITED | WSTOPPED;
+  wait_state_flags |= (options & WCONTINUED);
+
+  bool nonblocking = options & WNOHANG;
+  bool dont_reap = options & WNOWAIT;
+
+  Status<Process *> tmp;
+
+  rt::SpinGuard g(shared_sig_q_);
+
+  tmp = FindWaitableProcess(idtype, id, wait_state_flags);
+  if (!tmp) return MakeError(tmp);
+
+  if (!nonblocking) {
+    WakeOnSignal sig(shared_sig_q_);
+    g.Park(child_waiters_, [&, this] {
+      tmp = FindWaitableProcess(idtype, id, wait_state_flags);
+      return sig || *tmp;
+    });
+
+    if (!*tmp) return MakeError(EINTR);
+  } else if (!*tmp) {
+    return 0;
+  }
+
+  Process *p = *tmp;
+  if (infop) p->FillWaitInfo(*infop);
+  if (wstatus) *wstatus = p->GetWaitStatus();
+  pid_t pid = p->get_pid();
+  if (!dont_reap) ReapChild(p);
+  return pid;
+}
+
+std::pair<idtype_t, id_t> PidtoId(pid_t pid) {
+  if (pid < -1) return {P_PGID, -pid};
+  if (pid == -1) return {P_ALL, 0};
+  if (pid == 0) return {P_PGID, 0};
+  return {P_PID, pid};
+}
+
+pid_t usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru) {
+  const auto &[idtype, id] = PidtoId(pid);
+  Status<pid_t> ret = myproc().DoWait(idtype, id, options, nullptr, wstatus);
+  if (!ret) return MakeCError(ret);
+  return *ret;
+}
+
+long usys_waitid(int which, pid_t pid, siginfo_t *infop, int options,
+                 struct rusage *ru) {
+  Status<pid_t> ret = myproc().DoWait(static_cast<idtype_t>(which), pid,
+                                      options, infop, nullptr);
+  if (!ret) return MakeCError(ret);
+  return 0;
 }
 
 pid_t usys_getpid() { return myproc().get_pid(); }

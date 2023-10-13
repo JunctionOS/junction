@@ -131,6 +131,9 @@ long usys_vfork();
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 const struct timespec *timeout, uint32_t *uaddr2,
                 uint32_t val3);
+pid_t usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru);
+long usys_waitid(int which, pid_t pid, siginfo_t *infop, int options,
+                 struct rusage *ru);
 
 // Sched
 long usys_sched_yield();

@@ -6,6 +6,7 @@ extern "C" {
 #include <runtime/interruptible_wait.h>
 #include <sys/resource.h>
 #include <sys/types.h>
+#include <sys/wait.h>
 #include <ucontext.h>
 }
 
@@ -27,6 +28,11 @@ enum class ThreadState : uint64_t {
   kInvalid = 0,
   kActive = 1,
 };
+
+inline constexpr unsigned int kNotWaitable = 0;
+inline constexpr unsigned int kWaitableExited = WEXITED;
+inline constexpr unsigned int kWaitableStopped = WSTOPPED;
+inline constexpr unsigned int kWaitableContinued = WCONTINUED;
 
 // Thread is a UNIX thread object.
 class Thread {
@@ -227,15 +233,29 @@ class Process : public std::enable_shared_from_this<Process> {
 
   static void WaitAll() { all_procs.Wait(); }
 
+  Status<void> SignalLocked(siginfo_t &si) {
+    assert(shared_sig_q_.IsHeld());
+    shared_sig_q_.Enqueue(&si);
+    if (si.si_signo == SIGCLD) child_waiters_.WakeAll();
+
+    // TODO(jf): find thread to send an IPI to
+    for (const auto &[pid, th] : thread_map_) {
+      // FIXME signalling a blocked thread might try to acquire this lock,
+      // so drop for now.
+      shared_sig_q_.Unlock();
+      th->SendIpi();
+      shared_sig_q_.Lock();
+      break;
+    }
+
+    return {};
+  }
+
   Status<void> Signal(siginfo_t &si) {
     {
       rt::SpinGuard g(shared_sig_q_);
       shared_sig_q_.Enqueue(&si);
-      if (si.si_signo == SIGCLD && !child_waiters_.empty()) {
-        child_waiters_.WakeAll();
-        // skip IPI
-        return {};
-      }
+      if (si.si_signo == SIGCLD) child_waiters_.WakeAll();
     }
 
     // TODO(jf): find thread to send an IPI to
@@ -249,7 +269,7 @@ class Process : public std::enable_shared_from_this<Process> {
   }
 
   Status<void> SignalThread(pid_t tid, siginfo_t *si) {
-    rt::SpinGuard g(thread_map_lock_);
+    rt::SpinGuard g(shared_sig_q_);
 
     auto it = thread_map_.find(tid);
     if (it == thread_map_.end()) return MakeError(ESRCH);
@@ -265,6 +285,17 @@ class Process : public std::enable_shared_from_this<Process> {
     return SignalThread(tid, &si);
   }
 
+  [[nodiscard]] unsigned int get_wait_state() const { return wait_state_; }
+
+  void FillWaitInfo(siginfo_t &info) const;
+  int GetWaitStatus() const;
+  void ReapChild(Process *child);
+  void NotifyParentWait(unsigned int state, int status);
+  Status<pid_t> DoWait(idtype_t idtype, id_t id, int options, siginfo_t *infop,
+                       int *wstatus);
+  Status<Process *> FindWaitableProcess(idtype_t idtype, id_t id,
+                                        unsigned int wait_flags);
+
  private:
   const pid_t pid_;     // the process identifier
   pid_t pgid_;          // the process group identifier
@@ -278,10 +309,6 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Wake this blocked thread that is waiting for the vfork thread to exec().
   rt::ThreadWaker vfork_waker_;
-
-  rt::Spin thread_map_lock_;
-  // TODO(jf): replace std::map with better datastructure
-  std::map<pid_t, Thread *> thread_map_;
 
   //
   // Per-process kernel subsystems
@@ -298,8 +325,13 @@ class Process : public std::enable_shared_from_this<Process> {
   // Protected by shared_sig_q_lock_
   SignalQueue shared_sig_q_;
   rt::WaitQueue child_waiters_;
-  std::shared_ptr<Process> parent_;
   std::vector<std::shared_ptr<Process>> child_procs_;
+  std::map<pid_t, Thread *> thread_map_;
+
+  // Protected by parent_'s shared_sig_q_lock_
+  std::shared_ptr<Process> parent_;
+  unsigned int wait_state_{kNotWaitable};
+  int wait_status_;
 
   // Timers
   ITimer it_real_{this};
