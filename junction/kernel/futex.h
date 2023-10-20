@@ -50,7 +50,7 @@ class alignas(kCacheLineSize) FutexTable {
   // timeout expires, or EAGAIN if @val doesn't match the value in the address.
   Status<void> Wait(uint32_t *key, uint32_t val,
                     uint32_t bitset = kFutexBitsetAny,
-                    std::optional<Duration> timeout = {});
+                    std::optional<Time> timeout = {});
 
   // Wake unblocks up to @n threads waiting on the address @key. Returns the
   // number of threads woken.

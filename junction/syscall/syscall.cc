@@ -15,94 +15,9 @@ extern "C" {
 
 namespace junction {
 
-std::map<int, sysfn_t> debug_vdso_functions;
-int (*ksys_clock_gettime)(clockid_t clockid, struct timespec *tp);
-
-extern "C" long gettimeofday_strace(struct timeval *tv, struct timezone *tz) {
-  long ret = reinterpret_cast<decltype(&gettimeofday_strace)>(
-      debug_vdso_functions[SYS_gettimeofday])(tv, tz);
-  LogSyscall(ret, "gettimeofday", tv, tz);
-  return ret;
-}
-
-#if 0
-extern "C" long clock_getres_strace(clockid_t clockid, struct timespec *res) {
-  long ret = reinterpret_cast<decltype(&clock_getres_strace)>(
-      debug_vdso_functions[SYS_clock_getres])(clockid, res);
-  LogSyscall(ret, "clock_getres", clockid, res);
-  return ret;
-}
-#endif
-
-extern "C" long clock_gettime_strace(clockid_t clockid, struct timespec *tp) {
-  int ret = ksys_clock_gettime(clockid, tp);
-  LogSyscall(ret, "clock_gettime", clockid, tp);
-  return ret;
-}
-
-extern "C" long time_strace(time_t *tloc) {
-  long ret = reinterpret_cast<decltype(&time_strace)>(
-      debug_vdso_functions[SYS_time])(tloc);
-  LogSyscall(ret, "time", tloc);
-  return ret;
-}
-
-void SetupVdsoFunction(void *vdso, int sysnr, const char *fname) {
-  sysfn_t fptr = reinterpret_cast<sysfn_t>(dlsym(vdso, fname));
-  if (unlikely(!fptr)) {
-    std::cerr << "Unable to resolve vDSO for " << fname << std::endl;
-    return;
-  }
-
-  // Set trampoline table pointer directly to vdso function
-  sys_tbl[sysnr] = fptr;
-
-  const std::string_view fview = fname;
-  if (fview == "__vdso_clock_gettime")
-    ksys_clock_gettime = reinterpret_cast<decltype(ksys_clock_gettime)>(fptr);
-
-  if (unlikely(GetCfg().strace_enabled())) {
-    debug_vdso_functions[sysnr] = fptr;
-    if (fview == "__vdso_gettimeofday") {
-      sys_tbl_strace[sysnr] = reinterpret_cast<sysfn_t>(gettimeofday_strace);
-#if 0
-    } else if (fview == "__vdso_clock_getres") {
-      sys_tbl_strace[sysnr] = reinterpret_cast<sysfn_t>(clock_getres_strace);
-#endif
-    } else if (fview == "__vdso_clock_gettime") {
-      sys_tbl_strace[sysnr] = reinterpret_cast<sysfn_t>(clock_gettime_strace);
-    } else if (fview == "__vdso_time") {
-      sys_tbl_strace[sysnr] = reinterpret_cast<sysfn_t>(time_strace);
-    } else {
-      panic("missing strace definition for a vdso function");
-    }
-  }
-}
-
-Status<void> InitVdso() {
-  void *vdso = dlopen("linux-vdso.so.1", RTLD_LAZY | RTLD_LOCAL | RTLD_NOLOAD);
-
-  if (!vdso) {
-    std::cerr << "Unable to intialize vdso: " << dlerror() << std::endl;
-    return MakeError(1);
-  }
-
-  SetupVdsoFunction(vdso, __NR_gettimeofday, "__vdso_gettimeofday");
-  SetupVdsoFunction(vdso, __NR_clock_gettime, "__vdso_clock_gettime");
-  SetupVdsoFunction(vdso, __NR_time, "__vdso_time");
-
-  // TODO(jf): The vdso version of clock_getres seems to use a real syscall
-  // SetupVdsoFunction(vdso, __NR_clock_getres, "__vdso_clock_getres");
-
-  return {};
-}
-
 Status<void> SyscallInit() {
   Status<void> ret = KernelMMapFixed(SYSTBL_TRAMPOLINE_LOC, sizeof(sys_tbl),
                                      PROT_READ | PROT_WRITE, 0);
-  if (unlikely(!ret)) return ret;
-
-  ret = InitVdso();
   if (unlikely(!ret)) return ret;
 
   if (GetCfg().strace_enabled())

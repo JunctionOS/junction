@@ -4,6 +4,7 @@ add_library(base
   arch.cc
   error.cc
   io.cc
+  time.cc
 )
 
 add_executable(slab_list_test

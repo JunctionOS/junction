@@ -49,15 +49,8 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
   cpuid_info info;
   cpuid(0x00000001, &info);
 
-  // expose the real Linux vDSO, which includes the following system calls:
-  // 1. clock_gettime()
-  // 2. getcpu()
-  // 3. gettimeofday()
-  // 4. time()
-  uintptr_t vdso = getauxval(AT_SYSINFO_EHDR);
-
-  // disable vdso when stracing
-  if (GetCfg().strace_enabled()) vdso = 0;
+  // Disable VDSO since we want to emulate getcpu() and gettime()
+  uintptr_t vdso = 0;
 
   std::get<0>(*vec) = MakeAuxVec(AT_HWCAP, info.edx);
   std::get<1>(*vec) = MakeAuxVec(AT_PAGESZ, kPageSize);

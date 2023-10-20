@@ -157,6 +157,11 @@ long usys_setitimer(int which, const struct itimerval *new_value,
                     struct itimerval *old_value);
 long usys_getitimer(int which, struct itimerval *curr_value);
 long usys_alarm(unsigned int seconds);
+long usys_gettimeofday(struct timeval *tv, struct timezone *tz);
+long usys_settimeofday(const struct timeval *tv, const struct timezone *tz);
+long usys_clock_getres(clockid_t clockid, struct timespec *res);
+long usys_clock_gettime(clockid_t clockid, struct timespec *tp);
+time_t usys_time(time_t *tloc);
 
 // Misc
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);

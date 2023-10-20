@@ -69,6 +69,7 @@ inline JunctionCfg &GetCfg() { return JunctionCfg::get(); }
 std::string_view GetCwd();
 
 Status<void> init();
+Status<void> InitUnixTime();
 Status<std::unique_ptr<Process>> InitTestProc();
 void EnableMemoryAllocation();
 

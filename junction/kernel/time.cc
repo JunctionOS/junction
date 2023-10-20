@@ -10,15 +10,40 @@
 
 namespace junction {
 
-Status<Time> AbstimeToBaseTime(clockid_t clockid, const struct timespec &ts) {
-  struct timespec curtime;
-  int ret = ksys_clock_gettime(clockid, &curtime);
-  Time base_now = Time::Now();
+// Junction uses a microsecond-resolution unix time monotonic clock for all
+// clock types.
 
-  if (unlikely(ret)) return MakeError(ret);
+long usys_gettimeofday(struct timeval *tv,
+                       [[maybe_unused]] struct timezone *tz) {
+  *tv = Time::Now().TimevalUnixTime();
+  return 0;
+}
 
-  Duration delta = Time(ts) - Time(curtime);
-  return base_now + delta;
+long usys_settimeofday([[maybe_unused]] const struct timeval *tv,
+                       [[maybe_unused]] const struct timezone *tz) {
+  return -EPERM;
+}
+
+long usys_clock_getres([[maybe_unused]] clockid_t clockid,
+                       struct timespec *res) {
+  res->tv_sec = 0;
+  res->tv_nsec = 1000;
+  return 0;
+}
+
+long usys_clock_gettime(clockid_t clockid, struct timespec *tp) {
+  if (unlikely(clockid == CLOCK_PROCESS_CPUTIME_ID ||
+               clockid == CLOCK_THREAD_CPUTIME_ID))
+    LOG_ONCE(WARN) << "FIXME: application using CPUTIME clock";
+
+  *tp = Time::Now().TimespecUnixTime();
+  return 0;
+}
+
+time_t usys_time(time_t *tloc) {
+  time_t val = Time::Now().TimespecUnixTime().tv_sec;
+  if (tloc) *tloc = val;
+  return val;
 }
 
 long usys_clock_nanosleep(clockid_t clockid, int flags,
@@ -26,16 +51,11 @@ long usys_clock_nanosleep(clockid_t clockid, int flags,
                           struct timespec *remain) {
   if (!request) return -EINVAL;
 
-  // TODO: check clockid
-
   Time end_time;
-  if (flags & TIMER_ABSTIME) {
-    Status<Time> tmp = AbstimeToBaseTime(clockid, *request);
-    if (unlikely(!tmp)) return MakeCError(tmp);
-    end_time = *tmp;
-  } else {
+  if (flags & TIMER_ABSTIME)
+    end_time = Time::FromUnixTime(*request);
+  else
     end_time = Time::Now() + Duration(*request);
-  }
 
   rt::SleepInterruptibleUntil(end_time);
 

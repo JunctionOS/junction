@@ -9,6 +9,8 @@ extern "C" {
 
 #include <string>
 
+#include "junction/base/error.h"
+
 namespace junction {
 
 inline constexpr uint64_t kMilliseconds = 1000;
@@ -118,6 +120,16 @@ class Time {
       : time_(detail::timespec_to_us(ts)) {}
   constexpr ~Time() = default;
 
+  // Time object from an absolute unix time timespec
+  static Time FromUnixTime(timespec ts) {
+    return FromUnixTime(detail::timespec_to_us(ts));
+  }
+
+  // Time object from an absolute unix time timeval
+  static Time FromUnixTime(timeval tv) {
+    return FromUnixTime(detail::timeval_to_us(tv));
+  }
+
   // Now gets the current time.
   static Time Now() { return Time(detail::MicroTime()); }
 
@@ -154,8 +166,24 @@ class Time {
     return *this;
   }
 
+  static void SetStartTimeUnix(Time t) { start_time_unix = t; }
+
+  // converts a Time instance to a unix time timeval.
+  constexpr timeval TimevalUnixTime() const {
+    return detail::us_to_timeval(time_ + start_time_unix.Microseconds());
+  }
+  // converts a Time instance to a unix time timespec.
+  constexpr timespec TimespecUnixTime() const {
+    return detail::us_to_timespec(time_ + start_time_unix.Microseconds());
+  }
+
  private:
+  static Time FromUnixTime(uint64_t micros) {
+    return Time(micros - start_time_unix.Microseconds());
+  }
+
   uint64_t time_;
+  static Time start_time_unix;
 };
 
 // Allow Duration and Time to interact with + and - operators.
@@ -172,5 +200,7 @@ constexpr inline Duration operator-(const Time &lhs, const Time &rhs) {
 inline Duration Duration::Since(const Time &t) { return Time::Now() - t; }
 
 inline Duration Duration::Until(const Time &t) { return t - Time::Now(); }
+
+Status<void> InitUnixTime();
 
 }  // namespace junction

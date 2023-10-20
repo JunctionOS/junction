@@ -117,3 +117,8 @@ setitimer
 alarm
 wait4
 waitid
+gettimeofday
+settimeofday
+clock_getres
+clock_gettime
+time

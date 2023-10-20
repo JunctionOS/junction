@@ -134,6 +134,9 @@ Status<void> init() {
   ret = ShimJmpInit();
   if (unlikely(!ret)) return ret;
 
+  ret = InitUnixTime();
+  if (unlikely(!ret)) return ret;
+
   cwd = std::filesystem::current_path();
 
   return init_seccomp();

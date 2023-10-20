@@ -19,7 +19,7 @@ static FutexTable f;
 FutexTable &FutexTable::GetFutexTable() { return f; }
 
 Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
-                              std::optional<Duration> timeout) {
+                              std::optional<Time> timeout) {
   // Hot path: Don't need to block for a false condition.
   if (read_once(*key) != val) return MakeError(EAGAIN);
 
@@ -87,8 +87,7 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 const struct timespec *ts, uint32_t *uaddr2, uint32_t val3) {
   futex_op &= ~(FUTEX_PRIVATE_FLAG | FUTEX_CLOCK_REALTIME);
   FutexTable &t = FutexTable::GetFutexTable();
-  std::optional<Duration> timeout;
-  if (ts && FutexCmdHasTimeout(futex_op)) timeout = Duration(*ts);
+  std::optional<Time> timeout;
   Status<void> ret;
 
   switch (futex_op) {
@@ -97,10 +96,12 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
     case FUTEX_WAKE_BITSET:
       return t.Wake(uaddr, val, val3);
     case FUTEX_WAIT:
+      if (ts) timeout = Time::Now() + Duration(*ts);
       ret = t.Wait(uaddr, val, kFutexBitsetAny, timeout);
       if (!ret) return MakeCError(ret);
       break;
     case FUTEX_WAIT_BITSET:
+      if (ts) timeout = Time::FromUnixTime(*ts);
       ret = t.Wait(uaddr, val, val3, timeout);
       if (!ret) return MakeCError(ret);
       break;
