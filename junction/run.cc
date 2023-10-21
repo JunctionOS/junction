@@ -38,8 +38,7 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   }
 
   (*ret)->ThreadReady();
-
-  return *std::move(proc);
+  return *proc;
 }
 
 }  // namespace

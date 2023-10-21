@@ -175,7 +175,7 @@ Status<std::vector<elf_phdr>> ReadPHDRs(JunctionFile &f,
       return MakeError(EINVAL);
     }
   }
-  return std::move(phdrs);
+  return phdrs;
 }
 
 // CountTotalSize returns the size of all the segments together
@@ -196,7 +196,7 @@ Status<std::string> ReadInterp(JunctionFile &f, const elf_phdr &phdr) {
   Status<void> ret =
       ReadFull(f, std::as_writable_bytes(std::span(interp_path)));
   if (!ret) return MakeError(ret);
-  return std::move(interp_path);
+  return interp_path;
 }
 
 // LoadOneSegment loads one loadable PHDR into memory

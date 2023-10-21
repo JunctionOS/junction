@@ -13,7 +13,7 @@ class Process;
 
 class ITimer : private rt::timer_internal::timer_node {
  public:
-  ITimer(Process *proc) : proc_(proc) {
+  explicit ITimer(Process *proc) : proc_(proc) {
     auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
     timer_init(&entry_, rt::timer_internal::TimerTrampoline, arg);
   }

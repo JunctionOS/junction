@@ -48,7 +48,7 @@ class PollObserver {
 
   PollObserver(const PollObserver &o) noexcept {}
   PollObserver &operator=(const PollObserver &o) {
-    src_ = nullptr;
+    if (this != &o) src_ = nullptr;
     return *this;
   }
   PollObserver(PollObserver &&o) noexcept { assert(!is_attached()); }

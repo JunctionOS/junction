@@ -278,7 +278,7 @@ class RWMutex {
 // Pthread-like barrier support.
 class Barrier {
  public:
-  Barrier(int count) noexcept { barrier_init(&b_, count); }
+  explicit Barrier(int count) noexcept { barrier_init(&b_, count); }
   ~Barrier() = default;
 
   Barrier(Barrier &&) = delete;

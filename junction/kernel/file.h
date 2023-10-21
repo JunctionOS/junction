@@ -165,11 +165,24 @@ std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap);
 class FileTable {
  public:
   FileTable();
-  FileTable(const FileTable &o);
   ~FileTable();
 
-  // Returns a raw pointer to a file for a given fd number. Returns nullptr if
-  // the file does not exist. This fast path does not refcount the file.
+  // Copy and move support.
+  FileTable(const FileTable &o);
+  FileTable &operator=(const FileTable &o);
+  FileTable(FileTable &&o)
+      : farr_(std::move(o.farr_)),
+        rcup_(farr_.get()),
+        close_on_exec_(std::move(o.close_on_exec_)) {}
+  FileTable &operator=(FileTable &&o) {
+    farr_ = std::move(o.farr_);
+    rcup_.set(farr_.get());
+    close_on_exec_ = std::move(o.close_on_exec_);
+    return *this;
+  }
+
+  // Returns a raw pointer to a file for a given fd number. Returns nullptr
+  // if the file does not exist. This fast path does not refcount the file.
   File *Get(int fd);
 
   // Returns a shared pointer to a file for a given fd number. Typically this
