@@ -342,6 +342,11 @@ class Process : public std::enable_shared_from_this<Process> {
 // Create a new process.
 Status<std::shared_ptr<Process>> CreateInitProcess();
 
+// isJunctionThread returns true if the thread is a part of a process.
+inline bool IsJunctionThread(thread_t *th = thread_self()) {
+  return static_cast<ThreadState>(th->tlsvar) == ThreadState::kActive;
+}
+
 // mythread returns the Thread object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.
 inline Thread &mythread() { return Thread::fromCaladanThread(thread_self()); }
@@ -349,9 +354,5 @@ inline Thread &mythread() { return Thread::fromCaladanThread(thread_self()); }
 // myproc returns the Process object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.
 inline Process &myproc() { return mythread().get_process(); }
-
-inline bool IsJunctionThread(thread_t *th = thread_self()) {
-  return static_cast<ThreadState>(th->tlsvar) != ThreadState::kInvalid;
-}
 
 }  // namespace junction

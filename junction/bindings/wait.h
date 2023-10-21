@@ -114,6 +114,7 @@ class WakeOnSignal {
   [[nodiscard]] WakeOnSignal(rt::Spin &lock,
                              std::optional<k_sigset_t> mask = std::nullopt)
       : lock_(lock) {
+    assert(IsJunctionThread());
     if (mask) {
       ThreadSignalHandler &hand = mythread().get_sighand();
       hand.SaveBlocked();
