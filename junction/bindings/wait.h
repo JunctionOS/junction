@@ -1,8 +1,4 @@
 // wait.h - allows locks to block and wait for events
-//
-// These utilities should generally be used instead of the low level runtime
-// ones, but they are only usable for kernel threads (i.e., threads handling
-// system calls).
 
 #pragma once
 
@@ -31,50 +27,40 @@ namespace junction {
 //  WakeOnSignal signal(lock, q);
 //  {
 //    rt::SpinGuard g(lock);
-//    q.Wait(lock, [&timeout, &signal] { return cond || timeout || signal; });
+//    g.Park(q, [&timeout, &signal] { return cond || timeout || signal; });
 //    // Do something
 //  }
 
-// Wakable is a concept for blocking mechanisms that can be woken up
-template <typename T>
-concept Wakeable = requires(T t, thread_t *th) {
-  { t.Arm() };
-  { t.WakeThread(th) };
-};
-
-// WakeOnTimeout wakes a waiter when a timer expires.
-template <Wakeable T>
+// WakeOnTimeout wakes the running thread (if it later blocks) when a timer
+// expires.
+template <rt::Wakeable T>
 class WakeOnTimeout {
  public:
-  [[nodiscard]] WakeOnTimeout(rt::Spin &lock, T &waker, Duration timeout,
-                              Thread &th = mythread())
+  [[nodiscard]] WakeOnTimeout(rt::Spin &lock, T &waker, Duration timeout)
       : end_time_(Time::Now() + timeout),
         lock_(lock),
         waker_(waker),
-        th_(th),
         timer_([this] { DoWake(); }) {
     timer_.StartAt(end_time_);
   }
-  [[nodiscard]] WakeOnTimeout(rt::Spin &lock, T &waker, Time timeout,
-                              Thread &th = mythread())
-      : end_time_(timeout), lock_(lock), waker_(waker), th_(th), timer_([this] {
-          DoWake();
-        }) {
+  [[nodiscard]] WakeOnTimeout(rt::Spin &lock, T &waker, Time timeout)
+      : end_time_(timeout),
+        lock_(lock),
+        waker_(waker),
+        timer_([this] { DoWake(); }) {
     timer_.StartAt(end_time_);
   }
   [[nodiscard]] WakeOnTimeout(rt::Spin &lock, T &waker,
-                              std::optional<Duration> timeout,
-                              Thread &th = mythread())
-      : lock_(lock), waker_(waker), th_(th), timer_([this] { DoWake(); }) {
+                              std::optional<Duration> timeout)
+      : lock_(lock), waker_(waker), timer_([this] { DoWake(); }) {
     if (timeout && !timeout->IsZero()) {
       end_time_ = Time::Now() + *timeout;
       timer_.StartAt(end_time_);
     }
   }
   [[nodiscard]] WakeOnTimeout(rt::Spin &lock, T &waker,
-                              std::optional<Time> timeout,
-                              Thread &th = mythread())
-      : lock_(lock), waker_(waker), th_(th), timer_([this] { DoWake(); }) {
+                              std::optional<Time> timeout)
+      : lock_(lock), waker_(waker), timer_([this] { DoWake(); }) {
     if (timeout) {
       end_time_ = *timeout;
       timer_.StartAt(end_time_);
@@ -96,7 +82,7 @@ class WakeOnTimeout {
   // TimeLeft returns the duration until the timer expires. If the timer is
   // unarmed because of an optional duration or time, the behavior is
   // undefined.
-  Duration TimeLeft() const {
+  [[nodiscard]] Duration TimeLeft() const {
     Duration d = Duration::Until(end_time_);
     if (d < Duration(0)) return Duration(0);
     return d;
@@ -106,20 +92,23 @@ class WakeOnTimeout {
   void DoWake() {
     rt::SpinGuard g(lock_);
     timed_out_ = true;
-    waker_.WakeThread(th_.GetCaladanThread());
+    waker_.WakeThread(th_);
   }
 
   Time end_time_;
   rt::Spin &lock_;
   T &waker_;
-  Thread &th_;
+  thread_t *th_{thread_self()};
   bool timed_out_{false};
   rt::Timer<std::function<void()>> timer_;
 };
 
 // WakeOnSignal wakes a waiter when a signal is delivered.
-// @lock must be valid through an RCU period or be scoped to this thread's
-// lifetime
+//
+// WARNING: @lock must be valid through an RCU period or be scoped to the
+// calling thread's lifetime.
+//
+// WARNING: The calling thread must be a Junction kernel thread.
 class WakeOnSignal {
  public:
   [[nodiscard]] WakeOnSignal(rt::Spin &lock,

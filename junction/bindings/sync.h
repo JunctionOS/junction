@@ -23,6 +23,28 @@ namespace rt {
 
 class Spin;
 
+// Lockable is the concept of a lock.
+template <typename T>
+concept Lockable = requires(T t) {
+  { t.Lock() } -> std::same_as<void>;
+  { t.Unlock() } -> std::same_as<void>;
+};
+
+// LockAndParkable is the concept of a lock that can park and wait for a
+// condition after unlocking.
+template <typename T>
+concept LockAndParkable = requires(T t) {
+  { t.Lock() } -> std::same_as<void>;
+  { t.UnlockAndPark() } -> std::same_as<void>;
+};
+
+// Wakable is a concept for blocking mechanisms that can be woken up
+template <typename T>
+concept Wakeable = requires(T t, thread_t *th) {
+  { t.Arm() } -> std::same_as<void>;
+  { t.WakeThread(th) } -> std::same_as<void>;
+};
+
 // WaitQueue is used to wake a group of threads.
 class WaitQueue {
  public:
@@ -37,7 +59,7 @@ class WaitQueue {
 
   [[nodiscard]] bool empty() const { return list_empty(&waiters_); }
 
-  // Prepares the running thread to block. Can only be called once,
+  // Arm prepares the running thread to block. Can only be called once,
   // must be synchronized by caller.
   void Arm() {
     arm_waker();
@@ -68,6 +90,7 @@ class WaitQueue {
     }
   }
 
+  // WakeThread makes a specific thread runnable.
   void WakeThread(thread_t *th) {
     if (!try_disarm_waker(th)) return;
 
@@ -79,7 +102,7 @@ class WaitQueue {
   list_head waiters_;
 };
 
-// ThreadWaker is used to wake the current thread after it parks.
+// ThreadWaker wakes one thread after it has blocked.
 class ThreadWaker {
  public:
   ThreadWaker() noexcept = default;
@@ -97,15 +120,15 @@ class ThreadWaker {
     return *this;
   }
 
-  // Prepares the running thread for waking after it parks.
+  // Arm prepares the running thread to block. Can only be called once.
   void Arm() {
     th_ = thread_self();
     arm_waker_nolink();
   }
 
-  // Makes the parked thread runnable. Must be called by another thread after
-  // the prior thread has called Arm() and has parked (or will park in the
-  // immediate future).
+  // Wake makes the parked thread runnable. Must be called by another thread
+  // after the prior thread has called Arm() and has parked (or will park in
+  // the immediate future).
   void Wake(bool head = false) {
     if (th_ == nullptr) return;
     thread_t *th = std::exchange(th_, nullptr);
@@ -117,6 +140,8 @@ class ThreadWaker {
     }
   }
 
+  // WakeThread makes a specific thread runnable. In this class, it can only be
+  // the parked thread.
   void WakeThread(thread_t *th) {
     assert(!th_ || th_ == th);
     Wake();
@@ -126,11 +151,29 @@ class ThreadWaker {
   thread_t *th_ = nullptr;
 };
 
+// Wait blocks the calling thread until a wakable object resumes it.
+//
+// A lock must be held to protect the wakeup condition state, which usually
+// includes the wakable object.
+template <LockAndParkable L, Wakeable W>
+void Wait(L &lock, W &waker) {
+  assert(lock.IsHeld());
+  waker.Arm();
+  lock.UnlockAndPark();
+  lock.Lock();
+}
+
 // Disables preemption across a critical section.
 class Preempt {
  public:
   Preempt() noexcept = default;
   ~Preempt() = default;
+
+  // disable move and copy.
+  Preempt(Preempt &&) = delete;
+  Preempt &operator=(Preempt &&) = delete;
+  Preempt(const Preempt &) = delete;
+  Preempt &operator=(const Preempt &) = delete;
 
   // Disables preemption.
   static void Lock() { preempt_disable(); }
@@ -156,19 +199,13 @@ class Preempt {
     assert(IsHeld());
     return perthread_read(kthread_idx);
   }
-
-  // disable move and copy.
-  Preempt(Preempt &&) = delete;
-  Preempt &operator=(Preempt &&) = delete;
-  Preempt(const Preempt &) = delete;
-  Preempt &operator=(const Preempt &) = delete;
 };
 
 // Spin lock support.
 class Spin {
+ public:
   friend class junction::WakeOnSignal;
 
- public:
   Spin() noexcept { spin_lock_init(&lock_); }
   ~Spin() { assert(!spin_lock_held(&lock_)); }
 
@@ -294,21 +331,6 @@ class Barrier {
   barrier_t b_;
 };
 
-// Lockable is the concept of a lock.
-template <typename T>
-concept Lockable = requires(T t) {
-  { t.Lock() } -> std::same_as<void>;
-  { t.Unlock() } -> std::same_as<void>;
-};
-
-// LockAndParkable is the concept of a lock that can park and wait for a
-// condition during unlocking.
-template <typename T>
-concept LockAndParkable = requires(T t) {
-  { t.Lock() } -> std::same_as<void>;
-  { t.UnlockAndPark() } -> std::same_as<void>;
-};
-
 // RAII lock support (works with Spin, Preempt, and Mutex).
 template <Lockable L>
 class ScopedLock {
@@ -323,41 +345,33 @@ class ScopedLock {
   ScopedLock(const ScopedLock &) = delete;
   ScopedLock &operator=(const ScopedLock &) = delete;
 
-  // Blocks in order to wait for a condition.
+  // Park blocks to wait for a condition.
   // Only works with Spin and Preempt (not Mutex).
-  // Spurious wakeups are possible, so the condition must be rechecked.
+  // The condition should be rechecked after waking.
   // Example:
   //   rt::ThreadWaker w;
   //   rt::SpinLock l;
   //   rt::SpinGuard guard(l);
   //   while (condition) guard.Park(w);
-  template <typename Waker>
+  template <Wakeable Waker>
   void Park(Waker &w)
     requires LockAndParkable<L>
   {
-    assert(lock_.IsHeld());
-    w.Arm();
-    lock_.UnlockAndPark();
-    lock_.Lock();
+    Wait(lock_, w);
   }
 
-  // Blocks and waits for the predicate to become true.
+  // Park blocks and waits for the predicate to become true.
   // Only works with Spin and Preempt (not Mutex).
   // Example:
   //   rt::ThreadWaker w;
   //   rt::SpinLock l;
   //   rt::SpinGuard guard(l);
   //   guard.Park(w, []{ return predicate; });
-  template <typename Waker, typename Predicate>
+  template <Wakeable Waker, typename Predicate>
   void Park(Waker &w, Predicate stop)
     requires LockAndParkable<L>
   {
-    assert(lock_.IsHeld());
-    while (!stop()) {
-      w.Arm();
-      lock_.UnlockAndPark();
-      lock_.Lock();
-    }
+    while (!stop()) Wait(lock_, w);
   }
 
  private:
