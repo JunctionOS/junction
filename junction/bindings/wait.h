@@ -111,8 +111,11 @@ class WakeOnTimeout {
 // WARNING: The calling thread must be a Junction kernel thread.
 class WakeOnSignal {
  public:
-  [[nodiscard]] WakeOnSignal(rt::Spin &lock,
-                             std::optional<k_sigset_t> mask = std::nullopt)
+  [[nodiscard]] explicit WakeOnSignal(rt::Spin &lock) : lock_(lock) {
+    assert(IsJunctionThread());
+    register_waker_lock(&lock_.lock_);
+  }
+  [[nodiscard]] WakeOnSignal(rt::Spin &lock, std::optional<k_sigset_t> mask)
       : lock_(lock) {
     assert(IsJunctionThread());
     if (mask) {
