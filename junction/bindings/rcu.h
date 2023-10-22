@@ -86,7 +86,7 @@ inline void RCUSynchronize() { synchronize_rcu(); }
 // Frees a raw pointer after a quiescent period.
 // Does not block. Allocates memory (for a thread). Can take a custom deleter.
 template <typename T, typename D = std::default_delete<T>>
-inline void RCUFree(T *p, D d = {}) {
+void RCUFree(T *p, D d) {
   // TODO(amb): eliminate thread spawning for better performance.
   rt::Spawn([p, d = std::move(d)]() {
     RCUSynchronize();
@@ -97,34 +97,49 @@ inline void RCUFree(T *p, D d = {}) {
 // Takes ownership of a unique pointer and frees it after a quiescent period.
 // Does not block. Allocates memory (for a thread).
 template <typename T>
-inline void RCUFree(std::unique_ptr<T> ptr) {
-  // TODO(amb): eliminate thread spawning for better performance.
-  rt::Spawn([p = std::move(ptr)]() mutable { RCUSynchronize(); });
+void RCUFree(std::unique_ptr<T> ptr) {
+  RCUFree(ptr.get(), ptr.get_deleter());
+  ptr.release();
 }
 
-// RCUObject can be publicly inherited to make freeing more efficient.
-struct RCUObject {
+// RCUObject can be inherited to make freeing more efficient.
+class RCUObject {
+  template <typename T>
+  friend void RCUFree(T *p);
+
+ private:
   struct rcu_head rcu_head;
 };
+
+// Frees a raw pointer after a quiescent period.
+// Does not block. Does not allocate memory if type inherits an RCUObject.
+template <typename T>
+void RCUFree(T *p) {
+  if constexpr (std::derived_from<T, RCUObject>) {
+    // TODO(amb): not technically correct, since it doesn't have C linkage, but
+    // will work with any standard architecture.
+    auto RCUCallbackTrampoline = [](rcu_head *head) {
+      RCUObject *obj = container_of(head, RCUObject, rcu_head);
+      T *ptr = static_cast<T *>(obj);
+      std::default_delete<T>()(ptr);
+    };
+    rcu_free(&p->rcu_head, RCUCallbackTrampoline);
+  } else {
+    // TODO(amb): eliminate thread spawning for better performance.
+    rt::Spawn([p]() {
+      RCUSynchronize();
+      std::default_delete<T>()(p);
+    });
+  }
+}
 
 // RCUDeleter is a deleter that defers until an RCU synchronization period.
 //
 // Example use:
 //  std::shared_ptr<Foo> f(new Foo, rt::RCUDeleter<Foo>());
-template <typename T, typename D = std::default_delete<T>>
+template <typename T>
 struct RCUDeleter {
-  static void RCUCallback(struct rcu_head *head) {
-    struct RCUObject *obj = container_of(head, RCUObject, rcu_head);
-    T *ptr = static_cast<T *>(obj);
-    D()(ptr);
-  }
-  void operator()(T *p) {
-    if constexpr (std::derived_from<T, RCUObject>) {
-      rcu_free(&p->rcu_head, RCUCallback);
-    } else {
-      RCUFree<T, D>(p);
-    }
-  }
+  void operator()(T *p) { RCUFree<T>(p); }
 };
 
 }  // namespace junction::rt
