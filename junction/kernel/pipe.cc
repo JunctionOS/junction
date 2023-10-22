@@ -6,6 +6,7 @@
 #include <memory>
 
 #include "junction/base/byte_channel.h"
+#include "junction/bindings/wait.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -63,10 +64,13 @@ Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
 
     // Channel is empty, block and wait.
     assert(ret.error() == EAGAIN);
+    WakeOnSignal signaled(lock_);
     rt::SpinGuard guard(lock_);
-    guard.Park(read_waker_,
-               [this] { return !chan_.is_empty() || writer_is_closed(); });
+    guard.Park(read_waker_, [this, &signaled] {
+      return !chan_.is_empty() || writer_is_closed() || signaled;
+    });
     if (writer_is_closed() && chan_.is_empty()) return 0;
+    if (signaled) return MakeError(EINTR);
   }
 
   // Wake the writer and any pollers.
@@ -100,10 +104,13 @@ Status<size_t> Pipe::Write(std::span<const std::byte> buf, bool nonblocking) {
 
     // Channel is full, block and wait.
     assert(ret.error() == EAGAIN);
+    WakeOnSignal signaled(lock_);
     rt::SpinGuard guard(lock_);
-    guard.Park(write_waker_,
-               [this] { return !chan_.is_full() || reader_is_closed(); });
+    guard.Park(write_waker_, [this, &signaled] {
+      return !chan_.is_full() || reader_is_closed() || signaled;
+    });
     if (reader_is_closed()) return MakeError(EPIPE);
+    if (signaled) return MakeError(EINTR);
   }
 
   // Wake the reader and any pollers.

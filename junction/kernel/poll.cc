@@ -308,7 +308,8 @@ class EPollFile : public File, public rt::RCUObject {
   bool Add(File &f, uint32_t events, uint64_t user_data);
   bool Modify(File &f, uint32_t events, uint64_t user_data);
   bool Delete(File &f);
-  int Wait(std::span<epoll_event> events, std::optional<Duration> timeout, k_sigset_t mask);
+  int Wait(std::span<epoll_event> events, std::optional<Duration> timeout,
+           k_sigset_t mask);
 
   void AddEvent(EPollObserver &o) {
     rt::SpinGuard g(lock_);
