@@ -13,26 +13,21 @@
 
 namespace junction {
 
-//
-// Waking API
+// WakeOnTimeout wakes the running thread (if it later blocks) when a timer
+// expires.
 //
 // This API is designed to be armed without holding the waiter's lock to reduce
-// the size of critical sections. It's also composable, so that different
-// events can be used with different types of waiters.
+// the size of critical sections.
 //
-// Example: Wait for a condition, 10ms timeout, or pending signal...
+// Example: Wait for a condition or a 10ms timeout.
 //  rt::Spin lock;
 //  WaitQueue q;
 //  WakeOnTimeout timeout(lock, q, 10_ms);
-//  WakeOnSignal signal(lock);
 //  {
 //    rt::SpinGuard g(lock);
-//    g.Park(q, [&timeout, &signal] { return cond || timeout || signal; });
+//    g.Park(q, [&timeout] { return cond || timeout; });
 //    // Do something
 //  }
-
-// WakeOnTimeout wakes the running thread (if it later blocks) when a timer
-// expires.
 template <rt::Wakeable T>
 class WakeOnTimeout {
  public:
@@ -157,7 +152,7 @@ bool WaitInterruptible(rt::Spin &lock, Waker &w, Predicate stop) {
 // WARNING: The calling thread must be a Junction kernel thread.
 class SigMaskGuard {
  public:
-  [[nodiscard]] SigMaskGuard(std::optional<k_sigset_t> mask) {
+  [[nodiscard]] explicit SigMaskGuard(std::optional<k_sigset_t> mask) {
     assert(IsJunctionThread());
     if (!mask) return;
 
