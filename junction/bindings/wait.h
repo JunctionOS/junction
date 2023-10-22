@@ -24,7 +24,7 @@ namespace junction {
 //  rt::Spin lock;
 //  WaitQueue q;
 //  WakeOnTimeout timeout(lock, q, 10_ms);
-//  WakeOnSignal signal(lock, q);
+//  WakeOnSignal signal(lock);
 //  {
 //    rt::SpinGuard g(lock);
 //    g.Park(q, [&timeout, &signal] { return cond || timeout || signal; });

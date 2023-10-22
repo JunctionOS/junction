@@ -7,6 +7,7 @@ extern "C" {
 }
 
 #include <atomic>
+#include <concepts>
 #include <memory>
 
 #include "junction/bindings/sync.h"
@@ -101,19 +102,29 @@ inline void RCUFree(std::unique_ptr<T> ptr) {
   rt::Spawn([p = std::move(ptr)]() mutable { RCUSynchronize(); });
 }
 
-template <typename T>
+// RCUObject can be publicly inherited to make freeing more efficient.
 struct RCUObject {
   struct rcu_head rcu_head;
 };
 
+// RCUDeleter is a deleter that defers until an RCU synchronization period.
+//
+// Example use:
+//  std::shared_ptr<Foo> f(new Foo, rt::RCUDeleter<Foo>());
 template <typename T, typename D = std::default_delete<T>>
 struct RCUDeleter {
   static void RCUCallback(struct rcu_head *head) {
-    struct RCUObject<T> *obj = container_of(head, RCUObject<T>, rcu_head);
+    struct RCUObject *obj = container_of(head, RCUObject, rcu_head);
     T *ptr = static_cast<T *>(obj);
     D()(ptr);
   }
-  void operator()(T *p) { rcu_free(&p->rcu_head, RCUCallback); }
+  void operator()(T *p) {
+    if constexpr (std::derived_from<T, RCUObject>) {
+      rcu_free(&p->rcu_head, RCUCallback);
+    } else {
+      RCUFree<T, D>(p);
+    }
+  }
 };
 
 }  // namespace junction::rt
