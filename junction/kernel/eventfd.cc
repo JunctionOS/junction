@@ -53,13 +53,12 @@ Status<size_t> EventFDFile::Read(std::span<std::byte> buf,
 
   uint64_t *out = reinterpret_cast<uint64_t *>(buf.data());
 
-  WakeOnSignal signaled(lock_);
   rt::SpinGuard guard(lock_);
   if (!val_) {
     if (is_nonblocking()) return MakeError(EAGAIN);
-    guard.Park(queue_, [this, &signaled] { return val_ != 0 || signaled; });
+    if (WaitInterruptible(lock_, queue_, [this] { return val_ != 0; }))
+      return MakeError(EINTR);
   }
-  if (signaled) return MakeError(EINTR);
 
   if (is_semaphore()) {
     *out = 1;
@@ -82,17 +81,15 @@ Status<size_t> EventFDFile::Write(std::span<const std::byte> buf,
   if (val == UINT64_MAX) return MakeError(EINVAL);
   if (!val) return kEventFdValSize;
 
-  WakeOnSignal signaled(lock_);
   rt::SpinGuard guard(lock_);
 
   // check for overflow
   if (val + val_ < val) {
     if (is_nonblocking()) return MakeError(EAGAIN);
-    guard.Park(queue_, [this, &signaled, val] {
-      return val + val_ >= val || signaled;
-    });
+    if (WaitInterruptible(lock_, queue_,
+                          [this, val] { return val + val_ >= val; }))
+      return MakeError(EINTR);
   }
-  if (signaled) return MakeError(EINTR);
 
   val_ += val;
   get_poll_source().Set(kPollIn);

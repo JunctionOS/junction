@@ -27,7 +27,7 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
 
   rt::ThreadWaker w;
   WakeOnTimeout timed_out(bucket.lock, w, timeout);
-  WakeOnSignal signaled(bucket.lock);
+  bool signaled;
   detail::futex_waiter waiter{&w, key, bitset};
 
   {
@@ -36,8 +36,8 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
     if (read_once(*key) != val) return MakeError(EAGAIN);
 
     bucket.futexes.push_back(waiter);
-    g.Park(w, [&waiter, &timed_out, &signaled] {
-      return !waiter.waker || timed_out || signaled;
+    signaled = WaitInterruptible(bucket.lock, w, [&waiter, &timed_out] {
+      return !waiter.waker || timed_out;
     });
 
     if (waiter.waker)

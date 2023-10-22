@@ -17,11 +17,14 @@ extern "C" {
 
 namespace junction {
 
-class WakeOnSignal;
+namespace rt {
+class Spin;
+}
+
+template <typename Wakeable>
+bool WaitInterruptible(rt::Spin &lock, Wakeable &waker);
 
 namespace rt {
-
-class Spin;
 
 // Lockable is the concept of a lock.
 template <typename T>
@@ -203,9 +206,10 @@ class Preempt {
 
 // Spin lock support.
 class Spin {
- public:
-  friend class junction::WakeOnSignal;
+  template <Wakeable Waker>
+  friend bool ::junction::WaitInterruptible(rt::Spin &lock, Waker &waker);
 
+ public:
   Spin() noexcept { spin_lock_init(&lock_); }
   ~Spin() { assert(!spin_lock_held(&lock_)); }
 

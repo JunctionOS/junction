@@ -40,8 +40,8 @@ inline constexpr bool SignalInMask(k_sigset_t mask, int sig) {
 }
 
 // KernelSigset converts a user sigset to the kernel's representation.
-inline k_sigset_t KernelSigset(const sigset_t *usig) {
-  if (!usig) return 0;
+inline std::optional<k_sigset_t> KernelSigset(const sigset_t *usig) {
+  if (!usig) return std::nullopt;
   return *reinterpret_cast<const k_sigset_t *>(usig);
 }
 

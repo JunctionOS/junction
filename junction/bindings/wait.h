@@ -103,44 +103,78 @@ class WakeOnTimeout {
   rt::Timer<std::function<void()>> timer_;
 };
 
-// WakeOnSignal wakes a waiter when a signal is delivered.
+// WaitInterruptible blocks the calling thread until a wakable object resumes it
+// or a signal is delivered.
+//
+// A lock must be held to protect the wakeup condition state, which usually
+// includes the wakable object.
+//
+// Returns true if this wait was interrupted by a signal.
 //
 // WARNING: @lock must be valid through an RCU period or be scoped to the
 // calling thread's lifetime.
 //
 // WARNING: The calling thread must be a Junction kernel thread.
-class WakeOnSignal {
- public:
-  [[nodiscard]] explicit WakeOnSignal(rt::Spin &lock) : lock_(lock) {
-    assert(IsJunctionThread());
-    register_waker_lock(&lock_.lock_);
-  }
-  [[nodiscard]] WakeOnSignal(rt::Spin &lock, std::optional<k_sigset_t> mask)
-      : lock_(lock) {
-    assert(IsJunctionThread());
-    if (mask) {
-      ThreadSignalHandler &hand = mythread().get_sighand();
-      hand.SaveBlocked();
-      hand.SigProcMask(SIG_SETMASK, &*mask, nullptr);
-    }
-    register_waker_lock(&lock_.lock_);
-  }
-  ~WakeOnSignal() {
+template <rt::Wakeable Waker>
+bool WaitInterruptible(rt::Spin &lock, Waker &waker) {
+  assert(lock.IsHeld());
+  assert(IsJunctionThread());
+  register_waker_lock(&lock.lock_);
+  if (mythread().needs_interrupt()) {
     clear_waker_lock();
+    return true;
+  }
+  waker.Arm();
+  lock.UnlockAndPark();
+  lock.Lock();
+  clear_waker_lock();
+  return mythread().needs_interrupt();
+}
+
+// WaitInterruptible blocks the calling thread until the predicate becomes true
+// or a signal is delivered.
+//
+// A lock must be held to protect the wakeup condition state, which usually
+// includes the wakable object.
+//
+// Returns true if this wait was interrupted by a signal.
+//
+// WARNING: @lock must be valid through an RCU period or be scoped to the
+// calling thread's lifetime.
+//
+// WARNING: The calling thread must be a Junction kernel thread.
+template <rt::Wakeable Waker, typename Predicate>
+bool WaitInterruptible(rt::Spin &lock, Waker &w, Predicate stop) {
+  while (!stop())
+    if (WaitInterruptible(lock, w)) return true;
+  return false;
+}
+
+// SigMaskGuard masks signal delivery during its lifetime. The previous signal
+// mask is restored unless a signal is pending, in which the old mask is
+// restored after the signal is delivered.
+//
+// WARNING: The calling thread must be a Junction kernel thread.
+class SigMaskGuard {
+ public:
+  [[nodiscard]] SigMaskGuard(std::optional<k_sigset_t> mask) {
+    assert(IsJunctionThread());
+    if (!mask) return;
+
+    ThreadSignalHandler &hand = mythread().get_sighand();
+    hand.SaveBlocked();
+    hand.SigProcMask(SIG_SETMASK, &*mask, nullptr);
+  }
+  ~SigMaskGuard() {
     if (!mythread().needs_interrupt())
       mythread().get_sighand().RestoreBlocked();
   }
 
   // disable copy and move.
-  WakeOnSignal(const WakeOnSignal &) = delete;
-  WakeOnSignal &operator=(const WakeOnSignal &) = delete;
-  WakeOnSignal(WakeOnSignal &&) = delete;
-  WakeOnSignal &operator=(WakeOnSignal &&) = delete;
-
-  explicit operator bool() const { return mythread().needs_interrupt(); }
-
- private:
-  rt::Spin &lock_;
+  SigMaskGuard(const SigMaskGuard &) = delete;
+  SigMaskGuard &operator=(const SigMaskGuard &) = delete;
+  SigMaskGuard(SigMaskGuard &&) = delete;
+  SigMaskGuard &operator=(SigMaskGuard &&) = delete;
 };
 
 }  // namespace junction

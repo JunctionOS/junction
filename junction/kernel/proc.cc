@@ -402,19 +402,20 @@ Status<pid_t> Process::DoWait(idtype_t idtype, id_t id, int options,
 
   rt::SpinGuard g(shared_sig_q_);
 
-  tmp = FindWaitableProcess(idtype, id, wait_state_flags);
-  if (!tmp) return MakeError(tmp);
-
   if (!nonblocking) {
-    WakeOnSignal sig(shared_sig_q_);
-    g.Park(child_waiters_, [&, this] {
+    WaitInterruptible(shared_sig_q_, child_waiters_, [&, this] {
       tmp = FindWaitableProcess(idtype, id, wait_state_flags);
-      return sig || *tmp;
+      return !tmp || *tmp;
     });
 
+    // check one more time, we may have been woken by a SIGCHLD
+    if (!tmp || !*tmp) tmp = FindWaitableProcess(idtype, id, wait_state_flags);
+    if (!tmp) return MakeError(tmp);
     if (!*tmp) return MakeError(EINTR);
-  } else if (!*tmp) {
-    return 0;
+  } else {
+    tmp = FindWaitableProcess(idtype, id, wait_state_flags);
+    if (!tmp) return MakeError(tmp);
+    if (!*tmp) return MakeError(EAGAIN);
   }
 
   Process *p = *tmp;

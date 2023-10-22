@@ -216,7 +216,7 @@ void BenchPosixSpawn(int measure_rounds) {
 
     close(pipefds[1]);
 
-    waitpid(child, nullptr, 0);
+    EXPECT_EQ(child, waitpid(child, nullptr, 0));
 
     size_t bytes_read = 0;
     std::string expected = "in child process\n";
