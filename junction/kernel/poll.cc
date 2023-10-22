@@ -23,7 +23,8 @@ constexpr unsigned int kEPollEdgeTriggered = EPOLLET;
 constexpr unsigned int kEPollOneShot = EPOLLONESHOT;
 constexpr unsigned int kEPollExclusive = EPOLLEXCLUSIVE;
 
-int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout) {
+int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout,
+           k_sigset_t mask = 0) {
   int nevents = 0;
 
   // Check each file; if at least one has events, no need to block.
@@ -47,15 +48,16 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout) {
 
   // Otherwise, init state to block on the FDs and timeout.
   rt::Spin &lock = mythread().get_waker_lock();
-  rt::ThreadWaker th;
-  WakeOnTimeout timed_out(lock, th, timeout);
+  rt::ThreadWaker waker;
+  WakeOnTimeout timed_out(lock, waker, timeout);
+  WakeOnSignal signaled(lock, mask);
 
   // Pack args to avoid heap allocations.
   struct {
     rt::Spin &lock;
-    rt::ThreadWaker &th;
+    rt::ThreadWaker &waker;
     int &nevents;
-  } args = {lock, th, nevents};
+  } args = {lock, waker, nevents};
 
   // Setup a trigger for each file.
   std::vector<Poller> triggers;
@@ -69,7 +71,7 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout) {
       if (delta != 0) {
         rt::SpinGuard g(args.lock);
         args.nevents += delta;
-        if (args.nevents > 0) args.th.Wake();
+        if (args.nevents > 0) args.waker.Wake();
       }
     });
     File *f = ftbl.Get(fds[i].fd);
@@ -82,13 +84,15 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout) {
     // Block until an event has triggered.
     {
       rt::SpinGuard g(lock);
-      g.Park(th, [&nevents, &timed_out] { return nevents > 0 || timed_out; });
+      g.Park(waker, [&nevents, &timed_out, &signaled] {
+        return nevents > 0 || timed_out || signaled;
+      });
     }
 
     for (auto &p : triggers) p.Detach();
 
     // There's a tiny chance events will get cleared, causing zero @nevents.
-    if (likely(nevents > 0 || timed_out)) break;
+    if (likely(nevents > 0 || timed_out || signaled)) break;
 
     for (nfds_t i = 0; i < nfds; i++) {
       File *f = ftbl.Get(fds[i].fd);
@@ -98,6 +102,7 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout) {
     }
   }
 
+  if (nevents == 0 && signaled) return -EINTR;
   return nevents;
 }
 
@@ -165,11 +170,12 @@ int EncodeSelectFDs(const std::vector<select_fd> &sfds, fd_set *readfds,
   return count;
 }
 
-std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
-                                   fd_set *exceptfds,
-                                   std::optional<Duration> timeout) {
+std::pair<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
+                                  fd_set *exceptfds,
+                                  std::optional<Duration> timeout,
+                                  k_sigset_t mask = 0) {
   // Check if maximum number of FDs has been exceeded.
-  if (nfds > FD_SETSIZE) return std::make_tuple(-EINVAL, Duration(0));
+  if (nfds > FD_SETSIZE) return std::make_pair(-EINVAL, Duration(0));
 
   // Decode the events into a more convenient format.
   std::vector<select_fd> sfds =
@@ -180,7 +186,7 @@ std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
   int nevents = 0;
   for (auto &sfd : sfds) {
     File *f = ftbl.Get(sfd.fd);
-    if (unlikely(!f)) return std::make_tuple(-EBADF, Duration(0));
+    if (unlikely(!f)) return std::make_pair(-EBADF, Duration(0));
     PollSource &src = f->get_poll_source();
     short pev = static_cast<short>(src.get_events());
     if ((pev & sfd.events) != 0) {
@@ -193,21 +199,22 @@ std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
   if (nevents > 0) {
     int ret = EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
     Duration d = timeout.value_or(Duration(0));
-    return std::make_tuple(ret, d);
+    return std::make_pair(ret, d);
   }
-  if (timeout && timeout->IsZero()) return std::make_tuple(0, Duration(0));
+  if (timeout && timeout->IsZero()) return std::make_pair(0, Duration(0));
 
   // Otherwise, init state to block on the FDs and timeout.
   rt::Spin &lock = mythread().get_waker_lock();
-  rt::ThreadWaker th;
-  WakeOnTimeout timed_out(lock, th, timeout);
+  rt::ThreadWaker waker;
+  WakeOnTimeout timed_out(lock, waker, timeout);
+  WakeOnSignal signaled(lock, mask);
 
   // Pack args to avoid heap allocations.
   struct {
     rt::Spin &lock;
-    rt::ThreadWaker &th;
+    rt::ThreadWaker &waker;
     int &nevents;
-  } args = {lock, th, nevents};
+  } args = {lock, waker, nevents};
 
   // Setup a trigger for each file.
   for (auto &sfd : sfds) {
@@ -218,7 +225,7 @@ std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
       if (delta != 0) {
         rt::SpinGuard g(args.lock);
         args.nevents += delta;
-        if (args.nevents > 0) args.th.Wake();
+        if (args.nevents > 0) args.waker.Wake();
       }
     });
     File *f = ftbl.Get(sfd.fd);
@@ -231,13 +238,15 @@ std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
     // Block until an event has triggered.
     {
       rt::SpinGuard g(lock);
-      g.Park(th, [&nevents, &timed_out] { return nevents > 0 || timed_out; });
+      g.Park(waker, [&nevents, &timed_out, &signaled] {
+        return nevents > 0 || timed_out || signaled;
+      });
     }
 
     for (auto &sfd : sfds) sfd.p.Detach();
 
     // There's a tiny chance events will get cleared, causing zero @nevents.
-    if (likely(nevents > 0 || timed_out)) break;
+    if (likely(nevents > 0 || timed_out || signaled)) break;
 
     for (auto &sfd : sfds) {
       File *f = ftbl.Get(sfd.fd);
@@ -247,10 +256,11 @@ std::tuple<int, Duration> DoSelect(int nfds, fd_set *readfds, fd_set *writefds,
     }
   }
 
-  Duration d;
+  Duration d(0);
   if (timeout) d = timed_out.TimeLeft();
+  if (nevents == 0 && signaled) return std::make_pair(-EINTR, d);
   int ret = EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
-  return std::make_tuple(ret, d);
+  return std::make_pair(ret, d);
 }
 
 }  // namespace
@@ -287,9 +297,7 @@ class EPollObserver : public PollObserver {
   IntrusiveListNode node_;
 };
 
-class EPollFile : public File,
-                  public std::enable_shared_from_this<EPollFile>,
-                  public rt::RCUObject<EPollFile> {
+class EPollFile : public File, public rt::RCUObject {
  public:
   EPollFile()
       : File(FileType::kSpecial, 0, 0), proc_(myproc().shared_from_this()) {}
@@ -300,7 +308,7 @@ class EPollFile : public File,
   bool Add(File &f, uint32_t events, uint64_t user_data);
   bool Modify(File &f, uint32_t events, uint64_t user_data);
   bool Delete(File &f);
-  int Wait(std::span<epoll_event> events, std::optional<Duration> timeout);
+  int Wait(std::span<epoll_event> events, std::optional<Duration> timeout, k_sigset_t mask);
 
   void AddEvent(EPollObserver &o) {
     rt::SpinGuard g(lock_);
@@ -316,6 +324,8 @@ class EPollFile : public File,
   }
 
  private:
+  int DeliverEvents(std::span<epoll_event> events_out);
+
   rt::Spin lock_;
   rt::ThreadWaker waker_;
   IntrusiveList<EPollObserver, &EPollObserver::node_> events_;
@@ -390,41 +400,47 @@ bool EPollFile::Delete(File &f) {
   return false;
 }
 
-int EPollFile::Wait(std::span<epoll_event> events_out,
-                    std::optional<Duration> timeout) {
-  WakeOnTimeout timed_out(lock_, waker_, timeout);
-
-  // Block until an event has triggered.
+int EPollFile::DeliverEvents(std::span<epoll_event> events_out) {
   auto it = events_out.begin();
+  IntrusiveList<EPollObserver, &EPollObserver::node_> tmp;
+  while (!events_.empty() && it != events_out.end()) {
+    EPollObserver &o = events_.front();
+    it->events = o.triggered_events_ & o.watched_events_;
+    it->data.u64 = o.user_data_;
+    ++it;
+    events_.pop_front();
+    if ((o.watched_events_ & kEPollEdgeTriggered) != 0) {
+      o.attached_ = false;
+      continue;
+    }
+    tmp.push_back(o);
+  }
+  // Put the events that were delivered at the end for better fairness.
+  events_.splice(events_.end(), tmp);
+  return std::distance(events_out.begin(), it);
+}
+
+int EPollFile::Wait(std::span<epoll_event> events_out,
+                    std::optional<Duration> timeout, k_sigset_t mask) {
+  // Fast path: Check if events are ready now
   {
     rt::SpinGuard g(lock_);
-
-    if (events_.empty() && timeout && timeout->IsZero()) return 0;
-
-    // Wait for events to be ready.
-    g.Park(waker_,
-           [this, &timed_out] { return !events_.empty() || timed_out; });
-
-    // Generate an array of events to report to the caller.
-    IntrusiveList<EPollObserver, &EPollObserver::node_> tmp;
-    while (!events_.empty() && it != events_out.end()) {
-      EPollObserver &o = events_.front();
-      it->events = o.triggered_events_ & o.watched_events_;
-      it->data.u64 = o.user_data_;
-      ++it;
-      events_.pop_front();
-      if ((o.watched_events_ & kEPollEdgeTriggered) != 0) {
-        o.attached_ = false;
-        continue;
-      }
-      tmp.push_back(o);
-    }
-
-    // Put the events that were delivered at the end for better fairness.
-    events_.splice(events_.end(), tmp);
+    if (!events_.empty()) return DeliverEvents(events_out);
   }
 
-  return std::distance(events_out.begin(), it);
+  // Slow path: Block and wait for events
+  WakeOnTimeout timed_out(lock_, waker_, timeout);
+  WakeOnSignal signaled(lock_, mask);
+  {
+    rt::SpinGuard g(lock_);
+    g.Park(waker_, [this, &timed_out, &signaled] {
+      return !events_.empty() || timed_out || signaled;
+    });
+    if (!events_.empty()) return DeliverEvents(events_out);
+  }
+
+  if (signaled) return -EINTR;
+  return 0;
 }
 
 void EPollObserver::Notify(uint32_t events) {
@@ -447,14 +463,14 @@ int CreateEPollFile(bool cloexec = false) {
 }
 
 int DoEPollWait(int epfd, epoll_event *events, int maxevents,
-                std::optional<Duration> timeout) {
+                std::optional<Duration> timeout, k_sigset_t mask = 0) {
   if (unlikely(maxevents < 0)) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(epfd);
   if (unlikely(!f)) return -EBADF;
   auto *epf = most_derived_cast<detail::EPollFile>(f);
   if (unlikely(!epf)) return -EINVAL;
-  return epf->Wait({events, static_cast<size_t>(maxevents)}, timeout);
+  return epf->Wait({events, static_cast<size_t>(maxevents)}, timeout, mask);
 }
 
 }  // namespace
@@ -473,9 +489,8 @@ int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
 
 int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *ts,
                const sigset_t *sigmask, size_t sigsetsize) {
-  // TODO(amb): support signal masking
   if (!ts) return DoPoll(fds, nfds, {});
-  return DoPoll(fds, nfds, Duration(*ts));
+  return DoPoll(fds, nfds, Duration(*ts), KernelSigset(sigmask));
 }
 
 int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
@@ -488,11 +503,12 @@ int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
 }
 
 int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, struct timespec *ts) {
-  // TODO(amb): support signal masking
+                  fd_set *exceptfds, struct timespec *ts,
+                  const sigset_t *sigmask) {
   std::optional<Duration> d;
   if (ts) d = Duration(*ts);
-  auto [ret, left] = DoSelect(nfds, readfds, writefds, exceptfds, d);
+  auto [ret, left] =
+      DoSelect(nfds, readfds, writefds, exceptfds, d, KernelSigset(sigmask));
   if (ret >= 0 && ts) *ts = left.Timespec();
   return ret;
 }
@@ -543,20 +559,20 @@ int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
 }
 
 int usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
-                     int timeout_ms, const sigset_t *sigmask) {
-  // TODO(amb): support signal masking
+                     int timeout_ms, const sigset_t *sigmask,
+                     size_t sigsetsize) {
   std::optional<Duration> timeout;
   if (timeout_ms >= 0)
     timeout = Duration(static_cast<uint64_t>(timeout_ms) * kMilliseconds);
-  return DoEPollWait(epfd, events, maxevents, timeout);
+  return DoEPollWait(epfd, events, maxevents, timeout, KernelSigset(sigmask));
 }
 
 int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
-                      const struct timespec *ts, const sigset_t *sigmask) {
-  // TODO(amb): support signal masking
+                      const struct timespec *ts, const sigset_t *sigmask,
+                      size_t sigsetsize) {
   std::optional<Duration> timeout;
   if (ts) timeout = Duration(*ts);
-  return DoEPollWait(epfd, events, maxevents, timeout);
+  return DoEPollWait(epfd, events, maxevents, timeout, KernelSigset(sigmask));
 }
 
 }  // namespace junction

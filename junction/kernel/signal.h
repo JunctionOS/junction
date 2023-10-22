@@ -39,6 +39,12 @@ inline constexpr bool SignalInMask(k_sigset_t mask, int sig) {
   return (mask & SignalMask(sig)) > 0;
 }
 
+// KernelSigset converts a user sigset to the kernel's representation.
+inline k_sigset_t KernelSigset(const sigset_t *usig) {
+  if (!usig) return 0;
+  return *reinterpret_cast<const k_sigset_t *>(usig);
+}
+
 // k_sigaction defines the actions for a signal (in sync with Linux definition)
 struct k_sigaction {
   sighandler handler;

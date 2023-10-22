@@ -105,16 +105,18 @@ int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p,
 int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
                 struct timeval *tv);
 int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, struct timespec *ts);
+                  fd_set *exceptfds, struct timespec *ts,
+                  const sigset_t *sigmask);
 int usys_epoll_create(int size);
 int usys_epoll_create1(int flags);
 int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event);
 int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
                     int timeout);
 int usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
-                     int timeout, const sigset_t *sigmask);
+                     int timeout, const sigset_t *sigmask, size_t sigsetsize);
 int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
-                      const struct timespec *timeout, const sigset_t *sigmask);
+                      const struct timespec *timeout, const sigset_t *sigmask,
+                      size_t sigsetsize);
 
 // Proc
 pid_t usys_getpid();
