@@ -206,9 +206,6 @@ class Preempt {
 
 // Spin lock support.
 class Spin {
-  template <Wakeable Waker>
-  friend bool ::junction::WaitInterruptible(rt::Spin &lock, Waker &waker);
-
  public:
   Spin() noexcept { spin_lock_init(&lock_); }
   ~Spin() { assert(!spin_lock_held(&lock_)); }
@@ -246,6 +243,9 @@ class Spin {
     assert(IsHeld());
     return perthread_read(kthread_idx);
   }
+
+  template <Wakeable Waker>
+  friend bool ::junction::WaitInterruptible(rt::Spin &lock, Waker &waker);
 
  private:
   spinlock_t lock_;

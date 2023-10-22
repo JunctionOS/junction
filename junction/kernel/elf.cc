@@ -249,7 +249,7 @@ Status<void> LoadOneSegment(JunctionFile &f, off_t map_off,
 }
 
 // LoadSegments loads all loadable PHDRs
-Status<std::tuple<uintptr_t, size_t>> LoadSegments(
+Status<std::pair<uintptr_t, size_t>> LoadSegments(
     MemoryMap &mm, JunctionFile &f, const std::vector<elf_phdr> &phdrs,
     bool reloc) {
   // Determine the base address.
@@ -268,7 +268,7 @@ Status<std::tuple<uintptr_t, size_t>> LoadSegments(
     if (!ret) return MakeError(ret);
   }
 
-  return std::make_tuple(map_off, map_len);
+  return std::make_pair(map_off, map_len);
 }
 
 // LoadInterp loads an interpreter binary (usually ld.so).
@@ -294,7 +294,7 @@ Status<elf_data::interp_data> LoadInterp(MemoryMap &mm, std::string_view path) {
   if (!phdrs) return MakeError(phdrs);
 
   // Load the PHDR segments.
-  Status<std::tuple<uintptr_t, size_t>> ret =
+  Status<std::pair<uintptr_t, size_t>> ret =
       LoadSegments(mm, *file, *phdrs, true);
   if (!ret) return MakeError(ret);
 
@@ -349,7 +349,7 @@ Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path) {
   }
 
   // Load the PHDR segments.
-  Status<std::tuple<uintptr_t, size_t>> ret =
+  Status<std::pair<uintptr_t, size_t>> ret =
       LoadSegments(mm, *file, *phdrs, hdr->type == kETypeDynamic);
   if (!ret) return MakeError(ret);
 

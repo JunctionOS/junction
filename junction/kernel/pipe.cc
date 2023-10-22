@@ -19,7 +19,7 @@ namespace {
 
 class Pipe : public rt::RCUObject {
  public:
-  friend std::tuple<int, int> CreatePipe(int flags);
+  friend std::pair<int, int> CreatePipe(int flags);
 
   explicit Pipe(size_t size) noexcept : chan_(size) {}
   ~Pipe() = default;
@@ -175,7 +175,7 @@ class PipeWriterFile : public File {
   std::shared_ptr<Pipe> pipe_;
 };
 
-std::tuple<int, int> CreatePipe(int flags = 0) {
+std::pair<int, int> CreatePipe(int flags = 0) {
   // Create the pipe (shared between the reader and writer file).
   std::shared_ptr<Pipe> pipe(new Pipe(kPipeSize), rt::RCUDeleter<Pipe>());
 
@@ -193,7 +193,7 @@ std::tuple<int, int> CreatePipe(int flags = 0) {
   bool cloexec = (flags & kFlagCloseExec) > 0;
   int read_fd = ftbl.Insert(std::move(reader), cloexec);
   int write_fd = ftbl.Insert(std::move(writer), cloexec);
-  return std::make_tuple(read_fd, write_fd);
+  return std::make_pair(read_fd, write_fd);
 }
 
 }  // namespace
