@@ -150,7 +150,7 @@ class File {
 
 namespace detail {
 
-struct file_array {
+struct file_array : public rt::RCUObject {
   explicit file_array(size_t cap);
   ~file_array();
 

@@ -94,16 +94,9 @@ void RCUFree(T *p, D d) {
   });
 }
 
-// Takes ownership of a unique pointer and frees it after a quiescent period.
-// Does not block. Allocates memory (for a thread).
-template <typename T>
-void RCUFree(std::unique_ptr<T> ptr) {
-  RCUFree(ptr.get(), ptr.get_deleter());
-  ptr.release();
-}
-
 // RCUObject can be inherited to make freeing more efficient.
 class RCUObject {
+ public:
   template <typename T>
   friend void RCUFree(T *p);
 
@@ -130,6 +123,17 @@ void RCUFree(T *p) {
       RCUSynchronize();
       std::default_delete<T>()(p);
     });
+  }
+}
+
+// Takes ownership of a unique pointer and frees it after a quiescent period.
+// Does not block. Allocates memory (for a thread).
+template <typename T, typename D>
+void RCUFree(std::unique_ptr<T, D> ptr) {
+  if constexpr (std::same_as<D, std::default_delete<T>>) {
+    RCUFree(ptr.release());
+  } else {
+    RCUFree(ptr.release(), ptr.get_deleter());
   }
 }
 
