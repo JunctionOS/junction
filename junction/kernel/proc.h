@@ -14,6 +14,7 @@ extern "C" {
 #include <memory>
 
 #include "junction/base/uid.h"
+#include "junction/junction.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/itimer.h"
 #include "junction/kernel/mm.h"
@@ -148,7 +149,11 @@ class Thread {
      * busy.
      * (4) If neither is true, send an IPI to the core hosting the thread.
      */
-    try_wake_blocked_thread(GetCaladanThread());
+    if (try_wake_blocked_thread(GetCaladanThread())) return;
+
+    if (in_syscall()) return;
+
+    ksys_tgkill(GetLinuxPid(), GetCaladanThread()->last_tid, SIGURG);
   };
 
   // Called by a thread to run pending interrupts. This function may not return.

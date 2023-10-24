@@ -130,7 +130,40 @@ void FixRspAltstack(const DeliveredSignal &sig, uint64_t *rsp) {
   *rsp = reinterpret_cast<uint64_t>(sig.ss.ss_sp) + sig.ss.ss_size;
 }
 
+// Handle a kick delivered by host OS signal (or UIPI in the future)
+void HandleKick(k_sigframe *sigframe) {
+  if (!IsJunctionThread()) return;
+
+  Thread &th = mythread();
+
+  if (th.in_syscall()) return;
+
+  ThreadSignalHandler &hand = th.get_sighand();
+
+  std::optional<DeliveredSignal> sig = hand.GetNextSignal();
+  if (!sig) return;
+
+  uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
+  FixRspAltstack(*sig, &rsp);
+
+  // Transfer kernel sigframe to the stack
+  k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
+  new_frame->InvalidateAltStack();
+
+  // trapframe to directly restore the kernel sigframe
+  thread_tf restore_kernel;
+  restore_kernel.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
+  restore_kernel.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
+
+  thread_tf sighand_tf;
+  hand.ApplySignals(*sig, &rsp, restore_kernel, sighand_tf);
+
+  __switch_and_preempt_enable(&sighand_tf);
+  std::unreachable();
+}
+
 // Signal handler for IOKernel sent signals (SIGUSR1 + SIGUSR2)
+// Also handles SIGURG to deliver pending signals
 extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
                                                     void *context) {
   STAT(PREEMPTIONS)++;
@@ -156,6 +189,18 @@ extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
   assert_on_runtime_stack();
 
   k_sigframe *sigframe = container_of(uc, k_sigframe, uc);
+
+  // Run signal handlers
+  if (signo == SIGURG) {
+    HandleKick(sigframe);
+
+    // If we return to this point there is no signal to deliver, move to a
+    // preemption-safe stack, reenable preemption, and then do an rt_sigreturn.
+    thread_tf restore_tf;
+    MoveSigframeForImmediateUnwind(sigframe, restore_tf);
+    __switch_and_preempt_enable(&restore_tf);
+    std::unreachable();
+  }
 
   // restore runtime FS register
   SetFSBase(perthread_read(runtime_fsbase));
@@ -743,7 +788,7 @@ Status<void> InitSignal() {
   // Replace Caladan sighandler with one that receives signals on
   // alternate stacks and transfers frames to the correct altstacks
   act.sa_sigaction = caladan_signal_handler;
-  for (auto sig : {SIGUSR1, SIGUSR2}) {
+  for (auto sig : {SIGUSR1, SIGUSR2, SIGURG}) {
     if (unlikely(base_sigaction(sig, &act, nullptr) != 0)) {
       return MakeError(errno);
     }

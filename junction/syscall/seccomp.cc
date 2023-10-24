@@ -42,6 +42,7 @@ Status<void> _install_seccomp_filter() {
       ALLOW_CALADAN_SYSCALL(writev),
 
       // TODO: remove these
+      ALLOW_JUNCTION_SYSCALL(tgkill),
       ALLOW_JUNCTION_SYSCALL(access),
       ALLOW_JUNCTION_SYSCALL(getdents),
       ALLOW_JUNCTION_SYSCALL(getdents64),

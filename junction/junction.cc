@@ -20,6 +20,9 @@ namespace junction {
 
 std::string cwd;
 std::string_view GetCwd() { return cwd; }
+pid_t linux_pid;
+
+pid_t GetLinuxPid() { return linux_pid; }
 
 JunctionCfg JunctionCfg::singleton_;
 
@@ -118,6 +121,8 @@ Status<void> init() {
   // Make sure any one-time routines in the logger get run now.
   LOG(INFO) << "Initializing junction";
   GetCfg().Print();
+
+  linux_pid = getpid();
 
   Status<void> ret = InitFS();
   if (unlikely(!ret)) return ret;

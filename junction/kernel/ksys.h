@@ -35,6 +35,7 @@ int ksys_open(const char *pathname, int flags, mode_t mode);
 int ksys_close(int fd);
 ssize_t ksys_readv(int fd, const struct iovec *iov, int iovcnt);
 ssize_t ksys_pread(int fd, void *buf, size_t count, off_t offset);
+int ksys_tgkill(pid_t tgid, pid_t tid, int sig);
 
 static inline ssize_t ksys_write(int fd, const void *buf, size_t count) {
   return syscall_write(fd, buf, count);

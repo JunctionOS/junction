@@ -1,0 +1,51 @@
+From e50ec76f3495cd7798a650e0a36e2d7551e0ad11 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Tue, 24 Oct 2023 06:10:27 +0000
+Subject: [PATCH 31/31] track current kthread tid in thread struct
+
+---
+ inc/runtime/thread.h | 1 +
+ runtime/sched.c      | 8 ++++++--
+ 2 files changed, 7 insertions(+), 2 deletions(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 6cf242d1..7d46d2a3 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -107,6 +107,7 @@ struct thread {
+     bool                thread_running;
+     bool                thread_blocked;
+     unsigned int        last_cpu;
++    unsigned int        last_tid;
+     uint64_t        run_start_tsc;
+     uint64_t        ready_tsc;
+     uint64_t        tlsvar;
+diff --git a/runtime/sched.c b/runtime/sched.c
+index f5e5d117..bce6272c 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -91,7 +91,9 @@ static void jmp_thread(thread_t *th)
+ 
+ 	set_fsbase(th->tf.fsbase);
+ 
+-	th->last_cpu = myk()->curr_cpu;
++	struct kthread *k = myk();
++	th->last_cpu = k->curr_cpu;
++	th->last_tid = k->tid;
+ 	store_release(&th->thread_running, true);
+ 	barrier();
+ 
+@@ -127,7 +129,9 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
+ 
+ 	set_fsbase(newth->tf.fsbase);
+ 
+-	newth->last_cpu = myk()->curr_cpu;
++	struct kthread *k = myk();
++	newth->last_cpu = k->curr_cpu;
++	newth->last_tid = k->tid;
+ 	store_release(&newth->thread_running, true);
+ 
+ 	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
+-- 
+2.39.2
+

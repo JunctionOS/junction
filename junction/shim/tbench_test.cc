@@ -1,6 +1,8 @@
 #include <cassert>
+#include <cerrno>
 #include <chrono>
 #include <condition_variable>
+#include <cstring>
 #include <iostream>
 #include <mutex>
 #include <string>
@@ -10,6 +12,7 @@ extern "C" {
 #include <fcntl.h>
 #include <poll.h>
 #include <semaphore.h>
+#include <signal.h>
 #include <spawn.h>
 #include <sys/epoll.h>
 #include <sys/eventfd.h>
@@ -100,6 +103,136 @@ void BenchSemPingPong(int measure_rounds) {
   th.join();
   sem_destroy(&sem1);
   sem_destroy(&sem2);
+}
+
+volatile bool delivered[32];
+
+void StackedTestHandler(int signo) { delivered[signo] = true; }
+
+void TestStackedSignals() {
+  EXPECT_NE(signal(SIGUSR1, StackedTestHandler), SIG_ERR);
+  EXPECT_NE(signal(SIGUSR2, StackedTestHandler), SIG_ERR);
+
+  sigset_t s;
+  sigemptyset(&s);
+  sigaddset(&s, SIGUSR1);
+  sigaddset(&s, SIGUSR2);
+
+  EXPECT_EQ(sigprocmask(SIG_BLOCK, &s, nullptr), 0);
+
+  EXPECT_EQ(tgkill(getpid(), gettid(), SIGUSR1), 0);
+
+  sigemptyset(&s);
+  EXPECT_EQ(sigpending(&s), 0);
+  EXPECT_EQ(sigismember(&s, SIGUSR1), 1);
+
+  EXPECT_EQ(tgkill(getpid(), gettid(), SIGUSR2), 0);
+
+  sigemptyset(&s);
+  EXPECT_EQ(sigpending(&s), 0);
+  EXPECT_EQ(sigismember(&s, SIGUSR1), 1);
+  EXPECT_EQ(sigismember(&s, SIGUSR2), 1);
+
+  sigemptyset(&s);
+  sigaddset(&s, SIGUSR1);
+  sigaddset(&s, SIGUSR2);
+
+  EXPECT_EQ(delivered[SIGUSR1], false);
+  EXPECT_EQ(delivered[SIGUSR2], false);
+
+  EXPECT_EQ(sigprocmask(SIG_UNBLOCK, &s, nullptr), 0);
+
+  EXPECT_EQ(delivered[SIGUSR1], true);
+  EXPECT_EQ(delivered[SIGUSR2], true);
+}
+
+volatile int vals[2];
+
+void SigHandler(int signo) {
+  int valno = signo == SIGUSR1 ? 0 : 1;
+  vals[valno] = vals[valno] + 1;
+}
+
+void BenchSignalPingPongSigSuspend(int measure_rounds) {
+  EXPECT_NE(signal(SIGUSR1, SigHandler), SIG_ERR);
+  EXPECT_NE(signal(SIGUSR2, SigHandler), SIG_ERR);
+
+  pid_t mypid = getpid();
+
+  pid_t t1 = gettid();
+  volatile pid_t t2 = 0;
+
+  sigset_t s;
+  sigemptyset(&s);
+  sigaddset(&s, SIGUSR1);
+  sigaddset(&s, SIGUSR2);
+
+  sigset_t s1;
+  sigfillset(&s1);
+  sigdelset(&s1, SIGUSR1);
+  sigdelset(&s1, SIGUSR2);
+
+  auto th = std::thread([&]() {
+    t2 = gettid();
+    EXPECT_EQ(sigprocmask(SIG_BLOCK, &s, nullptr), 0);
+    for (int i = 0; i < measure_rounds / 2; ++i) {
+      EXPECT_EQ(tgkill(mypid, t1, SIGUSR1), 0) << std::strerror(errno);
+
+      // Wait for flag
+      while (vals[1] == i) sigsuspend(&s1);
+    }
+    while (t2) sched_yield();
+  });
+
+  EXPECT_EQ(sigprocmask(SIG_BLOCK, &s, nullptr), 0);
+
+  while (!t2)
+    ;
+
+  for (int i = 0; i < measure_rounds / 2; ++i) {
+    // Wait for flag
+    while (vals[0] == i) sigsuspend(&s1);
+
+    // send signal
+    EXPECT_EQ(tgkill(mypid, t2, SIGUSR2), 0) << std::strerror(errno);
+  }
+
+  t2 = 0;
+
+  th.join();
+}
+
+void BenchSignalPingPongSpin(int measure_rounds) {
+  EXPECT_NE(signal(SIGUSR1, SigHandler), SIG_ERR);
+  EXPECT_NE(signal(SIGUSR2, SigHandler), SIG_ERR);
+
+  pid_t mypid = getpid();
+
+  pid_t t1 = gettid();
+  volatile pid_t t2;
+
+  auto th = std::thread([&]() {
+    t2 = gettid();
+
+    for (int i = 0; i < measure_rounds / 2; ++i) {
+      EXPECT_EQ(tgkill(mypid, t1, SIGUSR1), 0) << std::strerror(errno);
+
+      // Wait for flag
+      while (vals[1] == i)
+        ;
+    }
+  });
+
+  for (int i = 0; i < measure_rounds / 2; ++i) {
+    // Wait for flag
+    while (vals[0] == i)
+      ;
+
+    // send signal
+    EXPECT_EQ(tgkill(mypid, t2, SIGUSR2), 0) << std::strerror(errno);
+  }
+
+  th.join();
 }
 
 void BenchEventFdPingPong(int measure_rounds) {
@@ -484,10 +617,18 @@ class ThreadingTest : public ::testing::Test {
 std::vector<std::pair<const std::string, us>> ThreadingTest::results_({});
 
 #if 1
-TEST_F(ThreadingTest, BenchPosixSpawn) {
-  Bench("BenchPosixSpawn", BenchPosixSpawn);
-}
+TEST_F(ThreadingTest, TestPosixSpawn) { BenchPosixSpawn(10); }
 #endif
+
+TEST_F(ThreadingTest, StackedSignals) { TestStackedSignals(); }
+
+TEST_F(ThreadingTest, SignalPingPongSpin) {
+  Bench("SignalPingPongSpin", BenchSignalPingPongSpin);
+}
+
+TEST_F(ThreadingTest, SignalPingPongSuspend) {
+  Bench("SignalPingPongSuspend", BenchSignalPingPongSigSuspend);
+}
 
 TEST_F(ThreadingTest, GetPid) { Bench("GetPid", BenchGetPid); }
 

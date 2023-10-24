@@ -9,7 +9,7 @@ USYS_LIST = sys.argv[1]
 OUTPUT_FILE = sys.argv[2]
 
 SYS_NR = 454
-JUNCTION_TF_OFF = 400
+JUNCTION_TF_OFF = 408
 
 # Header files scanned in the given order to get a list of syscall numbers.
 # The first file found is used.

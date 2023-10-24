@@ -3,7 +3,6 @@
 #include <boost/program_options.hpp>
 
 #include "junction/base/error.h"
-#include "junction/kernel/proc.h"
 
 #ifndef CUSTOM_GLIBC_INTERPRETER_PATH
 #define CUSTOM_GLIBC_INTERPRETER_PATH
@@ -18,6 +17,8 @@
 #endif
 
 namespace junction {
+
+class Process;
 
 class JunctionCfg {
  public:
@@ -67,6 +68,7 @@ class JunctionCfg {
 inline JunctionCfg &GetCfg() { return JunctionCfg::get(); }
 
 std::string_view GetCwd();
+pid_t GetLinuxPid();
 
 Status<void> init();
 Status<void> InitUnixTime();

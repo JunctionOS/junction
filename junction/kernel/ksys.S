@@ -37,6 +37,14 @@ ksys_munmap:
 	ret
 
 .align 16
+.globl ksys_tgkill
+.type ksys_tgkill, @function
+ksys_tgkill:
+	movl	$__NR_tgkill, %eax
+	syscall
+	ret
+
+.align 16
 .globl ksys_mprotect
 .type ksys_mprotect, @function
 ksys_mprotect:
