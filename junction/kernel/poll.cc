@@ -433,6 +433,8 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     if (!events_.empty()) return DeliverEvents(events_out);
   }
 
+  if (timeout && timeout->IsZero()) return 0;
+
   // Slow path: Block and wait for events
   WakeOnTimeout timed_out(lock_, waker_, timeout);
   SigMaskGuard sig(mask);
