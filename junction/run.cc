@@ -60,8 +60,10 @@ void JunctionMain(int argc, char *argv[]) {
   std::stringstream preload_path_s;
   preload_path_s << "LD_PRELOAD=" << GetCfg().get_preload_path();
   std::string preload_path = preload_path_s.str();
-  std::vector<std::string_view> envp = {ld_path, preload_path,
-#ifdef DEBUG
+  std::vector<std::string_view> envp = {
+    ld_path,
+    preload_path,
+#if 0
                                         "LD_DEBUG=all"
 #endif  // DEBUG
   };

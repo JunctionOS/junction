@@ -110,19 +110,18 @@ class WakeOnTimeout {
 // calling thread's lifetime.
 //
 // WARNING: The calling thread must be a Junction kernel thread.
-template <rt::Wakeable Waker>
+template <rt::InterruptWakeable Waker>
 bool WaitInterruptible(rt::Spin &lock, Waker &waker) {
   assert(lock.IsHeld());
   assert(IsJunctionThread());
-  register_waker_lock(&lock.lock_);
+  waker.ArmInterruptible(lock);
   if (mythread().needs_interrupt()) {
-    clear_waker_lock();
+    waker.CancelArm();
     return true;
   }
-  waker.Arm();
   lock.UnlockAndPark();
   lock.Lock();
-  clear_waker_lock();
+
   return mythread().needs_interrupt();
 }
 
@@ -170,6 +169,170 @@ class SigMaskGuard {
   SigMaskGuard &operator=(const SigMaskGuard &) = delete;
   SigMaskGuard(SigMaskGuard &&) = delete;
   SigMaskGuard &operator=(SigMaskGuard &&) = delete;
+};
+
+// An interruptible RW Mutex. This object's lifetime must be managed by RCU or
+// be static.
+class InterruptibleRWMutex {
+ public:
+  InterruptibleRWMutex() = default;
+  ~InterruptibleRWMutex() = default;
+
+  InterruptibleRWMutex(InterruptibleRWMutex &&) = delete;
+  InterruptibleRWMutex &operator=(InterruptibleRWMutex &&) = delete;
+  InterruptibleRWMutex(const InterruptibleRWMutex &) = delete;
+  InterruptibleRWMutex &operator=(const InterruptibleRWMutex &) = delete;
+
+  // Locks the mutex for reading. Returns false if interrupted and the lock is
+  // not held.
+  [[nodiscard]] bool RdLockInterruptible() {
+    thread_t *th = thread_self();
+
+    assert(IsJunctionThread());
+    lock_.Lock();
+    if (count_ >= 0) {
+      AddReader();
+      lock_.Unlock();
+      return true;
+    }
+
+    read_waiters_.ArmInterruptible(lock_);
+    if (mythread().needs_interrupt()) {
+      read_waiters_.CancelArm();
+      lock_.Unlock();
+      return false;
+    }
+
+    th->waiter_data = kWaiting;
+    lock_.UnlockAndPark();
+
+    return access_once(th->waiter_data) == kAcquired;
+  }
+
+  // Locks the mutex for reading.
+  void RdLock() {
+    lock_.Lock();
+    if (count_ >= 0) {
+      AddReader();
+      lock_.Unlock();
+      return;
+    }
+    read_waiters_.Arm();
+    lock_.UnlockAndPark();
+  }
+
+  // Locks the mutex for writing.
+  void WrLock() {
+    lock_.Lock();
+    if (count_ == 0) {
+      AddWriter();
+      lock_.Unlock();
+      return;
+    }
+    write_waiters_.Arm();
+    lock_.UnlockAndPark();
+  }
+
+  // Locks the mutex for writing. Returns false if interrupted and the lock is
+  // not held.
+  [[nodiscard]] bool WrLockInterruptible() {
+    thread_t *th = thread_self();
+    lock_.Lock();
+    if (count_ == 0) {
+      AddWriter();
+      lock_.Unlock();
+      return true;
+    }
+
+    write_waiters_.ArmInterruptible(lock_);
+    if (mythread().needs_interrupt()) {
+      write_waiters_.CancelArm();
+      lock_.Unlock();
+      return false;
+    }
+
+    th->waiter_data = kWaiting;
+    lock_.UnlockAndPark();
+
+    return access_once(th->waiter_data) == kAcquired;
+  }
+
+  // Unlocks the mutex.
+  void Unlock() {
+    rt::SpinGuard g(lock_);
+    assert(count_ != 0);
+
+    count_ -= phase_;
+
+    if (count_ == 0) {
+      if (read_waiter_count_)
+        WakeReadWaiters();
+      else
+        TryWakeOneWriter();
+    }
+  }
+
+  // Locks the mutex for reading only if it is currently unlocked. Returns true
+  // if successful.
+  [[nodiscard]] bool TryRdLock() {
+    rt::SpinGuard g(lock_);
+    if (count_ < 0) return false;
+    AddReader();
+    return true;
+  }
+
+  // Locks the mutex for writing only if it is currently unlocked. Returns true
+  // if successful.
+  [[nodiscard]] bool TryWrLock() {
+    rt::SpinGuard g(lock_);
+    if (count_ != 0) return false;
+    AddWriter();
+    return true;
+  }
+
+  // Returns true if the mutex is currently held.
+  [[nodiscard]] bool IsHeld() const { return access_once(count_) != 0; }
+
+ private:
+  static constexpr inline uint64_t kWaiting = 1;
+  static constexpr inline uint64_t kAcquired = 2;
+  static constexpr inline int kPhaseRead = 1;
+  static constexpr inline int kPhaseWrite = -1;
+
+  inline void AddReader() {
+    count_++;
+    phase_ = kPhaseRead;
+  }
+
+  inline void AddWriter() { count_ = phase_ = kPhaseWrite; }
+
+  void WakeReadWaiters() {
+    assert(lock_.IsHeld());
+    assert(count_ == 0);
+
+    read_waiters_.WakeAll(false,
+                          [](thread_t *th) { th->waiter_data = kAcquired; });
+
+    count_ = read_waiter_count_;
+    read_waiter_count_ = 0;
+    phase_ = kPhaseRead;
+  }
+
+  void TryWakeOneWriter() {
+    assert(lock_.IsHeld());
+    assert(count_ == 0);
+
+    if (write_waiters_.WakeOne(
+            false, [](thread_t *th) { th->waiter_data = kAcquired; }))
+      AddWriter();
+  }
+
+  rt::Spin lock_;
+  rt::WaitQueue read_waiters_;
+  rt::WaitQueue write_waiters_;
+  int count_{0};
+  int phase_;
+  int read_waiter_count_{0};
 };
 
 }  // namespace junction
