@@ -1,7 +1,7 @@
-From 0137ee76c0dbb44eb3cf515e8fb413de18a877ea Mon Sep 17 00:00:00 2001
+From 18d73930ea3692ab11b8c7ac2330f4945b6c90dc Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 4 Apr 2023 02:26:06 +0000
-Subject: [PATCH 21/21] syscall nits
+Subject: [PATCH 21/31] syscall nits
 
 ---
  base/syscall.S     | 17 +++++++++++++----
@@ -9,7 +9,7 @@ Subject: [PATCH 21/21] syscall nits
  2 files changed, 39 insertions(+), 5 deletions(-)
 
 diff --git a/base/syscall.S b/base/syscall.S
-index be34afc..ca2bb44 100644
+index be34afc3..ca2bb444 100644
 --- a/base/syscall.S
 +++ b/base/syscall.S
 @@ -7,13 +7,22 @@
@@ -40,7 +40,7 @@ index be34afc..ca2bb44 100644
  .globl syscall_mmap
  syscall_mmap:
 diff --git a/inc/base/syscall.h b/inc/base/syscall.h
-index 3d67b37..bced533 100644
+index 3d67b370..7f2de807 100644
 --- a/inc/base/syscall.h
 +++ b/inc/base/syscall.h
 @@ -6,6 +6,7 @@
@@ -57,7 +57,7 @@ index 3d67b37..bced533 100644
  extern void syscall_exit(int status) __noreturn;
 -extern ssize_t syscall_write(int fd, const void *buf, size_t count);
 +extern ssize_t syscall_pwritev2(int fd, const struct iovec *iov, int iovcnt,
-+	                            off_t offset, int flags);
++	                            off_t offset_lo, off_t offset_hi, int flags);
 +
 +extern ssize_t syscall_writev(int fd, const struct iovec *iov, int iovcnt);
 +
@@ -69,7 +69,7 @@ index 3d67b37..bced533 100644
 +		.iov_len = count
 +	};
 +
-+	return syscall_pwritev2(fd, &iov, 1, offset, 0);
++	return syscall_pwritev2(fd, &iov, 1, offset, 0, 0);
 +}
 +
 +static inline ssize_t syscall_write(int fd, const void *buf, size_t count)
@@ -82,5 +82,5 @@ index 3d67b37..bced533 100644
 +	return syscall_writev(fd, &iov, 1);
 +}
 -- 
-2.37.2
+2.39.2
 
