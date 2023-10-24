@@ -122,3 +122,6 @@ settimeofday
 clock_getres
 clock_gettime
 time
+rt_sigtimedwait
+rt_sigsuspend
+pause

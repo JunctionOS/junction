@@ -100,8 +100,23 @@ class Thread {
 
   void OnSyscallLeave(long rax) {
     if (unlikely(needs_interrupt())) HandleInterrupt(rax);
-    set_in_syscall(false);
-    SetSyscallFrame(nullptr);
+
+    // TODO(jf): can we put this into HandleInterrupt?
+    get_sighand().RestoreBlocked();
+    void *frame = GetSyscallFrame();
+
+    while (true) {
+      SetSyscallFrame(nullptr);
+      set_in_syscall(false);
+
+      // A signal may have been queued but not delivered between the last check
+      // of needs_interrupt() and clearing the in_syscall flag. Check once
+      // more for pending interrupts.
+      if (likely(!needs_interrupt())) break;
+      set_in_syscall(true);
+      SetSyscallFrame(frame);
+      HandleInterrupt(rax);
+    }
   }
 
   void Kill() {

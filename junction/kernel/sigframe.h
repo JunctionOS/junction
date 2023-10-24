@@ -102,7 +102,7 @@ struct k_ucontext {
 enum class SigframeType : unsigned long {
   kKernelSignal = 0,
   kJunctionUIPI,
-  kJunctionDeferred,
+  kJunctionTf,
 };
 
 struct k_sigframe {

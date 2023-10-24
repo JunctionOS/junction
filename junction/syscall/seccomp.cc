@@ -181,6 +181,7 @@ extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
 
   // stash a pointer to the sigframe in case we need to restart the syscall
   mythread().SetSyscallFrame(new_frame);
+  thread_self()->junction_tf.rsp = ctx->uc_mcontext.rsp;
 
   // force return to syscall_trap_return
   new_frame->pretcode = reinterpret_cast<char *>(syscall_trap_return);

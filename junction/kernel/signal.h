@@ -45,6 +45,19 @@ inline std::optional<k_sigset_t> KernelSigset(const sigset_t *usig) {
   return *reinterpret_cast<const k_sigset_t *>(usig);
 }
 
+// Disable the altstack after delivering the signal.
+inline constexpr uint32_t kSigStackAutoDisarm = (1U << 31);
+
+template <typename... Args>
+constexpr k_sigset_t MultiSignalMask(Args... args) {
+  k_sigset_t mask = 0;
+  for (const auto a : {args...}) mask |= SignalMask(a);
+  return mask;
+}
+
+// Mask of signals that can only be handling in the kernel.
+constexpr k_sigset_t kSignalKernelOnlyMask = MultiSignalMask(SIGKILL, SIGSTOP);
+
 // k_sigaction defines the actions for a signal (in sync with Linux definition)
 struct k_sigaction {
   sighandler handler;
@@ -104,11 +117,13 @@ class SignalQueue : public rt::Spin {
   }
 
   // Pop next queued signal from pending_q_
-  siginfo_t PopNextSignal(k_sigset_t mask);
+  siginfo_t Pop(k_sigset_t mask);
   // Enqueue a new signal, returns true if successful
   bool Enqueue(siginfo_t *info);
 
-  [[nodiscard]] k_sigset_t get_pending() const { return access_once(pending_); }
+  [[nodiscard]] k_sigset_t get_pending(k_sigset_t blocked = 0) const {
+    return access_once(pending_) & ~blocked;
+  }
   [[nodiscard]] bool is_sig_pending(int signo) const {
     return SignalInMask(get_pending(), signo);
   }
@@ -119,6 +134,13 @@ class SignalQueue : public rt::Spin {
 
   std::list<siginfo_t> pending_q_;
   k_sigset_t pending_{0};
+};
+
+struct DeliveredSignal {
+  k_sigaction act;
+  siginfo_t info;
+  stack_t ss;
+  k_sigset_t prev_blocked;
 };
 
 class ThreadSignalHandler {
@@ -151,10 +173,7 @@ class ThreadSignalHandler {
     return get_pending() & access_once(blocked_);
   }
 
-  void DisableAltStack() {
-    sigaltstack_.ss_flags = SS_DISABLE;
-    thread_self()->tlsvar = 1;
-  }
+  void DisableAltStack() { sigaltstack_.ss_flags = SS_DISABLE; }
 
   Status<void> SigAltStack(const stack_t *ss, stack_t *old_ss) {
     if (old_ss) *old_ss = sigaltstack_;
@@ -168,15 +187,18 @@ class ThreadSignalHandler {
     if (oset) *oset = blocked_;
     if (!nset) return {};
 
+    k_sigset_t sig = *nset;
+    sig &= ~kSignalKernelOnlyMask;
+
     switch (how) {
       case SIG_BLOCK:
-        blocked_ |= *nset;
+        blocked_ |= sig;
         break;
       case SIG_UNBLOCK:
-        blocked_ &= ~(*nset);
+        blocked_ &= ~sig;
         break;
       case SIG_SETMASK:
-        blocked_ = *nset;
+        blocked_ = sig;
         break;
       default:
         return MakeError(EINVAL);
@@ -209,13 +231,18 @@ class ThreadSignalHandler {
     saved_blocked_ = std::nullopt;
   }
 
+  std::optional<DeliveredSignal> GetNextSignal();
+  bool PopSigInfo(siginfo_t *dst_sig);
+  void ApplySignals(const DeliveredSignal &first_signal, uint64_t *rsp,
+                    const thread_tf &restore_tf, thread_tf &sighand_tf);
+  [[noreturn]] void ApplySignalsAndExit(const DeliveredSignal &first_signal,
+                                        uint64_t rsp,
+                                        const thread_tf &restore_tf);
+
  private:
   // Check if signal can be delivered, and returns the action if so.
   // May modifies the sigaction if it is set to SA_ONESHOT
   std::optional<k_sigaction> GetAction(int signo);
-
-  // Update a Linux sigframe with correct altstack, blocked mask, and restorer
-  void TransformSigFrame(k_sigframe &sigframe, const k_sigaction &act) const;
 
   // @sig_q_ lock used to synchronize blocked signals
   SignalQueue sig_q_;
@@ -223,9 +250,6 @@ class ThreadSignalHandler {
   std::optional<k_sigset_t> saved_blocked_;
   stack_t sigaltstack_{nullptr, SS_DISABLE, 0};
   Process *proc_;
-
-  void set_sig_blocked(int signo) { blocked_ |= SignalMask(signo); }
-  void clear_sig_blocked(int signo) { blocked_ &= ~SignalMask(signo); }
 };
 
 // SignalTable is a table of the signal actions for a process.
