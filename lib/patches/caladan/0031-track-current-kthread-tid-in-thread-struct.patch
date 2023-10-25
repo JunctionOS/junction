@@ -1,6 +1,6 @@
-From e50ec76f3495cd7798a650e0a36e2d7551e0ad11 Mon Sep 17 00:00:00 2001
+From 1894ea3d683aeb042f23a21e6799e452f5bcd06b Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
-Date: Tue, 24 Oct 2023 06:10:27 +0000
+Date: Wed, 25 Oct 2023 12:33:59 -0400
 Subject: [PATCH 31/31] track current kthread tid in thread struct
 
 ---
@@ -9,19 +9,19 @@ Subject: [PATCH 31/31] track current kthread tid in thread struct
  2 files changed, 7 insertions(+), 2 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 6cf242d1..7d46d2a3 100644
+index 4873be1..47a863b 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -107,6 +107,7 @@ struct thread {
+@@ -106,6 +106,7 @@ struct thread {
+     bool                thread_ready;
      bool                thread_running;
-     bool                thread_blocked;
      unsigned int        last_cpu;
 +    unsigned int        last_tid;
      uint64_t        run_start_tsc;
      uint64_t        ready_tsc;
      uint64_t        tlsvar;
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f5e5d117..bce6272c 100644
+index bc321f5..cb1e228 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -91,7 +91,9 @@ static void jmp_thread(thread_t *th)
@@ -47,5 +47,5 @@ index f5e5d117..bce6272c 100644
  
  	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
 -- 
-2.39.2
+2.39.2 (Apple Git-143)
 
