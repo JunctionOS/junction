@@ -177,7 +177,7 @@ std::pair<int, Duration> DoSelect(
     std::optional<Duration> timeout,
     std::optional<k_sigset_t> mask = std::nullopt) {
   // Check if maximum number of FDs has been exceeded.
-  if (nfds > FD_SETSIZE) return std::make_pair(-EINVAL, Duration(0));
+  if (unlikely(nfds > FD_SETSIZE)) return std::make_pair(-EINVAL, Duration(0));
 
   // Decode the events into a more convenient format.
   std::vector<select_fd> sfds =
@@ -405,6 +405,7 @@ bool EPollFile::Delete(File &f) {
 }
 
 int EPollFile::DeliverEvents(std::span<epoll_event> events_out) {
+  assert(lock_.IsHeld());
   auto it = events_out.begin();
   IntrusiveList<EPollObserver, &EPollObserver::node_> tmp;
   while (!events_.empty() && it != events_out.end()) {
@@ -432,7 +433,6 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     rt::SpinGuard g(lock_);
     if (!events_.empty()) return DeliverEvents(events_out);
   }
-
   if (timeout && timeout->IsZero()) return 0;
 
   // Slow path: Block and wait for events

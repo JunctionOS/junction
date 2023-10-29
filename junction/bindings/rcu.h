@@ -127,7 +127,7 @@ void RCUFree(T *p) {
 }
 
 // Takes ownership of a unique pointer and frees it after a quiescent period.
-// Does not block. Allocates memory (for a thread).
+// Does not block.
 template <typename T, typename D>
 void RCUFree(std::unique_ptr<T, D> ptr) {
   if constexpr (std::same_as<D, std::default_delete<T>>) {

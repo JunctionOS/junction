@@ -210,6 +210,11 @@ class Process : public std::enable_shared_from_this<Process> {
   Process(const Process &) = delete;
   Process &operator=(const Process &) = delete;
 
+  // Gets a shared pointer to this process.
+  [[nodiscard]] std::shared_ptr<Process> get_this() {
+    return shared_from_this();
+  };
+
   [[nodiscard]] pid_t get_pid() const { return pid_; }
   [[nodiscard]] pid_t get_pgid() const { return pgid_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }

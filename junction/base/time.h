@@ -66,7 +66,7 @@ class Duration {
   // Timeval converts the duration to a Linux timeval. Behavior is undefined if
   // the duration is negative.
   constexpr timeval Timeval() const { return detail::us_to_timeval(duration_); }
-  // Timespec converts the duration to a Linux timespec. Behavior is udnefined
+  // Timespec converts the duration to a Linux timespec. Behavior is undefined
   // if the duration is negative.
   constexpr timespec Timespec() const {
     return detail::us_to_timespec(duration_);
