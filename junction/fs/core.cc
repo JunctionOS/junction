@@ -13,14 +13,22 @@ namespace {
 
 using Path = std::pair<std::shared_ptr<IDir>, std::string_view>;
 
+// NameIsValid determines if a file name has valid characters
 constexpr bool NameIsValid(std::string_view name) {
   return std::none_of(std::cbegin(name), std::cend(name),
                       [](char c) { return c == '/' || c == '\0'; });
 }
 
-// LookupInode finds an inode from a path
-Status<std::shared_ptr<Inode>> LookupInode(
-    std::shared_ptr<Inode> pos, const std::vector<std::string_view> &spath) {
+// Lookup converts a path into a directory inode and the entry name
+Status<Path> Lookup(std::shared_ptr<Inode> pos, std::string_view path) {
+  // parse and split the path
+  std::vector<std::string_view> spath = split(path, '/');
+  if (spath.empty()) return MakeError(EINVAL);
+  std::string_view name = spath.back();
+  spath.pop_back();
+  if (!NameIsValid(name)) return MakeError(EINVAL);
+
+  // walk the directories
   for (std::string_view v : spath) {
     if (!pos->is_dir()) return MakeError(ENOTDIR);
     auto &dir = static_cast<IDir &>(*pos);
@@ -34,38 +42,24 @@ Status<std::shared_ptr<Inode>> LookupInode(
     pos = std::move(*ret);
   }
 
-  return pos;
+  // return the result
+  if (!pos->is_dir()) return MakeError(ENOTDIR);
+  if (pos->is_stale()) return MakeError(ESTALE);
+  return Path(std::static_pointer_cast<IDir>(std::move(pos)), name);
 }
 
-// LookupPath converts a path into a directory inode and an entry name
-Status<Path> LookupPath(std::shared_ptr<Inode> pos, std::string_view path) {
-  std::vector<std::string_view> spath = split(path, '/');
-  if (spath.empty()) return MakeError(EINVAL);
-
-  // strip off the file name
-  std::string_view name = spath.back();
-  spath.pop_back();
-  if (!NameIsValid(name)) return MakeError(EINVAL);
-
-  // look up the directory
-  Status<std::shared_ptr<Inode>> ret = LookupInode(pos, spath);
-  if (!ret) return MakeError(ret);
-  if (!(*ret)->is_dir()) return MakeError(ENOTDIR);
-  if ((*ret)->is_stale()) return MakeError(ESTALE);
-  return Path(std::static_pointer_cast<IDir>(std::move(*ret)), name);
-}
-
-// Lookup finds a directory inode and entry name starting from the root or cwd
-Status<Path> Lookup(std::string_view path) {
+// LookupPath finds a directory inode and entry name starting from an absolute
+// path
+Status<Path> LookupPath(std::string_view path) {
   FSRoot &fs = myproc().get_filesystem();
   std::shared_ptr<IDir> dir = path[0] == '/' ? fs.get_root() : fs.get_cwd();
-  return LookupPath(dir, path);
+  return Lookup(std::move(dir), path);
 }
 
 // LookupAt finds a directory inode and entry name starting from a directory FD
 Status<Path> LookupAt(int fd, std::string_view path) {
   // If absolute path, ignore dir FD
-  if (path[0] == '/') return Lookup(path);
+  if (path[0] == '/') return LookupPath(path);
 
   // Otherwise lookup relative to the dir FD
   std::shared_ptr<IDir> dir;
@@ -80,7 +74,7 @@ Status<Path> LookupAt(int fd, std::string_view path) {
     if (!ino->is_dir()) return MakeError(ENOTDIR);
     dir = std::static_pointer_cast<IDir>(ino);
   }
-  return LookupPath(dir, path);
+  return Lookup(std::move(dir), path);
 }
 
 Status<void> MkNod(Path path, mode_t mode, dev_t dev) {
@@ -128,7 +122,7 @@ Status<void> Stat(Path path, struct stat *statbuf, bool chase_link = true) {
 //
 
 int usys_mknod(const char *pathname, mode_t mode, dev_t dev) {
-  Status<Path> path = Lookup(pathname);
+  Status<Path> path = LookupPath(pathname);
   if (!path) return MakeCError(path);
   Status<void> ret = MkNod(std::move(*path), mode, dev);
   if (!ret) return MakeCError(ret);
@@ -144,7 +138,7 @@ int usys_mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
 }
 
 int usys_mkdir(const char *pathname, mode_t mode) {
-  Status<Path> path = Lookup(pathname);
+  Status<Path> path = LookupPath(pathname);
   if (!path) return MakeCError(path);
   Status<void> ret = MkDir(std::move(*path), mode);
   if (!ret) return MakeCError(ret);
@@ -160,7 +154,7 @@ int usys_mkdirat(int dirfd, const char *pathname, mode_t mode) {
 }
 
 int usys_unlink(const char *pathname) {
-  Status<Path> path = Lookup(pathname);
+  Status<Path> path = LookupPath(pathname);
   if (!path) return MakeCError(path);
   Status<void> ret = Unlink(std::move(*path));
   if (!ret) return MakeCError(ret);
@@ -168,7 +162,7 @@ int usys_unlink(const char *pathname) {
 }
 
 int usys_rmdir(const char *pathname) {
-  Status<Path> path = Lookup(pathname);
+  Status<Path> path = LookupPath(pathname);
   if (!path) return MakeCError(path);
   Status<void> ret = RmDir(std::move(*path));
   if (!ret) return MakeCError(ret);
@@ -193,7 +187,7 @@ int usys_unlinkat(int dirfd, const char *pathname, int flags) {
 }
 
 int usys_symlink(const char *target, const char *pathname) {
-  Status<Path> path = Lookup(pathname);
+  Status<Path> path = LookupPath(pathname);
   if (!path) return MakeCError(path);
   Status<void> ret = SymLink(std::move(*path), target);
   if (!ret) return MakeCError(ret);
@@ -209,9 +203,9 @@ int usys_symlinkat(const char *target, int dirfd, const char *pathname) {
 }
 
 int usys_rename(const char *oldpath, const char *newpath) {
-  Status<Path> src_path = Lookup(oldpath);
+  Status<Path> src_path = LookupPath(oldpath);
   if (!src_path) return MakeCError(src_path);
-  Status<Path> dst_path = Lookup(newpath);
+  Status<Path> dst_path = LookupPath(newpath);
   if (!dst_path) return MakeCError(dst_path);
   Status<void> ret = Rename(std::move(*src_path), std::move(*dst_path));
   if (!ret) return MakeCError(ret);
@@ -230,10 +224,20 @@ int usys_renameat(int olddirfd, const char *oldpath, int newdirfd,
 }
 
 int usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
-                   const char *newpath, unsigned int flags);
+                   const char *newpath, unsigned int flags) {
+  // TODO(amb): no flags are supported so far.
+  if (flags != 0) return -EINVAL;
+  Status<Path> src_path = LookupAt(olddirfd, oldpath);
+  if (!src_path) return MakeCError(src_path);
+  Status<Path> dst_path = LookupAt(newdirfd, newpath);
+  if (!dst_path) return MakeCError(dst_path);
+  Status<void> ret = Rename(std::move(*src_path), std::move(*dst_path));
+  if (!ret) return MakeCError(ret);
+  return 0;
+}
 
 int usys_stat(const char *pathname, struct stat *statbuf) {
-  Status<Path> path = Lookup(pathname);
+  Status<Path> path = LookupPath(pathname);
   if (!path) return MakeCError(path);
   Status<void> ret = Stat(path, statbuf);
   if (!ret) return MakeCError(ret);
