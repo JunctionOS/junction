@@ -79,8 +79,7 @@ void JunctionMain(int argc, char *argv[]) {
   // Drop reference so the process can properly destruct itself when done
   (*proc).reset();
 
-  Process::WaitAll();
-  return;
+  rt::WaitForever();
 }
 
 }  // namespace junction

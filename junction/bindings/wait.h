@@ -98,6 +98,14 @@ class WakeOnTimeout {
   rt::Timer<std::function<void()>> timer_;
 };
 
+inline bool PrepareInterruptible(thread *th) {
+  return prepare_interruptible(th);
+}
+
+inline int GetInterruptibleStatus(thread *th) {
+  return get_interruptible_status(th);
+}
+
 // WaitInterruptible blocks the calling thread until a wakable object resumes it
 // or a signal is delivered.
 //
@@ -106,23 +114,21 @@ class WakeOnTimeout {
 //
 // Returns true if this wait was interrupted by a signal.
 //
-// WARNING: @lock must be valid through an RCU period or be scoped to the
-// calling thread's lifetime.
-//
 // WARNING: The calling thread must be a Junction kernel thread.
-template <rt::InterruptWakeable Waker>
-bool WaitInterruptible(rt::Spin &lock, Waker &waker) {
+template <rt::LockAndParkable LockParkable, rt::InterruptWakeable Waker>
+bool WaitInterruptible(LockParkable &lock, Waker &waker) {
   assert(lock.IsHeld());
   assert(IsJunctionThread());
-  waker.ArmInterruptible(lock);
-  if (mythread().needs_interrupt()) {
-    waker.CancelArm();
-    return true;
-  }
+
+  thread_t *th = thread_self();
+  if (PrepareInterruptible(th)) return true;
+  waker.Arm();
   lock.UnlockAndPark();
   lock.Lock();
 
-  return mythread().needs_interrupt();
+  int ret = GetInterruptibleStatus(th);
+  if (ret > 1) waker.Disarm();
+  return ret > 0;
 }
 
 // WaitInterruptible blocks the calling thread until the predicate becomes true
@@ -137,15 +143,16 @@ bool WaitInterruptible(rt::Spin &lock, Waker &waker) {
 // calling thread's lifetime.
 //
 // WARNING: The calling thread must be a Junction kernel thread.
-template <rt::Wakeable Waker, typename Predicate>
-bool WaitInterruptible(rt::Spin &lock, Waker &w, Predicate stop) {
+template <rt::LockAndParkable LockParkable, rt::Wakeable Waker,
+          typename Predicate>
+bool WaitInterruptible(LockParkable &lock, Waker &w, Predicate stop) {
   while (!stop())
     if (WaitInterruptible(lock, w)) return true;
   return false;
 }
 
 // SigMaskGuard masks signal delivery during its lifetime. The previous signal
-// mask is restored unless a signal is pending, in which the old mask is
+// mask is restored unless a signal is pending, in which case the old mask is
 // restored after the signal is delivered.
 //
 // WARNING: The calling thread must be a Junction kernel thread.
@@ -157,12 +164,9 @@ class SigMaskGuard {
 
     ThreadSignalHandler &hand = mythread().get_sighand();
     hand.SaveBlocked();
-    hand.SigProcMask(SIG_SETMASK, &*mask, nullptr);
+    hand.ReplaceMask(*mask);
   }
-  ~SigMaskGuard() {
-    if (!mythread().needs_interrupt())
-      mythread().get_sighand().RestoreBlocked();
-  }
+  ~SigMaskGuard() { mythread().get_sighand().RestoreBlocked(); }
 
   // disable copy and move.
   SigMaskGuard(const SigMaskGuard &) = delete;
@@ -196,17 +200,26 @@ class InterruptibleRWMutex {
       return true;
     }
 
-    read_waiters_.ArmInterruptible(lock_);
-    if (mythread().needs_interrupt()) {
-      read_waiters_.CancelArm();
+    if (PrepareInterruptible(th)) {
       lock_.Unlock();
       return false;
     }
 
-    th->waiter_data = kWaiting;
+    read_waiters_.Arm();
     lock_.UnlockAndPark();
 
-    return access_once(th->waiter_data) == kAcquired;
+    if (unlikely(GetInterruptibleStatus(th) > 0)) {
+      // We know an interrupt has happened, need to determine whether or not
+      // Unlock() has also woken us.
+      rt::SpinGuard g(lock_);
+      if (GetInterruptibleStatus(th) > 1) {
+        read_waiters_.Disarm();
+        return false;
+      }
+      return true;
+    }
+
+    return true;
   }
 
   // Locks the mutex for reading.
@@ -244,17 +257,26 @@ class InterruptibleRWMutex {
       return true;
     }
 
-    write_waiters_.ArmInterruptible(lock_);
-    if (mythread().needs_interrupt()) {
-      write_waiters_.CancelArm();
+    if (PrepareInterruptible(th)) {
       lock_.Unlock();
       return false;
     }
 
-    th->waiter_data = kWaiting;
+    write_waiters_.Arm();
     lock_.UnlockAndPark();
 
-    return access_once(th->waiter_data) == kAcquired;
+    if (unlikely(GetInterruptibleStatus(th) > 0)) {
+      // We know an interrupt has happened, need to determine whether or not
+      // Unlock() has also woken us.
+      rt::SpinGuard g(lock_);
+      if (GetInterruptibleStatus(th) > 1) {
+        read_waiters_.Disarm();
+        return false;
+      }
+      return true;
+    }
+
+    return true;
   }
 
   // Unlocks the mutex.
@@ -310,9 +332,7 @@ class InterruptibleRWMutex {
     assert(lock_.IsHeld());
     assert(count_ == 0);
 
-    read_waiters_.WakeAll(false,
-                          [](thread_t *th) { th->waiter_data = kAcquired; });
-
+    read_waiters_.WakeAll();
     count_ = read_waiter_count_;
     read_waiter_count_ = 0;
     phase_ = kPhaseRead;
@@ -322,9 +342,7 @@ class InterruptibleRWMutex {
     assert(lock_.IsHeld());
     assert(count_ == 0);
 
-    if (write_waiters_.WakeOne(
-            false, [](thread_t *th) { th->waiter_data = kAcquired; }))
-      AddWriter();
+    if (write_waiters_.WakeOne()) AddWriter();
   }
 
   rt::Spin lock_;

@@ -39,7 +39,7 @@ inline constexpr unsigned int kWaitableContinued = WCONTINUED;
 class Thread {
  public:
   Thread(std::shared_ptr<Process> proc, pid_t tid)
-      : proc_(std::move(proc)), tid_(tid), sighand_(proc_.get()) {}
+      : proc_(std::move(proc)), tid_(tid), sighand_(*this) {}
   ~Thread();
 
   Thread(Thread &&) = delete;
@@ -61,11 +61,16 @@ class Thread {
   [[nodiscard]] Process &get_process() const { return *proc_; }
   [[nodiscard]] uint32_t *get_child_tid() const { return child_tid_; }
   [[nodiscard]] bool needs_interrupt() const {
-    return sighand_.any_sig_pending();
+    assert(GetCaladanThread() == thread_self());
+    return thread_interrupted(GetCaladanThread());
   }
   [[nodiscard]] bool in_syscall() const { return access_once(in_syscall_); }
 
-  void set_in_syscall(bool val) { access_once(in_syscall_) = val; }
+  void set_in_syscall(bool val) {
+    barrier();
+    access_once(in_syscall_) = val;
+    barrier();
+  }
 
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
   [[nodiscard]] bool has_altstack() const { return sighand_.has_altstack(); }
@@ -94,16 +99,11 @@ class Thread {
 
   void ThreadReady() { thread_ready(GetCaladanThread()); }
 
-  void OnSyscallEnter() {
-    set_in_syscall(true);
-    if (unlikely(needs_interrupt())) HandleInterrupt(std::nullopt);
-  }
+  void OnSyscallEnter() { set_in_syscall(true); }
 
   void OnSyscallLeave(long rax) {
     if (unlikely(needs_interrupt())) HandleInterrupt(rax);
 
-    // TODO(jf): can we put this into HandleInterrupt?
-    get_sighand().RestoreBlocked();
     void *frame = GetSyscallFrame();
 
     while (true) {
@@ -123,37 +123,68 @@ class Thread {
   void Kill() {
     siginfo_t info;
     info.si_signo = SIGKILL;
-    if (sighand_.EnqueueSignal(&info)) SendIpi();
+    if (sighand_.EnqueueSignal(info)) SendIpi();
   }
 
-  // TODO!
   void SendIpi() {
     /*
      * Signals can be delivered at the following points:
      * (1) When returning from syscalls: delivery is arranged for any pending
      * signals.
      * (2) When Caladan's jmp_thread* runs a thread: this will check if
-     * both a signal is pending and the resuming thread is not in a syscall,
-     * then it will arrange for a signal handler to run.
+     * the resuming thread is not in a syscall; if so it will acquire the signal
+     * handler lock and check for pending signals.
      * (3) Upon IPI delivery, if a thread is running and not in a syscall.
      */
 
     /*
      * Sequence of events to ensure that a signal is delivered:
      * (1) A signal is enqueued using in a thread's sighand_.EnqueueSignal().
-     * (2) try_wake_blocked_thread() checks if a lock is registered protecting
-     * an interruptible wait. If so, it synchronizes with the waiter using that
-     * lock, waking the waiter if necessary. Interruptible waiters check for
-     * signals before sleeping (while holding this lock).
-     * (3) Check if either the thread is in a in_syscall or the stack is not
-     * busy.
-     * (4) If neither is true, send an IPI to the core hosting the thread.
+     * (2) deliver_interrupt() tries to wake the thread if it is blocked.
+     * (3) if deliver_interrupt doesn't result in a thread_ready(), we look for
+     * the kthread running this thread to send an interrupt: we do a racy read
+     * of the thread's kthread, and synchronize with the kthread's scheduler
+     * lock to confirm the thread is actively using this kthread. send an
+     * interrupt to this kthread if so.
+     * (4) if the thread rescheduled while we were acquiring the lock, or was
+     * already parked/waking, synchronize with each other kthread's scheduler
+     * lock and check if this kthread is active there. if so, send an interrupt.
+     * (5) we may not locate the core running this thread (perhaps none are). by
+     * synchronizing with each other scheduler lock, we ensure that the enqueued
+     * signal will be visible when the thread resumes.
      */
-    if (try_wake_blocked_thread(GetCaladanThread())) return;
 
-    if (in_syscall()) return;
+    // Try to wake this thread's interruptible waiter, if it has one.
+    if (deliver_interrupt(GetCaladanThread())) return;
 
-    ksys_tgkill(GetLinuxPid(), GetCaladanThread()->last_tid, SIGURG);
+    // Try to find the kthread hosting this thread.
+    // cur_kthread is updated with the scheduler lock held, and is set to NCPU
+    // when it is scheduled out.
+    unsigned int kthread = access_once(GetCaladanThread()->cur_kthread);
+    if (kthread < NCPU) {
+      spin_lock_np(&ks[kthread]->lock);
+      bool found = access_once(GetCaladanThread()->cur_kthread) == kthread;
+      spin_unlock_np(&ks[kthread]->lock);
+      if (found) {
+        ksys_tgkill(GetLinuxPid(), ks[kthread]->tid, SIGURG);
+        return;
+      }
+    }
+
+    // kthread is hopping around, check with each other kthread.
+    for (unsigned int i = 0; i < maxks; i++) {
+      spin_lock_np(&ks[i]->lock);
+      bool found = access_once(GetCaladanThread()->cur_kthread) == i;
+      spin_unlock_np(&ks[i]->lock);
+      if (found) {
+        ksys_tgkill(GetLinuxPid(), ks[i]->tid, SIGURG);
+        return;
+      }
+    }
+
+    // this thread is not observed running on any core. at this point we have
+    // synchronized with each other kthread's scheduler lock, ensuring that
+    // the signal will be visible when this thread is next scheduled.
   };
 
   // Called by a thread to run pending interrupts. This function may not return.
@@ -167,15 +198,12 @@ class Thread {
 
   friend class ThreadSignalHandler;
 
-  rt::Spin &get_waker_lock() { return waker_lock_; }
-
  private:
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   uint32_t *child_tid_{nullptr};   // Used for clone3/exit
   const pid_t tid_;                // the thread identifier
   bool in_syscall_;
   int xstate_;  // exit state
-  rt::Spin waker_lock_;
   ThreadSignalHandler sighand_;
   void *cur_syscall_frame_;
 };
@@ -188,9 +216,7 @@ class Process : public std::enable_shared_from_this<Process> {
  public:
   // Constructor for init process
   Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm, pid_t pgid)
-      : pid_(pid), pgid_(pgid), mem_map_(std::move(mm)), parent_(nullptr) {
-    all_procs.Add(1);
-  }
+      : pid_(pid), pgid_(pgid), mem_map_(std::move(mm)), parent_(nullptr) {}
   // Constructor for all other processes
   Process(pid_t pid, std::shared_ptr<MemoryMap> mm, FileTable &ftbl,
           rt::ThreadWaker &&w, std::shared_ptr<Process> parent, pid_t pgid)
@@ -199,9 +225,7 @@ class Process : public std::enable_shared_from_this<Process> {
         vfork_waker_(std::move(w)),
         file_tbl_(ftbl),
         mem_map_(std::move(mm)),
-        parent_(std::move(parent)) {
-    all_procs.Add(1);
-  }
+        parent_(std::move(parent)) {}
 
   ~Process();
 
@@ -256,30 +280,24 @@ class Process : public std::enable_shared_from_this<Process> {
   // Called when a process exits, will attempt to notify all threads.
   void DoExit(int status);
 
-  static void WaitAll() { all_procs.Wait(); }
-
-  Status<void> SignalLocked(siginfo_t &si) {
+  Status<void> SignalLocked(const siginfo_t &si) {
     assert(shared_sig_q_.IsHeld());
-    shared_sig_q_.Enqueue(&si);
+    shared_sig_q_.Enqueue(si);
     if (si.si_signo == SIGCLD) child_waiters_.WakeAll();
 
     // TODO(jf): find thread to send an IPI to
     for (const auto &[pid, th] : thread_map_) {
-      // FIXME signalling a blocked thread might try to acquire this lock,
-      // so drop for now.
-      shared_sig_q_.Unlock();
       th->SendIpi();
-      shared_sig_q_.Lock();
       break;
     }
 
     return {};
   }
 
-  Status<void> Signal(siginfo_t &si) {
+  Status<void> Signal(const siginfo_t &si) {
     {
       rt::SpinGuard g(shared_sig_q_);
-      shared_sig_q_.Enqueue(&si);
+      shared_sig_q_.Enqueue(si);
       if (si.si_signo == SIGCLD) child_waiters_.WakeAll();
     }
 
@@ -293,7 +311,7 @@ class Process : public std::enable_shared_from_this<Process> {
     return Signal(si);
   }
 
-  Status<void> SignalThread(pid_t tid, siginfo_t *si) {
+  Status<void> SignalThread(pid_t tid, const siginfo_t &si) {
     rt::SpinGuard g(shared_sig_q_);
 
     auto it = thread_map_.find(tid);
@@ -307,7 +325,7 @@ class Process : public std::enable_shared_from_this<Process> {
   Status<void> SignalThread(pid_t tid, int signo) {
     siginfo_t si;
     si.si_signo = signo;
-    return SignalThread(tid, &si);
+    return SignalThread(tid, si);
   }
 
   [[nodiscard]] unsigned int get_wait_state() const { return wait_state_; }
@@ -360,8 +378,6 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Timers
   ITimer it_real_{this};
-
-  static rt::WaitGroup all_procs;
 };
 
 // Create a new process.

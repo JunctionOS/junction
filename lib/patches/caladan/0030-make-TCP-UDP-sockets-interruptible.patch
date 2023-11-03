@@ -1,28 +1,19 @@
-From 1cc4d66e257ab0c023503cc1ab14fd8fb492076e Mon Sep 17 00:00:00 2001
+From 0611a3e468448068a9de6df3abd3a11d88952d4f Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 4 Oct 2023 21:33:11 +0000
-Subject: [PATCH 30/31] make TCP/UDP sockets interruptible
+Subject: [PATCH 30/30] make TCP/UDP sockets interruptible
 
 ---
- runtime/net/tcp.c   | 73 +++++++++++++++++++++++++++++++--------------
- runtime/net/tcp.h   |  4 +--
- runtime/net/udp.c   | 36 ++++++++++++++--------
- runtime/net/waitq.h | 57 ++++++++++++++++++++++++++++-------
- 4 files changed, 123 insertions(+), 47 deletions(-)
+ runtime/net/tcp.c   | 53 +++++++++++++++++++++++++++++++++++----------
+ runtime/net/tcp.h   |  4 ++--
+ runtime/net/udp.c   | 12 ++++++++--
+ runtime/net/waitq.h | 37 ++++++++++++++++++++++++++-----
+ 4 files changed, 85 insertions(+), 21 deletions(-)
 
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index 035df38c..0e091fe6 100644
+index 035df38c..1958dcdc 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
-@@ -231,7 +231,7 @@ void tcp_conn_set_state(tcpconn_t *c, int new_state)
- 	/* unblock any threads waiting for the connection to be established */
- 	if (c->pcb.state < TCP_STATE_ESTABLISHED &&
- 	    new_state >= TCP_STATE_ESTABLISHED) {
--		waitq_release(&c->tx_wq);
-+		waitq_release(&c->tx_wq, &c->lock);
- 		poll_set(&c->poll_src, POLLOUT);
- 	}
- 
 @@ -572,6 +572,7 @@ int tcp_listen(struct netaddr laddr, int backlog, tcpqueue_t **q_out)
   */
  int tcp_accept(tcpqueue_t *q, tcpconn_t **c_out)
@@ -44,27 +35,14 @@ index 035df38c..0e091fe6 100644
  	}
  
  	/* was the queue drained and shutdown? */
-@@ -611,6 +616,10 @@ static void __tcp_qshutdown(tcpqueue_t *q)
+@@ -611,6 +616,7 @@ static void __tcp_qshutdown(tcpqueue_t *q)
  	BUG_ON(q->shutdown);
  	q->shutdown = true;
  	poll_set(&q->poll_src, POLLRDHUP | POLLHUP | POLLIN);
 +
-+	/* wake up all pending threads */
-+	waitq_release(&q->wq, &q->l);
-+
  	spin_unlock_np(&q->l);
  
  	/* prevent ingress receive and error dispatch (after RCU period) */
-@@ -629,9 +638,6 @@ void tcp_qshutdown(tcpqueue_t *q)
- {
- 	/* shutdown the listen queue */
- 	__tcp_qshutdown(q);
--
--	/* wake up all pending threads */
--	waitq_release(&q->wq);
- }
- 
- /**
 @@ -717,8 +723,13 @@ static int __tcp_dial(struct netaddr laddr, struct netaddr raddr,
  	}
  
@@ -132,21 +110,8 @@ index 035df38c..0e091fe6 100644
  
  	if (c->pcb.state != TCP_STATE_CLOSED) {
  		c->tx_exclusive = true;
-@@ -1250,7 +1271,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
- 
- 	if (!c->tx_closed) {
- 		store_release(&c->tx_closed, true);
--		waitq_release(&c->tx_wq);
-+		waitq_release(&c->tx_wq, &c->lock);
- 		poll_set(&c->poll_src, POLLHUP);
- 	}
- 
-@@ -1285,10 +1306,10 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
- 
- 	poll_set(&c->poll_src, POLLRDHUP | POLLIN);
- 	c->rx_closed = true;
--	waitq_release(&c->rx_wq);
-+	waitq_release(&c->rx_wq, &c->lock);
+@@ -1288,7 +1309,7 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
+ 	waitq_release(&c->rx_wq);
  }
  
 -static int tcp_conn_shutdown_tx(tcpconn_t *c)
@@ -173,15 +138,6 @@ index 035df38c..0e091fe6 100644
  	ret = tcp_tx_ctl(c, TCP_FIN | TCP_ACK, NULL);
  	if (unlikely(ret))
  		return ret;
-@@ -1317,7 +1346,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
- 
- 	poll_set(&c->poll_src, POLLHUP);
- 	c->tx_closed = true;
--	waitq_release(&c->tx_wq);
-+	waitq_release(&c->tx_wq, &c->lock);
- 
- 	return 0;
- }
 @@ -1342,7 +1371,7 @@ int tcp_shutdown(tcpconn_t *c, int how)
  
  	spin_lock_np(&c->lock);
@@ -209,26 +165,6 @@ index 035df38c..0e091fe6 100644
  	if (ret)
  		tcp_conn_fail(c, -ret);
  	tcp_conn_shutdown_rx(c);
-@@ -1414,8 +1443,8 @@ void tcp_set_nonblocking(tcpconn_t *c, bool nonblocking)
- 	spin_lock_np(&c->lock);
- 	c->nonblocking = nonblocking;
- 	if (nonblocking) {
--		waitq_release(&c->tx_wq);
--		waitq_release(&c->rx_wq);
-+		waitq_release(&c->tx_wq, &c->lock);
-+		waitq_release(&c->rx_wq, &c->lock);
- 	}
- 	spin_unlock_np(&c->lock);
- }
-@@ -1425,7 +1454,7 @@ void tcpq_set_nonblocking(tcpqueue_t *q, bool nonblocking)
- 	spin_lock_np(&q->l);
- 	q->nonblocking = nonblocking;
- 	if (nonblocking)
--		waitq_release(&q->wq);
-+		waitq_release(&q->wq, &q->l);
- 	spin_unlock_np(&q->l);
- }
- 
 diff --git a/runtime/net/tcp.h b/runtime/net/tcp.h
 index 625281bd..0c87d75f 100644
 --- a/runtime/net/tcp.h
@@ -248,27 +184,10 @@ index 625281bd..0c87d75f 100644
  #include "defs.h"
  #include "waitq.h"
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index 153df4b7..a9f1e086 100644
+index 153df4b7..d7326ad2 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
-@@ -115,13 +115,12 @@ static void udp_conn_err(struct trans_entry *e, int err)
- 	do_release = !c->inq_err && !c->shutdown;
- 	c->inq_err = err;
- 
--	if (do_release)
-+	if (do_release) {
- 		poll_set(&c->poll_src, POLLERR);
-+		waitq_release(&c->inq_wq, &c->inq_lock);
-+	}
- 
- 	spin_unlock_np(&c->inq_lock);
--
--	if (do_release)
--		waitq_release(&c->inq_wq);
- }
- 
- /* operations for UDP sockets */
-@@ -336,7 +335,11 @@ ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
+@@ -336,7 +336,11 @@ ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
  			spin_unlock_np(&c->inq_lock);
  			return -EAGAIN;
  		}
@@ -281,7 +200,7 @@ index 153df4b7..a9f1e086 100644
  	}
  
  	/* is the socket drained and shutdown? */
-@@ -438,7 +441,11 @@ ssize_t udp_write_to(udpconn_t *c, const void *buf, size_t len,
+@@ -438,7 +442,11 @@ ssize_t udp_write_to(udpconn_t *c, const void *buf, size_t len,
  			spin_unlock_np(&c->outq_lock);
  			return -EAGAIN;
  		}
@@ -294,47 +213,8 @@ index 153df4b7..a9f1e086 100644
  	}
  
  	/* is the socket shutdown? */
-@@ -516,7 +523,15 @@ static void __udp_shutdown(udpconn_t *c)
- 	BUG_ON(c->shutdown);
- 	c->shutdown = true;
- 	poll_set(&c->poll_src, POLLIN | POLLHUP | POLLRDHUP);
-+
-+	/* wake all blocked threads */
-+	if (!c->inq_err)
-+		waitq_release(&c->inq_wq, &c->inq_lock);
-+
- 	spin_unlock(&c->inq_lock);
-+
-+	waitq_release(&c->outq_wq, &c->outq_lock);
-+
- 	spin_unlock_np(&c->outq_lock);
- 
- 	/* prevent ingress receive and error dispatch (after RCU period) */
-@@ -533,11 +548,6 @@ void udp_shutdown(udpconn_t *c)
- {
- 	/* shutdown the UDP socket */
- 	__udp_shutdown(c);
--
--	/* wake all blocked threads */
--	if (!c->inq_err)
--		waitq_release(&c->inq_wq);
--	waitq_release(&c->outq_wq);
- }
- 
- /**
-@@ -586,8 +596,8 @@ void udp_set_nonblocking(udpconn_t *c, bool nonblocking)
- 	spin_lock(&c->inq_lock);
- 	c->nonblocking = nonblocking;
- 	if (nonblocking) {
--		waitq_release(&c->inq_wq);
--		waitq_release(&c->outq_wq);
-+		waitq_release(&c->inq_wq, &c->inq_lock);
-+		waitq_release(&c->outq_wq, &c->outq_lock);
- 	}
- 	spin_unlock(&c->inq_lock);
- 	spin_unlock_np(&c->outq_lock);
 diff --git a/runtime/net/waitq.h b/runtime/net/waitq.h
-index 17fed7f9..e64be8ec 100644
+index 17fed7f9..00980f77 100644
 --- a/runtime/net/waitq.h
 +++ b/runtime/net/waitq.h
 @@ -8,17 +8,18 @@
@@ -344,8 +224,7 @@ index 17fed7f9..e64be8ec 100644
 +#include <runtime/interruptible_wait.h>
  
  typedef struct waitq {
--	struct list_head	waiters;
-+	struct list_head		waiters;
+ 	struct list_head	waiters;
  } waitq_t;
  
  /**
@@ -375,74 +254,50 @@ index 17fed7f9..e64be8ec 100644
 +	thread_t *myth = thread_self();
 +	assert_spin_lock_held(l);
 +
-+	/* register lock for waker, and afterwards check if an interrupt slipped in */
-+	arm_waker(l);
-+	if (thread_interrupted()) {
-+		disarm_waker(myth);
++	if (prepare_interruptible(myth))
 +		return -EINTR;
-+	}
 +
 +	list_add_tail(&q->waiters, &myth->link);
 +	thread_park_and_unlock_np(l);
 +	spin_lock_np(l);
 +
-+	return thread_interrupted() ? -EINTR : 0;
++	int status = get_interruptible_status(myth);
++	if (unlikely(status > 1))
++		list_del_from(&q->waiters, &myth->link);
++
++	return status > 0 ? -EINTR : 0;
 +}
 +
  /**
   * waitq_signal - wakes up to one waiter on the wake queue
   * @q: the wake queue
-@@ -33,8 +60,12 @@ static inline void waitq_wait(waitq_t *q, spinlock_t *l)
-  */
- static inline thread_t *waitq_signal(waitq_t *q, spinlock_t *l)
+@@ -47,7 +74,7 @@ static inline thread_t *waitq_signal(waitq_t *q, spinlock_t *l)
+ static inline void waitq_signal_finish(thread_t *th)
  {
-+	thread_t *th;
- 	assert_spin_lock_held(l);
--	return list_pop(&q->waiters, thread_t, link);
-+	th = list_pop(&q->waiters, thread_t, link);
-+	if (th)
-+		disarm_waker(th);
-+	return th;
+ 	if (th)
+-		thread_ready(th);
++		interruptible_wake(th);
  }
  
  /**
-@@ -64,24 +95,30 @@ static inline void waitq_signal_locked(waitq_t *q, spinlock_t *l)
- /**
-  * waitq_release - wakes all pending waiters
-  * @q: the wake queue
-- *
-- * WARNING: the condition must have been updated with the lock held to
-- * prevent future waiters. However, this method can be called after the
-- * lock is released.
-+ * @l: a held spinlock protecting the wake queue and the condition
-  */
--static inline void waitq_release(waitq_t *q)
-+static inline void waitq_release(waitq_t *q, spinlock_t *l)
- {
-+	assert_spin_lock_held(l);
-+
- 	while (true) {
+@@ -75,7 +102,7 @@ static inline void waitq_release(waitq_t *q)
  		thread_t *th = list_pop(&q->waiters, thread_t, link);
  		if (!th)
  			break;
-+		disarm_waker(th);
- 		thread_ready(th);
+-		thread_ready(th);
++		interruptible_wake(th);
  	}
  }
  
- static inline void waitq_release_start(waitq_t *q, struct list_head *waiters)
- {
--	list_append_list(waiters, &q->waiters);
-+	while (true) {
-+		thread_t *th = list_pop(&q->waiters, thread_t, link);
-+		if (!th)
-+			break;
-+		disarm_waker(th);
-+		list_add_tail(waiters, &th->link);
-+	}
+@@ -90,7 +117,7 @@ static inline void waitq_release_finish(struct list_head *waiters)
+ 		thread_t *th = list_pop(waiters, thread_t, link);
+ 		if (!th)
+ 			break;
+-		thread_ready(th);
++		interruptible_wake(th);
+ 	}
  }
  
- static inline void waitq_release_finish(struct list_head *waiters)
 -- 
 2.39.2
 

@@ -15,7 +15,7 @@ namespace junction {
 
 namespace {
 
-constexpr uint32_t kInitMagic = 0xDEADBEEF;
+inline constexpr uint32_t kInitMagic = 0xDEADBEEF;
 
 struct ShimCondVar {
   uint32_t init_magic{kInitMagic};

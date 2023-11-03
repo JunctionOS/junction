@@ -15,13 +15,7 @@ extern "C" {
 
 #include "junction/base/compiler.h"
 
-namespace junction {
-
-namespace rt {
-class Spin;
-}
-
-namespace rt {
+namespace junction::rt {
 
 // Lockable is the concept of a lock.
 template <typename T>
@@ -46,9 +40,9 @@ concept Wakeable = requires(T t, thread_t *th) {
 };
 
 template <typename T>
-concept InterruptWakeable = requires(T t, thread_t *th, rt::Spin &l) {
-  { t.ArmInterruptible(l) } -> std::same_as<void>;
-  { t.CancelArm() } -> std::same_as<void>;
+concept InterruptWakeable = requires(T t, thread_t *th) {
+  { t.Arm() } -> std::same_as<void>;
+  { t.Disarm() } -> std::same_as<void>;
 };
 
 // WaitQueue is used to wake a group of threads.
@@ -65,65 +59,38 @@ class WaitQueue {
 
   [[nodiscard]] bool empty() const { return list_empty(&waiters_); }
 
-  // Prepares the running thread to block, with interrupt delivery synchronized
-  // by @lock. Can only be called once, must be synchronized by caller.
-  void ArmInterruptible(rt::Spin &lock);
-
   // Arm prepares the running thread to block. Can only be called once,
   // must be synchronized by caller.
   void Arm() { list_add_tail(&waiters_, &thread_self()->link); }
 
-  // Cancel an Arm or ArmInterruptible call. Caller must not have released the
-  // lock between arming and cancelling.
-  void CancelArm() {
-    thread_t *th = thread_self();
+  // Cancel an arm, must be synchronized by caller.
+  void Disarm(thread_t *th = thread_self()) {
     list_del_from(&waiters_, &th->link);
-    disarm_waker(th);
   }
 
-  // Wake up to one thread waiter (must be synchronized by caller), with a
-  // callback @f applied to the thread before it wakes.
-  template <typename F>
-  bool WakeOne(
-      bool head = false, F f = [](thread_t *) {}) {
+  // Wake up to one thread waiter (must be synchronized by caller)
+  // Returns true if a waiter was found and removed from the list.
+  bool WakeOne() {
     thread_t *th = list_pop(&waiters_, thread_t, link);
     if (th == nullptr) return false;
-    disarm_waker(th);
-    f(th);
-    if (head)
-      thread_ready_head(th);
-    else
-      thread_ready(th);
+    interruptible_wake(th);
     return true;
   }
 
-  // Wake all thread waiters (must be synchronized by caller), with a callback
-  // @f applied to the thread before it wakes.
-  template <typename F>
-  void WakeAll(bool head, F f) {
+  // Wake all thread waiters (must be synchronized by caller)
+  void WakeAll() {
     while (true) {
       thread_t *th = list_pop(&waiters_, thread_t, link);
       if (th == nullptr) return;
-      disarm_waker(th);
-      f(th);
-      if (head)
-        thread_ready_head(th);
-      else
-        thread_ready(th);
+      interruptible_wake(th);
     }
   }
 
-  // Wake all thread waiters (must be synchronized by caller)
-  void WakeAll(bool head = false) {
-    WakeAll(head, [](thread_t *) {});
-  }
-
   // WakeThread makes a specific thread runnable.
+  // Must be synchronized by caller.
   void WakeThread(thread_t *th) {
-    if (!try_disarm_waker(th)) return;
-
-    list_del_from(&waiters_, &th->link);
-    thread_ready(th);
+    Disarm(th);
+    interruptible_wake(th);
   }
 
  private:
@@ -134,55 +101,33 @@ class WaitQueue {
 class ThreadWaker {
  public:
   ThreadWaker() noexcept = default;
-  ~ThreadWaker() {
-    assert(th_ == nullptr || (armed_interruptible_ && !waker_is_armed(th_)));
-  }
+  ~ThreadWaker() { assert(th_ == nullptr); }
 
   // disable copy.
   ThreadWaker(const ThreadWaker &) = delete;
   ThreadWaker &operator=(const ThreadWaker &) = delete;
 
   // allow move.
-  ThreadWaker(ThreadWaker &&w) noexcept
-      : th_(w.th_), armed_interruptible_(w.armed_interruptible_) {
-    w.th_ = nullptr;
-  }
+  ThreadWaker(ThreadWaker &&w) noexcept : th_(w.th_) { w.th_ = nullptr; }
   ThreadWaker &operator=(ThreadWaker &&w) noexcept {
     th_ = w.th_;
-    armed_interruptible_ = w.armed_interruptible_;
     w.th_ = nullptr;
     return *this;
   }
 
-  // Prepares the running thread to block, with interrupt delivery synchronized
-  // by @lock. Can only be called once, must be synchronized by caller.
-  void ArmInterruptible(rt::Spin &lock);
-
   // Arm prepares the running thread to block. Can only be called once.
-  void Arm() {
-    th_ = thread_self();
-    armed_interruptible_ = false;
-  }
+  void Arm() { th_ = thread_self(); }
 
-  // Cancel an Arm or ArmInterruptible call. Caller must not have released the
-  // lock between arming and cancelling.
-  void CancelArm() {
-    disarm_waker(th_);
-    th_ = nullptr;
-  }
+  // Cancel an arm, must be synchronized by caller.
+  void Disarm() { th_ = nullptr; }
 
   // Wake makes the parked thread runnable. Must be called by another thread
   // after the prior thread has called Arm() and has parked (or will park in
   // the immediate future).
-  void Wake(bool head = false) {
+  void Wake() {
     if (th_ == nullptr) return;
     thread_t *th = std::exchange(th_, nullptr);
-    if (armed_interruptible_ && !try_disarm_waker(th)) return;
-    if (head) {
-      thread_ready_head(th);
-    } else {
-      thread_ready(th);
-    }
+    interruptible_wake(th);
   }
 
   // WakeThread makes a specific thread runnable. In this class, it can only be
@@ -194,7 +139,6 @@ class ThreadWaker {
 
  private:
   thread_t *th_ = nullptr;
-  bool armed_interruptible_;
 };
 
 // Wait blocks the calling thread until a wakable object resumes it.
@@ -267,13 +211,6 @@ class Spin {
   // Atomically unlocks the spin lock and parks the running thread.
   void UnlockAndPark() { thread_park_and_unlock_np(&lock_); }
 
-  // Register this lock with the thread to be used for interrupts.
-  void ArmInterruptible() { arm_waker(&lock_); }
-
-  // Register this lock with the thread to be used for interrupts for a waiter
-  // that is not using thread_self()->link.
-  void ArmInterruptibleNoLink() { arm_waker_nolink(&lock_); }
-
   // Locks the spin lock only if it is currently unlocked. Returns true if
   // successful.
   [[nodiscard]] bool TryLock() { return spin_try_lock_np(&lock_); }
@@ -297,17 +234,6 @@ class Spin {
  private:
   spinlock_t lock_;
 };
-
-inline void ThreadWaker::ArmInterruptible(rt::Spin &lock) {
-  lock.ArmInterruptibleNoLink();
-  th_ = thread_self();
-  armed_interruptible_ = true;
-}
-
-inline void WaitQueue::ArmInterruptible(rt::Spin &lock) {
-  lock.ArmInterruptible();
-  list_add_tail(&waiters_, &thread_self()->link);
-}
 
 // Pthread-like mutex support.
 class Mutex {
@@ -585,6 +511,5 @@ class SharedMutex {
  private:
   rwmutex_t mu_;
 };
-}  // namespace rt
 
-}  // namespace junction
+}  // namespace junction::rt

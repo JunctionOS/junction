@@ -78,21 +78,19 @@ constexpr SignalAction ParseAction(const k_sigaction &act, int sig) {
 }  // namespace
 
 void __noinline print_msg_abort(const char *msg) {
+  const char *m = "Aborting on signal: ";
+  syscall_write(2, m, strlen(m));
   syscall_write(2, msg, strlen(msg));
   syscall_write(2, "\n", 1);
   syscall_exit(-1);
 }
 
-// override Caladan's implementation for interrupt checking
-extern "C" bool thread_signal_pending(thread_t *th) {
-  if (unlikely(!IsJunctionThread(th))) return false;
-
-  return Thread::fromCaladanThread(th).needs_interrupt();
-}
-
+// Force a signal check to occur when resuming a preempted Junction thread
 extern "C" bool sched_needs_signal_check(thread_t *th) {
   if (unlikely(!IsJunctionThread(th))) return false;
 
+  // If the thread is already in a syscall, we don't need to do any further
+  // checks in the runtime scheduler.
   return !Thread::fromCaladanThread(th).in_syscall();
 }
 
@@ -136,6 +134,8 @@ void HandleKick(k_sigframe *sigframe) {
 
   Thread &th = mythread();
 
+  // TODO: fix stack-switching kernel entry to set syscall flag in assembly
+  // while on the non-syscall stack
   if (th.in_syscall()) return;
 
   ThreadSignalHandler &hand = th.get_sighand();
@@ -216,16 +216,9 @@ extern "C" __sighandler void caladan_signal_handler(int signo, siginfo_t *info,
   std::unreachable();
 }
 
-// LTO seems to inline this...
-[[nodiscard]] k_sigset_t ThreadSignalHandler::get_pending() const {
-  return sig_q_.get_pending() | proc_->get_signal_queue().get_pending();
-}
-
 std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
-  // is it a legacy signal that is already enqueued?
-  if (sig <= kNumStandardSignals && is_sig_pending(sig)) return std::nullopt;
-
-  k_sigaction act = proc_->get_signal_table().get_action(sig, true);
+  k_sigaction act =
+      this_thread().get_process().get_signal_table().get_action(sig, true);
 
   // parse the type of signal action to perform
   SignalAction action = ParseAction(act, sig);
@@ -238,18 +231,15 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
   return act;
 }
 
-void ThreadSignalHandler::DeliverKernelSigToUser(int signo, siginfo_t *info,
-                                                 k_sigframe *sigframe) {
+[[noreturn]] void ThreadSignalHandler::DeliverKernelSigToUser(
+    int signo, siginfo_t *info, k_sigframe *sigframe) {
   assert_on_runtime_stack();
 
-  if (is_sig_blocked(signo)) {
-    assert(info->si_signo == signo);
-    EnqueueSignal(info);
-    return;
-  }
+  // TODO: just kill the Process
+  if (is_sig_blocked(signo)) print_msg_abort("synchronous signal blocked");
 
   std::optional<k_sigaction> tmp = GetAction(signo);
-  if (!tmp) return;
+  if (!tmp) print_msg_abort("synchronous signal ignored");
 
   k_sigaction &act = *tmp;
 
@@ -322,22 +312,43 @@ extern "C" __sighandler void synchronous_signal_handler(int signo,
   assert_on_runtime_stack();
 
   mythread().get_sighand().DeliverKernelSigToUser(signo, info, sigframe);
-
-  // We return to this point if the signal is not able to be delivered to a
-  // uthread. We need to unwind the kernel's trapframe, but cannot do so on this
-  // non-preemption safe stack since we can't atomically enable preemption and
-  // call rt_sigreturn. Instead, move the sigframe to a preemptable stack (ie
-  // the uthread's stack) and then call sigreturn.
-
-  LOG(INFO) << "Unwinding immediate, test me";
-  thread_tf restore_tf;
-  MoveSigframeForImmediateUnwind(sigframe, restore_tf);
-  __switch_and_preempt_enable(&restore_tf);
   std::unreachable();
 }
 
-bool SignalQueue::Enqueue(siginfo_t *info) {
-  int signo = info->si_signo;
+std::optional<siginfo_t> SignalQueue::Pop(k_sigset_t blocked,
+                                          bool remove = true) {
+  assert(IsHeld());
+  int signo = __builtin_ffsl(pending_ & ~blocked);
+  if (signo <= 0) return std::nullopt;
+
+  siginfo_t si;
+  si.si_signo = 0;
+  size_t signo_count = 0;
+
+  for (auto p = pending_q_.begin(); p != pending_q_.end();) {
+    if (p->si_signo != signo) {
+      p++;
+      continue;
+    }
+
+    signo_count++;
+
+    if (!si.si_signo) {
+      if (!remove) return *p;
+      si = *p;
+      p = pending_q_.erase(p);
+    } else if (signo_count > 1) {
+      break;
+    }
+  }
+
+  if (!si.si_signo) return std::nullopt;
+  if (signo_count == 1) clear_sig_pending(signo);
+  return si;
+}
+
+bool SignalQueue::Enqueue(const siginfo_t &info) {
+  int signo = info.si_signo;
 
   if (unlikely(pending_q_.size() >= kMaxQueuedRT) &&
       signo >= kNumStandardSignals) {
@@ -345,16 +356,9 @@ bool SignalQueue::Enqueue(siginfo_t *info) {
     return false;
   }
 
-  pending_q_.emplace_back(*info);
+  pending_q_.emplace_back(info);
   set_sig_pending(signo);
   return true;
-}
-
-siginfo_t SignalQueue::Pop(k_sigset_t blocked) {
-  std::optional<siginfo_t> sig = GetSignal(
-      blocked, [](siginfo_t &) { return true; }, true);
-  BUG_ON(!sig);
-  return *sig;
 }
 
 // Unwind a sigframe from a Junction process's thread.
@@ -377,7 +381,7 @@ extern "C" [[noreturn]] void usys_rt_sigreturn(uint64_t rsp) {
   if (unlikely(GetCfg().strace_enabled())) LogSyscall("rt_sigreturn");
 
   // set blocked
-  hand.SigProcMask(SIG_SETMASK, &sigframe->uc.mask, nullptr);
+  hand.ReplaceMask(sigframe->uc.mask);
 
   // update altstack
   hand.SigAltStack(&sigframe->uc.uc_stack, nullptr);
@@ -408,38 +412,42 @@ thread_tf *PushTrapFrameToStack(uint64_t *rsp, const thread_tf &src) {
 }
 
 // Find next signal pending in either the thread and proc siqueues
-bool ThreadSignalHandler::PopSigInfo(siginfo_t *dst_sig) {
-  if (sig_q_.get_pending(blocked_)) {
-    rt::SpinGuard g(sig_q_);
-    if (sig_q_.get_pending(blocked_)) {
-      *dst_sig = sig_q_.Pop(blocked_);
-      return true;
-    }
+std::optional<siginfo_t> ThreadSignalHandler::PopSigInfo(
+    k_sigset_t blocked, bool reset_flag = true) {
+  std::optional<siginfo_t> tmp;
+
+  // Make sure sig_q_ lock is never acquired while holding shared_q lock
+  rt::SpinGuard g(sig_q_);
+  tmp = sig_q_.Pop(blocked);
+  if (tmp) return tmp;
+
+  {
+    rt::SpinGuard g(shared_q_);
+    tmp = shared_q_.Pop(blocked);
+  }
+  if (tmp) return tmp;
+
+  // No signal found, clear pending signal flags
+  if (reset_flag) {
+    notified_ = false;
+    reset_interruptible_state(this_thread().GetCaladanThread());
+    RestoreBlockedForce();
   }
 
-  SignalQueue &shared_q = proc_->get_signal_queue();
-  if (shared_q.get_pending(blocked_)) {
-    rt::SpinGuard g(shared_q);
-    if (shared_q.get_pending(blocked_)) {
-      *dst_sig = shared_q.Pop(blocked_);
-      return true;
-    }
-  }
-
-  return false;
+  return tmp;
 }
+
+ThreadSignalHandler::ThreadSignalHandler(Thread &thread)
+    : shared_q_(thread.get_process().get_signal_queue()), mythread_(thread){};
 
 // Find next actionable signal
 std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal() {
   DeliveredSignal sig;
 
-  if (unlikely(is_sig_pending(SIGKILL))) {
-    usys_exit(0);
-    std::unreachable();
-  }
-
   while (true) {
-    if (!PopSigInfo(&sig.info)) return std::nullopt;
+    std::optional<siginfo_t> info = PopSigInfo(blocked_);
+    if (!info) return std::nullopt;
+    sig.info = *info;
     std::optional<k_sigaction> act = GetAction(sig.info.si_signo);
 
     // try again if signal is ignored
@@ -461,6 +469,39 @@ std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal() {
   if (unlikely(GetCfg().strace_enabled())) LogSignal(sig.info);
 
   return sig;
+}
+
+void ThreadSignalHandler::RestoreBlocked() {
+  if (!saved_blocked_) return;
+
+  // Avoid grabbing lock if interrupt flag is set
+  if (thread_interrupted(this_thread().GetCaladanThread())) return;
+
+  if (*saved_blocked_ != blocked_) {
+    rt::SpinGuard g(sig_q_);
+    if (thread_interrupted(this_thread().GetCaladanThread())) return;
+    blocked_ = *saved_blocked_;
+    SetInterruptFlagIfNeeded();
+  }
+
+  saved_blocked_ = std::nullopt;
+}
+
+bool ThreadSignalHandler::EnqueueSignal(const siginfo_t &info) {
+  rt::SpinGuard g(sig_q_);
+
+  // signal might already be pending
+  if (!sig_q_.Enqueue(info)) return false;
+
+  // signal is blocked, don't wakeup
+  if (is_sig_blocked(info.si_signo)) return false;
+
+  // we already notified this thread via wakeup/IPI, don't do it again
+  if (notified_) return false;
+
+  // mark this thread as notified
+  notified_ = true;
+  return true;
 }
 
 // Setup @signal on the stack given by @rsp (may be switched). @prev_frame is
@@ -528,14 +569,12 @@ void ThreadSignalHandler::ApplySignals(const DeliveredSignal &first_signal,
   thread_tf sighand_tf;  // frame used to exit to signal handler
 
   ApplySignals(first_signal, &rsp, restore_tf, sighand_tf);
-  mythread().get_sighand().RestoreBlocked();
 
   while (true) {
     // no more signals, try to exit to user mode
     preempt_disable();
     mythread().set_in_syscall(false);
-    barrier();
-    if (!any_sig_pending()) {
+    if (!mythread().needs_interrupt()) {
       __switch_and_preempt_enable(&sighand_tf);
       std::unreachable();
     }
@@ -600,9 +639,10 @@ void SetupRestoreGolang(std::optional<long> rax, thread_tf *tf) {
 
 // Called by the Caladan scheduler to deliver signals to a thread that is being
 // scheduled in and is not in a syscall (perhaps it was preempted).
+// GetNextSignal() synchronizes with the signal handler lock, and is always
+// called when returning to a thread that was not in a syscall.
 extern "C" void deliver_signals_jmp_thread(thread_t *th) {
   assert(sched_needs_signal_check(th));
-  assert(thread_signal_pending(th));
   assert_preempt_disabled();
   assert_on_runtime_stack();
   assert(th->thread_running);
@@ -703,7 +743,7 @@ long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info) {
   // TODO: support interprocess signals if needed
   if (tgid != myproc().get_pid()) return -EPERM;
   info->si_signo = sig;
-  Status<void> ret = myproc().SignalThread(tid, info);
+  Status<void> ret = myproc().SignalThread(tid, *info);
   if (unlikely(!ret)) return MakeCError(ret);
   return 0;
 }
@@ -720,28 +760,28 @@ int usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
   if (unlikely(sigsetsize != sizeof(k_sigset_t))) return -EINVAL;
 
   ThreadSignalHandler &hand = mythread().get_sighand();
-  rt::Spin &lock = mythread().get_waker_lock();
+
+  unsigned long oset, mask = *reinterpret_cast<const k_sigset_t *>(set);
+  hand.SigProcMask(SIG_UNBLOCK, &mask, &oset);
+
   std::optional<Duration> timeout;
   if (ts) timeout = Duration(*ts);
 
-  unsigned long oset, mask = ~*reinterpret_cast<const k_sigset_t *>(set);
-  hand.SigProcMask(SIG_SETMASK, &mask, &oset);
-
-  if (!hand.any_sig_pending() && (!timeout || !timeout->IsZero())) {
+  if (!hand.any_sig_ready() && (!timeout || !timeout->IsZero())) {
     rt::ThreadWaker w;
+    rt::Spin lock;
     WakeOnTimeout timed_out(lock, w, timeout);
     rt::SpinGuard g(lock);
     WaitInterruptible(lock, w,
                       [&timed_out] { return static_cast<bool>(timed_out); });
   }
 
-  siginfo_t tmp;
-  if (!info) info = &tmp;
-  bool found = hand.PopSigInfo(info);
-  hand.SigProcMask(SIG_SETMASK, &oset, nullptr);
-  if (found) return info->si_signo;
+  std::optional<siginfo_t> tmp = hand.PopSigInfo(~mask);
+  hand.ReplaceMask(oset);
+  if (!tmp) return -EINTR;  // TODO: ERESTARTX?
 
-  return -EINTR;  // TODO: ERESTARTX?
+  *info = *tmp;
+  return tmp->si_signo;
 }
 
 int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
@@ -751,13 +791,13 @@ int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
 
   ThreadSignalHandler &hand = mythread().get_sighand();
   hand.SaveBlocked();
-  hand.SigProcMask(SIG_SETMASK, mask, nullptr);
+  hand.ReplaceMask(*mask);
 
   {
-    rt::Spin &lock = mythread().get_waker_lock();
+    rt::Preempt p;
     rt::ThreadWaker w;
-    rt::SpinGuard g(lock);
-    WaitInterruptible(lock, w);
+    rt::PreemptGuard g(p);
+    WaitInterruptible(p, w);
   }
 
   return -EINTR;  // TODO: Should be ERESTARTNOHAND
@@ -765,9 +805,9 @@ int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
 
 long usys_pause() {
   rt::ThreadWaker w;
-  rt::Spin &lock = mythread().get_waker_lock();
-  rt::SpinGuard g(lock);
-  WaitInterruptible(lock, w);
+  rt::Preempt p;
+  rt::PreemptGuard g(p);
+  WaitInterruptible(p, w);
   return -EINTR;  // TODO: Should be ERESTARTNOHAND
 }
 

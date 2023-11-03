@@ -47,7 +47,7 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout,
   if (nevents > 0 || (timeout && timeout->IsZero())) return nevents;
 
   // Otherwise, init state to block on the FDs and timeout.
-  rt::Spin &lock = mythread().get_waker_lock();
+  rt::Spin lock;
   rt::ThreadWaker waker;
   WakeOnTimeout timed_out(lock, waker, timeout);
   SigMaskGuard sig(mask);
@@ -206,7 +206,7 @@ std::pair<int, Duration> DoSelect(
   if (timeout && timeout->IsZero()) return std::make_pair(0, Duration(0));
 
   // Otherwise, init state to block on the FDs and timeout.
-  rt::Spin &lock = mythread().get_waker_lock();
+  rt::Spin lock;
   rt::ThreadWaker waker;
   WakeOnTimeout timed_out(lock, waker, timeout);
   SigMaskGuard sig(mask);

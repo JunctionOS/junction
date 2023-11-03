@@ -169,8 +169,6 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
 
 }  // namespace
 
-rt::WaitGroup Process::all_procs;
-
 Thread::~Thread() {
   uint32_t *child_tid = get_child_tid();
   if (child_tid) {
