@@ -115,19 +115,21 @@ inline int GetInterruptibleStatus(thread *th) {
 // Returns true if this wait was interrupted by a signal.
 //
 // WARNING: The calling thread must be a Junction kernel thread.
-template <rt::LockAndParkable LockParkable, rt::InterruptWakeable Waker>
+template <rt::LockAndParkable LockParkable, rt::Wakeable Waker>
 bool WaitInterruptible(LockParkable &lock, Waker &waker) {
   assert(lock.IsHeld());
   assert(IsJunctionThread());
 
+  // Block and wait for an event.
   thread_t *th = thread_self();
   if (PrepareInterruptible(th)) return true;
-  waker.Arm();
+  waker.Arm(th);
   lock.UnlockAndPark();
   lock.Lock();
 
+  // Check if a signal was delivered while blocked.
   int ret = GetInterruptibleStatus(th);
-  if (ret > 1) waker.Disarm();
+  if (ret > 1) waker.Disarm(th);
   return ret > 0;
 }
 
@@ -138,9 +140,6 @@ bool WaitInterruptible(LockParkable &lock, Waker &waker) {
 // includes the wakable object.
 //
 // Returns true if this wait was interrupted by a signal.
-//
-// WARNING: @lock must be valid through an RCU period or be scoped to the
-// calling thread's lifetime.
 //
 // WARNING: The calling thread must be a Junction kernel thread.
 template <rt::LockAndParkable LockParkable, rt::Wakeable Waker,
@@ -205,7 +204,7 @@ class InterruptibleRWMutex {
       return false;
     }
 
-    read_waiters_.Arm();
+    read_waiters_.Arm(th);
     lock_.UnlockAndPark();
 
     if (unlikely(GetInterruptibleStatus(th) > 0)) {
@@ -213,7 +212,7 @@ class InterruptibleRWMutex {
       // Unlock() has also woken us.
       rt::SpinGuard g(lock_);
       if (GetInterruptibleStatus(th) > 1) {
-        read_waiters_.Disarm();
+        read_waiters_.Disarm(th);
         return false;
       }
       return true;
@@ -262,7 +261,7 @@ class InterruptibleRWMutex {
       return false;
     }
 
-    write_waiters_.Arm();
+    write_waiters_.Arm(th);
     lock_.UnlockAndPark();
 
     if (unlikely(GetInterruptibleStatus(th) > 0)) {
@@ -270,7 +269,7 @@ class InterruptibleRWMutex {
       // Unlock() has also woken us.
       rt::SpinGuard g(lock_);
       if (GetInterruptibleStatus(th) > 1) {
-        read_waiters_.Disarm();
+        read_waiters_.Disarm(th);
         return false;
       }
       return true;

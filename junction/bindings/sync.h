@@ -35,14 +35,9 @@ concept LockAndParkable = requires(T t) {
 // Wakable is a concept for blocking mechanisms that can be woken up
 template <typename T>
 concept Wakeable = requires(T t, thread_t *th) {
-  { t.Arm() } -> std::same_as<void>;
+  { t.Arm(th) } -> std::same_as<void>;
+  { t.Disarm(th) } -> std::same_as<void>;
   { t.WakeThread(th) } -> std::same_as<void>;
-};
-
-template <typename T>
-concept InterruptWakeable = requires(T t, thread_t *th) {
-  { t.Arm() } -> std::same_as<void>;
-  { t.Disarm() } -> std::same_as<void>;
 };
 
 // WaitQueue is used to wake a group of threads.
@@ -61,12 +56,12 @@ class WaitQueue {
 
   // Arm prepares the running thread to block. Can only be called once,
   // must be synchronized by caller.
-  void Arm() { list_add_tail(&waiters_, &thread_self()->link); }
+  void Arm(thread_t *th = thread_self()) {
+    list_add_tail(&waiters_, &th->link);
+  }
 
   // Cancel an arm, must be synchronized by caller.
-  void Disarm(thread_t *th = thread_self()) {
-    list_del_from(&waiters_, &th->link);
-  }
+  void Disarm(thread_t *th) { list_del_from(&waiters_, &th->link); }
 
   // Wake up to one thread waiter (must be synchronized by caller)
   // Returns true if a waiter was found and removed from the list.
@@ -116,10 +111,13 @@ class ThreadWaker {
   }
 
   // Arm prepares the running thread to block. Can only be called once.
-  void Arm() { th_ = thread_self(); }
+  void Arm(thread_t *th = thread_self()) { th_ = th; }
 
   // Cancel an arm, must be synchronized by caller.
-  void Disarm() { th_ = nullptr; }
+  void Disarm(thread_t *th) {
+    assert(th == th_);
+    th_ = nullptr;
+  }
 
   // Wake makes the parked thread runnable. Must be called by another thread
   // after the prior thread has called Arm() and has parked (or will park in
