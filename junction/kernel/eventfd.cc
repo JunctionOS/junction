@@ -4,7 +4,6 @@ extern "C" {
 #include <sys/eventfd.h>
 }
 
-#include "junction/bindings/rcu.h"
 #include "junction/bindings/wait.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
@@ -23,7 +22,7 @@ constexpr unsigned int kEventFdSupportedFlags =
 
 constexpr size_t kEventFdValSize = 8;
 
-class EventFDFile : public File, public rt::RCUObject {
+class EventFDFile : public File {
  public:
   EventFDFile(unsigned int initval, int flags) noexcept
       : File(FileType::kNormal, flags & kEventFdSupportedFlags,
@@ -101,15 +100,13 @@ Status<size_t> EventFDFile::Write(std::span<const std::byte> buf,
 }  // namespace
 
 long usys_eventfd2(unsigned int initval, int flags) {
-  std::shared_ptr<EventFDFile> efd(new EventFDFile(initval, flags),
-                                   rt::RCUDeleter<EventFDFile>());
+  auto efd = std::make_shared<EventFDFile>(initval, flags);
   return myproc().get_file_table().Insert(std::move(efd),
                                           (flags & kFlagCloseExec) > 0);
 }
 
 long usys_eventfd(unsigned int initval) {
-  std::shared_ptr<EventFDFile> efd(new EventFDFile(initval, 0),
-                                   rt::RCUDeleter<EventFDFile>());
+  auto efd = std::make_shared<EventFDFile>(initval, 0);
   return myproc().get_file_table().Insert(std::move(efd));
 }
 
