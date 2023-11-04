@@ -224,14 +224,14 @@ systabl_strace_targets[453] = "junction_fncall_stackswitch_vfork_enter"
 # generate the sysfn table
 dispatch_file += [f"sysfn_t sys_tbl[SYS_NR] = {'{'}"]
 for i, entry in enumerate(systabl_targets):
-	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
+	idx = f"__NR_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
 	dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{entry}),")
 dispatch_file.append("};")
 
 # generate the table of names for debugging
 dispatch_file += [f"const char *syscall_names[SYS_NR] = {'{'}"]
 for i in range(SYS_NR):
-	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
+	idx = f"__NR_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
 	name = syscall_nr_to_name.get(i, f"unknown_syscall_{i}")
 	dispatch_file.append(f"\t[{idx}] = \"{name}\",")
 dispatch_file.append("};")
@@ -239,7 +239,7 @@ dispatch_file.append("};")
 # generate the sysfn-strace table
 dispatch_file += [f"sysfn_t sys_tbl_strace[SYS_NR] = {'{'}"]
 for i, entry in enumerate(systabl_strace_targets):
-	idx = f"SYS_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
+	idx = f"__NR_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
 	dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{entry}),")
 dispatch_file.append("};")
 
