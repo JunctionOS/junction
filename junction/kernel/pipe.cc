@@ -6,7 +6,6 @@
 #include <memory>
 
 #include "junction/base/byte_channel.h"
-#include "junction/bindings/rcu.h"
 #include "junction/bindings/wait.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
@@ -17,7 +16,7 @@ namespace junction {
 
 namespace {
 
-class Pipe : public rt::RCUObject {
+class Pipe {
  public:
   friend std::pair<int, int> CreatePipe(int flags);
 
@@ -177,7 +176,7 @@ class PipeWriterFile : public File {
 
 std::pair<int, int> CreatePipe(int flags = 0) {
   // Create the pipe (shared between the reader and writer file).
-  std::shared_ptr<Pipe> pipe(new Pipe(kPipeSize), rt::RCUDeleter<Pipe>());
+  auto pipe = std::make_shared<Pipe>(kPipeSize);
 
   // Create the reader file.
   auto reader = std::make_shared<PipeReaderFile>(pipe, flags);
