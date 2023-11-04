@@ -1,0 +1,133 @@
+From 393dcc6a12cb25cf918c4d987b3f7eceddfce90a Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sat, 4 Nov 2023 02:41:41 -0400
+Subject: [PATCH 31/31] add const alias for thread_self
+
+---
+ inc/base/compiler.h  |  3 +++
+ inc/base/thread.h    | 24 ++++++++++++++++++++++++
+ inc/runtime/thread.h |  6 ++++--
+ runtime/sched.c      |  7 +++++--
+ 4 files changed, 36 insertions(+), 4 deletions(-)
+
+diff --git a/inc/base/compiler.h b/inc/base/compiler.h
+index 9a05e121..6264fe53 100644
+--- a/inc/base/compiler.h
++++ b/inc/base/compiler.h
+@@ -56,6 +56,9 @@
+ 	 sizeof(t) == sizeof(int)   || \
+ 	 sizeof(t) == sizeof(long))
+ 
++#define type_is_pointer(t) \
++	(__builtin_types_compatible_p(typeof(t), typeof(&*t)))
++
+ /*
+  * These attributes are defined only with the sparse checker tool.
+  */
+diff --git a/inc/base/thread.h b/inc/base/thread.h
+index e8a5feaa..07201300 100644
+--- a/inc/base/thread.h
++++ b/inc/base/thread.h
+@@ -16,6 +16,13 @@
+   typeof(type) __perthread_##name __perthread                                  \
+       __attribute__((section(".perthread,\"\",@nobits#")))
+ 
++#define DEFINE_PERTHREAD_ALIAS(type, name, alias_name)                         \
++  extern typeof(type) __perthread_##alias_name                                 \
++      __attribute__((alias ("__perthread_"#name)))
++
++#define DECLARE_PERTHREAD_ALIAS(type, name, alias_name)                         \
++  extern typeof(type) __perthread_##alias_name
++
+ /* used to make perthread variables externally available */
+ #define DECLARE_PERTHREAD(type, name) extern DEFINE_PERTHREAD(type, name)
+ 
+@@ -95,6 +102,12 @@ extern const char __perthread_start[];
+     }                                                                          \
+   } while (0);
+ 
++#define __perthread_read_const_p(key)                                          \
++  ({                                                                           \
++    BUILD_ASSERT(type_is_pointer(key));                                        \
++    __perthread_read_qual((typeof(&*key)) key, /* */);                         \
++  })
++
+ /**
+  * perthread_incr - increments a native-type perthread
+  * variable using a single instruction.
+@@ -152,6 +165,17 @@ extern const char __perthread_start[];
+ #define perthread_read_stable(var)                                             \
+   __perthread_read_qual(__perthread_##var, /* */)
+ 
++/**
++ * perthread_read_const_p - read the value stored at
++ * a native-type perthread variable. The value must be a const pointer and
++ * may be cached by the compiler.
++ * @var: the perthread variable (of type T * const)
++ *
++ * Returns the pointer stored at @var
++ *
++ */
++#define perthread_read_const_p(var) __perthread_read_const_p(__perthread_##var)
++
+ /**
+  * perthread_ptr_stable - get a pointer to a local perthread variable
+  * result may be cached by compiler.
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 6e52f997..b371b4ae 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -32,6 +32,8 @@ extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
+ extern void thread_free(thread_t *th);
+ 
+ DECLARE_PERTHREAD(thread_t *, __self);
++DECLARE_PERTHREAD_ALIAS(thread_t * const, __self, __const_self);
++
+ DECLARE_PERTHREAD(unsigned int, kthread_idx);
+ DECLARE_PERTHREAD(uint64_t, runtime_fsbase);
+ 
+@@ -43,9 +45,9 @@ static inline unsigned int get_current_affinity(void)
+ /**
+  * thread_self - gets the currently running thread
+  */
+-inline thread_t *thread_self(void)
++static inline thread_t *thread_self(void)
+ {
+-	return perthread_read_stable(__self);
++	return perthread_read_const_p(__const_self);
+ }
+ 
+ /*
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 70d8c46a..48109952 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -22,6 +22,8 @@
+ 
+ /* the current running thread, or NULL if there isn't one */
+ DEFINE_PERTHREAD(thread_t *, __self);
++DEFINE_PERTHREAD_ALIAS(thread_t * const, __self, __const_self);
++
+ /* a pointer to the top of the per-kthread (TLS) runtime stack */
+ DEFINE_PERTHREAD(void *, runtime_stack);
+ DEFINE_PERTHREAD(uint64_t, runtime_fsbase);
+@@ -348,13 +350,14 @@ static __noinline void schedule(void)
+ 	/* detect misuse of preempt disable */
+ 	BUG_ON((perthread_read(preempt_cnt) & ~PREEMPT_NOT_PENDING) != 1);
+ 
+-	th = perthread_get_stable(__self);
++	th = perthread_read_stable(__self);
++	assert(th == thread_self());
+ 
+ 	/* unmark busy for the stack of the last uthread */
+ 	if (likely(th != NULL)) {
+ 		store_release(&th->thread_running, false);
+ 		th->cur_kthread = NCPU;
+-		perthread_get_stable(__self) = NULL;
++		perthread_store(__self, NULL);
+ 		th = NULL;
+ 	}
+ 
+-- 
+2.39.2
+
