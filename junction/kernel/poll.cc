@@ -8,7 +8,6 @@
 
 #include "junction/base/compiler.h"
 #include "junction/base/intrusive_list.h"
-#include "junction/bindings/rcu.h"
 #include "junction/bindings/wait.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
@@ -300,10 +299,9 @@ class EPollObserver : public PollObserver {
   IntrusiveListNode node_;
 };
 
-class EPollFile : public File, public rt::RCUObject {
+class EPollFile : public File {
  public:
-  EPollFile()
-      : File(FileType::kSpecial, 0, 0), proc_(myproc().shared_from_this()) {}
+  EPollFile() : File(FileType::kSpecial, 0, 0) {}
   ~EPollFile();
 
   static void Notify(PollSource &s);
@@ -333,14 +331,10 @@ class EPollFile : public File, public rt::RCUObject {
   rt::Spin lock_;
   rt::ThreadWaker waker_;
   IntrusiveList<EPollObserver, &EPollObserver::node_> events_;
-  // store a reference to the process so that the EPollFile can be RCU freed in
-  // a non-Junction thread
-  std::shared_ptr<Process> proc_;
 };
 
-// Called in RCU context
 EPollFile::~EPollFile() {
-  FileTable &ftbl = proc_->get_file_table();
+  FileTable &ftbl = myproc().get_file_table();
   ftbl.ForEach([this](File &f) { Delete(f); });
 }
 
@@ -465,8 +459,7 @@ namespace {
 
 // Creates a new EPoll file.
 int CreateEPollFile(bool cloexec = false) {
-  std::shared_ptr<detail::EPollFile> f(new detail::EPollFile,
-                                       rt::RCUDeleter<detail::EPollFile>());
+  auto f = std::make_shared<detail::EPollFile>();
   return myproc().get_file_table().Insert(std::move(f), cloexec);
 }
 
