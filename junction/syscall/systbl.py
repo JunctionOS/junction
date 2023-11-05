@@ -102,6 +102,16 @@ def emit_trapframe_save_entry(function_target, output):
 	fn = f"""
 
 	static_assert(JUNCTION_TF_OFF == {JUNCTION_TF_OFF});
+
+	static_assert(offsetof(thread_tf, rdi) == 0);
+	static_assert(offsetof(thread_tf, rsi) == 8);
+	static_assert(offsetof(thread_tf, rdx) == 16);
+	static_assert(offsetof(thread_tf, rcx) == 24);
+	static_assert(offsetof(thread_tf, r8) == 32);
+	static_assert(offsetof(thread_tf, r9) == 40);
+	static_assert(offsetof(thread_tf, r10) == 48);
+
+
 	static_assert(offsetof(thread_tf, rbx) == 64);
 	static_assert(offsetof(thread_tf, rbp) == 72);
 	static_assert(offsetof(thread_tf, r12) == 80);
@@ -121,6 +131,16 @@ def emit_trapframe_save_entry(function_target, output):
 	addq ${JUNCTION_TF_OFF}, %r11
 
 	/* save registers */
+
+	movq    %rdi, 0(%r11)
+	movq    %rsi, 8(%r11)
+	movq    %rdx, 16(%r11)
+	movq    %rcx, 24(%r11)
+	movq    %r8, 32(%r11)
+	movq    %r9, 40(%r11)
+
+	movq    %r10, 48(%r11)
+
 	movq    %rbx, 64(%r11)
 	movq    %rbp, 72(%r11)
 	movq    %r12, 80(%r11)
