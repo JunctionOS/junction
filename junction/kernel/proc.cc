@@ -210,7 +210,7 @@ void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
 }
 
 bool Process::ThreadFinish(Thread *th) {
-  rt::SpinGuard g(shared_sig_q_);
+  rt::SpinGuard g(child_thread_lock_);
   thread_map_.erase(th->get_tid());
   return thread_map_.size() == 0;
 }
@@ -280,7 +280,7 @@ Status<std::unique_ptr<Thread>> Process::CreateThread() {
   std::unique_ptr<Thread> th_ptr(tstate);
 
   {
-    rt::SpinGuard g(shared_sig_q_);
+    rt::SpinGuard g(child_thread_lock_);
     if (unlikely(exited())) return MakeError(1);
     thread_map_[*tid] = tstate;
   }
@@ -340,15 +340,17 @@ void Process::ReapChild(Process *child) {
 void Process::NotifyParentWait(unsigned int state, int status) {
   if (!parent_) return;
 
-  rt::SpinGuard g(parent_->shared_sig_q_);
+  {
+    rt::SpinGuard g(parent_->shared_sig_q_);
+    wait_status_ = status;
+    wait_state_ = state;
 
-  wait_status_ = status;
-  wait_state_ = state;
+    siginfo_t sig;
+    FillWaitInfo(sig);
+    parent_->SignalLocked(sig);
+  }
 
-  siginfo_t sig;
-  FillWaitInfo(sig);
-
-  parent_->SignalLocked(sig);
+  parent_->FindThreadForSignal(SIGCHLD);
 }
 
 void Process::DoExit(int status) {
@@ -359,7 +361,10 @@ void Process::DoExit(int status) {
 
     xstate_ = status;
     store_release(&exited_, true);
+  }
 
+  {
+    rt::SpinGuard g(child_thread_lock_);
     for (const auto &[pid, th] : thread_map_) th->Kill();
   }
 

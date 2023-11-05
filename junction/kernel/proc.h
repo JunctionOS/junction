@@ -280,39 +280,35 @@ class Process : public std::enable_shared_from_this<Process> {
   // Called when a process exits, will attempt to notify all threads.
   void DoExit(int status);
 
-  Status<void> SignalLocked(const siginfo_t &si) {
+  void SignalLocked(const siginfo_t &si) {
     assert(shared_sig_q_.IsHeld());
     shared_sig_q_.Enqueue(si);
     if (si.si_signo == SIGCLD) child_waiters_.WakeAll();
-
-    // TODO(jf): find thread to send an IPI to
-    for (const auto &[pid, th] : thread_map_) {
-      th->SendIpi();
-      break;
-    }
-
-    return {};
   }
 
-  Status<void> Signal(const siginfo_t &si) {
+  void FindThreadForSignal(int signo) {
+    rt::SpinGuard g(child_thread_lock_);
+    // TODO: add logic to find a thread that hasn't blocked this signal (and
+    // ideally is waiting). For now, just signal all threads.
+    for (const auto &[pid, th] : thread_map_) th->SendIpi();
+  }
+
+  void Signal(const siginfo_t &si) {
     {
       rt::SpinGuard g(shared_sig_q_);
-      shared_sig_q_.Enqueue(si);
-      if (si.si_signo == SIGCLD) child_waiters_.WakeAll();
+      SignalLocked(si);
     }
-
-    // TODO(jf): find thread to send an IPI to
-    return {};
+    FindThreadForSignal(si.si_signo);
   }
 
-  Status<void> Signal(int signo) {
+  void Signal(int signo) {
     siginfo_t si;
     si.si_signo = signo;
-    return Signal(si);
+    Signal(si);
   }
 
   Status<void> SignalThread(pid_t tid, const siginfo_t &si) {
-    rt::SpinGuard g(shared_sig_q_);
+    rt::SpinGuard g(child_thread_lock_);
 
     auto it = thread_map_.find(tid);
     if (it == thread_map_.end()) return MakeError(ESRCH);
@@ -369,6 +365,10 @@ class Process : public std::enable_shared_from_this<Process> {
   SignalQueue shared_sig_q_;
   rt::WaitQueue child_waiters_;
   std::vector<std::shared_ptr<Process>> child_procs_;
+
+  // @child_thread_lock_ protects @thread_map_, must be held while accessing
+  // another Thread to prevent it from exiting.
+  rt::Spin child_thread_lock_;
   std::map<pid_t, Thread *> thread_map_;
 
   // Protected by parent_'s shared_sig_q_lock_
