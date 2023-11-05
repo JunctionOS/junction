@@ -1,7 +1,7 @@
-From 8b8413b36cc36cd55684ec2ac12f1b27b1a0169e Mon Sep 17 00:00:00 2001
+From 0e06683488416ceb6d8a1bc3cbbc46bca0183cc3 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 15 Jan 2023 16:14:12 -0500
-Subject: [PATCH 4/6] glibc: directly allocate/free stacks from junction
+Subject: [PATCH 4/7] glibc: directly allocate/free stacks from junction
 
 ---
  nptl/allocatestack.c | 50 +++++++++++++++++++++++++++++++-------------
@@ -10,7 +10,7 @@ Subject: [PATCH 4/6] glibc: directly allocate/free stacks from junction
  3 files changed, 54 insertions(+), 14 deletions(-)
 
 diff --git a/nptl/allocatestack.c b/nptl/allocatestack.c
-index 219854f2cb..0c442d30f0 100644
+index f9d8cdfd082..2911c40e272 100644
 --- a/nptl/allocatestack.c
 +++ b/nptl/allocatestack.c
 @@ -215,6 +215,7 @@ allocate_stack (const struct pthread_attr *attr, struct pthread **pdp,
@@ -124,10 +124,10 @@ index 219854f2cb..0c442d30f0 100644
  	return EINVAL;
        size += guardsize;
 diff --git a/nptl/descr.h b/nptl/descr.h
-index 5cacb286f3..3e4cad408c 100644
+index 0171576c237..64fcb1c0501 100644
 --- a/nptl/descr.h
 +++ b/nptl/descr.h
-@@ -173,6 +173,8 @@ struct pthread
+@@ -172,6 +172,8 @@ struct pthread
       therefore stack) used' flag.  */
    pid_t tid;
  
@@ -137,10 +137,10 @@ index 5cacb286f3..3e4cad408c 100644
  #if __PTHREAD_MUTEX_HAVE_PREV
    void *robust_prev;
 diff --git a/nptl/nptl-stack.c b/nptl/nptl-stack.c
-index 20ce78eddb..bd4bf24431 100644
+index e829711cb53..5df546eba73 100644
 --- a/nptl/nptl-stack.c
 +++ b/nptl/nptl-stack.c
-@@ -109,6 +109,22 @@ queue_stack (struct pthread *stack)
+@@ -110,6 +110,22 @@ queue_stack (struct pthread *stack)
  void
  __nptl_deallocate_stack (struct pthread *pd)
  {
@@ -164,5 +164,5 @@ index 20ce78eddb..bd4bf24431 100644
  
    /* Remove the thread from the list of threads with user defined
 -- 
-2.34.1
+2.40.1
 

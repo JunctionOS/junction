@@ -1,7 +1,7 @@
-From ca0891b801fe902afd1f9b72448a846a5fc6b5ed Mon Sep 17 00:00:00 2001
+From 1e566fcb2fba6d812f00c2d0d03d1780e7bc78b2 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 20 Nov 2022 16:47:47 -0500
-Subject: [PATCH 2/5] junction syscall hooks
+Subject: [PATCH 2/7] junction syscall hooks
 
 ---
  elf/Makefile                             |   6 +-
@@ -10,10 +10,10 @@ Subject: [PATCH 2/5] junction syscall hooks
  3 files changed, 45 insertions(+), 86 deletions(-)
 
 diff --git a/elf/Makefile b/elf/Makefile
-index 6e95fa2130..30db945015 100644
+index 592549d53a5..ee69f989d92 100644
 --- a/elf/Makefile
 +++ b/elf/Makefile
-@@ -215,9 +215,9 @@ extra-objs	+= $(sln-modules:=.o)
+@@ -210,9 +210,9 @@ extra-objs	+= $(sln-modules:=.o)
  
  ifeq (yes,$(use-ldconfig))
  ifeq (yes,$(build-shared))
@@ -27,7 +27,7 @@ index 6e95fa2130..30db945015 100644
  ldconfig-modules := \
    cache \
 diff --git a/sysdeps/unix/sysv/linux/x86_64/syscall.S b/sysdeps/unix/sysv/linux/x86_64/syscall.S
-index 192455a898..73d5e29d7d 100644
+index 662fc7f3000..24e001cf77b 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/syscall.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/syscall.S
 @@ -31,10 +31,22 @@ ENTRY (syscall)
@@ -56,7 +56,7 @@ index 192455a898..73d5e29d7d 100644
  	jae SYSCALL_ERROR_LABEL	/* Jump to error handler if error.  */
  	ret			/* Return to caller.  */
 diff --git a/sysdeps/unix/sysv/linux/x86_64/sysdep.h b/sysdeps/unix/sysv/linux/x86_64/sysdep.h
-index 740abefcfd..ff5fffa4f6 100644
+index c350ee157a1..2fbf189dd4f 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/sysdep.h
 +++ b/sysdeps/unix/sysv/linux/x86_64/sysdep.h
 @@ -31,7 +31,10 @@
@@ -246,5 +246,5 @@ index 740abefcfd..ff5fffa4f6 100644
  
  # define VDSO_NAME  "LINUX_2.6"
 -- 
-2.37.2
+2.40.1
 

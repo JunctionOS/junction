@@ -13,6 +13,8 @@ mkdir -p $GLIBC_INSTALL_DIR
 
 unset LD_LIBRARY_PATH
 
+cd $GLIBC_DIR/../
+git submodule update --init --recursive -f glibc
 
 # Apply patches
 cd $GLIBC_DIR

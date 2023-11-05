@@ -1,7 +1,7 @@
-From d6262224c399daacdf3bf84adf6dfb4665df2102 Mon Sep 17 00:00:00 2001
+From 6fba4c31ca1977587d0f62de14f743ba9f19a6c6 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 23 Nov 2022 17:12:56 -0500
-Subject: [PATCH 3/5] glibc: hook some more syscalls
+Subject: [PATCH 3/7] glibc: hook some more syscalls
 
 ---
  sysdeps/unix/sysv/linux/kernel-features.h |  2 +-
@@ -11,7 +11,7 @@ Subject: [PATCH 3/5] glibc: hook some more syscalls
  4 files changed, 21 insertions(+), 21 deletions(-)
 
 diff --git a/sysdeps/unix/sysv/linux/kernel-features.h b/sysdeps/unix/sysv/linux/kernel-features.h
-index 74adc3956b..344b4f93e5 100644
+index 07b440f4eea..4cbee39ddbe 100644
 --- a/sysdeps/unix/sysv/linux/kernel-features.h
 +++ b/sysdeps/unix/sysv/linux/kernel-features.h
 @@ -52,7 +52,7 @@
@@ -24,7 +24,7 @@ index 74adc3956b..344b4f93e5 100644
  /* Support for various CLOEXEC and NONBLOCK flags was added in
     2.6.27.  */
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone.S b/sysdeps/unix/sysv/linux/x86_64/clone.S
-index b6b5cd497a..ac63d920d7 100644
+index 55e9ac74934..fc493f35856 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone.S
 @@ -78,12 +78,16 @@ ENTRY (__clone)
@@ -46,7 +46,7 @@ index b6b5cd497a..ac63d920d7 100644
  
  L(thread_start):
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone3.S b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-index 18fc2ee966..f5d559fa97 100644
+index 802d56cbace..716cb5aca3f 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone3.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone3.S
 @@ -47,22 +47,23 @@ ENTRY (__clone3)
@@ -80,8 +80,8 @@ index 18fc2ee966..f5d559fa97 100644
  	ret
  
  L(thread_start):
-@@ -77,12 +78,14 @@ L(thread_start):
- 	and	$-16, %RSP_LP
+@@ -74,12 +75,14 @@ L(thread_start):
+ 	xorl	%ebp, %ebp
  
  	/* Set up arguments for the function call.  */
 -	mov	%R8_LP, %RDI_LP	/* Argument.  */
@@ -100,7 +100,7 @@ index 18fc2ee966..f5d559fa97 100644
  
  	cfi_startproc
 diff --git a/sysdeps/x86_64/nptl/tls.h b/sysdeps/x86_64/nptl/tls.h
-index 75f8020975..4cab076458 100644
+index 1403f939f7e..fa704b3c762 100644
 --- a/sysdeps/x86_64/nptl/tls.h
 +++ b/sysdeps/x86_64/nptl/tls.h
 @@ -147,14 +147,7 @@ _Static_assert (offsetof (tcbhead_t, __glibc_unused2) == 0x80,
@@ -117,8 +117,8 @@ index 75f8020975..4cab076458 100644
 -		   : "memory", "cc", "r11", "cx");			      \
 +     _result = INTERNAL_SYSCALL(arch_prctl, 2, ARCH_SET_FS, _thrdescr);       \
  									      \
-     _result ? "cannot set %fs base address for thread-local storage" : 0;     \
+     _result == 0;							      \
    })
 -- 
-2.34.1
+2.40.1
 
