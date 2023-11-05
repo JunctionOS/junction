@@ -13,7 +13,7 @@ class Process;
 
 class ITimer : private rt::timer_internal::timer_node {
  public:
-  explicit ITimer(Process *proc) : proc_(proc) {
+  explicit ITimer(Process &proc) : proc_(proc) {
     auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
     timer_init(&entry_, rt::timer_internal::TimerTrampoline, arg);
   }
@@ -57,7 +57,7 @@ class ITimer : private rt::timer_internal::timer_node {
   timer_entry entry_;
   Duration interval_{0};
   std::optional<Time> next_fire_{std::nullopt};
-  Process *proc_;
+  Process &proc_;
 };
 
 }  // namespace junction

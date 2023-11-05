@@ -8,7 +8,7 @@ namespace junction {
 
 // This function is called from the softirq thread with preemption disabled
 void ITimer::Run() {
-  if (next_fire_) proc_->Signal(SIGALRM);
+  if (next_fire_) proc_.Signal(SIGALRM);
   if (interval_.IsZero()) {
     next_fire_ = std::nullopt;
     return;

@@ -127,8 +127,8 @@ class alignas(kCacheLineSize) MemoryMap {
   }
 
  private:
-  // Apply F to each VMA in the range [start, end). F returns true if it wishes
-  // to remove the current VMA. F may mutate vmareas_ directly.
+  // Apply func to each VMA in the range [start, end). func returns true if it
+  // wishes to remove the current VMA. func may mutate vmareas_ directly.
   template <typename F>
   void ForEachOverlap(uintptr_t start, uintptr_t end, F func);
 

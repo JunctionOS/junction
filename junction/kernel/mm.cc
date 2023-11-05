@@ -15,7 +15,7 @@ namespace junction {
 
 template <typename F>
 void MemoryMap::ForEachOverlap(uintptr_t start, uintptr_t end, F func) {
-  // We want the first interval [a,b] where b > start (first overlap)
+  // We want the first interval [a,b) where b > start (first overlap)
   auto cur = vmareas_.upper_bound(start);
   while (cur != vmareas_.end() && cur->second.start < end) {
     VMArea &cur_vma = cur->second;
@@ -33,9 +33,9 @@ void MemoryMap::UpdateProtection(uintptr_t start, uintptr_t end, int prot) {
     // check to see if cur_vma begins before our target range.
     if (start > cur_vma.start) {
       // split the VMA, preserve the existing portion before our target start.
-      VMArea preversed_left = cur_vma;
-      preversed_left.end = start;
-      vmareas_[start] = preversed_left;
+      VMArea preserved_left = cur_vma;
+      preserved_left.end = start;
+      vmareas_[start] = preserved_left;
 
       // update the start bounds of our current VMA,
       cur_vma.start = start;

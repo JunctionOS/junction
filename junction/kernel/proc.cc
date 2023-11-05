@@ -356,15 +356,12 @@ void Process::NotifyParentWait(unsigned int state, int status) {
 void Process::DoExit(int status) {
   // notify threads
   {
-    rt::SpinGuard g(shared_sig_q_);
+    rt::SpinGuard g(child_thread_lock_);
     if (exited_) return;
 
     xstate_ = status;
     store_release(&exited_, true);
-  }
 
-  {
-    rt::SpinGuard g(child_thread_lock_);
     for (const auto &[pid, th] : thread_map_) th->Kill();
   }
 

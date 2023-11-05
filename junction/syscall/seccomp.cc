@@ -111,8 +111,8 @@ asm(R"(
     jmp syscall_rt_sigreturn
 )");
 
-extern "C" __sighandler void syscall_trap_handler(int nr, siginfo_t *info,
-                                                  void *void_context) {
+extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
+                                     void *void_context) {
   k_ucontext *ctx = reinterpret_cast<k_ucontext *>(void_context);
   k_sigframe *sigframe = container_of(ctx, k_sigframe, uc);
 

@@ -377,7 +377,7 @@ class Process : public std::enable_shared_from_this<Process> {
   int wait_status_;
 
   // Timers
-  ITimer it_real_{this};
+  ITimer it_real_{*this};
 };
 
 // Create a new process.

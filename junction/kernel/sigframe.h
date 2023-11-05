@@ -10,8 +10,6 @@ extern "C" {
 
 #include <cstdint>
 
-#define __sighandler __attribute__((__optimize__("-fno-stack-protector")))
-
 inline constexpr uint64_t kUCFpXstate = 0x1;
 inline constexpr uint32_t kFpXstateMagic1 = 0x46505853U;
 inline constexpr uint32_t kFpXstateMagic2 = 0x46505845U;
@@ -163,7 +161,9 @@ inline uint64_t GetRuntimeStack() {
 }
 
 // returns the bottom of the local thread's syscall stack
-inline struct stack &GetSyscallStack() { return *thread_self()->stack; }
+inline const struct stack &GetSyscallStack(const thread_t *th = thread_self()) {
+  return *th->stack;
+}
 
 // returns the bottom of the local thread's syscall stack
 inline uint64_t GetSyscallStackBottom() {
