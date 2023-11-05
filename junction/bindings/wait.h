@@ -98,14 +98,6 @@ class WakeOnTimeout {
   rt::Timer<std::function<void()>> timer_;
 };
 
-inline bool PrepareInterruptible(thread *th) {
-  return prepare_interruptible(th);
-}
-
-inline int GetInterruptibleStatus(thread *th) {
-  return get_interruptible_status(th);
-}
-
 // WaitInterruptible blocks the calling thread until a wakable object resumes it
 // or a signal is delivered.
 //
@@ -122,15 +114,15 @@ bool WaitInterruptible(LockParkable &lock, Waker &waker) {
 
   // Block and wait for an event.
   thread_t *th = thread_self();
-  if (PrepareInterruptible(th)) return true;
+  if (rt::SetInterruptible(th)) return true;
   waker.Arm(th);
   lock.UnlockAndPark();
   lock.Lock();
 
   // Check if a signal was delivered while blocked.
-  int ret = GetInterruptibleStatus(th);
-  if (ret > 1) waker.Disarm(th);
-  return ret > 0;
+  rt::InterruptibleStatus status = rt::GetInterruptibleStatus(th);
+  if (status == rt::InterruptibleStatus::kPendingAndDisarm) waker.Disarm(th);
+  return status != rt::InterruptibleStatus::kNone;
 }
 
 // WaitInterruptible blocks the calling thread until the predicate becomes true
@@ -199,7 +191,7 @@ class InterruptibleRWMutex {
       return true;
     }
 
-    if (PrepareInterruptible(th)) {
+    if (unlikely(rt::SetInterruptible(th))) {
       lock_.Unlock();
       return false;
     }
@@ -207,11 +199,13 @@ class InterruptibleRWMutex {
     read_waiters_.Arm(th);
     lock_.UnlockAndPark();
 
-    if (unlikely(GetInterruptibleStatus(th) > 0)) {
+    if (unlikely(rt::GetInterruptibleStatus(th) !=
+                 rt::InterruptibleStatus::kNone)) {
       // We know an interrupt has happened, need to determine whether or not
       // Unlock() has also woken us.
       rt::SpinGuard g(lock_);
-      if (GetInterruptibleStatus(th) > 1) {
+      if (rt::GetInterruptibleStatus(th) ==
+          rt::InterruptibleStatus::kPendingAndDisarm) {
         read_waiters_.Disarm(th);
         return false;
       }
@@ -256,7 +250,7 @@ class InterruptibleRWMutex {
       return true;
     }
 
-    if (PrepareInterruptible(th)) {
+    if (unlikely(rt::SetInterruptible(th))) {
       lock_.Unlock();
       return false;
     }
@@ -264,11 +258,13 @@ class InterruptibleRWMutex {
     write_waiters_.Arm(th);
     lock_.UnlockAndPark();
 
-    if (unlikely(GetInterruptibleStatus(th) > 0)) {
+    if (unlikely(rt::GetInterruptibleStatus(th) !=
+                 rt::InterruptibleStatus::kNone)) {
       // We know an interrupt has happened, need to determine whether or not
       // Unlock() has also woken us.
       rt::SpinGuard g(lock_);
-      if (GetInterruptibleStatus(th) > 1) {
+      if (rt::GetInterruptibleStatus(th) ==
+          rt::InterruptibleStatus::kPendingAndDisarm) {
         read_waiters_.Disarm(th);
         return false;
       }

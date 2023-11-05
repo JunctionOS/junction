@@ -40,6 +40,29 @@ concept Wakeable = requires(T t, thread_t *th) {
   { t.WakeThread(th) } -> std::same_as<void>;
 };
 
+// SetInterruptible should be called before blocking if waking from signals is
+// desired. If true, a signal is pending and the thread should return
+// rather than blocking.
+inline bool SetInterruptible(thread_t *th) { return prepare_interruptible(th); }
+
+enum class InterruptibleStatus : int {
+  kNone = 0,              // No signal is pending
+  kPending = 1,           // A signal is pending
+  kPendingAndDisarm = 2,  // A signal is pending and the waker must be disarmed
+};
+
+// GetInterruptibleStatus must be called by any thread that wakes after calling
+// SetInterruptible(). The return value determines the appropriate action.
+inline InterruptibleStatus GetInterruptibleStatus(thread_t *th) {
+  return static_cast<InterruptibleStatus>(get_interruptible_status(th));
+}
+
+// ThreadReady wakes a blocking thread.
+inline void ThreadReady(thread_t *th) {
+  // Works whether MarkInterruptible() was called or not.
+  interruptible_wake(th);
+}
+
 // WaitQueue is used to wake a group of threads.
 class WaitQueue {
  public:
@@ -68,7 +91,7 @@ class WaitQueue {
   bool WakeOne() {
     thread_t *th = list_pop(&waiters_, thread_t, link);
     if (th == nullptr) return false;
-    interruptible_wake(th);
+    ThreadReady(th);
     return true;
   }
 
@@ -77,7 +100,7 @@ class WaitQueue {
     while (true) {
       thread_t *th = list_pop(&waiters_, thread_t, link);
       if (th == nullptr) return;
-      interruptible_wake(th);
+      ThreadReady(th);
     }
   }
 
@@ -85,7 +108,7 @@ class WaitQueue {
   // Must be synchronized by caller.
   void WakeThread(thread_t *th) {
     Disarm(th);
-    interruptible_wake(th);
+    ThreadReady(th);
   }
 
  private:
@@ -125,7 +148,7 @@ class ThreadWaker {
   void Wake() {
     if (th_ == nullptr) return;
     thread_t *th = std::exchange(th_, nullptr);
-    interruptible_wake(th);
+    ThreadReady(th);
   }
 
   // WakeThread makes a specific thread runnable. In this class, it can only be
