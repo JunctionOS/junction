@@ -171,10 +171,15 @@ class ThreadSignalHandler {
     return true;
   }
 
-  // Save and restore blocked mask for system calls that manipulate the mask
-  void SaveBlocked() { saved_blocked_ = blocked_; }
+  // ReplaceAndSaveBlocked temporarily adjusts the blocked system call mask
+  // during a system call.
+  void ReplaceAndSaveBlocked(k_sigset_t mask);
 
-  // Restore a previously saved mask, if no signals are pending delivery.
+  // RestoreBlockedNeeded returns true if the original blocked system call mask
+  // needs to be restored.
+  bool RestoreBlockedNeeded() const { return !!saved_blocked_; }
+
+  // RestoreBlocked restores the previous blocked system call mask.
   void RestoreBlocked();
 
   // Update blocked signal mask

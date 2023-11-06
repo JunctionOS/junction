@@ -153,11 +153,18 @@ class SigMaskGuard {
     assert(IsJunctionThread());
     if (!mask) return;
 
-    ThreadSignalHandler &hand = mythread().get_sighand();
-    hand.SaveBlocked();
-    hand.ReplaceMask(*mask);
+    ThreadSignalHandler &handler = mythread().get_sighand();
+    handler.ReplaceAndSaveBlocked(*mask);
   }
-  ~SigMaskGuard() { mythread().get_sighand().RestoreBlocked(); }
+  [[nodiscard]] explicit SigMaskGuard(k_sigset_t mask) {
+    assert(IsJunctionThread());
+    ThreadSignalHandler &handler = mythread().get_sighand();
+    handler.ReplaceAndSaveBlocked(mask);
+  }
+  ~SigMaskGuard() {
+    ThreadSignalHandler &handler = mythread().get_sighand();
+    if (handler.RestoreBlockedNeeded()) handler.RestoreBlocked();
+  }
 
   // disable copy and move.
   SigMaskGuard(const SigMaskGuard &) = delete;

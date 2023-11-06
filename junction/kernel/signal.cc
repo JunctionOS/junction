@@ -471,8 +471,16 @@ std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal() {
   return sig;
 }
 
+void ThreadSignalHandler::ReplaceAndSaveBlocked(k_sigset_t mask) {
+  assert(!RestoreBlockedNeeded());
+
+  if (blocked_ == mask) return;
+  saved_blocked_ = blocked_;
+  ReplaceMask(mask);
+}
+
 void ThreadSignalHandler::RestoreBlocked() {
-  if (!saved_blocked_) return;
+  assert(RestoreBlockedNeeded());
 
   // Avoid grabbing lock if interrupt flag is set
   if (thread_interrupted(this_thread().GetCaladanThread())) return;
@@ -790,8 +798,7 @@ int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
   const k_sigset_t *mask = reinterpret_cast<const k_sigset_t *>(set);
 
   ThreadSignalHandler &hand = mythread().get_sighand();
-  hand.SaveBlocked();
-  hand.ReplaceMask(*mask);
+  hand.ReplaceAndSaveBlocked(*mask);
 
   {
     rt::Preempt p;
