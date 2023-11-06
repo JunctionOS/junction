@@ -79,7 +79,7 @@ class alignas(kCacheLineSize) PollSource {
   PollSource() noexcept = default;
   ~PollSource() {
     assert(observers_.empty());
-    assert(epoll_observers_.empty());
+    DetachEPollObservers();
   }
 
   // Gets the current mask of set events
@@ -101,6 +101,7 @@ class alignas(kCacheLineSize) PollSource {
 
  private:
   void Notify();
+  void DetachEPollObservers();
 
   rt::Spin lock_;
   unsigned int event_mask_{0};

@@ -279,7 +279,7 @@ class EPollObserver : public PollObserver {
         f_(&f),
         watched_events_(watched_events),
         user_data_(user_data) {}
-  ~EPollObserver() = default;
+  ~EPollObserver() override;
 
   EPollObserver(const EPollObserver &o) noexcept = delete;
   EPollObserver &operator=(const EPollObserver &o) = delete;
@@ -388,7 +388,6 @@ bool EPollFile::Delete(File &f) {
   while (it != src.epoll_observers_.end()) {
     auto &oe = static_cast<EPollObserver &>(*it);
     if (oe.epollf_ == this) {
-      RemoveEvent(oe);
       src.epoll_observers_.erase_and_dispose(it,
                                              [](PollObserver *o) { delete o; });
       return true;
@@ -453,6 +452,11 @@ void EPollObserver::Notify(uint32_t events) {
     epollf_->RemoveEvent(*this);
 }
 
+EPollObserver::~EPollObserver() {
+  epollf_->RemoveEvent(*this);
+}
+
+
 }  // namespace detail
 
 namespace {
@@ -481,6 +485,14 @@ void PollSource::Notify() {
   rt::SpinGuard guard(lock_);
   for (auto &o : observers_) o.Notify(event_mask_);
   detail::EPollFile::Notify(*this);
+}
+
+void PollSource::DetachEPollObservers() {
+  auto it = epoll_observers_.begin();
+  while (it != epoll_observers_.end()) {
+    auto &oe = static_cast<detail::EPollObserver &>(*it);
+    epoll_observers_.erase_and_dispose(it, [](PollObserver *o) { delete o; });
+  }
 }
 
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
