@@ -21,11 +21,11 @@ namespace junction {
 //
 // Example: Wait for a condition or a 10ms timeout.
 //  rt::Spin lock;
-//  WaitQueue q;
-//  WakeOnTimeout timeout(lock, q, 10_ms);
+//  rt::ThreadWaker w;
+//  WakeOnTimeout timeout(lock, w, 10_ms);
 //  {
 //    rt::SpinGuard g(lock);
-//    g.Park(q, [&timeout] { return cond || timeout; });
+//    g.Park(w, [&timeout] { return cond || timeout; });
 //    // Do something
 //  }
 template <rt::Wakeable T>
@@ -101,8 +101,8 @@ class WakeOnTimeout {
 // WaitInterruptible blocks the calling thread until a wakable object resumes it
 // or a signal is delivered.
 //
-// A lock must be held to protect the wakeup condition state, which usually
-// includes the wakable object.
+// A lock must be held to protect the wakeup condition state, which must
+// include the wakable object.
 //
 // Returns true if this wait was interrupted by a signal.
 //
@@ -114,22 +114,23 @@ bool WaitInterruptible(LockParkable &lock, Waker &waker) {
 
   // Block and wait for an event.
   thread_t *th = thread_self();
-  if (rt::SetInterruptible(th)) return true;
+  if (unlikely(rt::SetInterruptible(th))) return true;
   waker.Arm(th);
   lock.UnlockAndPark();
   lock.Lock();
 
   // Check if a signal was delivered while blocked.
   rt::InterruptibleStatus status = rt::GetInterruptibleStatus(th);
-  if (status == rt::InterruptibleStatus::kPendingAndDisarm) waker.Disarm(th);
+  if (unlikely(status == rt::InterruptibleStatus::kPendingAndDisarm))
+    waker.Disarm(th);
   return status != rt::InterruptibleStatus::kNone;
 }
 
 // WaitInterruptible blocks the calling thread until the predicate becomes true
 // or a signal is delivered.
 //
-// A lock must be held to protect the wakeup condition state, which usually
-// includes the wakable object.
+// A lock must be held to protect the wakeup condition state, which must
+// include the wakable object.
 //
 // Returns true if this wait was interrupted by a signal.
 //
@@ -138,7 +139,7 @@ template <rt::LockAndParkable LockParkable, rt::Wakeable Waker,
           typename Predicate>
 bool WaitInterruptible(LockParkable &lock, Waker &w, Predicate stop) {
   while (!stop())
-    if (WaitInterruptible(lock, w)) return true;
+    if (unlikely(WaitInterruptible(lock, w))) return true;
   return false;
 }
 
