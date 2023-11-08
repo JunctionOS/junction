@@ -48,7 +48,7 @@ class WakeOnTimeout {
   [[nodiscard]] WakeOnTimeout(rt::Spin &lock, T &waker,
                               std::optional<Duration> timeout)
       : lock_(lock), waker_(waker), timer_([this] { DoWake(); }) {
-    if (timeout && !timeout->IsZero()) {
+    if (timeout) {
       end_time_ = Time::Now() + *timeout;
       timer_.StartAt(end_time_);
     }

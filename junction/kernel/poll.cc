@@ -487,7 +487,6 @@ void PollSource::Notify() {
 void PollSource::DetachEPollObservers() {
   auto it = epoll_observers_.begin();
   while (it != epoll_observers_.end()) {
-    auto &oe = static_cast<detail::EPollObserver &>(*it);
     epoll_observers_.erase_and_dispose(it, [](PollObserver *o) { delete o; });
   }
 }
