@@ -452,10 +452,7 @@ void EPollObserver::Notify(uint32_t events) {
     epollf_->RemoveEvent(*this);
 }
 
-EPollObserver::~EPollObserver() {
-  epollf_->RemoveEvent(*this);
-}
-
+EPollObserver::~EPollObserver() { epollf_->RemoveEvent(*this); }
 
 }  // namespace detail
 

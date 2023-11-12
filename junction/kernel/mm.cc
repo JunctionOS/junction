@@ -13,6 +13,80 @@ extern "C" {
 
 namespace junction {
 
+template <typename F>
+void MemoryMap::ForEachOverlap(uintptr_t start, uintptr_t end, F func) {
+  // We want the first interval [a,b] where b > start (first overlap)
+  auto cur = vmareas_.upper_bound(start);
+  while (cur != vmareas_.end() && cur->second.start < end) {
+    VMArea &cur_vma = cur->second;
+    bool do_erase = func(cur_vma);
+    if (do_erase)
+      cur = vmareas_.erase(cur);
+    else
+      cur++;
+  }
+}
+
+void MemoryMap::UpdateProtection(uintptr_t start, uintptr_t end, int prot) {
+  assert(lock_.IsHeld());
+  ForEachOverlap(start, end, [&, this](VMArea &cur_vma) {
+    // check to see if cur_vma begins before our target range.
+    if (start > cur_vma.start) {
+      // split the VMA, preserve the existing portion before our target start.
+      VMArea preversed_left = cur_vma;
+      preversed_left.end = start;
+      vmareas_[start] = preversed_left;
+
+      // update the start bounds of our current VMA,
+      cur_vma.start = start;
+    }
+
+    // check if cur_vma extends past the end of our target range
+    if (end < cur_vma.end) {
+      // split the VMA; a new VMA with updated protections is added to the left
+      // of the current VMA.
+      VMArea new_left = cur_vma;
+      new_left.end = end;
+      new_left.prot = prot;
+      vmareas_[end] = new_left;
+
+      // update the start bound of the existing VMA
+      cur_vma.start = end;
+      return false;
+    }
+
+    // If we're here we know [start, end) surrounds [cur_start, cur_end)
+    cur_vma.prot = prot;
+    return false;
+  });
+}
+
+void MemoryMap::ClearMapping(uintptr_t start, uintptr_t end) {
+  assert(lock_.IsHeld());
+
+  ForEachOverlap(start, end, [&, this](VMArea &cur_vma) {
+    uintptr_t cur_start = cur_vma.start;
+    uintptr_t cur_end = cur_vma.end;
+
+    // [start, end) does not overlap on the left of [cur_start, cur_end).
+    // Shorten cur_vma to [cur_start, start).
+    if (start > cur_start) {
+      VMArea vma = cur_vma;
+      vma.end = start;
+      vmareas_[start] = vma;
+    }
+
+    // [start, end) either overlaps on the right or surrounds [cur_start,
+    // cur_end). Either way cur_end is being overwritten so remove it.
+    if (end >= cur_end) return true;
+
+    // [start, end) either overlaps on the left or is surrounded by
+    // [cur_start, cur_end). Keep cur_end and shorten it to [end, cur_end).
+    cur_vma.start = end;
+    return false;
+  });
+}
+
 uintptr_t usys_brk(uintptr_t addr) {
   MemoryMap &mm = myproc().get_mem_map();
   uintptr_t oldbrk = mm.GetBreak();
