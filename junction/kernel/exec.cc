@@ -173,11 +173,14 @@ Status<Thread *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   th->tf.rdi = reinterpret_cast<uintptr_t>(entry);
 
   // setup a stack
-  void *rsp = mm.ReserveForMapping(RUNTIME_GUARD_SIZE + RUNTIME_STACK_SIZE);
-  rsp = reinterpret_cast<void *>(
-      (reinterpret_cast<uintptr_t>(rsp) + RUNTIME_GUARD_SIZE));
-  Status<void> ret =
-      KernelMMapFixed(rsp, RUNTIME_STACK_SIZE, PROT_READ | PROT_WRITE, 0);
+  Status<void *> guard =
+      mm.MMap(nullptr, RUNTIME_GUARD_SIZE + RUNTIME_STACK_SIZE, PROT_NONE, 0,
+              VMType::kStack);
+  if (!guard) return MakeError(guard);
+  void *rsp = reinterpret_cast<void *>(
+      (reinterpret_cast<uintptr_t>(*guard) + RUNTIME_GUARD_SIZE));
+  Status<void *> ret = mm.MMap(rsp, RUNTIME_STACK_SIZE, PROT_READ | PROT_WRITE,
+                               MAP_FIXED, VMType::kStack);
   if (!ret) return MakeError(ret);
   th->tf.rsp = reinterpret_cast<uint64_t>(rsp) + RUNTIME_STACK_SIZE;
 

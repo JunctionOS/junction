@@ -44,18 +44,19 @@ class JunctionFile {
   }
 
   // Map a portion of the file.
-  Status<void *> MMap(size_t length, int prot, int flags, off_t off) {
+  Status<void *> MMap(MemoryMap &mm, size_t length, int prot, int flags,
+                      off_t off) {
     assert(!(flags & (MAP_FIXED | MAP_ANONYMOUS)));
     flags |= MAP_PRIVATE;
-    return f_->MMap(nullptr, length, prot, flags, off);
+    return mm.MMap(f_, nullptr, length, prot, flags, off);
   }
 
   // Map a portion of the file to a fixed address.
-  Status<void> MMapFixed(void *addr, size_t length, int prot, int flags,
-                         off_t off) {
+  Status<void> MMapFixed(MemoryMap &mm, void *addr, size_t length, int prot,
+                         int flags, off_t off) {
     assert(!(flags & MAP_ANONYMOUS));
     flags |= MAP_FIXED | MAP_PRIVATE;
-    Status<void *> ret = f_->MMap(addr, length, prot, flags, off);
+    Status<void *> ret = mm.MMap(f_, addr, length, prot, flags, off);
     if (!ret) return MakeError(ret);
     return {};
   }
@@ -200,7 +201,7 @@ Status<std::string> ReadInterp(JunctionFile &f, const elf_phdr &phdr) {
 }
 
 // LoadOneSegment loads one loadable PHDR into memory
-Status<void> LoadOneSegment(JunctionFile &f, off_t map_off,
+Status<void> LoadOneSegment(MemoryMap &mm, JunctionFile &f, off_t map_off,
                             const elf_phdr &phdr) {
   // Determine the mapping permissions.
   unsigned int prot = 0;
@@ -217,7 +218,7 @@ Status<void> LoadOneSegment(JunctionFile &f, off_t map_off,
   // Map the file part of the segment.
   if (file_end > start) {
     Status<void> ret =
-        f.MMapFixed(reinterpret_cast<void *>(start), file_end - start, prot,
+        f.MMapFixed(mm, reinterpret_cast<void *>(start), file_end - start, prot,
                     MAP_DENYWRITE, PageAlignDown(phdr.offset));
     if (unlikely(!ret)) return MakeError(ret);
   }
@@ -226,13 +227,13 @@ Status<void> LoadOneSegment(JunctionFile &f, off_t map_off,
   if (gap_end > file_end) {
     if ((prot & PROT_WRITE) == 0) {
       Status<void> ret =
-          KernelMProtect(reinterpret_cast<void *>(PageAlignDown(file_end)),
-                         kPageSize, prot | PROT_WRITE);
+          mm.MProtect(reinterpret_cast<void *>(PageAlignDown(file_end)),
+                      kPageSize, prot | PROT_WRITE);
       if (unlikely(!ret)) return MakeError(ret);
     }
     std::memset(reinterpret_cast<void *>(file_end), 0, gap_end - file_end);
     if ((prot & PROT_WRITE) == 0) {
-      Status<void> ret = KernelMProtect(
+      Status<void> ret = mm.MProtect(
           reinterpret_cast<void *>(PageAlignDown(file_end)), kPageSize, prot);
       if (unlikely(!ret)) return MakeError(ret);
     }
@@ -240,8 +241,9 @@ Status<void> LoadOneSegment(JunctionFile &f, off_t map_off,
 
   // Map the remaining anonymous part of the segment.
   if (mem_end > gap_end) {
-    Status<void> ret = KernelMMapFixed(reinterpret_cast<void *>(gap_end),
-                                       mem_end - gap_end, prot, 0);
+    Status<void *> ret =
+        mm.MMap(reinterpret_cast<void *>(gap_end), mem_end - gap_end, prot,
+                MAP_FIXED, VMType::kMemory);
     if (unlikely(!ret)) return MakeError(ret);
   }
 
@@ -256,15 +258,16 @@ Status<std::pair<uintptr_t, size_t>> LoadSegments(
   off_t map_off = 0;
   size_t map_len = CountTotalLength(phdrs);
   if (reloc) {
-    void *ret = mm.ReserveForMapping(map_len);
-    if (!ret) return MakeError(ENOMEM);
-    map_off = reinterpret_cast<off_t>(ret);
+    Status<void *> ret =
+        mm.MMap(nullptr, map_len, PROT_NONE, 0, VMType::kMemory);
+    if (unlikely(!ret)) return MakeError(ret);
+    map_off = reinterpret_cast<off_t>(*ret);
   }
 
   // Load the segments.
   for (const elf_phdr &phdr : phdrs) {
     if (phdr.type != kPTypeLoad) continue;
-    Status<void> ret = LoadOneSegment(f, map_off, phdr);
+    Status<void> ret = LoadOneSegment(mm, f, map_off, phdr);
     if (!ret) return MakeError(ret);
   }
 
@@ -328,7 +331,6 @@ Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path) {
   // Load the ELF header.
   Status<elf_header> hdr = ReadHeader(*file);
   if (!hdr) return MakeError(hdr);
-
   // Check if the ELF type is supported.
   if (hdr->type != kETypeExec && hdr->type != kETypeDynamic)
     return MakeError(EINVAL);
@@ -347,12 +349,10 @@ Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path) {
     if (!data) return MakeError(data);
     interp_data = *data;
   }
-
   // Load the PHDR segments.
   Status<std::pair<uintptr_t, size_t>> ret =
       LoadSegments(mm, *file, *phdrs, hdr->type == kETypeDynamic);
   if (!ret) return MakeError(ret);
-
   // Look for a PHDR table segment
   uintptr_t phdr_va = 0;
   phdr = FindPHDRByType(*phdrs, kPTypeSelf);

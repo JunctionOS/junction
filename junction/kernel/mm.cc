@@ -30,15 +30,17 @@ uintptr_t usys_brk(uintptr_t addr) {
 
   // handle shrinking the heap.
   if (newbrk < oldbrk) {
-    KernelMMapFixed(reinterpret_cast<void *>(PageAlign(newbrk)),
-                    PageAlign(oldbrk) - PageAlign(newbrk), PROT_NONE, 0);
+    mm.MMap(reinterpret_cast<void *>(PageAlign(newbrk)),
+            PageAlign(oldbrk) - PageAlign(newbrk), PROT_NONE, MAP_FIXED,
+            VMType::kMemory);
     return newbrk;
   }
 
   // handle growing the heap.
-  Status<void> ret = KernelMMapFixed(
-      reinterpret_cast<void *>(PageAlign(oldbrk)),
-      PageAlign(newbrk) - PageAlign(oldbrk), PROT_READ | PROT_WRITE, 0);
+  Status<void *> ret =
+      mm.MMap(reinterpret_cast<void *>(PageAlign(oldbrk)),
+              PageAlign(newbrk) - PageAlign(oldbrk), PROT_READ | PROT_WRITE,
+              MAP_FIXED, VMType::kHeap);
   if (unlikely(!ret))
     LOG(ERR) << "mm: Could not increase brk addr. (mmap() failed "
              << ret.error() << ").";
@@ -48,44 +50,36 @@ uintptr_t usys_brk(uintptr_t addr) {
 intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
                    off_t offset) {
   MemoryMap &mm = myproc().get_mem_map();
-  if (addr != nullptr) {
-    if (!mm.IsWithin(addr, len))
-      LOG_ONCE(WARN)
-          << "mm: addr out of bounds; may interfere with other processes";
-  } else {
-    addr = mm.ReserveForMapping(len);
-    if (unlikely(!addr)) {
-      LOG(ERR) << "mm: Out of virtual memory.";
-      return -ENOMEM;
-    }
-    flags |= MAP_FIXED;
-  }
 
   // Map anonymous memory.
   if ((flags & MAP_ANONYMOUS) != 0) {
-    Status<void *> ret = KernelMMap(addr, len, prot, flags);
+    auto type = VMType::kMemory;
+    if (flags & MAP_STACK) type = VMType::kStack;
+    Status<void *> ret = mm.MMap(addr, len, prot, flags, type);
     if (!ret) return MakeCError(ret);
     return reinterpret_cast<intptr_t>(*ret);
   }
 
   // Map a file.
   FileTable &ftbl = myproc().get_file_table();
-  File *f = ftbl.Get(fd);
+  std::shared_ptr<File> f = ftbl.Dup(fd);
   if (unlikely(!f)) return -EBADF;
-  Status<void *> ret = f->MMap(addr, len, prot, flags, offset);
+  Status<void *> ret = mm.MMap(f, addr, len, prot, flags, offset);
   if (!ret) return MakeCError(ret);
   return reinterpret_cast<intptr_t>(*ret);
 }
 
 int usys_mprotect(void *addr, size_t len, int prot) {
-  return ksys_mprotect(addr, len, prot);
+  MemoryMap &mm = myproc().get_mem_map();
+  Status<void> ret = mm.MProtect(addr, len, prot);
+  if (unlikely(!ret)) return MakeCError(ret);
+  return 0;
 }
 
 int usys_munmap(void *addr, size_t len) {
-  Status<void> ret = KernelMMapFixed(addr, len, PROT_NONE, 0);
-  if (unlikely(!ret)) return MakeCError(ret);
   MemoryMap &mm = myproc().get_mem_map();
-  mm.ReturnForMapping(addr, len);
+  Status<void> ret = mm.MUnmap(addr, len);
+  if (unlikely(!ret)) return MakeCError(ret);
   return 0;
 }
 
