@@ -518,9 +518,6 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
   // Fix RSP to ensure we are on the appropriate stack
   FixRspAltstack(signal, rsp);
 
-  // Use xsave's stack alignment even though we aren't using it here
-  *rsp = AlignDown(*rsp, kXsaveAlignment);
-
   // Push siginfo
   *rsp -= sizeof(siginfo_t);
   siginfo_t *info = reinterpret_cast<siginfo_t *>(*rsp);
@@ -528,6 +525,9 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
 
   // Push the restore frame to the stack
   thread_tf *restore_tf = PushTrapFrameToStack(rsp, prev_frame);
+
+  // Use xsave's stack alignment even though we aren't using it here
+  *rsp = AlignDown(*rsp, kXsaveAlignment);
 
   // Push metadata using JunctionSigframe
   *rsp -= sizeof(JunctionSigframe);
