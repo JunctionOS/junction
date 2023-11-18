@@ -485,10 +485,9 @@ void PollSource::Notify() {
 }
 
 void PollSource::DetachEPollObservers() {
-  auto it = epoll_observers_.begin();
-  while (it != epoll_observers_.end()) {
-    epoll_observers_.erase_and_dispose(it, [](PollObserver *o) { delete o; });
-  }
+  epoll_observers_.erase_and_dispose(epoll_observers_.begin(),
+                                     epoll_observers_.end(),
+                                     [](PollObserver *o) { delete o; });
 }
 
 int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
