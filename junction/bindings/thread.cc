@@ -20,21 +20,14 @@ void ThreadTrampolineWithJoin(void* arg) {
   auto f = finally([d] { std::destroy_at(d); });
   d->Run();
 
-  // Hot path if the thread is already detached or joined.
-  if (d->done.load(std::memory_order_acquire)) {
-    d->waker.Wake();
-    return;
-  }
-
-  // Cold path: Check again with the lock held.
   d->lock.Lock();
-  if (d->done.load(std::memory_order_relaxed)) {
+  if (d->done) {
     d->waker.Wake();
     d->lock.Unlock();
     return;
   }
   d->waker.Arm();
-  d->done.store(true, std::memory_order_release);
+  d->done = true;
   d->lock.UnlockAndPark();
 }
 
@@ -45,20 +38,13 @@ void Thread::Detach() {
   auto* d = join_data_;
   auto f = finally([this] { join_data_ = nullptr; });
 
-  // Hot path if the thread is already blocked.
-  if (d->done.load(std::memory_order_acquire)) {
-    d->waker.Wake();
-    return;
-  }
-
-  // Cold path: The thread is not yet blocked.
   {
     rt::SpinGuard g(d->lock);
-    if (d->done.load(std::memory_order_relaxed)) {
+    if (d->done) {
       d->waker.Wake();
       return;
     }
-    d->done.store(true, std::memory_order_release);
+    d->done = true;
   }
 }
 
@@ -67,21 +53,14 @@ void Thread::Join() {
   auto* d = join_data_;
   auto f = finally([this] { join_data_ = nullptr; });
 
-  // Hot path if the thread is already blocked.
-  if (d->done.load(std::memory_order_acquire)) {
-    d->waker.Wake();
-    return;
-  }
-
-  // Cold path: The thread is not yet blocked.
   d->lock.Lock();
-  if (d->done.load(std::memory_order_relaxed)) {
-    d->lock.Unlock();
+  if (d->done) {
     d->waker.Wake();
+    d->lock.Unlock();
     return;
   }
   d->waker.Arm();
-  d->done.store(true, std::memory_order_release);
+  d->done = true;
   d->lock.UnlockAndPark();
 }
 
