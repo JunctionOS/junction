@@ -30,7 +30,7 @@ struct join_data {
   virtual void Run() = 0;
   rt::Spin lock;
   rt::ThreadWaker waker;
-  std::atomic_bool done{false};
+  bool done{false};
 };
 
 template <typename Data, typename Callable, typename... Args>

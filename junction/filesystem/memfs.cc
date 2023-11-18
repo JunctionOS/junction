@@ -258,7 +258,7 @@ std::ostream& MemFSInode::print(std::ostream& os, const uint32_t indent) const {
 MemFS::MemFS() noexcept : MemFS::MemFS(std::vector<std::string>({"/memfs"})) {}
 
 MemFS::MemFS(const std::string_view& pathname) noexcept
-    : MemFS::MemFS(std::move(GetFileList(pathname))) {}
+    : MemFS::MemFS(GetFileList(pathname)) {}
 
 MemFS::MemFS(std::vector<std::string> prefixes) noexcept
     : prefixes_(std::move(prefixes)) {
