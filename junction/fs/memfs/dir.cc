@@ -156,7 +156,9 @@ Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
 }
 
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name,
-                                              mode_t mode) {}
+                                              mode_t mode) {
+  return {};
+}
 
 std::vector<dir_entry> MemIDir::GetDents() {
   std::vector<dir_entry> result;
