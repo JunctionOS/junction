@@ -23,6 +23,11 @@ Status<void> SyscallInit() {
   if (GetCfg().strace_enabled())
     std::memcpy(sys_tbl, sys_tbl_strace, sizeof(sys_tbl_strace));
 
+  if (GetCfg().stack_switch_enabled()) {
+    sys_tbl[453] = sys_tbl[451];
+    sys_tbl[454] = sys_tbl[452];
+  }
+
   sysfn_t *dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);
   std::memcpy(dst_tbl, sys_tbl, sizeof(sys_tbl));
 

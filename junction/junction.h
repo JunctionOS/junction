@@ -47,6 +47,7 @@ class JunctionCfg {
   }
 
   [[nodiscard]] bool strace_enabled() const { return strace; }
+  [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
 
   [[nodiscard]] program_options GetOptions();
   Status<void> FillFromArgs(int argc, char *argv[]);
@@ -62,6 +63,7 @@ class JunctionCfg {
   std::string preload_path{CUSTOM_GLIBC_PRELOAD};
   std::vector<std::string> binary_envp;
   bool strace{false};
+  bool stack_switching{false};
   static JunctionCfg singleton_;
 };
 

@@ -109,6 +109,88 @@ volatile bool delivered[32];
 
 void StackedTestHandler(int signo) { delivered[signo] = true; }
 
+static volatile bool test_delivered;
+void SingleTestHandler(int signo) { test_delivered = true; }
+
+void TestRestartSys() {
+  test_delivered = false;
+
+  EXPECT_NE(signal(SIGUSR1, SingleTestHandler), SIG_ERR);
+  EXPECT_NE(signal(SIGUSR2, SIG_IGN), SIG_ERR);
+
+  sigset_t blocked;
+  sigemptyset(&blocked);
+  sigaddset(&blocked, SIGUSR1);
+  sigaddset(&blocked, SIGUSR2);
+
+  EXPECT_EQ(sigprocmask(SIG_BLOCK, &blocked, nullptr), 0);
+
+  sigset_t empty;
+  sigemptyset(&empty);
+
+  auto main_tid = gettid();
+  auto pid = getpid();
+
+  EXPECT_EQ(tgkill(pid, main_tid, SIGUSR2), 0);
+
+  auto start = std::chrono::steady_clock::now();
+  auto th = std::thread([&]() {
+    usleep(500);
+    EXPECT_EQ(tgkill(pid, main_tid, SIGUSR1), 0);
+  });
+
+  int ret = sigsuspend(&empty);
+  auto end = std::chrono::steady_clock::now();
+  using sec = std::chrono::duration<double, std::micro>;
+  auto usec = std::chrono::duration_cast<sec>(end - start).count();
+
+  th.join();
+
+  EXPECT_EQ(test_delivered, true);
+  EXPECT_EQ(ret, -1);
+
+  // Note: this test is non-deterministic and may not always work.
+  EXPECT_EQ(errno, EINTR);
+  EXPECT_GE(usec, 400);
+
+  sigset_t cur_mask;
+  sigemptyset(&cur_mask);
+  EXPECT_EQ(sigprocmask(0, nullptr, &cur_mask), 0);
+  EXPECT_EQ(sigismember(&cur_mask, SIGUSR1), 1);
+  EXPECT_EQ(sigismember(&cur_mask, SIGUSR2), 1);
+}
+
+void TestOneSignalBlocked() {
+  test_delivered = false;
+
+  EXPECT_NE(signal(SIGUSR1, SingleTestHandler), SIG_ERR);
+
+  sigset_t s;
+  sigemptyset(&s);
+  sigaddset(&s, SIGUSR1);
+
+  EXPECT_EQ(sigprocmask(SIG_BLOCK, &s, nullptr), 0);
+
+  EXPECT_EQ(tgkill(getpid(), gettid(), SIGUSR1), 0);
+
+  sigemptyset(&s);
+  EXPECT_EQ(sigpending(&s), 0);
+  EXPECT_EQ(sigismember(&s, SIGUSR1), 1);
+
+  EXPECT_EQ(test_delivered, false);
+
+  EXPECT_EQ(sigprocmask(SIG_UNBLOCK, &s, nullptr), 0);
+
+  EXPECT_EQ(test_delivered, true);
+}
+
+void TestOneSignalNotBlocked() {
+  test_delivered = false;
+  EXPECT_NE(signal(SIGUSR1, SingleTestHandler), SIG_ERR);
+  EXPECT_EQ(tgkill(getpid(), gettid(), SIGUSR1), 0);
+  EXPECT_EQ(test_delivered, true);
+}
+
 void TestStackedSignals() {
   EXPECT_NE(signal(SIGUSR1, StackedTestHandler), SIG_ERR);
   EXPECT_NE(signal(SIGUSR2, StackedTestHandler), SIG_ERR);
@@ -620,6 +702,14 @@ std::vector<std::pair<const std::string, us>> ThreadingTest::results_({});
 TEST_F(ThreadingTest, TestPosixSpawn) { BenchPosixSpawn(10); }
 #endif
 
+TEST_F(ThreadingTest, GetPid) { Bench("GetPid", BenchGetPid); }
+
+TEST_F(ThreadingTest, SpawnJoin) { Bench("SpawnJoin", BenchSpawnJoin); }
+
+TEST_F(ThreadingTest, RestartSystemCall) { TestRestartSys(); }
+TEST_F(ThreadingTest, SignalBlocked) { TestOneSignalBlocked(); }
+TEST_F(ThreadingTest, SignalNotBlocked) { TestOneSignalNotBlocked(); }
+
 TEST_F(ThreadingTest, StackedSignals) { TestStackedSignals(); }
 
 TEST_F(ThreadingTest, SignalPingPongSpin) {
@@ -629,10 +719,6 @@ TEST_F(ThreadingTest, SignalPingPongSpin) {
 TEST_F(ThreadingTest, SignalPingPongSuspend) {
   Bench("SignalPingPongSuspend", BenchSignalPingPongSigSuspend);
 }
-
-TEST_F(ThreadingTest, GetPid) { Bench("GetPid", BenchGetPid); }
-
-TEST_F(ThreadingTest, SpawnJoin) { Bench("SpawnJoin", BenchSpawnJoin); }
 
 TEST_F(ThreadingTest, UncontendedMutex) {
   Bench("UncontendedMutex", BenchUncontendedMutex);

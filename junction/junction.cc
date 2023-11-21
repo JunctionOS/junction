@@ -43,7 +43,9 @@ po::options_description JunctionCfg::GetOptions() {
       "location of ld preload library")(
       "env,E", po::value<std::vector<std::string>>()->multitoken(),
       "environment flags for binary")(
-      "strace,s", po::bool_switch()->default_value(false), "strace mode");
+      "strace,s", po::bool_switch()->default_value(false), "strace mode")(
+      "stackswitch", po::bool_switch()->default_value(false),
+      "use stack switching syscalls");
   return desc;
 }
 
@@ -77,6 +79,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   if (vm.count("env")) binary_envp = vm["env"].as<std::vector<std::string>>();
 
   strace = vm["strace"].as<bool>();
+  stack_switching = vm["stackswitch"].as<bool>();
 
   return {};
 }

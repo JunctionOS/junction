@@ -7,6 +7,10 @@
 
 namespace junction {
 
+// Log a message that is prefixed with the PID and TID
+#define PLOG(level) \
+  LOG(level) << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] "
+
 template <typename... Args>
 void LogSyscall(long retval, std::string_view name, Args... args) {
   std::stringstream ss;
