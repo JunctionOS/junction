@@ -58,7 +58,8 @@ constexpr k_sigset_t MultiSignalMask(Args... args) {
 }
 
 // Mask of signals that can only be handling in the kernel.
-constexpr k_sigset_t kSignalKernelOnlyMask = MultiSignalMask(SIGKILL, SIGSTOP);
+constexpr k_sigset_t kSignalKernelOnlyMask =
+    MultiSignalMask(SIGKILL, SIGSTOP, SIGCONT);
 
 // k_sigaction defines the actions for a signal (in sync with Linux definition)
 struct k_sigaction {
@@ -74,6 +75,9 @@ struct k_sigaction {
     return (sa_flags & SA_RESETHAND) > 0;
   }
   [[nodiscard]] bool is_nodefer() const { return (sa_flags & SA_NODEFER) > 0; }
+  [[nodiscard]] bool is_restartsys() const {
+    return (sa_flags & SA_RESTART) > 0;
+  }
 
   void reset() {
     handler = kDefaultHandler;
@@ -99,10 +103,10 @@ class SignalQueue : public rt::Spin {
     return SignalInMask(get_pending(), signo);
   }
 
- private:
   void set_sig_pending(int signo) { pending_ |= SignalMask(signo); }
   void clear_sig_pending(int signo) { pending_ &= ~SignalMask(signo); }
 
+ private:
   std::list<siginfo_t> pending_q_;
   k_sigset_t pending_{0};
 };
@@ -154,6 +158,13 @@ class ThreadSignalHandler {
     if (old_ss) *old_ss = sigaltstack_;
     if (ss) sigaltstack_ = *ss;
     return {};
+  }
+
+  bool TestAndSetNotify() {
+    assert(sig_q_.IsHeld());
+    if (notified_) return false;
+    notified_ = true;
+    return notified_;
   }
 
   // All updates to blocked_ must happen through this function.
@@ -211,10 +222,11 @@ class ThreadSignalHandler {
   // Add a queued signal. Returns true if a notification is needed.
   bool EnqueueSignal(const siginfo_t &info);
 
-  // Called by this thread when in syscall context to run any pending signals
-  // rax is provided if this is called after a syscall finishes before returning
-  // to userspace. This function may not return.
-  void RunPending(std::optional<long> rax);
+  // Called by this thread when in syscall context to run any pending signals.
+  // For convenience, this function takes the return value of the current
+  // syscall as its first argument. This function may not return (it may restart
+  // a syscall or run a signal handler).
+  void RunPending(int rax);
 
   // Entry point for a kernel delivered signal.
   [[noreturn]] void DeliverKernelSigToUser(int signo, siginfo_t *info,
@@ -225,10 +237,6 @@ class ThreadSignalHandler {
 
   // Pop the next pending signal's information
   std::optional<siginfo_t> PopSigInfo(k_sigset_t blocked, bool reset_flag);
-
-  // Apply a DeliveredSignal to a user's trapframe
-  void ApplySignals(const DeliveredSignal &first_signal, uint64_t *rsp,
-                    const thread_tf &restore_tf, thread_tf &sighand_tf);
 
   // Apply a DeliveredSignal to a user's trapframe and jump to the handler
   [[noreturn]] void ApplySignalsAndExit(const DeliveredSignal &first_signal,
@@ -242,6 +250,13 @@ class ThreadSignalHandler {
 
   [[nodiscard]] Thread &this_thread() const { return mythread_; }
 
+  // Get the blocked mask to stash in the sigframe (restored up sigreturn).
+  // If a syscall saved a previous signal mask, this mask is returned and the
+  // saved copy is reset.
+  k_sigset_t GetSigframeRestoreMask();
+
+  void ResetInterruptState();
+
   void SetInterruptFlagIfNeeded() {
     assert(sig_q_.IsHeld());
     if (!any_sig_ready()) return;
@@ -249,9 +264,8 @@ class ThreadSignalHandler {
     set_interrupt_state_interrupted();
   }
 
-  void RestoreBlockedForce() {
-    assert(sig_q_.IsHeld());
-    if (!saved_blocked_) return;
+  void RestoreBlockedLocked() {
+    assert(RestoreBlockedNeeded());
     blocked_ = *saved_blocked_;
     saved_blocked_ = std::nullopt;
     SetInterruptFlagIfNeeded();

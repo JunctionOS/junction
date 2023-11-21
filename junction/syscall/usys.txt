@@ -1,12 +1,11 @@
 # add syscalls that are implemented by junction to this file
-
 access:::passthrough
 getpid
 gettid
 arch_prctl
-vfork:::savetrapframe
-clone3:::savetrapframe
-clone:::savetrapframe
+vfork
+clone3
+clone
 set_tid_address
 open
 openat

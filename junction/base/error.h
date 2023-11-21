@@ -17,6 +17,11 @@ extern "C" {
 #include <string_view>
 #include <utility>
 
+// Junction-internal error codes (should not be passed to user)
+#define ERESTARTSYS 512
+#define ERESTARTNOINTR 513
+#define ERESTARTNOHAND 514
+
 namespace junction {
 
 // read() UNIX calls can return this error (not normally an errno)

@@ -33,27 +33,6 @@
 #define RAX	(112)	/* return code */
 #define RIP	(120)	/* instruction pointer */
 #define RSP	(128)	/* stack pointer */
-#define FSBASE	(136)	/* fsbase */
-
-#define SAVETF_CALLEE(tf) \
-	movq    %rbx, RBX(tf); \
-	movq    %rbp, RBP(tf); \
-	movq    %r12, R12(tf); \
-	movq    %r13, R13(tf); \
-	movq    %r14, R14(tf); \
-	movq    %r15, R15(tf);
-
-// Caller-saved registers (plus r10),
-// must be preserved for syscall instructions
-#define SAVETF_CALLER(tf) \
-	movq	%rdi, RDI(tf); \
-	movq    %rsi, RSI(tf); \
-	movq    %rdx, RDX(tf); \
-	movq    %rcx, RCX(tf); \
-	movq    %r8, R8(tf);   \
-	movq    %r9, R9(tf);   \
-	movq    %r10, R10(tf);
-
 
 #define RESTORETF_CALLER(tf) \
 	movq    RDI(tf), %rdi; \
@@ -66,20 +45,21 @@
 
 /**
  * clone_fast_start - routine to start children created with clone
- * @rdi: entry address for child to run
  *
- * Entry point for a child created from a clone system call with correct rax (0)
  */
 .align 16
 .globl clone_fast_start
 .type clone_fast_start, @function
 clone_fast_start:
-	movq    %gs:__perthread___self(%rip), %r11
-	addq    $JUNCTION_TF_OFF, %r11
+
+	// find the trapframe
+	movq 	%gs:__perthread___self(%rip), %r11
+	addq    $CALADAN_TF_OFF, %r11
 
 	RESTORETF_CALLER(%r11)
 
-	movq    RIP(%r11), %r11
+	// Get RIP for function start
+	movq    R11(%r11), %r11
 
 	/* clear return value */
 	xorq    %rax, %rax
@@ -92,9 +72,9 @@ clone_fast_start:
  * the top of stack contains a pointer to the ucontext in the signal frame.
  */
 .align 16
-.global usys_rt_sigreturn_enter
-.type usys_rt_sigreturn_enter, @function
-usys_rt_sigreturn_enter:
+.globl usys_rt_sigreturn
+.type usys_rt_sigreturn, @function
+usys_rt_sigreturn:
 	// disable preemption
 	addl	$1, %gs:__perthread_preempt_cnt(%rip)
 
@@ -107,7 +87,50 @@ usys_rt_sigreturn_enter:
 	// switch to syscall stack temporarily
 	movq    %r11, %rsp
 
-	jmp     usys_rt_sigreturn
+	jmp     usys_rt_sigreturn_finish
+
+
+/**
+ * __syscall_restart_nosave - restarts syscall
+ * @tf: the trap frame to restore (%rdi), safe to live on the same stack as the
+ * rsp that it restores to.
+ *
+ * Does not return.
+ */
+.align 16
+.globl __syscall_restart_nosave
+.type __syscall_restart_nosave, @function
+__syscall_restart_nosave:
+
+	/* restore callee regs */
+	movq    RBX(%rdi), %rbx
+	movq    RBP(%rdi), %rbp
+	movq    R12(%rdi), %r12
+	movq    R13(%rdi), %r13
+	movq    R14(%rdi), %r14
+	movq    R15(%rdi), %r15
+	movq    RAX(%rdi), %rax
+
+	/* set function arguments */
+	movq    RSI(%rdi), %rsi /* ARG1 */
+	movq    RDX(%rdi), %rdx /* ARG2 */
+	movq    RCX(%rdi), %rcx /* ARG3 */
+	movq    R8(%rdi), %r8 /* ARG4 */
+	movq    R9(%rdi), %r9 /* ARG5 */
+
+
+	/* move ip and stack to temp registers */
+	movq    RIP(%rdi), %r11
+	movq    RSP(%rdi), %r10
+
+	/* restore RDI, lose access to tf */
+	movq    RDI(%rdi), %rdi /* ARG0 */
+
+	/* restore IP and stack */
+	movq %r10, %rsp
+	jmpq *%r11
+	nop
+
 
 /**
  * __restore_tf_full_and_preempt_enable - switches stacks,
@@ -229,49 +252,13 @@ __switch_and_preempt_enable:
 	jmpq	*%rcx
 
 /**
- * __save_tf_switch - saves the current trap frame and jumps to a function
- * @tf: the struct thread_tf to save state (%rdi)
- * @fn: the function pointer to call (%rsi)
- * @stack: the start of the runtime stack (%rdx)
- * @arg0: an argument to pass to @fn (%rcx)
- *
- */
-
-.align 16
-.globl __save_tf_switch
-.type __save_tf_switch, @function
-__save_tf_switch:
-	/* save callee regs */
-	movq    %rbx, RBX(%rdi)
-	movq    %rbp, RBP(%rdi)
-	movq    %r12, R12(%rdi)
-	movq    %r13, R13(%rdi)
-	movq    %r14, R14(%rdi)
-	movq    %r15, R15(%rdi)
-
-	/* save ip and stack */
-	movq    (%rsp), %r8
-	movq    %r8, RIP(%rdi)
-	leaq    8(%rsp), %r8
-	movq    %r8, RSP(%rdi)
-
-	/* setup arg0 */
-	movq    %rcx, %rdi
-
-	/* jump into runtime function */
-	movq    %rdx, %rsp
-
-	/* jump into runtime code */
-	jmpq    *%rsi
-
-/**
- * __nosave_switch - jumps to a function iwithout saving the current stack
+ * __nosave_switch - jumps to a function without saving the current stack
  * frame
  * @fn: the function pointer to call (%rdi)
  * @stack: the start of the runtime stack (%rsi)
  * @arg0: an arg for @fn (%rdx)
  *
- * No return value.
+ * No return.
  */
 .align 16
 .globl __nosave_switch
@@ -289,142 +276,311 @@ __nosave_switch:
 	jmpq    *%rsi
 
 
+
+/**
+ * __syscall_trap_return - returns from a trapped syscall instruction
+ * This is the "restorer" function for a signal delivered by a seccomp trap.
+ * When called, %rax contains the return value of the syscall and the stack
+ * pointer points to the sigcontext that will be restored by the actual kernel's
+ * rt_sigreturn() system call.
+ *
+ * No return.
+ */
 .align 16
-.global junction_fncall_stackswitch_enter
+.globl __syscall_trap_return
+.type __syscall_trap_return, @function
+__syscall_trap_return:
+
+    // store rax in sigframe
+    movq    %rax, SIGFRAME_RAX_OFFSET(%rsp)
+
+1:
+    // clear syscall flag
+    movq    %gs:__perthread___self(%rip), %r11
+    movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
+
+    movl    JUNCTION_INT_STATE_OFF(%r11), %edi
+    test    %edi, %edi
+    jg 2f
+
+    jmp     syscall_rt_sigreturn
+
+2:
+    movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
+    movq    SIGFRAME_RAX_OFFSET(%rsp), %rdi
+    call    RunSignals
+    jmp 1b
+
+#define SAVETF_STACK \
+	movq 	%gs:__perthread___self(%rip), %r11; \
+	pushq   %rax; \
+	pushq   %r15; \
+	pushq   %r14; \
+	pushq   %r13; \
+	pushq   %r12; \
+	pushq   %rbp; \
+	pushq   %rbx; \
+	subq    $16, %rsp; \
+	pushq   %r9; \
+	pushq   %r8; \
+	pushq   %rcx; \
+	pushq   %rdx; \
+	pushq   %rsi; \
+	pushq   %rdi; \
+	movq    %rsp, JUNCTION_TF_PTR_OFF(%r11);
+
+#define SAVETF_STACK_AND_MARK_SYSCALL \
+	SAVETF_STACK; \
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
+
+#define RESTORETF_STACK \
+	popq   %rdi; \
+	popq   %rsi; \
+	popq   %rdx; \
+	popq   %rcx; \
+	popq   %r8; \
+	popq   %r9; \
+	addq    $16, %rsp; \
+	popq   %rbx; \
+	popq   %rbp; \
+	popq   %r12; \
+	popq   %r13; \
+	popq   %r14; \
+	popq   %r15; \
+	popq   %rax; \
+
+#define CALL_SYSCALL_FUNC(sysnr_reg, scratch_reg) \
+	shlq    $3, sysnr_reg; \
+	leaq    sys_tbl(%rip), scratch_reg; \
+	addq    scratch_reg, sysnr_reg; \
+	callq   *(%rax);
+
+
+/*
+ * junction_fncall_enter - main entry point for system calls.
+ * This routine saves the trapframe at entry on the stack and stores a pointer
+ * in the thread struct. This enables the system call to be restarted easily at
+ * a later point. Before returning, checks/applies pending signals.
+ */
+.align 16
+.globl junction_fncall_enter
+.type junction_fncall_enter, @function
+junction_fncall_enter:
+
+	// align stack
+	subq $8, %rsp
+
+	// get return IP
+	movq 8(%rsp), %r11
+
+	// save rax to orig_rax
+	pushq %rax
+
+	// push return stack pointer
+	leaq  24(%rsp), %r10
+	pushq %r10
+
+	// push return IP
+	pushq   %r11
+
+	SAVETF_STACK_AND_MARK_SYSCALL
+
+	CALL_SYSCALL_FUNC(%rax, %r11)
+
+	// save the return value
+	movq %rax, RAX(%rsp)
+
+1:
+	movq    %gs:__perthread___self(%rip), %r11
+	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
+
+	// check for interrupts
+	movl    JUNCTION_INT_STATE_OFF(%r11), %edi
+	test    %edi, %edi
+	jg      2f
+
+	addq    $(19 * 8), %rsp // remove 18 registers on stack plus alignment
+	ret
+
+2:
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
+	movq    %rax, %rdi
+	call    RunSignals
+	movq 	RAX(%rsp), %rax
+	jmp     1b
+
+/*
+ * junction_fncall_stackswitch_enter - entry point for runtimes that require
+ * system calls to run on separate stacks.
+ */
+.align 16
+.globl junction_fncall_stackswitch_enter
 .type junction_fncall_stackswitch_enter, @function
 junction_fncall_stackswitch_enter:
 
-	// move arg4 to %rcx per function call convention
-	movq    %r10, %rcx
+	// Mark begin syscall, *before* starting to use the syscall stack
+	movq 	%gs:__perthread___self(%rip), %r11
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 
-	// check if this thread currently has an altstack setup
-	movq    %gs:__perthread___self(%rip), %r11
-
-	// save some registers into a trapframe so we can potentially
-	// restart this syscall if a signal is delivered
-	movq    %rbx, (JUNCTION_TF_OFF + RBX)(%r11)
-	movq    %rbp, (JUNCTION_TF_OFF + RBP)(%r11)
-	movq    %r12, (JUNCTION_TF_OFF + R12)(%r11)
-	movq    %r13, (JUNCTION_TF_OFF + R13)(%r11)
-	movq    %r14, (JUNCTION_TF_OFF + R14)(%r11)
-	movq    %r15, (JUNCTION_TF_OFF + R15)(%r11)
-	movq    %rax, (JUNCTION_TF_OFF + RAX)(%r11)
-
-	movq    %rdi, (JUNCTION_TF_OFF + RDI)(%r11)
-	movq    %rsi, (JUNCTION_TF_OFF + RSI)(%r11)
-	movq    %rdx, (JUNCTION_TF_OFF + RDX)(%r11)
-	movq    %r10, (JUNCTION_TF_OFF + R10)(%r11)
-	movq    %r8,  (JUNCTION_TF_OFF +  R8)(%r11)
-	movq    %r9,  (JUNCTION_TF_OFF +  R9)(%r11)
-
-	// save ip and stack
-	movq    (%rsp), %r10
-	movq    %r10, (JUNCTION_TF_OFF + RIP)(%r11)
-	leaq    8(%rsp), %r10
-	movq    %r10, (JUNCTION_TF_OFF + RSP)(%r11)
-
-	// calculate address of new stack
+	// Find bottom of syscall stack
 	movq    JUNCTION_STACK_OFFSET(%r11), %r11
-	addq    $JUNCTION_STACK_SIZE, %r11
 
-	// push existing stack pointer to new stack
-	movq 	%rsp, -8(%r11)
+	// subtract 16 to (A) leave space for unused fsbase field in trapframe
+	// and (B) ensure correct alignment for the next call
+	addq    $(JUNCTION_STACK_SIZE - 16), %r11
 
-	// switch stacks and align
-	movq    %r11, %rsp
-	subq    $16, %rsp
+	// push orig_rax
+	movq 	%rax, -8(%r11)
 
-	// compute syscall handler address in %rax
-	shlq    $3, %rax
-	addq    $0x200000, %rax
+	// push return stack pointer
+	leaq  8(%rsp), %r10
+	movq  %r10, -16(%r11)
 
-	// call syscall handler
-	callq   *(%rax)
+	// push RIP to new stack
+	movq    (%rsp), %r10
+	movq    %r10, -24(%r11)
+
+	// switch to new stack
+	leaq    -24(%r11), %rsp
+
+	SAVETF_STACK
+	CALL_SYSCALL_FUNC(%rax, %r11)
+
+	// store return value in trapframe
+	movq    %rax, RAX(%rsp)
+
+1:
+	movq 	%gs:__perthread___self(%rip), %r11
+	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
+
+	// check for interrupts
+	movl    JUNCTION_INT_STATE_OFF(%r11), %edi
+	test    %edi, %edi
+	jg      2f
 
 	// restore stack pointer
-	addq    $16, %rsp
-	movq    -8(%rsp), %rsp
+	movq 	RSP(%rsp), %rsp
+	subq    $8, %rsp
+	ret
+
+2:
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
+	movq    %rax, %rdi
+	call    RunSignals
+	movq    RAX(%rsp), %rax
+	jmp     1b
+
+/*
+ * junction_fncall_enter_preserve_regs - variant of junction_fncall_enter that
+ * preserves argument registers. This is needed for vfork/clone/clone3.
+ */
+.align 16
+.globl junction_fncall_enter_preserve_regs
+.type junction_fncall_enter_preserve_regs, @function
+junction_fncall_enter_preserve_regs:
+
+	// align stack
+	subq $8, %rsp
+
+	// get return IP
+	movq 8(%rsp), %r11
+
+	// save rax to orig_rax
+	pushq %rax
+
+	// push return stack pointer
+	leaq  24(%rsp), %r10
+	pushq %r10
+
+	// push return IP
+	pushq   %r11
+
+	SAVETF_STACK_AND_MARK_SYSCALL
+
+	CALL_SYSCALL_FUNC(%rax, %r11)
+
+	// save the return value
+	movq %rax, RAX(%rsp)
+
+1:
+	movq    %gs:__perthread___self(%rip), %r11
+	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
+
+	// check for interrupts
+	movl    JUNCTION_INT_STATE_OFF(%r11), %edi
+	test    %edi, %edi
+	jg      2f
+
+	RESTORETF_STACK
+	addq    $(4 * 8), %rsp // remove rsp, rip, and orig_rax, alignment
+	ret
+
+2:
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
+	movq    %rax, %rdi
+	call    RunSignals
+	movq 	RAX(%rsp), %rax
+	jmp     1b
+
+/*
+ * junction_fncall_stackswitch_enter_preserve_regs - variant of
+ * junction_fncall_stackswitch_enter that preserves argument registers. This is
+ * needed for vfork/clone/clone3.
+ */
+.align 16
+.globl junction_fncall_stackswitch_enter_preserve_regs
+.type junction_fncall_stackswitch_enter_preserve_regs, @function
+junction_fncall_stackswitch_enter_preserve_regs:
+
+	// Mark begin syscall, *before* starting to use the syscall stack
+	movq 	%gs:__perthread___self(%rip), %r11
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
+
+	// Find bottom of syscall stack
+	movq    JUNCTION_STACK_OFFSET(%r11), %r11
+
+	// subtract 16 to (A) leave space for unused fsbase field in trapframe
+	// and (B) ensure correct alignment for the next call
+	addq    $(JUNCTION_STACK_SIZE - 16), %r11
+
+	// push orig_rax
+	movq 	%rax, -8(%r11)
+
+	// push return stack pointer
+	leaq  8(%rsp), %r10
+	movq  %r10, -16(%r11)
+
+	// push RIP to new stack
+	movq    (%rsp), %r10
+	movq    %r10, -24(%r11)
+
+	// switch to new stack
+	leaq    -24(%r11), %rsp
+
+	SAVETF_STACK
+	CALL_SYSCALL_FUNC(%rax, %r11)
+
+	// store return value in trapframe
+	movq    %rax, RAX(%rsp)
+
+1:
+	movq 	%gs:__perthread___self(%rip), %r11
+	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
+
+	// check for interrupts
+	movl    JUNCTION_INT_STATE_OFF(%r11), %edi
+	test    %edi, %edi
+	jg      2f
+
+	RESTORETF_STACK
+	add $8, %rsp // ignore rip
+	popq %rsp // restore rsp
+	subq    $8, %rsp
 
 	ret
 
-.align 16
-.global junction_fncall_stackswitch_clone_enter
-.type junction_fncall_stackswitch_clone_enter, @function
-junction_fncall_stackswitch_clone_enter:
-
-	// move arg4 to %rcx per function call convention
-	movq    %r10, %rcx
-
-	// get address of junction trapframe
-	movq    %gs:__perthread___self(%rip), %r11
-	addq    $JUNCTION_TF_OFF, %r11
-
-	// Save registers
-	SAVETF_CALLEE(%r11)
-	SAVETF_CALLER(%r11)
-
-	movq    (%rsp), %r10
-	movq    %r10, RIP(%r11)
-
-	// save RSP + RIP
-	movq    %rsp, RSP(%r11)
-
-	// get address of syscall stack and switch
-	movq    %gs:__perthread___self(%rip), %r11
-	movq    JUNCTION_STACK_OFFSET(%r11), %r11 // stack
-	addq    $JUNCTION_STACK_SIZE, %r11
-	movq    %r11, %rsp
-
-	andq    $-16, %rsp
-	callq   usys_clone
-
-	// get address of junction trapframe
-	movq    %gs:__perthread___self(%rip), %r11
-	addq    $JUNCTION_TF_OFF, %r11
-
-	movq    RSP(%r11), %rsp
-
-	ret
-
-.align 16
-.global junction_fncall_stackswitch_vfork_enter
-.type junction_fncall_stackswitch_vfork_enter, @function
-junction_fncall_stackswitch_vfork_enter:
-
-	// get address of junction trapframe
-	movq    %gs:__perthread___self(%rip), %r11
-	addq    $JUNCTION_TF_OFF, %r11
-
-	// Save registers
-	SAVETF_CALLEE(%r11)
-	SAVETF_CALLER(%r11)
-
-	// save RIP
-	movq    (%rsp), %r10
-	movq    %r10, RIP(%r11)
-
-	// pop RIP off stack and save
-	leaq    8(%rsp), %r10
-	movq    %r10, RSP(%r11)
-
-	// get address of syscall stack and switch
-	movq    %gs:__perthread___self(%rip), %r11
-	movq    JUNCTION_STACK_OFFSET(%r11), %r11 // stack
-	addq    $JUNCTION_STACK_SIZE, %r11
-	movq    %r11, %rsp
-
-	andq    $-16, %rsp
-	callq   usys_vfork
-
-	// get address of junction trapframe
-	movq    %gs:__perthread___self(%rip), %r11
-	addq    $JUNCTION_TF_OFF, %r11
-
-
-	movq    RSP(%r11), %rsp
-	movq    RIP(%r11), %rcx
-
-	// glibc uses this register
-	movq    RDI(%r11), %rdi
-
-	jmpq    *%rcx
+2:
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
+	movq    %rax, %rdi
+	call    RunSignals
+	jmp     1b

@@ -25,15 +25,16 @@ namespace junction {
 
 class Process;
 
-enum class ThreadState : uint64_t {
-  kInvalid = 0,
-  kActive = 1,
-};
-
 inline constexpr unsigned int kNotWaitable = 0;
 inline constexpr unsigned int kWaitableExited = WEXITED;
 inline constexpr unsigned int kWaitableStopped = WSTOPPED;
 inline constexpr unsigned int kWaitableContinued = WCONTINUED;
+
+enum class SyscallEntry : int {
+  kFunctionCallUserStack = 1,  // function call running on user's stack
+  kFunctionCallSysStack = 2,   // function call that switched to special stack
+  kSyscallTrapSysStack = 3,    // syscall instruction was trapped
+};
 
 // Thread is a UNIX thread object.
 class Thread {
@@ -64,16 +65,41 @@ class Thread {
     assert(GetCaladanThread() == thread_self());
     return thread_interrupted(GetCaladanThread());
   }
-  [[nodiscard]] bool in_syscall() const { return access_once(in_syscall_); }
+
+  // Can be called inside syscall code to determine syscall entry path
+  [[nodiscard]] SyscallEntry get_syscall_source() const {
+    assert(GetCaladanThread() == thread_self());
+    if (IsOnStack(GetSyscallStack(GetCaladanThread()))) {
+      if (GetCaladanThread()->entry_regs != nullptr)
+        return SyscallEntry::kFunctionCallSysStack;
+      return SyscallEntry::kSyscallTrapSysStack;
+    }
+    return SyscallEntry::kFunctionCallUserStack;
+  }
+
+  [[nodiscard]] bool in_syscall() const {
+    return access_once(GetCaladanThread()->in_syscall);
+  }
+
+  thread_tf &get_fncall_regs() const {
+    assert(get_syscall_source() != SyscallEntry::kSyscallTrapSysStack);
+    assert(GetCaladanThread()->entry_regs != nullptr);
+    return *GetCaladanThread()->entry_regs;
+  }
+
+  sigcontext &get_trap_regs() const {
+    assert(get_syscall_source() == SyscallEntry::kSyscallTrapSysStack);
+    assert(cur_syscall_frame_ != nullptr);
+    return cur_syscall_frame_->uc.uc_mcontext;
+  }
 
   void set_in_syscall(bool val) {
     barrier();
-    access_once(in_syscall_) = val;
+    access_once(GetCaladanThread()->in_syscall) = val;
     barrier();
   }
 
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
-  [[nodiscard]] bool has_altstack() const { return sighand_.has_altstack(); }
 
   void set_child_tid(uint32_t *tid) { child_tid_ = tid; }
   void set_xstate(int xstate) { xstate_ = xstate; }
@@ -92,33 +118,12 @@ class Thread {
   }
 
   static Thread &fromCaladanThread(thread_t *th) {
-    assert(static_cast<ThreadState>(th->tlsvar) == ThreadState::kActive);
+    assert(th->junction_thread == true);
     auto *ts = reinterpret_cast<Thread *>(th->junction_tstate_buf);
     return *reinterpret_cast<Thread *>(ts);
   }
 
   void ThreadReady() { thread_ready(GetCaladanThread()); }
-
-  void OnSyscallEnter() { set_in_syscall(true); }
-
-  void OnSyscallLeave(long rax) {
-    if (unlikely(needs_interrupt())) HandleInterrupt(rax);
-
-    void *frame = GetSyscallFrame();
-
-    while (true) {
-      SetSyscallFrame(nullptr);
-      set_in_syscall(false);
-
-      // A signal may have been queued but not delivered between the last check
-      // of needs_interrupt() and clearing the in_syscall flag. Check once
-      // more for pending interrupts.
-      if (likely(!needs_interrupt())) break;
-      set_in_syscall(true);
-      SetSyscallFrame(frame);
-      HandleInterrupt(rax);
-    }
-  }
 
   void Kill() {
     siginfo_t info;
@@ -187,25 +192,28 @@ class Thread {
     // the signal will be visible when this thread is next scheduled.
   };
 
-  // Called by a thread to run pending interrupts. This function may not return.
-  void HandleInterrupt(std::optional<long> rax) {
-    assert(thread_self() == GetCaladanThread());
-    sighand_.RunPending(rax);
+  void SetSyscallFrame(k_sigframe *frame) {
+    cur_syscall_frame_ = frame;
+    GetCaladanThread()->entry_regs = nullptr;
   }
 
-  void SetSyscallFrame(void *frame) { cur_syscall_frame_ = frame; }
-  [[nodiscard]] void *GetSyscallFrame() const { return cur_syscall_frame_; }
+  [[nodiscard]] k_sigframe *GetSyscallFrame() const {
+    return cur_syscall_frame_;
+  }
 
   friend class ThreadSignalHandler;
 
  private:
+  // Hot items
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
-  uint32_t *child_tid_{nullptr};   // Used for clone3/exit
   const pid_t tid_;                // the thread identifier
-  bool in_syscall_;
-  int xstate_;  // exit state
   ThreadSignalHandler sighand_;
-  void *cur_syscall_frame_;
+
+  k_sigframe *cur_syscall_frame_{nullptr};  // trapped syscall frame pointer
+
+  // Cold items - only accessed at thread exit
+  uint32_t *child_tid_{nullptr};  // Used for clone3/exit
+  int xstate_;                    // exit state
 };
 
 // Make sure that Caladan's thread def has enough room for the Thread class
@@ -385,7 +393,7 @@ Status<std::shared_ptr<Process>> CreateInitProcess();
 
 // isJunctionThread returns true if the thread is a part of a process.
 inline bool IsJunctionThread(thread_t *th = thread_self()) {
-  return static_cast<ThreadState>(th->tlsvar) == ThreadState::kActive;
+  return th->junction_thread;
 }
 
 // mythread returns the Thread object for the running thread.

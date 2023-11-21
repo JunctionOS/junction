@@ -98,19 +98,6 @@ void log_syscall_msg(const char *msg_needed, long sysn) {
   ksys_write(STDOUT_FILENO, buf, pos - buf);
 }
 
-static_assert(offsetof(k_ucontext, uc_mcontext.rax) == 0x90);
-
-extern "C" [[noreturn]] void syscall_trap_return(void);
-asm(R"(
-    .globl syscall_trap_return
-    .type syscall_trap_return, @function
-    syscall_trap_return:
-
-    // store rax in sigframe
-    movq %rax, 0x90(%rsp)
-    jmp syscall_rt_sigreturn
-)");
-
 extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
                                      void *void_context) {
   k_ucontext *ctx = reinterpret_cast<k_ucontext *>(void_context);
@@ -168,63 +155,30 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
   // signal frame, since rt_sigreturn is doing a full restore of a different
   // signal frame.
   if (sysn == SYS_rt_sigreturn) {
-    usys_rt_sigreturn(ctx->uc_mcontext.rsp);
+    usys_rt_sigreturn_finish(ctx->uc_mcontext.rsp);
     std::unreachable();
   }
 
-  assert(!IsOnStack(ctx->uc_mcontext.rsp, *thread_self()->stack));
+  assert(!IsOnStack(ctx->uc_mcontext.rsp, GetSyscallStack()));
 
-  uint64_t rsp =
-      reinterpret_cast<uint64_t>(&thread_self()->stack->usable[STACK_PTR_SIZE]);
-
+  uint64_t rsp = GetSyscallStackBottom();
   k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
   new_frame->InvalidateAltStack();
 
+  // stash a copy of rax before the syscall
+  new_frame->uc.uc_mcontext.trapno = new_frame->uc.uc_mcontext.rax;
+
   // stash a pointer to the sigframe in case we need to restart the syscall
   mythread().SetSyscallFrame(new_frame);
-  thread_self()->junction_tf.rsp = ctx->uc_mcontext.rsp;
+  mythread().set_in_syscall(true);
 
   // force return to syscall_trap_return
-  new_frame->pretcode = reinterpret_cast<char *>(syscall_trap_return);
-
-  sysfn_t target_ip;
-
-  // Special case for clone* syscalls, need to save registers
-  if (sysn == SYS_clone || sysn == SYS_clone3 || sysn == SYS_vfork) {
-    thread_tf &tf = thread_self()->junction_tf;
-
-    tf.r8 = ctx->uc_mcontext.r8;
-    tf.r9 = ctx->uc_mcontext.r9;
-    tf.r10 = ctx->uc_mcontext.r10;
-    tf.r11 = ctx->uc_mcontext.r11;
-    tf.r12 = ctx->uc_mcontext.r12;
-    tf.r13 = ctx->uc_mcontext.r13;
-    tf.r14 = ctx->uc_mcontext.r14;
-    tf.r15 = ctx->uc_mcontext.r15;
-    tf.rdi = ctx->uc_mcontext.rdi;
-    tf.rsi = ctx->uc_mcontext.rsi;
-    tf.rbp = ctx->uc_mcontext.rbp;
-    tf.rbx = ctx->uc_mcontext.rbx;
-    tf.rdx = ctx->uc_mcontext.rdx;
-    tf.rcx = ctx->uc_mcontext.rcx;
-    tf.rip = ctx->uc_mcontext.rcx;
-    tf.rsp = ctx->uc_mcontext.rsp;
-
-    if (sysn == SYS_clone)
-      target_ip = reinterpret_cast<sysfn_t>(usys_clone);
-    else if (sysn == SYS_vfork)
-      target_ip = reinterpret_cast<sysfn_t>(usys_vfork);
-    else
-      target_ip = reinterpret_cast<sysfn_t>(usys_clone3);
-  } else if (unlikely(GetCfg().strace_enabled())) {
-    target_ip = sys_tbl_strace[sysn];
-  } else {
-    target_ip = sys_tbl[sysn];
-  }
+  new_frame->pretcode = reinterpret_cast<char *>(__syscall_trap_return);
 
   thread_tf tf;
+
+  tf.rip = reinterpret_cast<uint64_t>(sys_tbl[sysn]);
   tf.rsp = reinterpret_cast<uint64_t>(new_frame);
-  tf.rip = reinterpret_cast<uint64_t>(target_ip);
   tf.rdi = ctx->uc_mcontext.rdi;
   tf.rsi = ctx->uc_mcontext.rsi;
   tf.rdx = ctx->uc_mcontext.rdx;

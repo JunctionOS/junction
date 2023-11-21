@@ -22,10 +22,9 @@ void thread_finish_yield(void);
 #include "junction/kernel/usys.h"
 #include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
+#include "junction/syscall/systbl.h"
 
 namespace junction {
-
-namespace {
 
 // Mask of signals that must be handled synchronously.
 constexpr k_sigset_t kSignalSynchronousMask =
@@ -75,7 +74,26 @@ constexpr SignalAction ParseAction(const k_sigaction &act, int sig) {
   return SignalAction::kTerminate;
 }
 
-}  // namespace
+// A signal handler that can be injected into a program to cleanly kill it
+extern "C" void SigKillHandler(int, siginfo_t *, void *);
+asm(R"(
+  .globl SigKillHandler
+  .type SigKillHandler, @function
+  SigKillHandler:
+
+  movl $231, %eax;  // __NR_exit_group
+  addl $128, %edi; // exit code: 128 + signo
+
+  subq $8, %rsp
+  call junction_fncall_enter
+  nop
+)");
+
+static k_sigaction SigKillAction = {
+    .handler = SigKillHandler,
+    .sa_flags = SA_ONSTACK | SA_RESTART | SA_NODEFER,
+    .sa_mask = ~0UL,  // all signals masked
+};
 
 void __noinline print_msg_abort(const char *msg) {
   const char *m = "Aborting on signal: ";
@@ -128,18 +146,18 @@ void FixRspAltstack(const DeliveredSignal &sig, uint64_t *rsp) {
   *rsp = reinterpret_cast<uint64_t>(sig.ss.ss_sp) + sig.ss.ss_size;
 }
 
+void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
+                      const thread_tf &prev_frame, thread_tf &new_frame);
+
 // Handle a kick delivered by host OS signal (or UIPI in the future)
 void HandleKick(k_sigframe *sigframe) {
   if (!IsJunctionThread()) return;
 
   Thread &th = mythread();
 
-  // TODO: fix stack-switching kernel entry to set syscall flag in assembly
-  // while on the non-syscall stack
   if (th.in_syscall()) return;
 
   ThreadSignalHandler &hand = th.get_sighand();
-
   std::optional<DeliveredSignal> sig = hand.GetNextSignal();
   if (!sig) return;
 
@@ -156,7 +174,13 @@ void HandleKick(k_sigframe *sigframe) {
   restore_kernel.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
 
   thread_tf sighand_tf;
-  hand.ApplySignals(*sig, &rsp, restore_kernel, sighand_tf);
+
+  PushUserSigFrame(*sig, &rsp, restore_kernel, sighand_tf);
+  while (true) {
+    sig = hand.GetNextSignal();
+    if (!sig) break;
+    PushUserSigFrame(*sig, &rsp, sighand_tf, sighand_tf);
+  }
 
   __switch_and_preempt_enable(&sighand_tf);
   std::unreachable();
@@ -222,13 +246,21 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
 
   // parse the type of signal action to perform
   SignalAction action = ParseAction(act, sig);
-  if (action == SignalAction::kIgnore) return std::nullopt;
 
-  // TODO: We don't support the other signal actions yet
-  if (action != SignalAction::kNormal)
-    print_msg_abort("program got fatal signal");
+  switch (action) {
+    case SignalAction::kNormal:
+      return act;
+    case SignalAction::kIgnore:
+    case SignalAction::kContinue:
+      return std::nullopt;
+    case SignalAction::kStop:
+      // TODO: add support for stopping
+    case SignalAction::kTerminate:
+    case SignalAction::kCoredump:
+      return SigKillAction;
+  }
 
-  return act;
+  std::unreachable();
 }
 
 [[noreturn]] void ThreadSignalHandler::DeliverKernelSigToUser(
@@ -239,9 +271,9 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
   if (is_sig_blocked(signo)) print_msg_abort("synchronous signal blocked");
 
   std::optional<k_sigaction> tmp = GetAction(signo);
-  if (!tmp) print_msg_abort("synchronous signal ignored");
 
-  k_sigaction &act = *tmp;
+  // synchronous signal kills program if no action is specified
+  k_sigaction &act = tmp ? *tmp : SigKillAction;
 
   // Determine stack to use
   uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
@@ -270,7 +302,8 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
   // disarm sigstack if needed
   if (ss.ss_flags & kSigStackAutoDisarm) DisableAltStack();
 
-  // mask signals
+  // Mask signals. Because this signal delivery occurs outside of a syscall, we
+  // don't need to worry about restoring a saved mask.
   SigProcMask(SIG_BLOCK, &act.sa_mask, &new_frame->uc.mask);
 
   if (unlikely(GetCfg().strace_enabled())) LogSignal(*info);
@@ -364,7 +397,7 @@ bool SignalQueue::Enqueue(const siginfo_t &info) {
 // Note Linux's rt_sigreturn expects the sigframe to be on the stack.
 // Our rt_sigreturn assembly target switches stacks and calls this function with
 // the old rsp as an argument.
-extern "C" [[noreturn]] void usys_rt_sigreturn(uint64_t rsp) {
+extern "C" [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp) {
   k_sigframe *sigframe = reinterpret_cast<k_sigframe *>(rsp - 8);
   JunctionSigframe *jframe =
       reinterpret_cast<JunctionSigframe *>(rsp - 8 + sizeof(*sigframe));
@@ -426,11 +459,12 @@ std::optional<siginfo_t> ThreadSignalHandler::PopSigInfo(
   }
   if (tmp) return tmp;
 
-  // No signal found, clear pending signal flags
   if (reset_flag) {
-    notified_ = false;
-    reset_interruptible_state(this_thread().GetCaladanThread());
-    RestoreBlockedForce();
+    // No signal found, clear pending signal flags
+    ResetInterruptState();
+
+    // Restore syscall-stashed sigmask, if applicable
+    if (RestoreBlockedNeeded()) RestoreBlockedLocked();
   }
 
   return tmp;
@@ -463,11 +497,27 @@ std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal() {
   // Apply blocked signal mask
   unsigned long to_block = sig.act.sa_flags;
   if (!sig.act.is_nodefer()) to_block |= SignalMask(sig.info.si_signo);
-  SigProcMask(SIG_BLOCK, &to_block, &sig.prev_blocked);
+  sig.prev_blocked = GetSigframeRestoreMask();
+  ReplaceMask(to_block);
 
   if (unlikely(GetCfg().strace_enabled())) LogSignal(sig.info);
 
   return sig;
+}
+
+k_sigset_t ThreadSignalHandler::GetSigframeRestoreMask() {
+  if (saved_blocked_) {
+    k_sigset_t saved = *saved_blocked_;
+    saved_blocked_ = std::nullopt;
+    return saved;
+  }
+  return blocked_;
+}
+
+void ThreadSignalHandler::ResetInterruptState() {
+  assert(sig_q_.IsHeld());
+  notified_ = false;
+  reset_interruptible_state(this_thread().GetCaladanThread());
 }
 
 void ThreadSignalHandler::ReplaceAndSaveBlocked(k_sigset_t mask) {
@@ -503,12 +553,7 @@ bool ThreadSignalHandler::EnqueueSignal(const siginfo_t &info) {
   // signal is blocked, don't wakeup
   if (is_sig_blocked(info.si_signo)) return false;
 
-  // we already notified this thread via wakeup/IPI, don't do it again
-  if (notified_) return false;
-
-  // mark this thread as notified
-  notified_ = true;
-  return true;
+  return TestAndSetNotify();
 }
 
 // Setup @signal on the stack given by @rsp (may be switched). @prev_frame is
@@ -555,30 +600,22 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
   new_frame.rdx = reinterpret_cast<uint64_t>(&kframe->uc);
 }
 
-// Push first signal onto the stack, and then chain any following signals
-void ThreadSignalHandler::ApplySignals(const DeliveredSignal &first_signal,
-                                       uint64_t *rsp,
-                                       const thread_tf &restore_tf,
-                                       thread_tf &sighand_tf) {
-  PushUserSigFrame(first_signal, rsp, restore_tf, sighand_tf);
-
-  while (true) {
-    std::optional<DeliveredSignal> d = GetNextSignal();
-    if (!d) break;
-
-    PushUserSigFrame(*d, rsp, sighand_tf, sighand_tf);
-  }
-}
-
+// Try to drain pending signals. When done, jump to the last popped signal
+// handler. Always called at the end of a syscall, does not return.
 [[noreturn]] void ThreadSignalHandler::ApplySignalsAndExit(
     const DeliveredSignal &first_signal, uint64_t rsp,
     const thread_tf &restore_tf) {
   thread_tf sighand_tf;  // frame used to exit to signal handler
 
-  ApplySignals(first_signal, &rsp, restore_tf, sighand_tf);
+  PushUserSigFrame(first_signal, &rsp, restore_tf, sighand_tf);
 
   while (true) {
-    // no more signals, try to exit to user mode
+    std::optional<DeliveredSignal> d = GetNextSignal();
+    if (d) {
+      PushUserSigFrame(*d, &rsp, sighand_tf, sighand_tf);
+      continue;
+    }
+
     preempt_disable();
     mythread().set_in_syscall(false);
     if (!mythread().needs_interrupt()) {
@@ -589,59 +626,37 @@ void ThreadSignalHandler::ApplySignals(const DeliveredSignal &first_signal,
     // a signal slipped in, handle it and try again
     mythread().set_in_syscall(true);
     preempt_enable();
-
-    std::optional<DeliveredSignal> sig = GetNextSignal();
-    if (sig) ApplySignals(*sig, &rsp, sighand_tf, sighand_tf);
   }
 }
 
-struct SigHandlerSetupArgs {
-  DeliveredSignal first_sig;
-  thread_tf restore_tf;
-};
-
 extern "C" [[noreturn]] void ApplySignalsTrampoline(void *arg) {
-  SigHandlerSetupArgs &args = *reinterpret_cast<SigHandlerSetupArgs *>(arg);
+  DeliveredSignal &d = *reinterpret_cast<DeliveredSignal *>(arg);
 
-  // use the stack we just came from for signals, maybe
-  uint64_t rsp = args.restore_tf.rsp;
-  FixRspAltstack(args.first_sig, &rsp);
+  thread_tf &ctx = mythread().get_fncall_regs();
 
-  mythread().get_sighand().ApplySignalsAndExit(args.first_sig, rsp,
-                                               args.restore_tf);
+  // assume that thread_tf is on the stack, use the space above. Leave redzone
+  // empty just for extra safety, though shouldn't be needed.
+  uint64_t rsp = reinterpret_cast<uintptr_t>(&ctx) - kRedzoneSize;
+  rsp = AlignDown(rsp, 16) - 8;
+  FixRspAltstack(d, &rsp);
+
+  mythread().get_sighand().ApplySignalsAndExit(d, rsp, ctx);
 }
 
 // Prepare a trap frame that returns execution to rt_sigreturn to unwind a
 // syscall signal
-void SetupRestoreSignalEntry(uint64_t *rsp, std::optional<long> rax,
-                             thread_tf *tf) {
-  assert(mythread().GetSyscallFrame() != nullptr);
+void SetupRestoreSignalEntry(uint64_t *rsp, int rax, thread_tf &tf) {
+  assert(mythread().get_syscall_source() == SyscallEntry::kSyscallTrapSysStack);
 
   // move the frame to the bottom of the signal handler stack
   k_sigframe *frame =
       reinterpret_cast<k_sigframe *>(mythread().GetSyscallFrame());
   k_sigframe *new_frame = frame->CopyToStack(rsp);
 
-  mythread().SetSyscallFrame(nullptr);
+  new_frame->uc.uc_mcontext.rax = rax;
 
-  if (rax)
-    new_frame->uc.uc_mcontext.rax = *rax;
-  else
-    new_frame->uc.uc_mcontext.rip -= 2;  // repeat the syscall instruction
-
-  tf->rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
-  tf->rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
-}
-
-// Prepare a trap frame that returns to a Golang syscall entry site
-void SetupRestoreGolang(std::optional<long> rax, thread_tf *tf) {
-  if (rax) {
-    // syscall is done
-    tf->rax = *rax;
-  } else {
-    // our golang target uses 7 bytes for indirect jump
-    tf->rip -= 7;
-  }
+  tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
+  tf.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
 }
 
 // Called by the Caladan scheduler to deliver signals to a thread that is being
@@ -652,7 +667,6 @@ extern "C" void deliver_signals_jmp_thread(thread_t *th) {
   assert(sched_needs_signal_check(th));
   assert_preempt_disabled();
   assert_on_runtime_stack();
-  assert(th->thread_running);
 
   ThreadSignalHandler &hand = Thread::fromCaladanThread(th).get_sighand();
 
@@ -668,43 +682,127 @@ extern "C" void deliver_signals_jmp_thread(thread_t *th) {
   }
 }
 
-void ThreadSignalHandler::RunPending(std::optional<long> rax) {
+[[nodiscard]] bool WantsRestartSysNoHandler(int rax) {
+  return rax == -ERESTARTNOHAND || rax == -ERESTARTSYS;
+}
+
+// Check if restart is needed post handler. May mutate @rax.
+[[nodiscard]] bool WantsRestartSysPostHandler(int &rax,
+                                              const DeliveredSignal &sig) {
+  if (rax == -ERESTARTNOHAND) {
+    rax = -EINTR;
+    return false;
+  }
+
+  if (rax == -ERESTARTSYS) {
+    if (sig.act.is_restartsys()) return true;
+    rax = -EINTR;
+    return false;
+  }
+
+  return false;
+}
+
+uint64_t RewindIndirectSystemCall(uint64_t rip) {
+  // rewind seven bytes: ff 14 25 28 0e 20 00    call   *0x200e28
+  return rip - 7;
+}
+
+// Restart a syscall by returning to the entry of a usys_* function with the
+// same registers and stack data.
+[[noreturn]] void RestartSyscall() {
+  thread_tf tf;
+
+  Thread &myth = mythread();
+
+  SyscallEntry type = myth.get_syscall_source();
+
+  if (type == SyscallEntry::kSyscallTrapSysStack) {
+    const sigcontext &ctx = myth.get_trap_regs();
+
+    // can ignore caller-saved registers for the trap entry path
+
+    tf.rax = ctx.trapno;
+    tf.rsp = reinterpret_cast<uint64_t>(myth.GetSyscallFrame());
+    tf.rdi = ctx.rdi;
+    tf.rsi = ctx.rsi;
+    tf.rdx = ctx.rdx;
+    tf.r8 = ctx.r8;
+    tf.r9 = ctx.r9;
+    tf.rcx = ctx.r10;
+    assert(tf.rax < SYS_NR);
+    tf.rip = reinterpret_cast<uint64_t>(sys_tbl[tf.rax]);
+  } else {
+    // copy all registers from syscall entry
+    tf = myth.get_fncall_regs();
+
+    // reset RAX
+    tf.rax = tf.orig_rax;
+
+    tf.rip = RewindIndirectSystemCall(tf.rip);
+  }
+
+  __syscall_restart_nosave(&tf);
+}
+
+void ThreadSignalHandler::RunPending(int rax) {
   std::optional<DeliveredSignal> sig = GetNextSignal();
-  if (!sig) return;
+  if (!sig) {
+    if (WantsRestartSysNoHandler(rax)) RestartSyscall();
+    return;
+  }
 
   // we don't support re-entrant syscalls on the syscall stack, so we can't
   // leave state on this stack when running signals. Instead, arrange for the
   // signal return to bring execution back to the system call entry point,
   // either with a return value in rax or to repeat the system call.
-  if (IsOnStack(GetSyscallStack())) {
-    // find the stack that will be used for the first signal
-    uint64_t rsp = thread_self()->junction_tf.rsp;
+
+  bool do_restart = WantsRestartSysPostHandler(rax, *sig);
+  SyscallEntry entry = mythread().get_syscall_source();
+
+  if (entry == SyscallEntry::kSyscallTrapSysStack) {
+    sigcontext &ctx = mythread().get_trap_regs();
+    uint64_t rsp = ctx.rsp;
     FixRspAltstack(*sig, &rsp);
 
-    thread_tf tmp;  // for signal syscall entry
-    thread_tf *restore_tf;
-
-    // setup restore frames
-    if (mythread().GetSyscallFrame() != nullptr) {
-      restore_tf = &tmp;
-      SetupRestoreSignalEntry(&rsp, rax, restore_tf);
+    if (do_restart) {
+      ctx.rip -= 2;
+      ctx.rax = ctx.trapno;
     } else {
-      restore_tf = &thread_self()->junction_tf;
-      SetupRestoreGolang(rax, restore_tf);
+      ctx.rax = rax;
     }
 
-    ApplySignalsAndExit(*sig, rsp, *restore_tf);
-    std::unreachable();
+    thread_tf tmp;
+    SetupRestoreSignalEntry(&rsp, rax, tmp);
+    ApplySignalsAndExit(*sig, rsp, tmp);
+  }
+
+  thread_tf &ctx = mythread().get_fncall_regs();
+  if (do_restart) {
+    ctx.rip = RewindIndirectSystemCall(ctx.rip);
+    ctx.rax = ctx.orig_rax;
   } else {
-    SigHandlerSetupArgs args;
-    args.first_sig = *sig;
+    ctx.rax = rax;
+  }
 
-    __save_tf_switch(&args.restore_tf, ApplySignalsTrampoline,
-                     reinterpret_cast<void *>(GetSyscallStackBottom()),
-                     reinterpret_cast<uint64_t>(&args));
+  if (entry == SyscallEntry::kFunctionCallUserStack) {
+    // Need to switch stacks to proceed.
 
-    // when we return to this point, we re-enter the syscall
-    mythread().set_in_syscall(true);
+    // copy signal to new stack
+    uint64_t new_rsp = GetSyscallStackBottom();
+    new_rsp -= sizeof(DeliveredSignal);
+    DeliveredSignal *d = reinterpret_cast<DeliveredSignal *>(new_rsp);
+    *d = *sig;
+
+    new_rsp = AlignDown(new_rsp, 16) - 8;
+
+    __nosave_switch(ApplySignalsTrampoline, new_rsp,
+                    reinterpret_cast<uint64_t>(d));
+  } else {
+    assert(entry == SyscallEntry::kFunctionCallSysStack);
+    uint64_t rsp = mythread().get_fncall_regs().rsp;
+    FixRspAltstack(*sig, &rsp);
+    ApplySignalsAndExit(*sig, rsp, mythread().get_fncall_regs());
   }
 }
 
@@ -774,18 +872,20 @@ int usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
   std::optional<Duration> timeout;
   if (ts) timeout = Duration(*ts);
 
+  bool again = true;
+
   if (!hand.any_sig_ready() && (!timeout || !timeout->IsZero())) {
     rt::ThreadWaker w;
     rt::Spin lock;
     WakeOnTimeout timed_out(lock, w, timeout);
     rt::SpinGuard g(lock);
-    WaitInterruptible(lock, w,
-                      [&timed_out] { return static_cast<bool>(timed_out); });
+    WaitInterruptible(lock, w, [&timed_out] { return !!timed_out; });
+    again = !!timed_out;
   }
 
   std::optional<siginfo_t> tmp = hand.PopSigInfo(~mask);
   hand.ReplaceMask(oset);
-  if (!tmp) return -EINTR;  // TODO: ERESTARTX?
+  if (!tmp) return again ? -EAGAIN : -EINTR;
 
   *info = *tmp;
   return tmp->si_signo;
@@ -806,15 +906,20 @@ int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
     WaitInterruptible(p, w);
   }
 
-  return -EINTR;  // TODO: Should be ERESTARTNOHAND
+  return -ERESTARTNOHAND;
 }
 
 long usys_pause() {
-  rt::ThreadWaker w;
+  thread_t *th = thread_self();
+  if (unlikely(rt::SetInterruptible(th))) return -ERESTARTNOHAND;
   rt::Preempt p;
-  rt::PreemptGuard g(p);
-  WaitInterruptible(p, w);
-  return -EINTR;  // TODO: Should be ERESTARTNOHAND
+  p.Lock();
+  p.UnlockAndPark();
+  return -ERESTARTNOHAND;
+}
+
+extern "C" void RunSignals(int rax) {
+  mythread().get_sighand().RunPending(rax);
 }
 
 Status<void> InitSignal() {

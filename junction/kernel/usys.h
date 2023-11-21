@@ -188,6 +188,7 @@ int usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
                          const struct timespec *ts, size_t sigsetsize);
 int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize);
 long usys_pause();
+[[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp);
 
 // Eventfd
 long usys_eventfd2(unsigned int initval, int flags);

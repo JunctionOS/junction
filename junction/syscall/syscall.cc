@@ -21,9 +21,11 @@ Status<void> SyscallInit() {
   if (unlikely(!ret)) return ret;
 
   if (GetCfg().strace_enabled())
-    std::memcpy(SYSTBL_TRAMPOLINE_LOC, sys_tbl_strace, sizeof(sys_tbl_strace));
-  else
-    std::memcpy(SYSTBL_TRAMPOLINE_LOC, sys_tbl, sizeof(sys_tbl));
+    std::memcpy(sys_tbl, sys_tbl_strace, sizeof(sys_tbl_strace));
+
+  sysfn_t *dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);
+  std::memcpy(dst_tbl, sys_tbl, sizeof(sys_tbl));
+
   return {};
 }
 

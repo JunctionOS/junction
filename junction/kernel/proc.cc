@@ -75,7 +75,16 @@ void ReleasePid(pid_t pid, std::optional<pid_t> pgid = std::nullopt) {
   }
 }
 
-void CopyCalleeRegs(thread_tf &newtf, const thread_tf &oldtf) {
+template <typename Tf>
+void CopyRegs(thread_tf &newtf, const Tf &oldtf) {
+  newtf.rdi = oldtf.rdi;
+  newtf.rsi = oldtf.rsi;
+  newtf.rdx = oldtf.rdx;
+  newtf.rcx = oldtf.rcx;
+  newtf.r8 = oldtf.r8;
+  newtf.r9 = oldtf.r9;
+  newtf.r10 = oldtf.r10;
+  newtf.r11 = oldtf.r11;
   newtf.rbx = oldtf.rbx;
   newtf.rbp = oldtf.rbp;
   newtf.r12 = oldtf.r12;
@@ -84,25 +93,23 @@ void CopyCalleeRegs(thread_tf &newtf, const thread_tf &oldtf) {
   newtf.r15 = oldtf.r15;
 }
 
-void CopyCallerRegs(thread_tf &newtf, const thread_tf &oldtf) {
-  newtf.rdi = oldtf.rdi;
-  newtf.rsi = oldtf.rsi;
-  newtf.rdx = oldtf.rdx;
-  newtf.rcx = oldtf.rcx;
-  newtf.r8 = oldtf.r8;
-  newtf.r9 = oldtf.r9;
-  newtf.r10 = oldtf.r10;
+template <typename Ctx>
+void CopyTrapframe(const Ctx &ctx, thread_tf &newtf) {
+  CopyRegs(newtf, ctx);
+  // store RIP in R11 temporarily
+  newtf.r11 = ctx.rip;
 }
 
-void CloneTrapframe(thread_t *newth, const thread_t *oldth) {
-  CopyCalleeRegs(newth->tf, oldth->junction_tf);
-  CopyCallerRegs(newth->junction_tf, oldth->junction_tf);
-  newth->junction_tf.rip = oldth->junction_tf.rip;
+void CloneTrapframe(thread_t *newth, const Thread &oldth) {
+  if (oldth.get_syscall_source() == SyscallEntry::kSyscallTrapSysStack)
+    CopyTrapframe(oldth.get_trap_regs(), newth->tf);
+  else
+    CopyTrapframe(oldth.get_fncall_regs(), newth->tf);
 
   // copy fsbase if present
-  if (oldth->has_fsbase) {
+  if (oldth.GetCaladanThread()->has_fsbase) {
     newth->has_fsbase = true;
-    newth->tf.fsbase = oldth->tf.fsbase;
+    newth->tf.fsbase = oldth.GetCaladanThread()->tf.fsbase;
   }
 
   newth->tf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
@@ -142,7 +149,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   th->tf.rsp = rsp;
 
   // Clone the trap frame
-  CloneTrapframe(th, thread_self());
+  CloneTrapframe(th, mythread());
 
   // Set FSBASE if requested
   if (cl_args->flags & CLONE_SETTLS) thread_set_fsbase(th, cl_args->tls);
@@ -248,7 +255,7 @@ Thread &Process::CreateTestThread() {
   thread_t *th = thread_self();
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), 1);
-  th->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
+  th->junction_thread = true;
   thread_map_[1] = tstate;
   return *tstate;
 }
@@ -259,7 +266,7 @@ Status<std::unique_ptr<Thread>> Process::CreateThreadMain() {
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), get_pid());
-  th->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
+  th->junction_thread = true;
   thread_map_[get_pid()] = tstate;
   return std::unique_ptr<Thread>(tstate);
 }
@@ -276,7 +283,7 @@ Status<std::unique_ptr<Thread>> Process::CreateThread() {
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), *tid);
-  th->tlsvar = static_cast<uint64_t>(ThreadState::kActive);
+  th->junction_thread = true;
   std::unique_ptr<Thread> th_ptr(tstate);
 
   {
@@ -364,6 +371,9 @@ void Process::DoExit(int status) {
 
     for (const auto &[pid, th] : thread_map_) th->Kill();
   }
+
+  if (status != 0)
+    LOG(INFO) << "proc: pid " << get_pid() << " exiting with code " << status;
 
   NotifyParentWait(kWaitableExited, status);
 }
@@ -470,7 +480,13 @@ long usys_vfork() {
 
   cl_args.flags = kVforkRequiredFlags;
 
-  long ret = DoClone(&cl_args, thread_self()->junction_tf.rsp);
+  uint64_t rsp;
+  if (mythread().get_syscall_source() == SyscallEntry::kSyscallTrapSysStack)
+    rsp = mythread().get_trap_regs().rsp;
+  else
+    rsp = mythread().get_fncall_regs().rsp;
+
+  long ret = DoClone(&cl_args, rsp);
   if (unlikely(GetCfg().strace_enabled())) LogSyscall(ret, "vfork");
 
   return ret;
