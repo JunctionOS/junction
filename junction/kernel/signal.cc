@@ -131,10 +131,10 @@ void MoveSigframeToJunctionThread(k_sigframe *sigframe, thread_tf &tf) {
   if (unlikely(!in_syscall && on_syscall_stack)) {
     if (myth.get_syscall_source() == SyscallEntry::kSyscallTrapSysStack) {
       tf.rsp = reinterpret_cast<uint64_t>(&myth.GetSyscallFrame()->uc);
-      tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_restore);
+      tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_exit_loop);
     } else {
       tf.rsp = reinterpret_cast<uint64_t>(&myth.get_fncall_regs());
-      tf.rip = reinterpret_cast<uint64_t>(__fncall_stackswitch_restore);
+      tf.rip = reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
     }
     assert(IsOnStack(tf.rsp, myth.GetCaladanThread()->stack));
     return;
@@ -150,7 +150,7 @@ void MoveSigframeToJunctionThread(k_sigframe *sigframe, thread_tf &tf) {
   mythread().SetSyscallFrame(new_frame);
   mythread().set_in_syscall(true);
 
-  tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_restore);
+  tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_exit_loop);
   tf.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
 }
 

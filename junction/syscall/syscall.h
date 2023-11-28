@@ -64,11 +64,11 @@ void __syscall_trap_return();
 // This symbol is a specific point in junction_fncall_enter_preserve_regs, used
 // to slightly reset the RIP to address a race between an interrupt and a
 // returning system call.
-void __fncall_stackswitch_restore();
+void __fncall_return_exit_loop();
 
 // Same as __fncall_stackswitch_restore, but for system calls that enter with
 // traps (this is a pointer to a point in __syscall_trap_return).
-void __syscall_trap_restore();
+void __syscall_trap_exit_loop();
 
 // Entry point for usys_rt_sigreturn, switches stacks and jumps to
 // usys_rt_sigreturn with the sigframe as an argument.

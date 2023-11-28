@@ -286,32 +286,33 @@ __nosave_switch:
  *
  * No return.
  */
-.align 16
+
 .globl __syscall_trap_return
 .type __syscall_trap_return, @function
+.globl __syscall_trap_exit_loop
+
+.align 16
 __syscall_trap_return:
 
     // store rax in sigframe
     movq    %rax, SIGFRAME_RAX_OFFSET(%rsp)
 
-.globl __syscall_trap_restore
-__syscall_trap_restore:
-1:
+__syscall_trap_exit_loop:
     // clear syscall flag
     movq    %gs:__perthread___self(%rip), %r11
     movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
 
     movl    JUNCTION_INT_STATE_OFF(%r11), %edi
     test    %edi, %edi
-    jg 2f
+    jg 1f
 
     jmp     syscall_rt_sigreturn
 
-2:
+1:
     movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
     movq    SIGFRAME_RAX_OFFSET(%rsp), %rdi
     call    RunSignals
-    jmp 1b
+    jmp     __syscall_trap_exit_loop
 
 #define SAVETF_STACK \
 	movq 	%gs:__perthread___self(%rip), %r11; \
@@ -529,9 +530,12 @@ junction_fncall_enter_preserve_regs:
  * junction_fncall_stackswitch_enter that preserves argument registers. This is
  * needed for vfork/clone/clone3.
  */
-.align 16
+
 .globl junction_fncall_stackswitch_enter_preserve_regs
 .type junction_fncall_stackswitch_enter_preserve_regs, @function
+.globl __fncall_return_exit_loop
+
+.align 16
 junction_fncall_stackswitch_enter_preserve_regs:
 
 	// Mark begin syscall, *before* starting to use the syscall stack
@@ -565,16 +569,14 @@ junction_fncall_stackswitch_enter_preserve_regs:
 	// store return value in trapframe
 	movq    %rax, RAX(%rsp)
 
-.globl __fncall_stackswitch_restore
-__fncall_stackswitch_restore:
-1:
+__fncall_return_exit_loop:
 	movq 	%gs:__perthread___self(%rip), %r11
 	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
 
 	// check for interrupts
 	movl    JUNCTION_INT_STATE_OFF(%r11), %edi
 	test    %edi, %edi
-	jg      2f
+	jg      1f
 
 	RESTORETF_STACK
 	add $8, %rsp // ignore rip
@@ -583,8 +585,8 @@ __fncall_stackswitch_restore:
 
 	ret
 
-2:
+1:
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 	movq    %rax, %rdi
 	call    RunSignals
-	jmp     1b
+	jmp     __fncall_return_exit_loop
