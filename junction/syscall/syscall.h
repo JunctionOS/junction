@@ -28,28 +28,62 @@ static_assert(sizeof(thread_tf) == 152);
 unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
                            long arg4, long arg5, long syscall);
 
-// Assembly routines to assist with register saving/restoring for clone calls
 extern "C" {
-void clone_fast_start(void *rip) __noreturn;
-void __syscall_restart_nosave(struct thread_tf *tf) __noreturn;
 
+// Entry point for new threads spawned with clone; restores general purpose
+// registers not restored by Caladan's thread scheduler, zeros %rax, and starts
+// the thread.
+void clone_fast_start(void *rip) __noreturn;
+
+// Restart a system call, used when a signal interrupts a system call but the
+// signal is ignored.
+void __jmp_syscall_restart_nosave(struct thread_tf *tf) __noreturn;
+
+// System call entry point for applications that require syscalls to run on an
+// alternate stack (ie Golang).
 long junction_fncall_stackswitch_enter(long arg0, long arg1, long arg2,
                                        long arg3, long arg4, long arg5);
+
+// System call entry point for clone/vfork for applications that require
+// syscalls to run on an alternate stack (ie Golang).
 long junction_fncall_stackswitch_enter_preserve_regs(long arg0, long arg1,
                                                      long arg2, long arg3,
                                                      long arg4, long arg5);
-long junction_fncall_enter_preserve_regs(long arg0, long arg1, long arg2,
-                                         long arg3, long arg4, long arg5);
+
+// System call entry point for most applications.
 long junction_fncall_enter(long arg0, long arg1, long arg2, long arg3,
                            long arg4, long arg5);
 
+// System call entry point for clone/vfork for most applications.
+long junction_fncall_enter_preserve_regs(long arg0, long arg1, long arg2,
+                                         long arg3, long arg4, long arg5);
+
+// Return function for system calls that are delivered by trap.
 void __syscall_trap_return();
 
+// This symbol is a specific point in junction_fncall_enter_preserve_regs, used
+// to slightly reset the RIP to address a race between an interrupt and a
+// returning system call.
+void __fncall_stackswitch_restore();
+
+// Same as __fncall_stackswitch_restore, but for system calls that enter with
+// traps (this is a pointer to a point in __syscall_trap_return).
+void __syscall_trap_restore();
+
+// Entry point for usys_rt_sigreturn, switches stacks and jumps to
+// usys_rt_sigreturn with the sigframe as an argument.
 void usys_rt_sigreturn_enter() __noreturn;
 
+// Switches stacks and calls new function with 3 argument registers, enabling
+// preemption.
 void __switch_and_preempt_enable(struct thread_tf *tf) __noreturn;
+
+// Same as __switch_and_preempt_enable, but also restores callee-saved
+// registers, RAX, R10, and six standard argument registers.
 void __restore_tf_full_and_preempt_enable(struct thread_tf *tf);
 
+// Run a function on a stack with 1 argument without saving the current
+// trapframe.
 void __nosave_switch(thread_fn_t fn, uint64_t stack, uint64_t arg0) __noreturn;
 }
 

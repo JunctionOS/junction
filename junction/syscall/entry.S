@@ -91,16 +91,16 @@ usys_rt_sigreturn:
 
 
 /**
- * __syscall_restart_nosave - restarts syscall
+ * __jmp_syscall_restart_nosave - restarts syscall
  * @tf: the trap frame to restore (%rdi), safe to live on the same stack as the
  * rsp that it restores to.
  *
  * Does not return.
  */
 .align 16
-.globl __syscall_restart_nosave
-.type __syscall_restart_nosave, @function
-__syscall_restart_nosave:
+.globl __jmp_syscall_restart_nosave
+.type __jmp_syscall_restart_nosave, @function
+__jmp_syscall_restart_nosave:
 
 	/* restore callee regs */
 	movq    RBX(%rdi), %rbx
@@ -294,6 +294,8 @@ __syscall_trap_return:
     // store rax in sigframe
     movq    %rax, SIGFRAME_RAX_OFFSET(%rsp)
 
+.globl __syscall_trap_restore
+__syscall_trap_restore:
 1:
     // clear syscall flag
     movq    %gs:__perthread___self(%rip), %r11
@@ -563,6 +565,8 @@ junction_fncall_stackswitch_enter_preserve_regs:
 	// store return value in trapframe
 	movq    %rax, RAX(%rsp)
 
+.globl __fncall_stackswitch_restore
+__fncall_stackswitch_restore:
 1:
 	movq 	%gs:__perthread___self(%rip), %r11
 	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
