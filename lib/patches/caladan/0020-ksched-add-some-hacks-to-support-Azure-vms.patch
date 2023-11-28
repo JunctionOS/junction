@@ -1,7 +1,7 @@
-From 9158e48851989f8f963f67def46ba95129779cfb Mon Sep 17 00:00:00 2001
+From 040be823a0cced20920bacf16a112fb56033c29e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 29 Jun 2022 03:29:09 +0000
-Subject: [PATCH 20/20] ksched: add some hacks to support Azure vms
+Subject: [PATCH 20/32] ksched: add some hacks to support Azure vms
 
 - a fake cpuidle driver that can be loaded to satisfy ksched's needs
 - a fake mwait implementation that spin polls memory locations at 1us intervals
@@ -14,7 +14,7 @@ Subject: [PATCH 20/20] ksched: add some hacks to support Azure vms
  create mode 100644 ksched/fake_idle.c
 
 diff --git a/ksched/Kbuild b/ksched/Kbuild
-index 6354297..54de6e3 100644
+index 6354297f..54de6e36 100644
 --- a/ksched/Kbuild
 +++ b/ksched/Kbuild
 @@ -1,2 +1 @@
@@ -23,7 +23,7 @@ index 6354297..54de6e3 100644
 +obj-m += ksched.o fake_idle.o
 diff --git a/ksched/fake_idle.c b/ksched/fake_idle.c
 new file mode 100644
-index 0000000..d3cc608
+index 00000000..d3cc608b
 --- /dev/null
 +++ b/ksched/fake_idle.c
 @@ -0,0 +1,88 @@
@@ -116,10 +116,10 @@ index 0000000..d3cc608
 +
 +MODULE_LICENSE("GPL");
 diff --git a/ksched/ksched.c b/ksched/ksched.c
-index e6ab72d..5a49bbe 100644
+index 09a3b311..8f9ed15b 100644
 --- a/ksched/ksched.c
 +++ b/ksched/ksched.c
-@@ -166,13 +166,25 @@ static void ksched_next_tid(struct ksched_percpu *kp, int cpu, pid_t tid)
+@@ -165,13 +165,25 @@ static void ksched_next_tid(struct ksched_percpu *kp, int cpu, pid_t tid)
  	return;
  }
  
@@ -146,8 +146,8 @@ index e6ab72d..5a49bbe 100644
  	cur = smp_load_acquire(addr);
  	if (cur != val)
 @@ -464,6 +476,7 @@ static int __init ksched_cpuidle_hijack(void)
- 	backup_state_count = drv->state_count;
  	drv->states[0].enter = ksched_idle;
+ 	drv->states[0].flags = CPUIDLE_FLAG_NONE;
  	drv->state_count = 1;
 +	try_module_get(drv->owner);
  	cpuidle_resume_and_unlock();
@@ -176,7 +176,7 @@ index e6ab72d..5a49bbe 100644
  	ret = register_chrdev_region(devno_ksched, 1, "ksched");
  	if (ret)
 diff --git a/scripts/setup_machine.sh b/scripts/setup_machine.sh
-index c8bed08..79cb93c 100755
+index c8bed08d..79cb93ce 100755
 --- a/scripts/setup_machine.sh
 +++ b/scripts/setup_machine.sh
 @@ -8,6 +8,11 @@ sysctl -w vm.hugetlb_shm_group=27
@@ -192,5 +192,5 @@ index c8bed08..79cb93c 100755
  rmmod ksched
  rm /dev/ksched
 -- 
-2.37.2
+2.39.2
 
