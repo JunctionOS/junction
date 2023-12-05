@@ -136,7 +136,7 @@ void MoveSigframeToJunctionThread(k_sigframe *sigframe, thread_tf &tf) {
       tf.rsp = reinterpret_cast<uint64_t>(&myth.get_fncall_regs());
       tf.rip = reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
     }
-    assert(IsOnStack(tf.rsp, myth.GetCaladanThread()->stack));
+    assert(IsOnStack(tf.rsp, syscall_stack));
     return;
   }
 

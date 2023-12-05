@@ -100,6 +100,7 @@ add_subdirectory(shim)
 
 # Build junction
 add_library(junction
+  assert_override.cc
   junction.cc
   new_override.cc
 )
