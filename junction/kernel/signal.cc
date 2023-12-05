@@ -113,7 +113,7 @@ void MoveSigframeToJunctionThread(k_sigframe *sigframe, thread_tf &tf) {
 
   uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
   bool on_syscall_stack = IsOnStack(rsp, syscall_stack);
-  bool in_syscall = mythread().in_syscall();
+  bool in_syscall = myth.in_syscall();
 
   // We are going to unwind this sigframe by moving it to the syscall stack
   // and then re-enabling preemption. Because the syscall stack does not support
@@ -144,11 +144,11 @@ void MoveSigframeToJunctionThread(k_sigframe *sigframe, thread_tf &tf) {
     rsp = reinterpret_cast<uint64_t>(&syscall_stack.usable[STACK_PTR_SIZE]);
 
   // copy the sigframe over
-  k_sigframe *new_frame = sigframe->CopyToStack(&tf.rsp);
+  k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
   new_frame->InvalidateAltStack();
 
-  mythread().SetSyscallFrame(new_frame);
-  mythread().set_in_syscall(true);
+  myth.SetSyscallFrame(new_frame);
+  myth.set_in_syscall(true);
 
   tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_exit_loop);
   tf.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
