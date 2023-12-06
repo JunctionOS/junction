@@ -14,8 +14,11 @@ int main() {
   auto r = snapshot(elf_filename, metadata_filename);
   if (r == 0) {
     printf("snapshotted!\n");
-  } else {
+  } else if (r == 1) {
     printf("restored!\n");
+  } else {
+    printf("snapshot/restore failed :-(\n");
+    return -1;
   }
 
   return 0;
