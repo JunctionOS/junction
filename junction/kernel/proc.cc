@@ -382,7 +382,9 @@ Status<Process *> Process::FindWaitableProcess(idtype_t idtype, id_t id,
                                                unsigned int wait_flags) {
   assert(shared_sig_q_.IsHeld());
 
+#if __GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 36)
   if (idtype == P_PIDFD) return MakeError(EINVAL);
+#endif
   if (idtype == P_PGID && id == 0) id = get_pgid();
 
   bool has_candidates = false;
