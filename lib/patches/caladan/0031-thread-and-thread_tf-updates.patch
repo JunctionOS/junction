@@ -1,7 +1,7 @@
-From c38af7861fdd92d0f2e64beb2da7830a0b895cf3 Mon Sep 17 00:00:00 2001
+From ebdcf2c9f91db95dc052cdfa77e8befeece7117a Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 21 Nov 2023 16:00:02 -0500
-Subject: [PATCH 32/32] thread and thread_tf updates
+Subject: [PATCH 31/31] thread and thread_tf updates
 
 ---
  inc/runtime/interruptible_wait.h |  5 +--
@@ -13,7 +13,7 @@ Subject: [PATCH 32/32] thread and thread_tf updates
  6 files changed, 22 insertions(+), 49 deletions(-)
 
 diff --git a/inc/runtime/interruptible_wait.h b/inc/runtime/interruptible_wait.h
-index 4fc63334..8511a065 100644
+index 4fc6333..8511a06 100644
 --- a/inc/runtime/interruptible_wait.h
 +++ b/inc/runtime/interruptible_wait.h
 @@ -8,8 +8,9 @@
@@ -29,7 +29,7 @@ index 4fc63334..8511a065 100644
  // Returns true if this thread was interrupted.
  // @th must be thread_self().
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index b371b4ae..c2e48b6d 100644
+index b371b4a..c2e48b6 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -82,6 +82,7 @@ struct thread_tf {
@@ -107,7 +107,7 @@ index b371b4ae..c2e48b6d 100644
   * High-level routines, use this API most of the time.
   */
 diff --git a/runtime/defs.h b/runtime/defs.h
-index fbc220e2..dda5ed71 100644
+index fbc220e..dda5ed7 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -49,7 +49,7 @@ typedef void (*runtime_fn_t)(void);
@@ -120,7 +120,7 @@ index fbc220e2..dda5ed71 100644
  			  void *stack);
  extern void __jmp_runtime_nosave(runtime_fn_t fn, void *stack) __noreturn;
 diff --git a/runtime/interruptible_wait.c b/runtime/interruptible_wait.c
-index 901ef843..0725eecf 100644
+index 901ef84..0725eec 100644
 --- a/runtime/interruptible_wait.c
 +++ b/runtime/interruptible_wait.c
 @@ -8,5 +8,4 @@
@@ -131,7 +131,7 @@ index 901ef843..0725eecf 100644
  void __weak deliver_signals_jmp_thread(thread_t *th) {}
 \ No newline at end of file
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 48109952..629cd8a7 100644
+index 4810995..629cd8a 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -78,7 +78,7 @@ static inline bool cores_have_affinity(unsigned int cpua, unsigned int cpub)
@@ -178,7 +178,7 @@ index 48109952..629cd8a7 100644
  	atomic_write(&th->interrupt_state, 0);
  
 diff --git a/runtime/switch.S b/runtime/switch.S
-index 054ffed0..000b2907 100644
+index 054ffed..000b290 100644
 --- a/runtime/switch.S
 +++ b/runtime/switch.S
 @@ -36,7 +36,6 @@
@@ -199,5 +199,5 @@ index 054ffed0..000b2907 100644
  	/* restore callee regs */
  	movq    RBX(%rsi), %rbx
 -- 
-2.39.2
+2.34.1
 

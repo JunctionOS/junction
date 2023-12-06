@@ -1,7 +1,7 @@
-From 316204a65c70c886e7f7e2f7ec7252219abbac92 Mon Sep 17 00:00:00 2001
+From 81ca5c4199b38bd28d66109b84aa95b554311fb6 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 6 Sep 2023 03:26:18 -0400
-Subject: [PATCH 27/27] latency tuning
+Subject: [PATCH 26/31] latency tuning
 
 ---
  iokernel/directpath/core.c | 2 +-
@@ -9,10 +9,10 @@ Subject: [PATCH 27/27] latency tuning
  2 files changed, 8 insertions(+), 1 deletion(-)
 
 diff --git a/iokernel/directpath/core.c b/iokernel/directpath/core.c
-index d0358f0c..14bc62d6 100644
+index ab8c552..39e92af 100644
 --- a/iokernel/directpath/core.c
 +++ b/iokernel/directpath/core.c
-@@ -571,7 +571,7 @@ static int create_cq(struct directpath_ctx *dp, struct cq *cq, uint32_t log_nr_c
+@@ -639,7 +639,7 @@ static int create_cq(struct directpath_ctx *dp, struct cq *cq, uint32_t log_nr_c
  		CQ_PERIOD_MODE_UPON_CQE = 1,
  	};
  
@@ -22,7 +22,7 @@ index d0358f0c..14bc62d6 100644
  	// DEVX_SET(cqc, cq_ctx, mini_cqe_res_format, );
  	// DEVX_SET(cqc, cq_ctx, cqe_comp_layout, 0 /* BASIC_CQE_COMPRESSION */);
 diff --git a/iokernel/sched.c b/iokernel/sched.c
-index 564bd515..ff4816f4 100644
+index 564bd51..ff4816f 100644
 --- a/iokernel/sched.c
 +++ b/iokernel/sched.c
 @@ -20,6 +20,7 @@
@@ -68,5 +68,5 @@ index 564bd515..ff4816f4 100644
  
  static int sched_scan_node(int node)
 -- 
-2.39.2
+2.34.1
 

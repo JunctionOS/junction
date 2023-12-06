@@ -1,7 +1,7 @@
-From d8b1d606c0eb4175d9e5e8040f79ca4e4a945698 Mon Sep 17 00:00:00 2001
+From 73c0f5158af577cd78dda158039939923a13420a Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 16 Aug 2023 23:44:28 -0400
-Subject: [PATCH 25/25] recurring timers
+Subject: [PATCH 24/31] recurring timers
 
 ---
  inc/runtime/timer.h |  6 ++++
@@ -9,10 +9,10 @@ Subject: [PATCH 25/25] recurring timers
  2 files changed, 74 insertions(+), 19 deletions(-)
 
 diff --git a/inc/runtime/timer.h b/inc/runtime/timer.h
-index ced0abf..09b2adc 100644
+index f324535..1c11df2 100644
 --- a/inc/runtime/timer.h
 +++ b/inc/runtime/timer.h
-@@ -14,6 +14,7 @@ struct kthread;
+@@ -15,6 +15,7 @@ struct kthread;
  struct timer_entry {
  	bool		armed;
  	bool		executing;
@@ -20,7 +20,7 @@ index ced0abf..09b2adc 100644
  	unsigned int	idx;
  	timer_fn_t	fn;
  	unsigned long	arg;
-@@ -38,6 +39,7 @@ timer_init(struct timer_entry *e, timer_fn_t fn, unsigned long arg)
+@@ -39,6 +40,7 @@ timer_init(struct timer_entry *e, timer_fn_t fn, unsigned long arg)
  	e->executing = false;
  	e->fn = fn;
  	e->arg = arg;
@@ -28,7 +28,7 @@ index ced0abf..09b2adc 100644
  }
  
  /**
-@@ -78,6 +80,10 @@ static inline bool timer_cancel(struct timer_entry *e)
+@@ -79,6 +81,10 @@ static inline bool timer_cancel(struct timer_entry *e)
  	return __timer_cancel(e);
  }
  

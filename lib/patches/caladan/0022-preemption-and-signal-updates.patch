@@ -1,7 +1,7 @@
-From 1471e0c7c2ec5f4ce9b16da7614f88875c27e302 Mon Sep 17 00:00:00 2001
+From e0cc9f313a8d045238cbebbec29eef08bfc83b77 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
-Subject: [PATCH 23/25] preemption and signal updates
+Subject: [PATCH 22/31] preemption and signal updates
 
 ---
  inc/runtime/thread.h |  4 +-
@@ -12,7 +12,7 @@ Subject: [PATCH 23/25] preemption and signal updates
  5 files changed, 42 insertions(+), 93 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 6a465ef..a186888 100644
+index f4a46f5..e486740 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -100,7 +100,6 @@ struct stack;
@@ -68,7 +68,7 @@ index 7936ce1..1043ede 100644
  
  /**
 diff --git a/runtime/defs.h b/runtime/defs.h
-index cb7c495..b63d7f9 100644
+index 4a2f510..a0c94f9 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -68,6 +68,7 @@ struct stack {
@@ -173,7 +173,7 @@ index ee376d6..02e24e3 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f80def0..81b1d55 100644
+index eedc7ee..7a90ec3 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -193,7 +193,7 @@ index f80def0..81b1d55 100644
  DEFINE_PERTHREAD(uint64_t, runtime_fsbase);
  /* Flag to prevent watchdog from running */
  bool disable_watchdog;
-@@ -716,7 +717,26 @@ void thread_ready_head(thread_t *th)
+@@ -723,7 +724,26 @@ void thread_ready_head(thread_t *th)
  	putk();
  }
  
@@ -221,7 +221,7 @@ index f80def0..81b1d55 100644
  {
  	struct kthread *k = myk();
  	thread_t *myth = thread_self();
-@@ -780,36 +800,6 @@ void thread_yield(void)
+@@ -787,36 +807,6 @@ void thread_yield(void)
  	enter_schedule(curth);
  }
  
@@ -258,7 +258,7 @@ index f80def0..81b1d55 100644
  static __always_inline thread_t *__thread_create(void)
  {
  	struct thread *th;
-@@ -832,41 +822,15 @@ static __always_inline thread_t *__thread_create(void)
+@@ -839,41 +829,15 @@ static __always_inline thread_t *__thread_create(void)
  	preempt_enable();
  
  	th->stack = s;
@@ -300,7 +300,7 @@ index f80def0..81b1d55 100644
  /**
   * thread_create - creates a new thread
   * @fn: a function pointer to the starting method of the thread
-@@ -960,8 +924,6 @@ void thread_free(thread_t *th)
+@@ -967,8 +931,6 @@ void thread_free(thread_t *th)
  	gc_remove_thread(th);
  	if (th->stack)
  		stack_free(th->stack);
@@ -309,7 +309,7 @@ index f80def0..81b1d55 100644
  	tcache_free(perthread_ptr(thread_pt), th);
  }
  
-@@ -1037,6 +999,7 @@ static void runtime_top_of_stack(void)
+@@ -1044,6 +1006,7 @@ static void runtime_top_of_stack(void)
   */
  int sched_init_thread(void)
  {
@@ -317,7 +317,7 @@ index f80def0..81b1d55 100644
  	struct stack *s;
  
  	tcache_init_perthread(thread_tcache, perthread_ptr(thread_pt));
-@@ -1048,6 +1011,12 @@ int sched_init_thread(void)
+@@ -1055,6 +1018,12 @@ int sched_init_thread(void)
  	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
  	perthread_store(runtime_fsbase, _readfsbase_u64());
  

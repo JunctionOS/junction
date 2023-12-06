@@ -1,7 +1,7 @@
-From a083a6073f044808a29d515b0b53938106f6ac7c Mon Sep 17 00:00:00 2001
+From e94bd2006a64b2be44fbf6789393c30604352d20 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 6 Sep 2023 03:25:51 -0400
-Subject: [PATCH 26/28] copy small mbufs
+Subject: [PATCH 25/31] copy small mbufs
 
 ---
  inc/net/mbuf.h                               | 18 +++---
@@ -240,10 +240,10 @@ index f837b78..be70be9 100644
  		return ret;
  
 diff --git a/runtime/net/directpath/mlx5/mlx5_rxtx.c b/runtime/net/directpath/mlx5/mlx5_rxtx.c
-index 507c4e7..b7b3a33 100644
+index d870391..34b1fe3 100644
 --- a/runtime/net/directpath/mlx5/mlx5_rxtx.c
 +++ b/runtime/net/directpath/mlx5/mlx5_rxtx.c
-@@ -300,8 +300,6 @@ static void mbuf_fill_cqe(struct mbuf *m, struct mlx5_cqe64 *cqe)
+@@ -301,8 +301,6 @@ static void mbuf_fill_cqe(struct mbuf *m, struct mlx5_cqe64 *cqe)
  	mbuf_init(m, (unsigned char *)m + RX_BUF_HEAD, len, 0);
  	m->len = len;
  	m->csum_type = mlx5_csum_ok(cqe);
@@ -253,5 +253,5 @@ index 507c4e7..b7b3a33 100644
  }
  
 -- 
-2.39.2
+2.34.1
 

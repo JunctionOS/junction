@@ -1,7 +1,7 @@
-From 1114647fe68b719a82be20399f839940e9f912a1 Mon Sep 17 00:00:00 2001
+From 821718d6b3b8142a664167d9ae6d431ef3885aab Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 13 Aug 2023 16:56:31 +0000
-Subject: [PATCH 24/24] disable stack protector
+Subject: [PATCH 23/31] disable stack protector
 
 ---
  build/shared.mk | 2 +-
@@ -21,5 +21,5 @@ index 1d5bc4e..27f0ae9 100644
  LD      = gcc
  CC      = gcc
 -- 
-2.39.2
+2.34.1
 

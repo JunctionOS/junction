@@ -1,7 +1,7 @@
-From 4cc17231f926e51ee81e36a52c6b521825134428 Mon Sep 17 00:00:00 2001
+From 40095d8844518e9ef5a4a54bbe691d4d7e7847af Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 6 Sep 2023 14:44:32 -0400
-Subject: [PATCH 28/28] split tx buffer pool
+Subject: [PATCH 27/31] split tx buffer pool
 
 ---
  inc/base/mempool.h                           |   5 +
@@ -14,7 +14,7 @@ Subject: [PATCH 28/28] split tx buffer pool
  7 files changed, 164 insertions(+), 58 deletions(-)
 
 diff --git a/inc/base/mempool.h b/inc/base/mempool.h
-index 829c7696..8ae96457 100644
+index 829c769..8ae9645 100644
 --- a/inc/base/mempool.h
 +++ b/inc/base/mempool.h
 @@ -25,6 +25,11 @@ static inline void __mempool_alloc_debug_check(struct mempool *m, void *item) {}
@@ -30,7 +30,7 @@ index 829c7696..8ae96457 100644
   * mempool_alloc - allocates an item from the pool
   * @m: the memory pool to allocate from
 diff --git a/inc/net/mbuf.h b/inc/net/mbuf.h
-index 3acef82d..12a98af4 100644
+index 3acef82..12a98af 100644
 --- a/inc/net/mbuf.h
 +++ b/inc/net/mbuf.h
 @@ -16,7 +16,7 @@
@@ -43,7 +43,7 @@ index 3acef82d..12a98af4 100644
  
  struct mbuf {
 diff --git a/runtime/net/core.c b/runtime/net/core.c
-index 7a6e2fb3..18b5dec9 100644
+index 7a6e2fb..18b5dec 100644
 --- a/runtime/net/core.c
 +++ b/runtime/net/core.c
 @@ -12,6 +12,7 @@
@@ -225,7 +225,7 @@ index 7a6e2fb3..18b5dec9 100644
  	net_dump_config();
  
 diff --git a/runtime/net/defs.h b/runtime/net/defs.h
-index 9f08afec..6cc1a423 100644
+index 9f08afe..6cc1a42 100644
 --- a/runtime/net/defs.h
 +++ b/runtime/net/defs.h
 @@ -12,6 +12,9 @@
@@ -260,7 +260,7 @@ index 9f08afec..6cc1a423 100644
  extern void net_tx_eth(struct mbuf *m, uint16_t proto,
  		       struct eth_addr dhost);
 diff --git a/runtime/net/directpath/mlx5/mlx5_rx_stride.c b/runtime/net/directpath/mlx5/mlx5_rx_stride.c
-index b4d47cdb..c0f6bf11 100644
+index be70be9..7ea39e4 100644
 --- a/runtime/net/directpath/mlx5/mlx5_rx_stride.c
 +++ b/runtime/net/directpath/mlx5/mlx5_rx_stride.c
 @@ -17,8 +17,6 @@
@@ -324,7 +324,7 @@ index b4d47cdb..c0f6bf11 100644
  
  	return mlx5_rx_stride_init_bufs();
 diff --git a/runtime/net/tcp_out.c b/runtime/net/tcp_out.c
-index 682173ca..e49b92ae 100644
+index 682173c..e49b92a 100644
 --- a/runtime/net/tcp_out.c
 +++ b/runtime/net/tcp_out.c
 @@ -28,8 +28,8 @@ static uint16_t tcp_hdr_chksum(uint32_t local_ip, uint32_t remote_ip,
@@ -523,7 +523,7 @@ index 682173ca..e49b92ae 100644
  		newm->seg_seq = m->seg_seq;
  		newm->seg_end = m->seg_end;
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index e79e6330..153df4b7 100644
+index e79e633..153df4b 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -454,7 +454,7 @@ ssize_t udp_write_to(udpconn_t *c, const void *buf, size_t len,
@@ -545,5 +545,5 @@ index e79e6330..153df4b7 100644
  		return -ENOBUFS;
  
 -- 
-2.39.2
+2.34.1
 
