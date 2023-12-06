@@ -198,6 +198,10 @@ long usys_eventfd(unsigned int initval);
 int usys_execve(const char *filename, const char *argv[], const char *envp[]);
 int usys_execveat(int fd, const char *filename, const char *argv[],
                   const char *envp[], int flags);
+
+// Snapshot
+long junction_entry_snapshot(char const *elf_pathname,
+                             char const *metadata_pathname);
 }
 
 }  // namespace junction

@@ -6,6 +6,7 @@
 
 #include "junction/bindings/log.h"
 #include "junction/bindings/timer.h"
+#include "junction/snapshot/proc.h"
 
 namespace junction {
 
@@ -45,6 +46,8 @@ class ITimer : private rt::timer_internal::timer_node {
 
     return old;
   }
+
+  void Snapshot(ProcessMetadata &s) const &;
 
   // disable copy and move.
   ITimer(const ITimer &) = delete;

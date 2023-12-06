@@ -150,7 +150,67 @@ asm(R"(
 
     jmpq    *%r11
 )");
+
+// Restore full trapframe to restore snapshot
+extern "C" void snapshot_exec_start(void *tf);
+asm(R"(
+.globl snapshot_exec_start
+    .type snapshot_exec_start, @function
+    snapshot_exec_start:
+    /* write %fs first because we need a temp register */
+    /* fsbase is 0x90 into the trapframe */
+    movq 0x90(%rdi), %rax
+    wrfsbase %rax
+    /* %rsp points at trapframe */
+    movq %rdi, %rsp
+    /* restore registers */
+    popq %rdi
+    popq %rsi
+    popq %rdx
+    popq %rcx
+    popq %r8
+    popq %r9
+    popq %r10
+    popq %r11
+    popq %rbx
+    popq %rbp
+    popq %r12
+    popq %r13
+    popq %r14
+    popq %r15
+    popq %rax
+    addq $0x20, %rsp
+    ret
+)");
+
 }  // namespace
+
+// Load snapshot memory mappings and trapframe
+Status<Thread *> Exec(Process &p, MemoryMap &mm, thread_tf &tf,
+                      std::string_view pathname) {
+  LoadELF(mm, pathname);
+  Status<std::unique_ptr<Thread>> main = p.GetThreadMain();
+
+  if (!main) return MakeError(main);
+
+  thread_t *th = (*main)->GetCaladanThread();
+  // Snapshot syscall returns 0 on snapshot and 1 on restore
+  tf.rax = 1;
+
+  // Make space for the trapframe and return adress
+  auto tf_loc = reinterpret_cast<void *>(reinterpret_cast<std::byte *>(tf.rsp) -
+                                         (sizeof(thread_tf) + 8));
+
+  // copy return address onto the stack
+  *(reinterpret_cast<uint64_t *>(tf.rsp - 8)) = tf.rip;
+  // copy trapframe onto the stack
+  memcpy(tf_loc, reinterpret_cast<void *>(&tf), sizeof(thread_tf));
+  th->tf.rip = reinterpret_cast<uintptr_t>(snapshot_exec_start);
+  th->tf.rdi = reinterpret_cast<uintptr_t>(tf_loc);
+
+  main->release();
+  return reinterpret_cast<Thread *>(th->junction_tstate_buf);
+}
 
 Status<Thread *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                       const std::vector<std::string_view> &argv,

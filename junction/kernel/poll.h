@@ -15,6 +15,8 @@ extern "C" {
 
 namespace junction {
 
+class FileMetadata;
+
 // ensure event types can be used interchangably for epoll() and poll()
 static_assert(EPOLLIN == POLLIN);
 static_assert(EPOLLOUT == POLLOUT);

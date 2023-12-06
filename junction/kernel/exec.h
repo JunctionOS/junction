@@ -19,4 +19,7 @@ Status<Thread *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                       const std::vector<std::string_view> &argv,
                       const std::vector<std::string_view> &envp);
 
+Status<Thread *> Exec(Process &p, MemoryMap &mm, thread_tf &tf,
+                      std::string_view pathname);
+
 }  // namespace junction

@@ -3,21 +3,21 @@ message(STATUS "Building junction kernel")
 set(SOURCES_C_CPP
   elf.cc
   eventfd.cc
-  file.cc
-  stdiofile.cc
-  pipe.cc
-  proc.cc
   exec.cc
+  file.cc
   futex.cc
   itimer.cc
-  poll.cc
-  random.cc
-  sched.cc
-  signal.cc
-  time.cc
   misc.cc
   mm.cc
+  pipe.cc
+  poll.cc
+  proc.cc
+  random.cc
+  sched.cc
   sigframe.cc
+  signal.cc
+  stdiofile.cc
+  time.cc
 )
 
 set(SOURCES_ASM
@@ -35,4 +35,5 @@ add_library(kernel STATIC
 target_link_libraries(kernel PUBLIC
   base
   bindings
+  snapshot
 )

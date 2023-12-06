@@ -18,6 +18,9 @@ extern "C" {
 
 namespace junction {
 
+class FileMetadata;
+class ProcessMetadata;
+
 //
 // Types of files.
 //
@@ -73,6 +76,10 @@ class File {
  public:
   File(FileType type, unsigned int flags, unsigned int mode)
       : type_(type), flags_(flags), mode_(mode) {}
+  File(std::string filename, FileType type, unsigned int flags,
+       unsigned int mode)
+      : type_(type), flags_(flags), mode_(mode), filename_(filename) {}
+  File(FileMetadata const &fm);
   virtual ~File() = default;
 
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
@@ -130,6 +137,12 @@ class File {
     return poll_;
   }
 
+  [[nodiscard]] bool HasFilename() const { return this->filename_.size() > 0; }
+  [[nodiscard]] std::string const &GetFilename() const {
+    return this->filename_;
+  }
+  FileMetadata Snapshot(int fd) const &;
+
  protected:
   [[nodiscard]] bool IsPollSourceSetup() const { return poll_source_setup_; }
 
@@ -146,6 +159,8 @@ class File {
   off_t off_{0};
   bool poll_source_setup_{false};
   PollSource poll_;
+
+  std::string filename_;
 };
 
 namespace detail {
@@ -215,6 +230,8 @@ class FileTable {
 
   // Close all files marked close-on-exec.
   void DoCloseOnExec();
+
+  void Snapshot(ProcessMetadata &s) const &;
 
  private:
   using FArr = detail::file_array;

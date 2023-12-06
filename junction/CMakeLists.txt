@@ -92,11 +92,12 @@ add_subdirectory(base)
 add_subdirectory(bindings)
 add_subdirectory(filesystem)
 add_subdirectory(fs)
-add_subdirectory(net)
-add_subdirectory(syscall)
 add_subdirectory(kernel)
+add_subdirectory(net)
 add_subdirectory(samples)
 add_subdirectory(shim)
+add_subdirectory(snapshot)
+add_subdirectory(syscall)
 
 # Build junction
 add_library(junction

@@ -5,13 +5,129 @@ extern "C" {
 }
 
 #include "junction/base/arch.h"
+#include "junction/base/bits.h"
 #include "junction/bindings/log.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/mm.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/snapshot/snapshot.h"
 
 namespace junction {
+
+VMAreaMetadata VMArea::Snapshot() const & {
+  VMAreaMetadata metadata;
+  metadata.SetEnd(end);
+  metadata.SetOffset(offset);
+  metadata.SetFlags(flags);
+  metadata.SetType(static_cast<uint8_t>(type));
+  if (file && file->HasFilename()) {
+    metadata.SetFilename(file->GetFilename());
+  }
+
+  return metadata;
+}
+
+MemoryMap::MemoryMap(ProcessMetadata const &pm)
+    : base_(pm.GetMemoryMapBase()),
+      len_(pm.GetMemoryMapLen()),
+      brk_addr_(pm.GetMemoryMapBrkAddr()) {}
+
+void MemoryMap::Snapshot(ProcessMetadata &s) const & {
+  s.SetMemoryMapBreakAddr(brk_addr_);
+  s.SetMemoryMapBase(base_);
+  s.SetMemoryMapLen(len_);
+  s.ReserveNVMAreas(vmareas_.size());
+  for (auto const &[ptr, vma] : vmareas_) {
+    s.AddVMArea(vma.Snapshot());
+  }
+}
+void MemoryMap::Restore(ProcessMetadata const &pm, FileTable &ftbl) {
+  for (const auto &m_vma : pm.GetVMAreas()) {
+    VMArea vma;
+    vma.end = m_vma.GetEnd();
+    vma.type = static_cast<VMType>(m_vma.GetType());
+    vma.flags = m_vma.GetFlags();
+    auto filename = std::string{m_vma.GetFilename().value_or("")};
+    std::shared_ptr<File> file;
+    for (size_t fd = 0; fd < pm.GetFiles().size(); fd++) {
+      auto f = ftbl.Get(fd);
+      if (f && (f->GetFilename() == filename)) {
+        file = ftbl.Dup(fd);
+        break;
+      }
+    }
+    vma.file = std::move(file);
+    vmareas_[vma.end] = vma;
+  }
+}
+
+// Contract: starting_offset must be page aligned
+std::vector<elf_phdr> MemoryMap::GetPheaders(uint64_t starting_offset) const & {
+  std::vector<elf_phdr> pheaders;
+  pheaders.reserve(vmareas_.size());
+  uint64_t offset = starting_offset;
+  for (auto const &[ptr, vma] : vmareas_) {
+    uint32_t flags = 0;
+    if (vma.prot & PROT_EXEC) {
+      flags |= kFlagExec;
+    }
+    if (vma.prot & PROT_WRITE) {
+      flags |= kFlagWrite;
+    }
+    if (vma.prot & PROT_READ) {
+      flags |= kFlagRead;
+    }
+
+    auto memsz = vma.end - vma.start;
+    auto filesz = memsz;
+
+    bool is_uninit_heap =
+        ((vma.prot == PROT_NONE) && (vma.type == VMType::kHeap));
+
+    if (is_uninit_heap) filesz = 0;
+
+    elf_phdr phdr = {
+        .type = kPTypeLoad,
+        .flags = flags,
+        .offset = offset,
+        .vaddr = vma.start,
+        .paddr = 0,        // don't care
+        .filesz = filesz,  // memory region size
+        .memsz = memsz,    // memory region size
+        .align = 4096,     // align to page size
+    };
+    pheaders.push_back(phdr);
+
+    offset += filesz;
+  }
+
+  return pheaders;
+}
+Status<size_t> MemoryMap::SerializeMemoryRegions(Snapshotter &s) const & {
+  std::vector<iovec> iov;
+  for (auto const &[_ptr, vma] : vmareas_) {
+    size_t mem_region_len = vma.end - vma.start;
+    assert(mem_region_len % 4096 == 0);
+
+    // skip over the huge uninitialized portion of the heap
+    if (!(vma.type == VMType::kHeap && (vma.prot == PROT_NONE))) {
+      // some regions are not readable so we need to remap them as readable
+      // before they get written to the elf
+      if (!(vma.prot & PROT_READ)) {
+        auto ret =
+            KernelMMapFixed(reinterpret_cast<void *>(vma.start), mem_region_len,
+                            vma.prot | PROT_READ, vma.flags);
+        if (!ret) return MakeError(1);
+      }
+      iovec v = {.iov_base = reinterpret_cast<std::byte *>(vma.start),
+                 .iov_len = mem_region_len};
+
+      iov.push_back(v);
+    }
+  }
+  return s.ElfWritev(std::span(iov));
+}
 
 template <typename F>
 void MemoryMap::ForEachOverlap(uintptr_t start, uintptr_t end, F func) {

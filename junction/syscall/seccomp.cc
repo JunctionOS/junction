@@ -57,6 +57,7 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(preadv2),
       ALLOW_JUNCTION_SYSCALL(pread64),
       ALLOW_JUNCTION_SYSCALL(exit_group),
+      ALLOW_JUNCTION_SYSCALL(stat),
       TRAP,
   };
   struct sock_fprog prog = {

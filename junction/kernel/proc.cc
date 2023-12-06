@@ -18,6 +18,7 @@ extern "C" {
 #include <cstring>
 
 #include "junction/base/arch.h"
+#include "junction/base/bits.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/runtime.h"
 #include "junction/bindings/sync.h"
@@ -30,6 +31,7 @@ extern "C" {
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/limits.h"
+#include "junction/snapshot/snapshot.h"
 #include "junction/syscall/entry.h"
 #include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
@@ -271,6 +273,65 @@ Status<std::unique_ptr<Thread>> Process::CreateThreadMain() {
   return std::unique_ptr<Thread>(tstate);
 }
 
+Status<void> Process::Restore(ProcessMetadata const &pm,
+                              std::shared_ptr<Process> parent) {
+  binary_path_ = pm.GetBinaryPath();
+  // restore file table
+  for (auto const &fm : pm.GetFiles()) {
+    auto name = std::string{fm.GetFilename().value_or("")};
+    auto f = std::make_shared<File>(fm);
+    file_tbl_.InsertAt(fm.GetFd(), std::move(f));
+  }
+
+  auto mm = std::make_shared<MemoryMap>(pm);
+  // pass in file table so it can find the file by name
+  mm->Restore(pm, file_tbl_);
+  mem_map_ = std::move(mm);
+
+  signal_tbl_.Restore(pm);
+  shared_sig_q_.Restore(pm);
+
+  for (auto const &cm : pm.GetChildProcs()) {
+    auto child = std::make_shared<Process>(cm);
+    Status<void> ret = child.get()->Restore(cm, get_this());
+    if (unlikely(!ret)) return MakeError(ret);
+    child_procs_.push_back(std::move(child));
+  }
+
+  for (auto const &tm : pm.GetThreads()) {
+    Status<void> ret = RestoreThread(tm);
+    if (unlikely(!ret)) return MakeError(ret);
+  }
+
+  parent_ = parent;
+  const void *base = mem_map_->get_base();
+  LOG(INFO) << "proc: Restored process with pid=" << pid_
+            << ", mapping=" << base << "-"
+            << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(base) +
+                                        kMemoryMappingSize);
+  return {};
+}
+
+// Create a Caladan thread for the Junction thread we restored
+Status<void> Process::RestoreThread(ThreadMetadata const &tm) {
+  thread_t *th = thread_create(nullptr, 0);
+  if (unlikely(!th)) return MakeError(ENOMEM);
+
+  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+  new (tstate) Thread(shared_from_this(), tm);
+  th->junction_thread = true;
+  thread_map_[tm.GetTid()] = tstate;
+  return {};
+}
+
+// Used for starting the main thread, will change when restoring multiple
+// threads
+Status<std::unique_ptr<Thread>> Process::GetThreadMain() {
+  Thread *main = thread_map_[get_pid()];
+  if (main == nullptr) return MakeError(EINVAL);
+  return std::unique_ptr<Thread>(main);
+}
+
 Status<std::unique_ptr<Thread>> Process::CreateThread() {
   thread_t *th = thread_create(nullptr, 0);
   if (unlikely(!th)) return MakeError(ENOMEM);
@@ -460,6 +521,50 @@ long usys_waitid(int which, pid_t pid, siginfo_t *infop, int options,
   return 0;
 }
 
+ProcessMetadata Process::Snapshot() const & {
+  ProcessMetadata s;
+  s.SetProcId(pid_);
+  s.SetProcGid(pgid_);
+  if (exited_) {
+    s.SetProcExitState(xstate_);
+  }
+  s.SetProcLimitNumberOfFiles(limit_nofile_);
+  s.SetBinaryPath(binary_path_);
+
+  s.ReserveNThreads(thread_map_.size());
+  for (auto const &[_tid, thread] : thread_map_) {
+    s.AddThread(thread->Snapshot());
+  }
+
+  file_tbl_.Snapshot(s);
+  mem_map_->Snapshot(s);
+  signal_tbl_.Snapshot(s);
+  shared_sig_q_.Snapshot(s);
+
+  s.ReserveNChildProcs(child_procs_.size());
+  for (auto const &child : child_procs_) {
+    auto const &snapshot = child->Snapshot();
+    s.AddChildProc(&snapshot);
+  }
+
+  it_real_.Snapshot(s);
+
+  return s;
+}
+
+ThreadMetadata Thread::Snapshot() const & {
+  ThreadMetadata s;
+  s.SetThreadId(tid_);
+  s.SetChildThreadId(child_tid_);
+  s.SetThreadId(tid_);
+  s.SetInSyscall(this->in_syscall());
+  s.SetExitState(xstate_);
+  s.SetCurrentSyscallFrame(cur_syscall_frame_);
+
+  sighand_.Snapshot(s);
+  return s;
+}
+
 pid_t usys_getpid() { return myproc().get_pid(); }
 
 pid_t usys_gettid() { return mythread().get_tid(); }
@@ -510,6 +615,74 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
                reinterpret_cast<void *>(cl_args->tls));
 
   return ret;
+}
+
+long junction_entry_snapshot(char const *elf_pathname,
+                             char const *metadata_pathname) {
+  if (elf_pathname == nullptr || metadata_pathname == nullptr) {
+    return -1;
+  }
+  std::string_view elf_path{elf_pathname, strlen(elf_pathname)};
+  std::string_view metadata_path{metadata_pathname, strlen(metadata_pathname)};
+  LOG(INFO) << "snapshot: started snapshot (elf=" << elf_path
+            << ", metadata=" << metadata_path << ")";
+  auto proc_metadata = myproc().Snapshot();
+  thread_tf tf;
+  Thread const &thread = mythread();
+  if (thread.get_syscall_source() == SyscallEntry::kSyscallTrapSysStack) {
+    CopyTrapframe(thread.get_trap_regs(), tf);
+    tf.rsp = thread.get_trap_regs().rsp;
+    tf.rip = thread.get_trap_regs().rip;
+  } else {
+    CopyTrapframe(thread.get_fncall_regs(), tf);
+    tf.rsp = thread.get_fncall_regs().rsp;
+    tf.rip = thread.get_fncall_regs().rip;
+  }
+
+  if (thread.GetCaladanThread()->has_fsbase) {
+    tf.fsbase = thread.GetCaladanThread()->tf.fsbase;
+  }
+
+  // make sure 0 is returned to the calling thread
+  tf.rax = 0;
+
+  proc_metadata.SetTrapframe(tf);
+
+  auto const &memory_map = myproc().get_mem_map();
+  size_t const header_size =
+      (memory_map.get_n_vmareas()) * sizeof(elf_phdr) + sizeof(elf_header);
+#ifndef NDEBUG
+  size_t const metadata_size = proc_metadata.SerializedSize();
+#endif
+
+  std::vector<elf_phdr> elf_pheaders =
+      memory_map.GetPheaders(static_cast<uint64_t>(AlignUp(header_size, 4096)));
+
+  Status<Snapshotter> s =
+      Snapshotter::Open(tf.rip /* entry point */, elf_pheaders,
+                        {elf_pathname, strlen(elf_pathname)},
+                        {metadata_pathname, strlen(metadata_pathname)});
+  if (unlikely(!s)) {
+    syscall_write(2, "FAILED TO START SNAPSHOT\n",
+                  strlen("FAILED TO START SNAPSHOT\n"));
+    return MakeCError(s);
+  }
+  Snapshotter &sn = *s;
+
+  proc_metadata.Serialize(sn);
+  auto const metadata_written = sn.MetadataFlush();
+  if (unlikely(!metadata_written)) {
+    return MakeCError(metadata_written);
+  } else {
+    assert(*metadata_written == metadata_size);
+  }
+
+  auto const memory_written = memory_map.SerializeMemoryRegions(sn);
+  if (unlikely(!memory_written)) {
+    return MakeCError(memory_written);
+  }
+
+  return 0;
 }
 
 long usys_clone(unsigned long clone_flags, unsigned long newsp,

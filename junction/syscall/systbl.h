@@ -7,7 +7,7 @@
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/usys.h"
 
-#define SYS_NR 455
+#define SYS_NR 456
 #define SYSTBL_TRAMPOLINE_LOC ((void *)0x200000)
 
 namespace junction {

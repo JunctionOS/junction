@@ -46,9 +46,14 @@ static inline ssize_t ksys_read(int fd, void *buf, size_t count) {
   return ksys_readv(fd, &v, 1);
 }
 
+static inline ssize_t ksys_pwritev(int fd, const struct iovec *iov, int iovcnt,
+                                   off_t offset, int flags) {
+  return syscall_pwritev2(fd, iov, iovcnt, offset, 0, flags);
+}
 static inline ssize_t ksys_pwrite(int fd, const void *buf, size_t count,
                                   off_t offset) {
-  return syscall_pwrite(fd, buf, count, offset);
+  const struct iovec iov = {.iov_base = (void *)buf, .iov_len = count};
+  return ksys_pwritev(fd, &iov, 1, offset, 0);
 }
 int ksys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                     int flags);
@@ -100,6 +105,14 @@ class KernelFile {
   // Write to the file.
   Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = ksys_pwrite(fd_, buf.data(), buf.size_bytes(), off_);
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    off_ += ret;
+    return static_cast<size_t>(ret);
+  }
+
+  // Write to the file.
+  Status<size_t> Writev(std::span<const iovec> iov) {
+    ssize_t ret = ksys_pwritev(fd_, iov.data(), iov.size(), off_, 0);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     off_ += ret;
     return static_cast<size_t>(ret);
@@ -162,6 +175,13 @@ inline Status<void> KernelMUnmap(void *addr, size_t length) {
 // Change memory permissions.
 inline Status<void> KernelMProtect(void *addr, size_t length, int prot) {
   int ret = ksys_mprotect(addr, length, prot);
+  if (ret < 0) return MakeError(-ret);
+  return {};
+}
+
+// Get file status.
+inline Status<void> KernelStat(const char *path, struct stat *buf) {
+  int ret = ksys_stat(path, buf);
   if (ret < 0) return MakeError(-ret);
   return {};
 }

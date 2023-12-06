@@ -20,6 +20,7 @@ extern "C" {
 #include "junction/kernel/mm.h"
 #include "junction/kernel/signal.h"
 #include "junction/limits.h"
+#include "junction/snapshot/proc.h"
 
 namespace junction {
 
@@ -41,6 +42,16 @@ class Thread {
  public:
   Thread(std::shared_ptr<Process> proc, pid_t tid)
       : proc_(std::move(proc)), tid_(tid), sighand_(*this) {}
+  Thread(std::shared_ptr<Process> proc, ThreadMetadata const &tm)
+      : proc_(std::move(proc)),
+        tid_(tm.GetTid()),
+        sighand_(*this),
+        cur_syscall_frame_(tm.GetCurSyscallFrame()),
+        child_tid_(tm.GetChildTid()),
+        xstate_(tm.GetXstate()) {
+    this->set_in_syscall(tm.GetInSyscall());
+    sighand_.Restore(tm);
+  }
   ~Thread();
 
   Thread(Thread &&) = delete;
@@ -201,6 +212,8 @@ class Thread {
     return cur_syscall_frame_;
   }
 
+  [[nodiscard]] ThreadMetadata Snapshot() const &;
+
   friend class ThreadSignalHandler;
 
  private:
@@ -234,7 +247,13 @@ class Process : public std::enable_shared_from_this<Process> {
         file_tbl_(ftbl),
         mem_map_(std::move(mm)),
         parent_(std::move(parent)) {}
-
+  // Constructor for restoring from a snapshot
+  Process(ProcessMetadata const &pm)
+      : pid_(pm.GetPid()),
+        pgid_(pm.GetPgid()),
+        xstate_(pm.GetXstate()),
+        exited_(pm.GetExited()),
+        limit_nofile_(pm.GetLimitNofile()) {}
   ~Process();
 
   Process(Process &&) = delete;
@@ -274,6 +293,8 @@ class Process : public std::enable_shared_from_this<Process> {
   Status<std::shared_ptr<Process>> CreateProcessVfork(rt::ThreadWaker &&w);
 
   Status<std::unique_ptr<Thread>> CreateThreadMain();
+  Status<std::unique_ptr<Thread>> GetThreadMain();
+  Status<void> RestoreThread(ThreadMetadata const &tm);
   Status<std::unique_ptr<Thread>> CreateThread();
   Thread &CreateTestThread();
   void FinishExec(std::shared_ptr<MemoryMap> &&new_mm);
@@ -331,6 +352,10 @@ class Process : public std::enable_shared_from_this<Process> {
     si.si_signo = signo;
     return SignalThread(tid, si);
   }
+
+  [[nodiscard]] ProcessMetadata Snapshot() const &;
+  [[nodiscard]] Status<void> Restore(ProcessMetadata const &pm,
+                                     std::shared_ptr<Process> parent);
 
   [[nodiscard]] unsigned int get_wait_state() const { return wait_state_; }
 

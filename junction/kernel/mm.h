@@ -13,7 +13,12 @@
 
 namespace junction {
 
-enum class VMType : int {
+struct elf_phdr;
+class Snapshotter;
+class ProcessMetadata;
+class VMAreaMetadata;
+
+enum class VMType : uint8_t {
   kFile,
   kMemory,
   kHeap,
@@ -28,17 +33,24 @@ struct VMArea {
   int flags;
   std::shared_ptr<File> file;
   VMType type;
+
+  VMAreaMetadata Snapshot() const &;
 };
 
 class alignas(kCacheLineSize) MemoryMap {
  public:
   MemoryMap(void *base, size_t len)
       : base_(reinterpret_cast<uintptr_t>(base)), len_(len), brk_addr_(base_) {
-    VMArea vma = {base_,          base_ + PageAlign(len_),     0,
-                  PROT_NONE,      MAP_ANONYMOUS | MAP_PRIVATE, nullptr,
-                  VMType::kMemory};
+    VMArea vma = {.start = base_,
+                  .end = base_ + PageAlign(len_),
+                  .offset = 0,
+                  .prot = PROT_NONE,
+                  .flags = MAP_ANONYMOUS | MAP_PRIVATE,
+                  .file = nullptr,
+                  .type = VMType::kHeap};
     vmareas_[vma.end] = vma;
   }
+  MemoryMap(ProcessMetadata const &pm);
   ~MemoryMap() {
     for (auto const &e : vmareas_) {
       const VMArea &vma = e.second;
@@ -63,13 +75,13 @@ class alignas(kCacheLineSize) MemoryMap {
     Status<void *> ret = f.get()->MMap(addr, len, prot, flags, off);
     if (!ret) return MakeError(ret);
     const VMArea vma = {
-        reinterpret_cast<uintptr_t>(*ret),
-        reinterpret_cast<uintptr_t>(*ret) + PageAlign(len),
-        off,
-        prot,
-        flags,
-        f,
-        VMType::kFile,
+        .start = reinterpret_cast<uintptr_t>(*ret),
+        .end = reinterpret_cast<uintptr_t>(*ret) + PageAlign(len),
+        .offset = off,
+        .prot = prot,
+        .flags = flags,
+        .file = f,
+        .type = VMType::kFile,
     };
     rt::SpinGuard g(lock_);
     Insert(vma);
@@ -81,17 +93,29 @@ class alignas(kCacheLineSize) MemoryMap {
     Status<void *> ret = KernelMMap(addr, len, prot, flags);
     if (!ret) return MakeError(ret);
     const VMArea vma = {
-        reinterpret_cast<uintptr_t>(*ret),
-        reinterpret_cast<uintptr_t>(*ret) + PageAlign(len),
-        0,
-        prot,
-        flags,
-        nullptr,
-        type,
+        .start = reinterpret_cast<uintptr_t>(*ret),
+        .end = reinterpret_cast<uintptr_t>(*ret) + PageAlign(len),
+        .offset = 0,
+        .prot = prot,
+        .flags = flags,
+        .file = nullptr,
+        .type = type,
     };
     rt::SpinGuard g(lock_);
     Insert(vma);
     return ret;
+  }
+
+  void Snapshot(ProcessMetadata &s) const &;
+  void Restore(ProcessMetadata const &pm, FileTable &ftbl);
+  Status<size_t> SerializeMemoryRegions(Snapshotter &s) const &;
+  std::vector<elf_phdr> GetPheaders(uint64_t starting_offset) const &;
+
+  // Returns true if the mapping is inside the reserved region.
+  bool IsWithin(void *buf, size_t len) const {
+    auto start = reinterpret_cast<uintptr_t>(buf);
+    auto end = reinterpret_cast<uintptr_t>(start + len);
+    return end >= start && start >= base_ && end <= base_ + len_;
   }
 
   Status<void> MProtect(void *addr, size_t len, int prot) {
@@ -119,12 +143,14 @@ class alignas(kCacheLineSize) MemoryMap {
   }
 
   [[nodiscard]] size_t get_mem_usage() const {
-    uintptr_t size = 0;
-    for (auto const &e : vmareas_) {
-      size += e.second.end - e.second.start;
+    size_t size = 0;
+    for (auto const &[_ptr, vma] : vmareas_) {
+      size += static_cast<size_t>(vma.end - vma.start);
     }
-    return reinterpret_cast<size_t>(size);
+    return size;
   }
+
+  [[nodiscard]] size_t get_n_vmareas() const { return vmareas_.size(); }
 
  private:
   // Apply func to each VMA in the range [start, end). func returns true if it
