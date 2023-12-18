@@ -4,7 +4,6 @@ extern "C" {
 #include <sys/eventfd.h>
 }
 
-#include "junction/bindings/wait.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -55,7 +54,7 @@ Status<size_t> EventFDFile::Read(std::span<std::byte> buf,
   rt::SpinGuard guard(lock_);
   if (!val_) {
     if (is_nonblocking()) return MakeError(EAGAIN);
-    if (WaitInterruptible(lock_, queue_, [this] { return val_ != 0; }))
+    if (!rt::WaitInterruptible(lock_, queue_, [this] { return val_ != 0; }))
       return MakeError(EINTR);
   }
 
@@ -85,8 +84,8 @@ Status<size_t> EventFDFile::Write(std::span<const std::byte> buf,
   // check for overflow
   if (val + val_ < val) {
     if (is_nonblocking()) return MakeError(EAGAIN);
-    if (WaitInterruptible(lock_, queue_,
-                          [this, val] { return val + val_ >= val; }))
+    if (!rt::WaitInterruptible(lock_, queue_,
+                               [this, val] { return val + val_ >= val; }))
       return MakeError(EINTR);
   }
 

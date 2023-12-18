@@ -8,7 +8,6 @@
 
 #include "junction/base/compiler.h"
 #include "junction/base/intrusive_list.h"
-#include "junction/bindings/wait.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -48,7 +47,7 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout,
   // Otherwise, init state to block on the FDs and timeout.
   rt::Spin lock;
   rt::ThreadWaker waker;
-  WakeOnTimeout timed_out(lock, waker, timeout);
+  rt::WakeOnTimeout timed_out(lock, waker, timeout);
   SigMaskGuard sig(mask);
 
   // Pack args to avoid heap allocations.
@@ -85,7 +84,7 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout,
     // Block until an event has triggered.
     {
       rt::SpinGuard g(lock);
-      signaled = WaitInterruptible(lock, waker, [&nevents, &timed_out] {
+      signaled = !rt::WaitInterruptible(lock, waker, [&nevents, &timed_out] {
         return nevents > 0 || timed_out;
       });
     }
@@ -207,7 +206,7 @@ std::pair<int, Duration> DoSelect(
   // Otherwise, init state to block on the FDs and timeout.
   rt::Spin lock;
   rt::ThreadWaker waker;
-  WakeOnTimeout timed_out(lock, waker, timeout);
+  rt::WakeOnTimeout timed_out(lock, waker, timeout);
   SigMaskGuard sig(mask);
 
   // Pack args to avoid heap allocations.
@@ -240,7 +239,7 @@ std::pair<int, Duration> DoSelect(
     // Block until an event has triggered.
     {
       rt::SpinGuard g(lock);
-      signaled = WaitInterruptible(lock, waker, [&nevents, &timed_out] {
+      signaled = !rt::WaitInterruptible(lock, waker, [&nevents, &timed_out] {
         return nevents > 0 || timed_out;
       });
     }
@@ -433,12 +432,12 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
   if (timeout && timeout->IsZero()) return 0;
 
   // Slow path: Block and wait for events
-  WakeOnTimeout timed_out(lock_, waker_, timeout);
+  rt::WakeOnTimeout timed_out(lock_, waker_, timeout);
   SigMaskGuard sig(mask);
   bool signaled;
   {
     rt::SpinGuard g(lock_);
-    signaled = WaitInterruptible(lock_, waker_, [this, &timed_out] {
+    signaled = !rt::WaitInterruptible(lock_, waker_, [this, &timed_out] {
       return !events_.empty() || timed_out;
     });
     if (!events_.empty()) return DeliverEvents(events_out);

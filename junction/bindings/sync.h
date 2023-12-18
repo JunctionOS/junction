@@ -14,6 +14,8 @@ extern "C" {
 #include <utility>
 
 #include "junction/base/compiler.h"
+#include "junction/base/error.h"
+#include "junction/base/time.h"
 
 namespace junction::rt {
 
@@ -22,22 +24,58 @@ template <typename T>
 concept Lockable = requires(T t) {
   { t.Lock() } -> std::same_as<void>;
   { t.Unlock() } -> std::same_as<void>;
+  { t.IsHeld() } -> std::same_as<bool>;
+};
+
+// TryableLock is the concept of a lock that can tried to be acquired if not
+// held already.
+template <typename T>
+concept TryableLock = Lockable<T> && requires(T t) {
+  { t.TryLock() } -> std::same_as<bool>;
+};
+
+// InterruptibleLock is the concept of a lock that can be interrupted while
+// waiting to acquire.
+template <typename T>
+concept InterruptibleLock = Lockable<T> && requires(T t) {
+  { t.InterruptibleLock() } -> std::same_as<bool>;
 };
 
 // LockAndParkable is the concept of a lock that can park and wait for a
 // condition after unlocking.
 template <typename T>
-concept LockAndParkable = requires(T t) {
-  { t.Lock() } -> std::same_as<void>;
+concept ParkableLock = Lockable<T> && requires(T t) {
   { t.UnlockAndPark() } -> std::same_as<void>;
 };
 
-// Wakable is a concept for blocking mechanisms that can be woken up
+// SharedLockable is the concept of a shared lock.
+template <typename T>
+concept SharedLockable = requires(T t) {
+  { t.LockShared() } -> std::same_as<void>;
+  { t.UnlockShared() } -> std::same_as<void>;
+  { t.IsHeld() } -> std::same_as<bool>;
+};
+
+// TryableSharedLock is the concept of a lock that can tried to be acquired if
+// not held already by a writer.
+template <typename T>
+concept TryableSharedLock = SharedLockable<T> && requires(T t) {
+  { t.TryLockShared() } -> std::same_as<bool>;
+};
+
+// InterruptibleSharedLock is the concept of a shared lock that can be
+// interrupted while waiting to be acquired.
+template <typename T>
+concept InterruptibleSharedLock = SharedLockable<T> && requires(T t) {
+  { t.InterruptibleLockShared() } -> std::same_as<bool>;
+};
+
+// Wakable is a concept a blocking object that can be woken up
 template <typename T>
 concept Wakeable = requires(T t, thread_t *th) {
   { t.Arm(th) } -> std::same_as<void>;
   { t.Disarm(th) } -> std::same_as<void>;
-  { t.WakeThread(th) } -> std::same_as<void>;
+  { t.WakeThread(th) } -> std::same_as<bool>;
 };
 
 // SetInterruptible should be called before blocking if waking from signals is
@@ -59,9 +97,232 @@ inline InterruptibleStatus GetInterruptibleStatus(thread_t *th) {
 
 // ThreadReady wakes a blocking thread.
 inline void ThreadReady(thread_t *th) {
-  // Works whether MarkInterruptible() was called or not.
+  // Works whether SetInterruptible() was called or not.
   interruptible_wake(th);
 }
+
+// ScopedLock releases a lock using RAII like std::scoped_lock.
+template <Lockable L>
+class ScopedLock {
+ public:
+  [[nodiscard]] explicit ScopedLock(L &lock) noexcept : lock_(lock) {
+    lock_.Lock();
+  }
+  ~ScopedLock() { lock_.Unlock(); }
+
+  ScopedLock(ScopedLock &&) = delete;
+  ScopedLock &operator=(ScopedLock &&) = delete;
+  ScopedLock(const ScopedLock &) = delete;
+  ScopedLock &operator=(const ScopedLock &) = delete;
+
+ private:
+  L &lock_;
+};
+
+// ScopedSharedLock releases a shared lock using RAII like std::scoped_lock.
+template <SharedLockable L>
+class ScopedSharedLock {
+ public:
+  [[nodiscard]] explicit ScopedSharedLock(L &lock) noexcept : lock_(lock) {
+    lock_.LockShared();
+  }
+  ~ScopedSharedLock() { lock_.UnlockShared(); }
+
+  ScopedSharedLock(ScopedSharedLock &&) = delete;
+  ScopedSharedLock &operator=(ScopedSharedLock &&) = delete;
+  ScopedSharedLock(const ScopedSharedLock &) = delete;
+  ScopedSharedLock &operator=(const ScopedSharedLock &) = delete;
+
+ private:
+  L &lock_;
+};
+
+struct defer_lock_t {
+  explicit defer_lock_t() = default;
+};
+struct adopt_lock_t {
+  explicit adopt_lock_t() = default;
+};
+struct try_to_lock_t {
+  explicit try_to_lock_t() = default;
+};
+struct interrupt_or_lock_t {
+  explicit interrupt_or_lock_t() = default;
+};
+
+// Don't take the lock.
+inline constexpr defer_lock_t DeferLock{};
+// Adopt the lock in an already locked state.
+inline constexpr adopt_lock_t AdoptLock{};
+// Acquire the lock only if it is uncontended.
+inline constexpr try_to_lock_t TryToLock{};
+// Acquire the lock only if a signal is not pending.
+inline constexpr interrupt_or_lock_t InterruptOrLock{};
+
+// UniqueLock provides ownership of a lock object similar to std::unique_lock.
+template <Lockable L>
+class UniqueLock {
+ public:
+  [[nodiscard]] UniqueLock() noexcept : lock_(nullptr), owns_(false) {}
+  [[nodiscard]] explicit UniqueLock(L &lock) noexcept
+      : lock_(&lock), owns_(true) {
+    lock_->Lock();
+  }
+  [[nodiscard]] UniqueLock(L &lock, defer_lock_t t) noexcept
+      : lock_(&lock), owns_(false) {
+    assert(!lock_->IsHeld());
+  }
+  [[nodiscard]] UniqueLock(L &lock, adopt_lock_t t) noexcept
+      : lock_(&lock), owns_(true) {
+    assert(lock_->IsHeld());
+  }
+  [[nodiscard]] UniqueLock(L &lock, try_to_lock_t t) noexcept
+    requires TryableLock<L>
+      : lock_(&lock) {
+    owns_ = lock_->TryLock();
+  }
+  [[nodiscard]] UniqueLock(L &lock, interrupt_or_lock_t t) noexcept
+    requires InterruptibleLock<L>
+      : lock_(&lock) {
+    owns_ = lock_->InterruptibleLock();
+  }
+  ~UniqueLock() {
+    if (owns_) lock_->Unlock();
+  }
+
+  // Allow move, disable copy
+  UniqueLock(UniqueLock &&ul) noexcept
+      : lock_(std::exchange(ul.lock_, nullptr)),
+        owns_(std::exchange(ul.owns_, false)) {}
+  UniqueLock &operator=(UniqueLock &&ul) noexcept {
+    lock_ = std::exchange(ul.lock_, nullptr);
+    owns_ = std::exchange(ul.owns_, false);
+    return *this;
+  }
+  UniqueLock(const UniqueLock &) = delete;
+  UniqueLock &operator=(const UniqueLock &) = delete;
+
+  explicit operator bool() const noexcept { return owns_; }
+
+  void Lock() {
+    assert(lock_ && !owns_);
+    lock_->Lock();
+    owns_ = true;
+  }
+
+  [[nodiscard]] bool TryLock(L &lock)
+    requires TryableLock<L>
+  {
+    assert(lock_ && !owns_);
+    owns_ = lock_->TryLock();
+    return owns_;
+  }
+
+  [[nodiscard]] bool InterruptibleLock(L &lock)
+    requires InterruptibleLock<L>
+  {
+    assert(lock_ && !owns_);
+    owns_ = lock_->InterruptibleLock();
+    return owns_;
+  }
+
+  void Unlock() {
+    assert(lock_ && owns_);
+    lock_->Unlock();
+    owns_ = false;
+  }
+
+  void UnlockAndPark()
+    requires ParkableLock<L>
+  {
+    assert(lock_ && owns_);
+    lock_->UnlockAndPark();
+    owns_ = false;
+  }
+
+ private:
+  L *lock_;
+  bool owns_;
+};
+
+// SharedLock provides ownership of a shared lock object similar to
+// std::shared_lock.
+template <SharedLockable L>
+class SharedLock {
+ public:
+  [[nodiscard]] SharedLock() noexcept : lock_(nullptr), owns_(false) {}
+  [[nodiscard]] explicit SharedLock(L &lock) noexcept
+      : lock_(&lock), owns_(true) {
+    lock_->LockShared();
+  }
+  [[nodiscard]] SharedLock(L &lock, defer_lock_t t) noexcept
+      : lock_(&lock), owns_(false) {
+    assert(!lock_->IsHeld());
+  }
+  [[nodiscard]] SharedLock(L &lock, adopt_lock_t t) noexcept
+      : lock_(&lock), owns_(true) {
+    assert(lock_->IsHeld());
+  }
+  [[nodiscard]] SharedLock(L &lock, try_to_lock_t t) noexcept
+    requires TryableSharedLock<L>
+      : lock_(&lock) {
+    owns_ = lock_->TryLockShared();
+  }
+  [[nodiscard]] SharedLock(L &lock, interrupt_or_lock_t t) noexcept
+    requires InterruptibleSharedLock<L>
+      : lock_(&lock) {
+    owns_ = lock_->InterruptibleLockShared();
+  }
+  ~SharedLock() {
+    if (owns_) lock_->UnlockShared();
+  }
+
+  // Allow move, disable copy
+  SharedLock(SharedLock &&ul) noexcept
+      : lock_(std::exchange(ul.lock_, nullptr)),
+        owns_(std::exchange(ul.owns_, false)) {}
+  SharedLock &operator=(SharedLock &&ul) noexcept {
+    lock_ = std::exchange(ul.lock_, nullptr);
+    owns_ = std::exchange(ul.owns_, false);
+    return *this;
+  }
+  SharedLock(const SharedLock &) = delete;
+  SharedLock &operator=(const SharedLock &) = delete;
+
+  explicit operator bool() const noexcept { return owns_; }
+
+  void Lock() {
+    assert(lock_ && !owns_);
+    lock_->LockShared();
+    owns_ = true;
+  }
+
+  [[nodiscard]] bool TryLock(L &lock)
+    requires TryableLock<L>
+  {
+    assert(lock_ && !owns_);
+    owns_ = lock_->TryLockShared();
+    return owns_;
+  }
+
+  [[nodiscard]] bool InterruptibleLock(L &lock)
+    requires InterruptibleLock<L>
+  {
+    assert(lock_ && !owns_);
+    owns_ = lock_->InterruptibleLockShared();
+    return owns_;
+  }
+
+  void Unlock() {
+    assert(lock_ && owns_);
+    lock_->UnlockShared();
+    owns_ = false;
+  }
+
+ private:
+  L *lock_;
+  bool owns_;
+};
 
 // WaitQueue is used to wake a group of threads.
 class WaitQueue {
@@ -75,7 +336,10 @@ class WaitQueue {
   WaitQueue(const WaitQueue &&) = delete;
   WaitQueue &operator=(const WaitQueue &&) = delete;
 
-  [[nodiscard]] bool empty() const { return list_empty(&waiters_); }
+  // Empty returns true if there are no armed threads.
+  [[nodiscard]] bool Empty() const { return list_empty(&waiters_); }
+
+  explicit operator bool() const noexcept { return !Empty(); }
 
   // Arm prepares the running thread to block. Can only be called once,
   // must be synchronized by caller.
@@ -83,7 +347,7 @@ class WaitQueue {
     list_add_tail(&waiters_, &th->link);
   }
 
-  // Cancel an arm, must be synchronized by caller.
+  // Disarm removes a thread; must be synchronized by caller.
   void Disarm(thread_t *th) { list_del_from(&waiters_, &th->link); }
 
   // Wake up to one thread waiter (must be synchronized by caller)
@@ -96,20 +360,37 @@ class WaitQueue {
   }
 
   // Wake all thread waiters (must be synchronized by caller)
-  void WakeAll() {
+  bool WakeAll() {
+    bool did_wakeup = false;
     while (true) {
       thread_t *th = list_pop(&waiters_, thread_t, link);
-      if (th == nullptr) return;
+      if (th == nullptr) return did_wakeup;
       ThreadReady(th);
+      did_wakeup = true;
     }
   }
 
-  // WakeThread makes a specific thread runnable.
+  // WakeThread makes a specific thread runnable. Returns true if woken.
   // Must be synchronized by caller.
-  void WakeThread(thread_t *th) {
-    Disarm(th);
-    ThreadReady(th);
+  bool WakeThread(thread_t *th) {
+    // TODO(amb): the list_for_each macro is broken in C++
+    struct list_node *pos;
+    for (pos = waiters_.n.next; pos != &waiters_.n; pos = pos->next) {
+      if (&th->link == pos) {
+        list_del(pos);
+        ThreadReady(th);
+        return true;
+      }
+    }
+    return false;
   }
+
+  // Pop removes a waiter without waking it, so it can be armed on a different
+  // WaitQueue. Returns nullptr if there all no waiters.
+  thread_t *Pop() { return list_pop(&waiters_, thread_t, link); }
+
+  // Splice moves all the waiters from another wait queue to this one.
+  void Splice(WaitQueue &wq) { list_append_list(&waiters_, &wq.waiters_); }
 
  private:
   list_head waiters_;
@@ -136,26 +417,27 @@ class ThreadWaker {
   // Arm prepares the running thread to block. Can only be called once.
   void Arm(thread_t *th = thread_self()) { th_ = th; }
 
-  // Cancel an arm, must be synchronized by caller.
+  // Disarm cancels an armed thread; must be synchronized by caller.
   void Disarm(thread_t *th) {
-    assert(th == th_);
+    assert(!th_ || th_ == th);
     th_ = nullptr;
   }
 
   // Wake makes the parked thread runnable. Must be called by another thread
   // after the prior thread has called Arm() and has parked (or will park in
-  // the immediate future).
-  void Wake() {
-    if (th_ == nullptr) return;
+  // the immediate future). Returns true if a thread was woken.
+  bool Wake() {
+    if (th_ == nullptr) return false;
     thread_t *th = std::exchange(th_, nullptr);
     ThreadReady(th);
+    return true;
   }
 
   // WakeThread makes a specific thread runnable. In this class, it can only be
-  // the parked thread.
-  void WakeThread(thread_t *th) {
+  // the parked thread. Returns true if the thread was woken.
+  bool WakeThread(thread_t *th) {
     assert(!th_ || th_ == th);
-    Wake();
+    return Wake();
   }
 
  private:
@@ -166,12 +448,108 @@ class ThreadWaker {
 //
 // A lock must be held to protect the wakeup condition state, which usually
 // includes the wakable object.
-template <LockAndParkable L, Wakeable W>
+template <ParkableLock L, Wakeable W>
 void Wait(L &lock, W &waker) {
   assert(lock.IsHeld());
   waker.Arm();
   lock.UnlockAndPark();
   lock.Lock();
+}
+
+// Wait blocks the calling thread until the predicate becomes true
+//
+// A lock must be held to protect the wakeup condition state, which usually
+// includes the wakable object.
+template <ParkableLock L, Wakeable Waker, typename Predicate>
+void Wait(L &lock, Waker &waker, Predicate stop) {
+  while (!stop()) Wait(lock, waker);
+}
+
+// WaitNoRecheck blocks the calling thread until a wakable object resumes it.
+//
+// In this variant, the lock must be moved by the caller and will not
+// reacquired after wakeup. This can be used as an optimization if the
+// programmer is sure there will never be spurious wakeups and no condition has
+// to be rechecked upon wakeup.
+template <ParkableLock L, Wakeable W>
+void WaitNoRecheck(UniqueLock<L> &&lock, W &waker) {
+  assert(!!lock);
+  waker.Arm();
+  lock.UnlockAndPark();
+}
+
+// WaitInterruptible blocks the calling thread until a wakable object resumes it
+// or a signal is delivered.
+//
+// A lock must be held to protect the wakeup condition state, which must
+// include the wakable object.
+//
+// Returns true if woke up normally (not interrupted by a signal).
+template <ParkableLock L, Wakeable Waker>
+bool WaitInterruptible(L &lock, Waker &waker) {
+  assert(lock.IsHeld());
+
+  // Block and wait for an event.
+  thread_t *th = thread_self();
+  if (unlikely(SetInterruptible(th))) return false;
+  waker.Arm(th);
+  lock.UnlockAndPark();
+  lock.Lock();
+
+  // Check if a signal was delivered while blocked.
+  InterruptibleStatus status = GetInterruptibleStatus(th);
+  if (unlikely(status == InterruptibleStatus::kPendingAndDisarm))
+    waker.Disarm(th);
+  return status == InterruptibleStatus::kNone;
+}
+
+// WaitInterruptible blocks the calling thread until the predicate becomes true
+// or a signal is delivered.
+//
+// A lock must be held to protect the wakeup condition state, which must
+// include the wakable object.
+//
+// Returns true if woke up normally (not interrupted by a signal).
+template <ParkableLock L, Wakeable Waker, typename Predicate>
+bool WaitInterruptible(L &lock, Waker &w, Predicate stop) {
+  while (!stop()) {
+    if (unlikely(!WaitInterruptible(lock, w))) return false;
+  }
+  return true;
+}
+
+// WaitInterruptibleNoRecheck blocks the calling thread until a wakable object
+// resumes it or a signal is delivered.
+//
+// A lock must be held to protect the wakeup condition state, which must
+// include the wakable object.
+//
+// In this variant, the lock must be moved by the caller and will not
+// reacquired after wakeup. This can be used as an optimization if the
+// programmer is sure there will never be spurious wakeups and no condition has
+// to be rechecked upon wakeup.
+//
+// Returns true if woke up normally (not interrupted by a signal).
+template <ParkableLock L, Wakeable Waker>
+bool WaitInterruptibleNoRecheck(UniqueLock<L> &&lock, Waker &waker) {
+  assert(!!lock);
+
+  // Block and wait for an event.
+  thread_t *th = thread_self();
+  if (unlikely(SetInterruptible(th))) return false;
+  waker.Arm(th);
+  lock.UnlockAndPark();
+
+  // Check if a signal was delivered while blocked.
+  InterruptibleStatus status = GetInterruptibleStatus(th);
+  if (unlikely(status == InterruptibleStatus::kPendingAndDisarm)) {
+    lock.Lock();
+    // The waker may have already disarmed the thread because the lock was not
+    // held until now, but that's okay. It can safely be disarmed twice.
+    waker.Disarm(th);
+    lock.Unlock();
+  }
+  return status == InterruptibleStatus::kNone;
 }
 
 // Disables preemption across a critical section.
@@ -256,281 +634,264 @@ class Spin {
   spinlock_t lock_;
 };
 
-// Pthread-like mutex support.
 class Mutex {
-  friend class CondVar;
-
  public:
-  Mutex() noexcept { mutex_init(&mu_); }
-  ~Mutex() { assert(!mutex_held(&mu_)); }
+  friend class ConditionVariable;
 
-  Mutex(Mutex &&) = delete;
-  Mutex &operator=(Mutex &&) = delete;
+  Mutex() noexcept = default;
+  ~Mutex() { assert(!IsHeld()); }
+
+  // disable copy and move
   Mutex(const Mutex &) = delete;
   Mutex &operator=(const Mutex &) = delete;
+  Mutex(Mutex &&) = delete;
+  Mutex &operator=(Mutex &&) = delete;
 
-  // Locks the mutex.
-  void Lock() { mutex_lock(&mu_); }
+  // Lock acquires the lock.
+  void Lock();
 
-  // Unlocks the mutex.
-  void Unlock() { mutex_unlock(&mu_); }
+  // TryLock acquires the lock if not held. Returns true if acquired.
+  [[nodiscard]] bool TryLock();
 
-  // Locks the mutex only if it is currently unlocked. Returns true if
-  // successful.
-  [[nodiscard]] bool TryLock() { return mutex_try_lock(&mu_); }
+  // InterruptibleLock acquires the lock if a signal is not pending. Returns
+  // true if acquired.
+  [[nodiscard]] bool InterruptibleLock();
 
-  // Returns true if the mutex is currently held.
-  [[nodiscard]] bool IsHeld() const { return mutex_held(&mu_); }
+  // Unlock releases the mutex.
+  void Unlock();
 
- private:
-  mutex_t mu_;
-};
-
-// Pthread-like rwmutex support.
-class RWMutex {
- public:
-  RWMutex() noexcept { rwmutex_init(&mu_); }
-  ~RWMutex() { assert(!rwmutex_held(&mu_)); }
-
-  RWMutex(RWMutex &&) = delete;
-  RWMutex &operator=(RWMutex &&) = delete;
-  RWMutex(const RWMutex &) = delete;
-  RWMutex &operator=(const RWMutex &) = delete;
-
-  // Locks the mutex for reading.
-  void RdLock() { rwmutex_rdlock(&mu_); }
-
-  // Locks the mutex for writing.
-  void WrLock() { rwmutex_wrlock(&mu_); }
-
-  // Unlocks the mutex.
-  void Unlock() { rwmutex_unlock(&mu_); }
-
-  // Locks the mutex for reading only if it is currently unlocked. Returns true
-  // if successful.
-  [[nodiscard]] bool TryRdLock() { return rwmutex_try_rdlock(&mu_); }
-
-  // Locks the mutex for writing only if it is currently unlocked. Returns true
-  // if successful.
-  [[nodiscard]] bool TryWrLock() { return rwmutex_try_wrlock(&mu_); }
-
-  // Returns true if the mutex is currently held.
-  [[nodiscard]] bool IsHeld() const { return rwmutex_held(&mu_); }
+  // IsHeld() returns true if the lock is held.
+  [[nodiscard]] bool IsHeld() const { return held_; }
 
  private:
-  rwmutex_t mu_;
+  Spin lock_;
+  bool held_{false};
+  WaitQueue queue_;
 };
 
-// Pthread-like barrier support.
-class Barrier {
- public:
-  explicit Barrier(int count) noexcept { barrier_init(&b_, count); }
-  ~Barrier() = default;
-
-  Barrier(Barrier &&) = delete;
-  Barrier &operator=(Barrier &&) = delete;
-  Barrier(const Barrier &) = delete;
-  Barrier &operator=(const Barrier &) = delete;
-
-  // Waits on the barrier. Returns true if the calling thread released the
-  // barrier.
-  bool Wait() { return barrier_wait(&b_); }
-
- private:
-  barrier_t b_;
-};
-
-// RAII lock support (works with Spin, Preempt, and Mutex).
-template <Lockable L>
-class ScopedLock {
- public:
-  [[nodiscard]] explicit ScopedLock(L &lock) noexcept : lock_(lock) {
-    lock_.Lock();
-  }
-  ~ScopedLock() { lock_.Unlock(); }
-
-  ScopedLock(ScopedLock &&) = delete;
-  ScopedLock &operator=(ScopedLock &&) = delete;
-  ScopedLock(const ScopedLock &) = delete;
-  ScopedLock &operator=(const ScopedLock &) = delete;
-
-  // Park blocks to wait for a condition.
-  // Only works with Spin and Preempt (not Mutex).
-  // The condition should be rechecked after waking.
-  // Example:
-  //   rt::ThreadWaker w;
-  //   rt::SpinLock l;
-  //   rt::SpinGuard guard(l);
-  //   while (condition) guard.Park(w);
-  template <Wakeable Waker>
-  void Park(Waker &w)
-    requires LockAndParkable<L>
-  {
-    Wait(lock_, w);
-  }
-
-  // Park blocks and waits for the predicate to become true.
-  // Only works with Spin and Preempt (not Mutex).
-  // Example:
-  //   rt::ThreadWaker w;
-  //   rt::SpinLock l;
-  //   rt::SpinGuard guard(l);
-  //   guard.Park(w, []{ return predicate; });
-  template <Wakeable Waker, typename Predicate>
-  void Park(Waker &w, Predicate stop)
-    requires LockAndParkable<L>
-  {
-    while (!stop()) Wait(lock_, w);
-  }
-
- private:
-  L &lock_;
-};
-
-using SpinGuard = ScopedLock<Spin>;
-using MutexGuard = ScopedLock<Mutex>;
-using PreemptGuard = ScopedLock<Preempt>;
-
-// RAII lock and park support (works with both Spin and Preempt).
-template <LockAndParkable L>
-class ScopedLockAndPark {
- public:
-  [[nodiscard]] explicit ScopedLockAndPark(L &lock) noexcept : lock_(lock) {
-    lock_.Lock();
-  }
-  ~ScopedLockAndPark() { lock_.UnlockAndPark(); }
-
-  ScopedLockAndPark(ScopedLockAndPark &&) = delete;
-  ScopedLockAndPark &operator=(ScopedLockAndPark &&) = delete;
-  ScopedLockAndPark(const ScopedLockAndPark &) = delete;
-  ScopedLockAndPark &operator=(const ScopedLockAndPark &) = delete;
-
- private:
-  L &lock_;
-};
-
-using SpinGuardAndPark = ScopedLockAndPark<Spin>;
-using PreemptGuardAndPark = ScopedLockAndPark<Preempt>;
-
-// Pthread-like condition variable support.
-class CondVar {
- public:
-  CondVar() noexcept { condvar_init(&cv_); };
-  ~CondVar() = default;
-
-  CondVar(CondVar &&) = delete;
-  CondVar &operator=(CondVar &&) = delete;
-  CondVar(const CondVar &) = delete;
-  CondVar &operator=(const CondVar &) = delete;
-
-  // Block until the condition variable is signaled. Recheck the condition
-  // after wakeup, as no guarantees are made about preventing spurious wakeups.
-  void Wait(Mutex &mu) { condvar_wait(&cv_, &mu.mu_); }
-
-  // Block until a predicate is true.
-  template <typename Predicate>
-  void Wait(Mutex &mu, Predicate stop) {
-    while (!stop()) condvar_wait(&cv_, &mu.mu_);
-  }
-
-  // Block until the condition variable is signaled. If timeout us elapses
-  // before a signal is generated, the function returns false.
-  bool WaitFor(Mutex &mu, uint64_t timeout_us) {
-    return condvar_wait_timed(&cv_, &mu.mu_, timeout_us);
-  }
-
-  // Block until a predicate is true. If timeout us elapses before a signal
-  // is generated, the function returns false.
-  template <typename Predicate>
-  bool WaitFor(Mutex &mu, uint64_t timeout_us, Predicate stop) {
-    while (!stop()) {
-      if (!condvar_wait_timed(&cv_, &mu.mu_, timeout_us)) return false;
-    }
-    return true;
-  }
-
-  // Wake up one waiter.
-  void Signal() { condvar_signal(&cv_); }
-
-  // Wake up all waiters.
-  void SignalAll() { condvar_broadcast(&cv_); }
-
- private:
-  condvar_t cv_;
-};
-
-// Golang-like waitgroup support.
-class WaitGroup {
- public:
-  // initializes a waitgroup with zero jobs.
-  WaitGroup() noexcept { waitgroup_init(&wg_); };
-
-  // Initializes a waitgroup with @count jobs.
-  explicit WaitGroup(int count) noexcept {
-    waitgroup_init(&wg_);
-    waitgroup_add(&wg_, count);
-  }
-
-  ~WaitGroup() { assert(wg_.cnt == 0); };
-
-  WaitGroup(WaitGroup &&) = delete;
-  WaitGroup &operator=(WaitGroup &&) = delete;
-  WaitGroup(const WaitGroup &) = delete;
-  WaitGroup &operator=(const WaitGroup &) = delete;
-
-  // Changes the number of jobs (can be negative).
-  void Add(int count) { waitgroup_add(&wg_, count); }
-
-  // Decrements the number of jobs by one.
-  void Done() { Add(-1); }
-
-  // Block until the number of jobs reaches zero.
-  void Wait() { waitgroup_wait(&wg_); }
-
- private:
-  waitgroup_t wg_;
-};
-
-// Blocks the thread forever (doesn't return).
-inline void WaitForever() {
-  Preempt p;
-  PreemptGuardAndPark g(p);
-}
-
-// Reader-Writer mutex; works with C++ std::unique_lock/std::shared_lock.
 class SharedMutex {
  public:
-  SharedMutex() { rwmutex_init(&mu_); }
-  ~SharedMutex() = default;
+  SharedMutex() noexcept = default;
+  ~SharedMutex() { assert(!IsHeld()); }
 
-  // Locks the mutex in write mode.
-  void lock() { rwmutex_wrlock(&mu_); }
-
-  // Locks the mutex in write mode only if it is currently unlocked.
-  // Returns true if successful.
-  bool try_lock() { return rwmutex_try_wrlock(&mu_); }
-
-  // Unlocks the mutex.
-  void unlock() { rwmutex_unlock(&mu_); }
-
-  // Locks the mutex in read mode.
-  void lock_shared() { rwmutex_rdlock(&mu_); }
-
-  // Unlocks the mutex.
-  void unlock_shared() { rwmutex_unlock(&mu_); }
-
-  // Locks the mutex in read mode only if it is currently write unlocked.
-  // Returns true if successful.
-  bool try_lock_shared() { return rwmutex_try_rdlock(&mu_); }
-
-  /* no copying or moving*/
+  // disable copy and move
   SharedMutex(const SharedMutex &) = delete;
   SharedMutex &operator=(const SharedMutex &) = delete;
   SharedMutex(SharedMutex &&) = delete;
-  SharedMutex &operator=(const SharedMutex &&) = delete;
+  SharedMutex &operator=(SharedMutex &&) = delete;
+
+  // IsHeld() returns true if the lock is held.
+  [[nodiscard]] bool IsHeld() const { return cnt_ != 0; }
+
+  //
+  // Exclusive (writer) lock API
+  //
+
+  // Lock acquires the lock as a writer.
+  void Lock();
+
+  // TryLock acquires the lock as a writer if not held by readers or a writer.
+  // Returns true if acquired.
+  [[nodiscard]] bool TryLock();
+
+  // InterruptibleLock acquires the lock if a signal is not pending. Returns
+  // true if acquired.
+  [[nodiscard]] bool InterruptibleLock();
+
+  // Unlock releases the mutex as a writer.
+  void Unlock();
+
+  //
+  // Shared (reader) lock API
+  //
+
+  // LockShared acquires the lock as a reader.
+  void LockShared();
+
+  // TryLockShared acquires the lock as a reader if not held by a writer.
+  // Returns true if acquired.
+  [[nodiscard]] bool TryLockShared();
+
+  // InterruptibleLockShared acquires the lock as a reader if a signal is not
+  // pending. Returns true if acquired.
+  [[nodiscard]] bool InterruptibleLockShared();
+
+  // UnlockShared releases the mutex as a reader.
+  void UnlockShared();
 
  private:
-  rwmutex_t mu_;
+  void WakeAllShared(WaitQueue &dst);
+  void WakeOneExclusive(WaitQueue &dst);
+
+  Spin lock_;
+  int cnt_{0};         // >0 for # of readers, 0 for unlocked, -1 for a writer
+  int shared_cnt_{0};  // number of entries in the shared_queue_
+  WaitQueue exclusive_queue_;
+  WaitQueue shared_queue_;
 };
+
+// forward declaration
+template <Wakeable T>
+class WakeOnTimeout;
+
+class ConditionVariable {
+ public:
+  ConditionVariable() noexcept = default;
+  ~ConditionVariable() = default;
+
+  // disable move and copy
+  ConditionVariable(ConditionVariable &&) = delete;
+  ConditionVariable &operator=(ConditionVariable &&) = delete;
+  ConditionVariable(const ConditionVariable &) = delete;
+  ConditionVariable &operator=(const ConditionVariable &) = delete;
+
+  // Wait blocks until the condition variable is notified.
+  // The condition should be rechecked after wakeup.
+  void Wait(Mutex &mu);
+
+  // WaitFor blocks until the condition variable is notified or the duration
+  // has elapsed. Returns true if notified (not a timeout).
+  // The condition should be rechecked after wakeup.
+  [[nodiscard]] bool WaitFor(Mutex &mu, Duration d);
+
+  // WaitUntil blocks until the condition variable is notified or a timepoint
+  // is reached. Returns true if notified (not a timeout).
+  // The condition should be rechecked after wakeup.
+  [[nodiscard]] bool WaitUntil(Mutex &mu, Time t);
+
+  // WaitInterruptible blocks until the condition variable is notified or a
+  // signal is pending. Returns true if notified (not a signal pending).
+  // The condition should be rechecked after wakeup.
+  [[nodiscard]] bool WaitInterruptible(Mutex &mu);
+
+  // WaitInterruptibleFor blocks until the condition variable is notified or the
+  // duration has elapsed. Returns EINTR if interrupted, ETIMEDOUT if timed out,
+  // otherwise success. The condition should be rechecked after wakeup.
+  Status<void> WaitInterruptibleFor(Mutex &mu, Duration d);
+
+  // WaitInterruptibleUntil blocks until the condition variable is notified or a
+  // timepoint is reached. Returns EINTR if interrupted, ETIMEDOUT if timed out,
+  // otherwise success. The condition should be rechecked after wakeup.
+  Status<void> WaitInterruptibleUntil(Mutex &mu, Time t);
+
+  //
+  // predicate variants of the above
+  //
+  template <typename Predicate>
+  void Wait(Mutex &mu, Predicate stop) {
+    while (!stop()) Wait(mu);
+  }
+  template <typename Predicate>
+  bool WaitFor(Mutex &mu, Duration d, Predicate stop) {
+    while (!stop()) {
+      if (!WaitFor(mu, d)) return false;
+    }
+    return true;
+  }
+  template <typename Predicate>
+  bool WaitUntil(Mutex &mu, Time t, Predicate stop) {
+    while (!stop()) {
+      if (!WaitUntil(mu, t)) return false;
+    }
+    return true;
+  }
+  template <typename Predicate>
+  bool WaitInterruptible(Mutex &mu, Predicate stop) {
+    while (!stop()) {
+      if (!WaitInterruptible(mu)) return false;
+    }
+    return true;
+  }
+  template <typename Predicate>
+  Status<void> WaitInterruptibleFor(Mutex &mu, Duration d, Predicate stop) {
+    while (!stop()) {
+      Status<void> ret = WaitInterruptibleFor(mu, d);
+      if (!ret) return MakeError(ret);
+    }
+    return {};
+  }
+  template <typename Predicate>
+  Status<void> WaitInterruptibleUntil(Mutex &mu, Time t, Predicate stop) {
+    while (!stop()) {
+      Status<void> ret = WaitInterruptibleUntil(mu, t);
+      if (!ret) return MakeError(ret);
+    }
+    return {};
+  }
+
+  // Notify wakes one waiter.
+  void Notify();
+
+  // NotifyAll walkes all waiters.
+  void NotifyAll();
+
+ private:
+  bool DoWait(Mutex &mu, WaitQueue &queue, bool block,
+              const WakeOnTimeout<WaitQueue> *timeout = nullptr);
+
+  WaitQueue queue_;
+  Mutex *lock_{nullptr};
+};
+
+// Latch provides a barrier abstraction similar to std::latch. A latch cannot
+// be reused after its countdown has reached zero.
+class Latch {
+ public:
+  explicit Latch(int count) noexcept : cnt_(count) {}
+  ~Latch() = default;
+
+  // disable move and copy
+  Latch(Latch &&) = delete;
+  Latch &operator=(Latch &&) = delete;
+  Latch(const Latch &) = delete;
+  Latch &operator=(const Latch &) = delete;
+
+  // CountDown decrements the counter by @count and wakes the waiters if zero
+  // is reached.
+  void CountDown(int count);
+
+  // TryWait returns true if the internal counter has reached zero.
+  [[nodiscard]] bool TryWait();
+
+  // Wait blocks until the internal counter reaches zero.
+  void Wait();
+
+  // ArriveAndWait decrements the internal counter by @count and blocks until
+  // it reaches zero.
+  void ArriveAndWait(int count = 1);
+
+  // WaitInterruptible blocks until the internal counter reaches zero. Returns
+  // true if not interrupted by a signal.
+  [[nodiscard]] bool WaitInterruptible();
+
+  // ArriveAndWaitInterruptible decrements the internal counter by @count and
+  // blocks until it reaches zero. Returns true if not interrupted by a signal.
+  [[nodiscard]] bool ArriveAndWaitInterruptible(int count = 1);
+
+  // POSIXWaitInterruptible provides the same behavior as
+  // ArriveAndWaitInterruptible with @count = 1. In addition, @serial_thread
+  // is set to true for exactly one waiting thread. This variant should not be
+  // used normally, but it is provided as a building block for supporting POSIX
+  // barriers (which need to identify the serial thread). Returns true if not
+  // interrupted by a signal.
+  [[nodiscard]] bool POSIXWaitInterruptible(bool *serial_thread = nullptr);
+
+ private:
+  Spin lock_;
+  int cnt_;
+  WaitQueue queue_;
+};
+
+// WaitForever blocks the thread forever (doesn't return).
+inline void WaitForever() {
+  Preempt::Lock();
+  Preempt::UnlockAndPark();
+}
+
+// Convenient shorthands
+using SpinGuard = ScopedLock<Spin>;
+using MutexGuard = ScopedLock<Mutex>;
+using PreemptGuard = ScopedLock<Preempt>;
+using SharedMutexGuard = ScopedSharedLock<SharedMutex>;
 
 }  // namespace junction::rt

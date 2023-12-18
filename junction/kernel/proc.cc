@@ -23,7 +23,6 @@ extern "C" {
 #include "junction/bindings/runtime.h"
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
-#include "junction/bindings/wait.h"
 #include "junction/junction.h"
 #include "junction/kernel/futex.h"
 #include "junction/kernel/ksys.h"

@@ -7,11 +7,13 @@ extern "C" {
 #include <runtime/timer.h>
 }
 
+#include <functional>
 #include <optional>
 #include <utility>
 
 #include "junction/base/compiler.h"
 #include "junction/base/time.h"
+#include "junction/bindings/sync.h"
 
 namespace junction::rt {
 
@@ -90,5 +92,88 @@ inline void SleepInterruptibleUntil(Time t) {
 inline void SleepInterruptible(Duration d) {
   timer_sleep_interruptible(d.Microseconds());
 }
+
+// WakeOnTimeout wakes the running thread (if it later blocks) when a timer
+// expires.
+//
+// This API is designed to be armed without holding the waiter's lock to reduce
+// the size of critical sections.
+//
+// Example: Wait for a condition or a 10ms timeout.
+//  rt::Spin lock;
+//  rt::ThreadWaker w;
+//  WakeOnTimeout timeout(lock, w, 10_ms);
+//  {
+//    rt::SpinGuard g(lock);
+//    Wait(lock, w, [&timeout] { return cond || timeout; });
+//    // Do something
+//  }
+template <Wakeable T>
+class WakeOnTimeout {
+ public:
+  [[nodiscard]] WakeOnTimeout(Spin &lock, T &waker, Duration timeout)
+      : end_time_(Time::Now() + timeout),
+        lock_(lock),
+        waker_(waker),
+        timer_([this] { DoWake(); }) {
+    timer_.StartAt(end_time_);
+  }
+  [[nodiscard]] WakeOnTimeout(Spin &lock, T &waker, Time timeout)
+      : end_time_(timeout),
+        lock_(lock),
+        waker_(waker),
+        timer_([this] { DoWake(); }) {
+    timer_.StartAt(end_time_);
+  }
+  [[nodiscard]] WakeOnTimeout(Spin &lock, T &waker,
+                              std::optional<Duration> timeout)
+      : lock_(lock), waker_(waker), timer_([this] { DoWake(); }) {
+    if (timeout) {
+      end_time_ = Time::Now() + *timeout;
+      timer_.StartAt(end_time_);
+    }
+  }
+  [[nodiscard]] WakeOnTimeout(Spin &lock, T &waker, std::optional<Time> timeout)
+      : lock_(lock), waker_(waker), timer_([this] { DoWake(); }) {
+    if (timeout) {
+      end_time_ = *timeout;
+      timer_.StartAt(end_time_);
+    }
+  }
+  ~WakeOnTimeout() { Stop(); }
+
+  // disable copy and move.
+  WakeOnTimeout(const WakeOnTimeout &) = delete;
+  WakeOnTimeout &operator=(const WakeOnTimeout &) = delete;
+  WakeOnTimeout(WakeOnTimeout &&) = delete;
+  WakeOnTimeout &operator=(WakeOnTimeout &&) = delete;
+
+  explicit operator bool() const { return timed_out_; }
+
+  // Stop cancels the timer, returning true if cancelled before firing.
+  bool Stop() { return timer_.Cancel().has_value(); }
+
+  // TimeLeft returns the duration until the timer expires. If the timer is
+  // unarmed because of an optional duration or time, the behavior is
+  // undefined.
+  [[nodiscard]] Duration TimeLeft() const {
+    Duration d = Duration::Until(end_time_);
+    if (d < Duration(0)) return Duration(0);
+    return d;
+  }
+
+ private:
+  void DoWake() {
+    rt::SpinGuard g(lock_);
+    if (waker_.WakeThread(th_)) timed_out_ = true;
+  }
+
+  Time end_time_;
+  Spin &lock_;
+  T &waker_;
+  thread_t *th_{thread_self()};
+  bool timed_out_{false};
+  Timer<std::function<void()>> timer_;
+};
 
 }  // namespace junction::rt

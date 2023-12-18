@@ -67,7 +67,8 @@ class AsyncBase {
 
     // slow path
     rt::SpinGuard g(lock_);
-    g.Park(waker_, [this] { return done_.load(std::memory_order_relaxed); });
+    rt::Wait(lock_, waker_,
+             [this] { return done_.load(std::memory_order_relaxed); });
   }
 
  private:

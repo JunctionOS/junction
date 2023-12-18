@@ -429,4 +429,35 @@ inline Thread &mythread() { return Thread::fromCaladanThread(thread_self()); }
 // Behavior is undefined if the running thread is not part of a process.
 inline Process &myproc() { return mythread().get_process(); }
 
+// SigMaskGuard masks signal delivery during its lifetime. The previous signal
+// mask is restored unless a signal is pending, in which case the old mask is
+// restored after the signal is delivered.
+//
+// WARNING: The calling thread must be a Junction kernel thread.
+class SigMaskGuard {
+ public:
+  [[nodiscard]] explicit SigMaskGuard(std::optional<k_sigset_t> mask) {
+    assert(IsJunctionThread());
+    if (!mask) return;
+
+    ThreadSignalHandler &handler = mythread().get_sighand();
+    handler.ReplaceAndSaveBlocked(*mask);
+  }
+  [[nodiscard]] explicit SigMaskGuard(k_sigset_t mask) {
+    assert(IsJunctionThread());
+    ThreadSignalHandler &handler = mythread().get_sighand();
+    handler.ReplaceAndSaveBlocked(mask);
+  }
+  ~SigMaskGuard() {
+    ThreadSignalHandler &handler = mythread().get_sighand();
+    if (handler.RestoreBlockedNeeded()) handler.RestoreBlocked();
+  }
+
+  // disable copy and move.
+  SigMaskGuard(const SigMaskGuard &) = delete;
+  SigMaskGuard &operator=(const SigMaskGuard &) = delete;
+  SigMaskGuard(SigMaskGuard &&) = delete;
+  SigMaskGuard &operator=(SigMaskGuard &&) = delete;
+};
+
 }  // namespace junction

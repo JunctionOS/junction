@@ -6,7 +6,6 @@
 #include <memory>
 
 #include "junction/base/byte_channel.h"
-#include "junction/bindings/wait.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -65,7 +64,7 @@ Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
     // Channel is empty, block and wait.
     assert(ret.error() == EAGAIN);
     rt::SpinGuard guard(lock_);
-    bool signaled = WaitInterruptible(lock_, read_waker_, [this] {
+    bool signaled = !rt::WaitInterruptible(lock_, read_waker_, [this] {
       return !chan_.is_empty() || writer_is_closed();
     });
     if (writer_is_closed() && chan_.is_empty()) return 0;
@@ -104,7 +103,7 @@ Status<size_t> Pipe::Write(std::span<const std::byte> buf, bool nonblocking) {
     // Channel is full, block and wait.
     assert(ret.error() == EAGAIN);
     rt::SpinGuard guard(lock_);
-    bool signaled = WaitInterruptible(lock_, write_waker_, [this] {
+    bool signaled = !rt::WaitInterruptible(lock_, write_waker_, [this] {
       return !chan_.is_full() || reader_is_closed();
     });
     if (reader_is_closed()) return MakeError(EPIPE);

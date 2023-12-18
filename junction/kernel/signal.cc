@@ -15,7 +15,6 @@ void thread_finish_yield(void);
 #include <cstring>
 
 #include "junction/bindings/log.h"
-#include "junction/bindings/wait.h"
 #include "junction/junction.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/sigframe.h"
@@ -965,9 +964,9 @@ int usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
   if (!hand.any_sig_ready() && (!timeout || !timeout->IsZero())) {
     rt::ThreadWaker w;
     rt::Spin lock;
-    WakeOnTimeout timed_out(lock, w, timeout);
+    rt::WakeOnTimeout timed_out(lock, w, timeout);
     rt::SpinGuard g(lock);
-    WaitInterruptible(lock, w, [&timed_out] { return !!timed_out; });
+    rt::WaitInterruptible(lock, w, [&timed_out] { return !!timed_out; });
     again = !!timed_out;
   }
 
@@ -991,7 +990,7 @@ int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
     rt::Preempt p;
     rt::ThreadWaker w;
     rt::PreemptGuard g(p);
-    WaitInterruptible(p, w);
+    rt::WaitInterruptible(p, w);
   }
 
   return -ERESTARTNOHAND;

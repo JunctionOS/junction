@@ -7,7 +7,6 @@ extern "C" {
 #include "junction/base/finally.h"
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
-#include "junction/bindings/wait.h"
 #include "junction/kernel/futex.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -26,7 +25,7 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
   detail::futex_bucket &bucket = get_bucket(key);
 
   rt::ThreadWaker w;
-  WakeOnTimeout timed_out(bucket.lock, w, timeout);
+  rt::WakeOnTimeout timed_out(bucket.lock, w, timeout);
   bool signaled;
   detail::futex_waiter waiter{&w, key, bitset};
 
@@ -36,7 +35,7 @@ Status<void> FutexTable::Wait(uint32_t *key, uint32_t val, uint32_t bitset,
     if (read_once(*key) != val) return MakeError(EAGAIN);
 
     bucket.futexes.push_back(waiter);
-    signaled = WaitInterruptible(bucket.lock, w, [&waiter, &timed_out] {
+    signaled = !rt::WaitInterruptible(bucket.lock, w, [&waiter, &timed_out] {
       return !waiter.waker || timed_out;
     });
 

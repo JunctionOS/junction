@@ -19,7 +19,7 @@ inline constexpr uint32_t kInitMagic = 0xDEADBEEF;
 
 struct ShimCondVar {
   uint32_t init_magic{kInitMagic};
-  rt::CondVar cv;
+  rt::ConditionVariable cv;
   clockid_t clockid;
   static inline void InitCheck(ShimCondVar *cv) {
     if (unlikely(cv->init_magic != kInitMagic)) new (cv) ShimCondVar();
@@ -46,7 +46,7 @@ struct ShimMutex {
 
 struct ShimRWMutex {
   uint32_t init_magic{kInitMagic};
-  rt::RWMutex rwmutex;
+  rt::SharedMutex rwmutex;
   static inline void InitCheck(ShimRWMutex *m) {
     if (unlikely(m->init_magic != kInitMagic)) new (m) ShimRWMutex();
   }
@@ -58,7 +58,7 @@ struct ShimRWMutex {
 };
 
 struct ShimBarrier {
-  rt::Barrier br;
+  rt::Latch br;
   ShimBarrier(int count) : br(count) {}
   static inline ShimBarrier *fromPthread(pthread_barrier_t *m) {
     return reinterpret_cast<ShimBarrier *>(m);
@@ -112,8 +112,10 @@ int shim_pthread_barrier_init(pthread_barrier_t *__restrict barrier,
 int shim_pthread_barrier_wait(pthread_barrier_t *barrier) {
   ShimBarrier *b = ShimBarrier::fromPthread(barrier);
 
-  if (b->br.Wait()) return PTHREAD_BARRIER_SERIAL_THREAD;
-
+  bool serial_thread;
+  // TODO: handle interruptible part
+  b->br.POSIXWaitInterruptible(&serial_thread);
+  if (serial_thread) return PTHREAD_BARRIER_SERIAL_THREAD;
   return 0;
 }
 
@@ -135,13 +137,13 @@ int shim_pthread_cond_init(pthread_cond_t *__restrict cond,
 
 int shim_pthread_cond_signal(pthread_cond_t *cond) {
   ShimCondVar *c = ShimCondVar::fromPthread(cond);
-  c->cv.Signal();
+  c->cv.Notify();
   return 0;
 }
 
 int shim_pthread_cond_broadcast(pthread_cond_t *cond) {
   ShimCondVar *c = ShimCondVar::fromPthread(cond);
-  c->cv.SignalAll();
+  c->cv.NotifyAll();
   return 0;
 }
 
@@ -164,7 +166,7 @@ int shim_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex,
   uint64_t now_us = now_ts.tv_sec * kSeconds + now_ts.tv_nsec / 1000;
 
   if (wait_us <= now_us) return ETIMEDOUT;
-  bool done = c->cv.WaitFor(m->mutex, wait_us - now_us);
+  bool done = c->cv.WaitFor(m->mutex, Duration(wait_us - now_us));
   return done ? 0 : ETIMEDOUT;
 }
 
@@ -188,23 +190,23 @@ int shim_pthread_rwlock_init(pthread_rwlock_t *r,
 
 int shim_pthread_rwlock_rdlock(pthread_rwlock_t *r) {
   ShimRWMutex *rw = ShimRWMutex::fromPthread(r);
-  rw->rwmutex.RdLock();
+  rw->rwmutex.LockShared();
   return 0;
 }
 
 int shim_pthread_rwlock_tryrdlock(pthread_rwlock_t *r) {
   ShimRWMutex *rw = ShimRWMutex::fromPthread(r);
-  return rw->rwmutex.TryRdLock() ? 0 : EBUSY;
+  return rw->rwmutex.TryLockShared() ? 0 : EBUSY;
 }
 
 int shim_pthread_rwlock_trywrlock(pthread_rwlock_t *r) {
   ShimRWMutex *rw = ShimRWMutex::fromPthread(r);
-  return rw->rwmutex.TryWrLock() ? 0 : EBUSY;
+  return rw->rwmutex.TryLock() ? 0 : EBUSY;
 }
 
 int shim_pthread_rwlock_wrlock(pthread_rwlock_t *r) {
   ShimRWMutex *rw = ShimRWMutex::fromPthread(r);
-  rw->rwmutex.WrLock();
+  rw->rwmutex.Lock();
   return 0;
 }
 
