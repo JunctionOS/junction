@@ -1,19 +1,19 @@
-From ebdcf2c9f91db95dc052cdfa77e8befeece7117a Mon Sep 17 00:00:00 2001
+From 8f799cff25eb438015f1ed27aa483d6791019762 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 21 Nov 2023 16:00:02 -0500
 Subject: [PATCH 31/31] thread and thread_tf updates
 
 ---
  inc/runtime/interruptible_wait.h |  5 +--
- inc/runtime/thread.h             | 52 +++++++++-----------------------
+ inc/runtime/thread.h             | 53 +++++++++-----------------------
  runtime/defs.h                   |  2 +-
  runtime/interruptible_wait.c     |  1 -
- runtime/sched.c                  |  8 ++---
+ runtime/sched.c                  |  9 +++---
  runtime/switch.S                 |  3 +-
- 6 files changed, 22 insertions(+), 49 deletions(-)
+ 6 files changed, 24 insertions(+), 49 deletions(-)
 
 diff --git a/inc/runtime/interruptible_wait.h b/inc/runtime/interruptible_wait.h
-index 4fc6333..8511a06 100644
+index 4fc6333..56f1c4c 100644
 --- a/inc/runtime/interruptible_wait.h
 +++ b/inc/runtime/interruptible_wait.h
 @@ -8,8 +8,9 @@
@@ -23,13 +23,13 @@ index 4fc6333..8511a06 100644
 -extern bool sched_needs_signal_check(thread_t *th);
 -extern void deliver_signals_jmp_thread(thread_t *th);
 +static inline bool sched_needs_signal_check(thread_t *th) {
-+	return th->junction_thread & !th->in_syscall;
++	return th->junction_thread && !th->in_syscall;
 +}
  
  // Returns true if this thread was interrupted.
  // @th must be thread_self().
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index b371b4a..c2e48b6 100644
+index b371b4a..3cba36e 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -82,6 +82,7 @@ struct thread_tf {
@@ -40,7 +40,7 @@ index b371b4a..c2e48b6 100644
      uint64_t fsbase; /* holds %fs */
  };
  
-@@ -100,52 +101,27 @@ struct thread_tf {
+@@ -100,52 +101,28 @@ struct thread_tf {
  struct stack;
  
  struct thread {
@@ -49,7 +49,7 @@ index b371b4a..c2e48b6 100644
 +    bool        main_thread:1;
 +    bool        has_fsbase:1;
 +    bool        thread_ready:1;
-+    bool        junction_thread:1;
++    bool        junction_thread;
 +    bool        thread_running;
 +    bool        in_syscall;
 +    atomic_t        interrupt_state;
@@ -75,6 +75,7 @@ index b371b4a..c2e48b6 100644
 -
 +    struct thread_tf    tf;
 +    struct list_node    link;
++    bool        link_armed;
  #ifdef GC
      struct list_node    gc_link;
      unsigned int        onk;
@@ -131,7 +132,7 @@ index 901ef84..0725eec 100644
  void __weak deliver_signals_jmp_thread(thread_t *th) {}
 \ No newline at end of file
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 4810995..629cd8a 100644
+index 4810995..8e2a43e 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -78,7 +78,7 @@ static inline bool cores_have_affinity(unsigned int cpua, unsigned int cpub)
@@ -168,12 +169,13 @@ index 4810995..629cd8a 100644
  	ACCESS_ONCE(k->q_ptrs->run_start_tsc) = perthread_get_stable(last_tsc);
  
  	/* increment the RCU generation number (odd is in thread) */
-@@ -853,7 +851,7 @@ static __always_inline thread_t *__thread_create(void)
+@@ -853,7 +851,8 @@ static __always_inline thread_t *__thread_create(void)
  	th->has_fsbase = false;
  	th->thread_ready = false;
  	th->thread_running = false;
 -	th->tlsvar = 0;
 +	th->junction_thread = false;
++	th->link_armed = false;
  	th->cur_kthread = NCPU;
  	atomic_write(&th->interrupt_state, 0);
  

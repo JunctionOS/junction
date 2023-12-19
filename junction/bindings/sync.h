@@ -344,17 +344,24 @@ class WaitQueue {
   // Arm prepares the running thread to block. Can only be called once,
   // must be synchronized by caller.
   void Arm(thread_t *th = thread_self()) {
+    assert(!th->link_armed);
+    th->link_armed = true;
     list_add_tail(&waiters_, &th->link);
   }
 
   // Disarm removes a thread; must be synchronized by caller.
-  void Disarm(thread_t *th) { list_del_from(&waiters_, &th->link); }
+  void Disarm(thread_t *th) {
+    if (!th->link_armed) return;
+    list_del_from(&waiters_, &th->link);
+    th->link_armed = false;
+  }
 
   // Wake up to one thread waiter (must be synchronized by caller)
   // Returns true if a waiter was found and removed from the list.
   bool WakeOne() {
     thread_t *th = list_pop(&waiters_, thread_t, link);
     if (th == nullptr) return false;
+    th->link_armed = false;
     ThreadReady(th);
     return true;
   }
@@ -365,6 +372,7 @@ class WaitQueue {
     while (true) {
       thread_t *th = list_pop(&waiters_, thread_t, link);
       if (th == nullptr) return did_wakeup;
+      th->link_armed = false;
       ThreadReady(th);
       did_wakeup = true;
     }
@@ -373,21 +381,20 @@ class WaitQueue {
   // WakeThread makes a specific thread runnable. Returns true if woken.
   // Must be synchronized by caller.
   bool WakeThread(thread_t *th) {
-    // TODO(amb): the list_for_each macro is broken in C++
-    struct list_node *pos;
-    for (pos = waiters_.n.next; pos != &waiters_.n; pos = pos->next) {
-      if (&th->link == pos) {
-        list_del(pos);
-        ThreadReady(th);
-        return true;
-      }
-    }
-    return false;
+    if (!th->link_armed) return false;
+    list_del_from(&waiters_, &th->link);
+    th->link_armed = false;
+    ThreadReady(th);
+    return true;
   }
 
   // Pop removes a waiter without waking it, so it can be armed on a different
   // WaitQueue. Returns nullptr if there all no waiters.
-  thread_t *Pop() { return list_pop(&waiters_, thread_t, link); }
+  thread_t *Pop() {
+    thread_t *th = list_pop(&waiters_, thread_t, link);
+    if (th) th->link_armed = false;
+    return th;
+  }
 
   // Splice moves all the waiters from another wait queue to this one.
   void Splice(WaitQueue &wq) { list_append_list(&waiters_, &wq.waiters_); }
@@ -495,12 +502,10 @@ bool WaitInterruptible(L &lock, Waker &waker) {
   waker.Arm(th);
   lock.UnlockAndPark();
   lock.Lock();
+  waker.Disarm(th);
 
   // Check if a signal was delivered while blocked.
-  InterruptibleStatus status = GetInterruptibleStatus(th);
-  if (unlikely(status == InterruptibleStatus::kPendingAndDisarm))
-    waker.Disarm(th);
-  return status == InterruptibleStatus::kNone;
+  return GetInterruptibleStatus(th) == InterruptibleStatus::kNone;
 }
 
 // WaitInterruptible blocks the calling thread until the predicate becomes true
@@ -542,14 +547,16 @@ bool WaitInterruptibleNoRecheck(UniqueLock<L> &&lock, Waker &waker) {
 
   // Check if a signal was delivered while blocked.
   InterruptibleStatus status = GetInterruptibleStatus(th);
-  if (unlikely(status == InterruptibleStatus::kPendingAndDisarm)) {
+  if (unlikely(status != InterruptibleStatus::kNone)) {
+    // If a signal was delivered, use lock to synchronize with waker thread to
+    // ensure that the waker object is disarmed before returning.
     lock.Lock();
-    // The waker may have already disarmed the thread because the lock was not
-    // held until now, but that's okay. It can safely be disarmed twice.
     waker.Disarm(th);
     lock.Unlock();
+    return false;
   }
-  return status == InterruptibleStatus::kNone;
+
+  return true;
 }
 
 // Disables preemption across a critical section.
