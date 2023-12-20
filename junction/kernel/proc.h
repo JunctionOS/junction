@@ -237,7 +237,9 @@ class Process : public std::enable_shared_from_this<Process> {
  public:
   // Constructor for init process
   Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm, pid_t pgid)
-      : pid_(pid), pgid_(pgid), mem_map_(std::move(mm)), parent_(nullptr) {}
+      : pid_(pid), pgid_(pgid), mem_map_(std::move(mm)), parent_(nullptr) {
+    RegisterProcess(*this);
+  }
   // Constructor for all other processes
   Process(pid_t pid, std::shared_ptr<MemoryMap> mm, FileTable &ftbl,
           rt::ThreadWaker &&w, std::shared_ptr<Process> parent, pid_t pgid)
@@ -246,14 +248,18 @@ class Process : public std::enable_shared_from_this<Process> {
         vfork_waker_(std::move(w)),
         file_tbl_(ftbl),
         mem_map_(std::move(mm)),
-        parent_(std::move(parent)) {}
+        parent_(std::move(parent)) {
+    RegisterProcess(*this);
+  }
   // Constructor for restoring from a snapshot
   Process(ProcessMetadata const &pm)
       : pid_(pm.GetPid()),
         pgid_(pm.GetPgid()),
         xstate_(pm.GetXstate()),
         exited_(pm.GetExited()),
-        limit_nofile_(pm.GetLimitNofile()) {}
+        limit_nofile_(pm.GetLimitNofile()) {
+    RegisterProcess(*this);
+  }
   ~Process();
 
   Process(Process &&) = delete;
@@ -411,6 +417,30 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Timers
   ITimer it_real_{*this};
+
+  static rt::Spin pgid_map_lock_;
+  static std::map<pid_t, Process *> pgid_to_proc_;
+
+  static void RegisterProcess(Process &p) {
+    rt::SpinGuard g(pgid_map_lock_);
+    pgid_to_proc_[p.get_pgid()] = &p;
+  }
+
+  static void DeregisterProcess(Process &p) {
+    rt::SpinGuard g(pgid_map_lock_);
+    size_t nr_removed = pgid_to_proc_.erase(p.get_pgid());
+    assert(nr_removed == 1);
+  }
+
+  static std::shared_ptr<Process> FindProcess(pid_t pgid) {
+    rt::SpinGuard g(pgid_map_lock_);
+    auto it = pgid_to_proc_.find(pgid);
+    if (it == pgid_to_proc_.end()) return {};
+
+    // Might be racing with Process destructor, ensure that ref count has no
+    // already hit 0.
+    return it->second->weak_from_this().lock();
+  }
 };
 
 // Create a new process.

@@ -209,7 +209,12 @@ void Process::ProcessFinish() {
   }
 }
 
-Process::~Process() { ReleasePid(pid_, pgid_); }
+rt::Spin Process::pgid_map_lock_;
+std::map<pid_t, Process *> Process::pgid_to_proc_;
+Process::~Process() {
+  DeregisterProcess(*this);
+  ReleasePid(pid_, pgid_);
+}
 
 void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
   file_tbl_.DoCloseOnExec();
