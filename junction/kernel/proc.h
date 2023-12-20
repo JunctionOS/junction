@@ -374,6 +374,16 @@ class Process : public std::enable_shared_from_this<Process> {
   Status<Process *> FindWaitableProcess(idtype_t idtype, id_t id,
                                         unsigned int wait_flags);
 
+  static std::shared_ptr<Process> Find(pid_t pid) {
+    rt::SpinGuard g(pid_map_lock_);
+    auto it = pid_to_proc_.find(pid);
+    if (it == pid_to_proc_.end()) return {};
+
+    // Might be racing with Process destructor, ensure that ref count has not
+    // already hit 0.
+    return it->second->weak_from_this().lock();
+  }
+
  private:
   const pid_t pid_;     // the process identifier
   pid_t pgid_;          // the process group identifier
@@ -418,28 +428,18 @@ class Process : public std::enable_shared_from_this<Process> {
   // Timers
   ITimer it_real_{*this};
 
-  static rt::Spin pgid_map_lock_;
-  static std::map<pid_t, Process *> pgid_to_proc_;
+  static rt::Spin pid_map_lock_;
+  static std::map<pid_t, Process *> pid_to_proc_;
 
   static void RegisterProcess(Process &p) {
-    rt::SpinGuard g(pgid_map_lock_);
-    pgid_to_proc_[p.get_pgid()] = &p;
+    rt::SpinGuard g(pid_map_lock_);
+    pid_to_proc_[p.get_pid()] = &p;
   }
 
   static void DeregisterProcess(Process &p) {
-    rt::SpinGuard g(pgid_map_lock_);
-    size_t nr_removed = pgid_to_proc_.erase(p.get_pgid());
+    rt::SpinGuard g(pid_map_lock_);
+    size_t nr_removed = pid_to_proc_.erase(p.get_pid());
     assert(nr_removed == 1);
-  }
-
-  static std::shared_ptr<Process> FindProcess(pid_t pgid) {
-    rt::SpinGuard g(pgid_map_lock_);
-    auto it = pgid_to_proc_.find(pgid);
-    if (it == pgid_to_proc_.end()) return {};
-
-    // Might be racing with Process destructor, ensure that ref count has no
-    // already hit 0.
-    return it->second->weak_from_this().lock();
   }
 };
 

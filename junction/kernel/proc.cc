@@ -209,8 +209,8 @@ void Process::ProcessFinish() {
   }
 }
 
-rt::Spin Process::pgid_map_lock_;
-std::map<pid_t, Process *> Process::pgid_to_proc_;
+rt::Spin Process::pid_map_lock_;
+std::map<pid_t, Process *> Process::pid_to_proc_;
 Process::~Process() {
   DeregisterProcess(*this);
   ReleasePid(pid_, pgid_);

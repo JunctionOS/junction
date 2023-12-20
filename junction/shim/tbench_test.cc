@@ -141,8 +141,7 @@ void TestRestartSys() {
 
   int ret = sigsuspend(&empty);
   auto end = std::chrono::steady_clock::now();
-  using sec = std::chrono::duration<double, std::micro>;
-  auto usec = std::chrono::duration_cast<sec>(end - start).count();
+  auto usec = std::chrono::duration_cast<us>(end - start).count();
 
   th.join();
 
@@ -401,6 +400,29 @@ void BenchPipe(int measure_rounds) {
   close(fds[1]);
 }
 
+void TestKill() {
+  pid_t child;
+  const char *const args[] = {"/bin/sleep", "10", NULL};
+  extern char **environ;
+
+  auto start = std::chrono::steady_clock::now();
+  auto ret = posix_spawn(&child, args[0], nullptr, nullptr,
+                         const_cast<char *const *>(args), environ);
+  EXPECT_EQ(ret, 0);
+
+  errno = 0;
+  EXPECT_EQ(kill(child, SIGKILL), 0);
+  EXPECT_EQ(errno, 0);
+  EXPECT_EQ(child, waitpid(child, nullptr, 0));
+  auto end = std::chrono::steady_clock::now();
+  auto usec = std::chrono::duration_cast<us>(end - start).count();
+
+  // If kill() does not work, we expect to see a 10 second delay.
+  // Otherwise, this test should run quickly. Pick 1 second as the upper bound,
+  // though if the test is interrupt for > 1s this test may fail.
+  EXPECT_LE(usec, 1000000);
+}
+
 void BenchPosixSpawn(int measure_rounds) {
   for (int i = 0; i < measure_rounds; i++) {
     int pipefds[2];
@@ -421,9 +443,10 @@ void BenchPosixSpawn(int measure_rounds) {
     EXPECT_EQ(ret, 0);
 
     pid_t child;
-    char *const args[2] = {POSIX_SPAWN_CHILD_BIN, nullptr};
+    const char *const args[2] = {POSIX_SPAWN_CHILD_BIN, nullptr};
     extern char **environ;
-    ret = posix_spawn(&child, args[0], &file_actions, nullptr, args, environ);
+    ret = posix_spawn(&child, args[0], &file_actions, nullptr,
+                      const_cast<char *const *>(args), environ);
     EXPECT_EQ(ret, 0);
 
     ret = posix_spawn_file_actions_destroy(&file_actions);
@@ -711,6 +734,7 @@ TEST_F(ThreadingTest, SignalBlocked) { TestOneSignalBlocked(); }
 TEST_F(ThreadingTest, SignalNotBlocked) { TestOneSignalNotBlocked(); }
 
 TEST_F(ThreadingTest, StackedSignals) { TestStackedSignals(); }
+TEST_F(ThreadingTest, TestKill) { TestKill(); }
 
 TEST_F(ThreadingTest, SignalPingPongSpin) {
   Bench("SignalPingPongSpin", BenchSignalPingPongSpin);

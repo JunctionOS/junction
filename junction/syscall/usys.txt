@@ -90,6 +90,7 @@ rt_sigprocmask
 rt_sigreturn
 sigaltstack
 tgkill
+kill
 rt_tgsigqueueinfo
 rt_sigpending
 sched_getaffinity

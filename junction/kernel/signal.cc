@@ -922,20 +922,45 @@ long usys_sigaltstack(const stack_t *ss, stack_t *old_ss) {
   return 0;
 }
 
-long usys_tgkill(pid_t tgid, pid_t tid, int sig) {
-  // TODO: support interprocess signals if needed
-  if (tgid != myproc().get_pid()) return -EPERM;
+long usys_kill(pid_t tgid, int sig) {
+  if (tgid == myproc().get_pid()) {
+    myproc().Signal(sig);
+    return 0;
+  } else {
+    std::shared_ptr<Process> proc = Process::Find(tgid);
+    if (!proc) return -ESRCH;
+    proc->Signal(sig);
+    return 0;
+  }
+}
 
-  Status<void> ret = myproc().SignalThread(tid, sig);
+long usys_tgkill(pid_t tgid, pid_t tid, int sig) {
+  Status<void> ret;
+
+  if (tgid == myproc().get_pid()) {
+    ret = myproc().SignalThread(tid, sig);
+  } else {
+    std::shared_ptr<Process> proc = Process::Find(tgid);
+    if (!proc) return -ESRCH;
+    ret = proc->SignalThread(tid, sig);
+  }
+
   if (unlikely(!ret)) return MakeCError(ret);
   return 0;
 }
 
 long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info) {
-  // TODO: support interprocess signals if needed
-  if (tgid != myproc().get_pid()) return -EPERM;
   info->si_signo = sig;
-  Status<void> ret = myproc().SignalThread(tid, *info);
+
+  Status<void> ret;
+  if (tgid == myproc().get_pid()) {
+    ret = myproc().SignalThread(tid, *info);
+  } else {
+    std::shared_ptr<Process> proc = Process::Find(tgid);
+    if (!proc) return -ESRCH;
+    ret = proc->SignalThread(tid, sig);
+  }
+
   if (unlikely(!ret)) return MakeCError(ret);
   return 0;
 }
