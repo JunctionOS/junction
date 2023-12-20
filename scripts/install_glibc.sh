@@ -26,3 +26,6 @@ cd build
 ../configure --prefix $GLIBC_INSTALL_DIR
 make -j "$(nproc)"
 make install -j "$(nproc)"
+
+# record the set of patches used for this build
+cat $GLIBC_PATCHES_DIR/* | sha256sum >  $GLIBC_DIR/../.glibc_installed_ver

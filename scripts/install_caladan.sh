@@ -20,3 +20,5 @@ git am $CALADAN_PATCHES_DIR/*
 # Install Caladan
 make submodules
 (cd ksched && make -j `nproc`)
+
+cat $CALADAN_PATCHES_DIR/* | sha256sum >  $CALADAN_DIR/../.caladan_installed_ver

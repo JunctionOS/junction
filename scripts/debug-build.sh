@@ -8,6 +8,8 @@ BUILD_DIR=${ROOT_DIR}/build-debug
 BIN_DIR=${ROOT_DIR}/bin
 CMAKE=${BIN_DIR}/bin/cmake
 
+. ${SCRIPT_DIR}/submodule_check.sh
+
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
