@@ -16,8 +16,10 @@ extern "C" {
 namespace junction {
 
 Status<void> SyscallInit() {
-  Status<void> ret = KernelMMapFixed(SYSTBL_TRAMPOLINE_LOC, sizeof(sys_tbl),
-                                     PROT_READ | PROT_WRITE, 0);
+  sysfn_t *dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);
+
+  Status<void> ret =
+      KernelMMapFixed(dst_tbl, sizeof(sys_tbl), PROT_READ | PROT_WRITE, 0);
   if (unlikely(!ret)) return ret;
 
   if (GetCfg().strace_enabled())
@@ -28,7 +30,6 @@ Status<void> SyscallInit() {
     sys_tbl[454] = sys_tbl[452];
   }
 
-  sysfn_t *dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);
   std::memcpy(dst_tbl, sys_tbl, sizeof(sys_tbl));
 
   return {};

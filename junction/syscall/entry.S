@@ -364,12 +364,15 @@ __syscall_trap_exit_loop:
  * This routine saves the trapframe at entry on the stack and stores a pointer
  * in the thread struct. This enables the system call to be restarted easily at
  * a later point. Before returning, checks/applies pending signals.
+ *
+ * NOTE: this routine expects the system call number to be passed as the first
+ * stack argument.
+ *
  */
 .align 16
 .globl junction_fncall_enter
 .type junction_fncall_enter, @function
 junction_fncall_enter:
-
 	// align stack
 	subq $8, %rsp
 
@@ -378,6 +381,9 @@ junction_fncall_enter:
 
 	// save rax to orig_rax
 	pushq %rax
+
+	// get system call number from stack
+	movq 24(%rsp), %rax
 
 	// push return stack pointer
 	leaq  24(%rsp), %r10
@@ -415,6 +421,9 @@ junction_fncall_enter:
 /*
  * junction_fncall_stackswitch_enter - entry point for runtimes that require
  * system calls to run on separate stacks.
+ *
+ * NOTE: this routine expects the system call number to be passed as the first
+ * stack argument.
  */
 .align 16
 .globl junction_fncall_stackswitch_enter
@@ -442,6 +451,9 @@ junction_fncall_stackswitch_enter:
 	// push RIP to new stack
 	movq    (%rsp), %r10
 	movq    %r10, -24(%r11)
+
+	// get system call number from stack
+	movq   8(%rsp), %rax
 
 	// switch to new stack
 	leaq    -24(%r11), %rsp

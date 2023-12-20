@@ -36,6 +36,8 @@ int getMeasureRounds() {
   else
     measure_rounds = std::stoi(std::string(env));
 
+  if (measure_rounds % 2 != 0) measure_rounds++;
+
   std::cout << "Measure rounds: " << measure_rounds << std::endl;
 
   return measure_rounds;

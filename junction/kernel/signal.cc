@@ -81,10 +81,9 @@ asm(R"(
   .type SigKillHandler, @function
   SigKillHandler:
 
-  movl $231, %eax;  // __NR_exit_group
+  push $231;  // __NR_exit_group
   addl $128, %edi; // exit code: 128 + signo
 
-  subq $8, %rsp
   call junction_fncall_enter
   nop
 )");
@@ -797,8 +796,26 @@ extern "C" void deliver_signals_jmp_thread(thread_t *th) {
 }
 
 uint64_t RewindIndirectSystemCall(uint64_t rip) {
-  // rewind seven bytes: ff 14 25 28 0e 20 00    call   *0x200e28
-  return rip - 7;
+  static const uint8_t imm[] = {0xff, 0x14, 0x25};
+  const uint8_t *insns = reinterpret_cast<uint8_t *>(rip);
+
+  // call *(imm): ff 14 25 28 0e 20 00    call   *0x200e28
+  // call *(rax):                ff d0    call   *%rax
+
+  static_assert(SYSTBL_TRAMPOLINE_LOC >> 16 == 0x20);
+  // The 7-byte immediate variant will have a 0x20 at rip - 2 regardless of
+  // which entry point was used. The 2-byte register variant will have an 0xff
+  // at this position
+  bool is_reg_operand = *(insns - 2) == 0xff;
+
+  // check for debug purposes only
+  bool is_imm_operand = memcmp(imm, insns - 7, 3) == 0;
+  assert(is_imm_operand ^ is_reg_operand);
+
+  if (is_reg_operand)
+    return rip - 2;
+  else
+    return rip - 7;
 }
 
 // Restart a syscall by returning to the entry of a usys_* function with the

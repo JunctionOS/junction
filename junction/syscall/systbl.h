@@ -8,7 +8,7 @@
 #include "junction/kernel/usys.h"
 
 #define SYS_NR 456
-#define SYSTBL_TRAMPOLINE_LOC ((void *)0x200000)
+#define SYSTBL_TRAMPOLINE_LOC (0x200000UL)
 
 namespace junction {
 
