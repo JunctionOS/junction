@@ -4,6 +4,9 @@
 
 #pragma once
 
+#ifdef NDEBUG
+#define BOOST_DISABLE_ASSERTS
+#endif
 #include <boost/intrusive/list.hpp>
 
 namespace junction {

@@ -1,6 +1,6 @@
-#include "junction/junction.h"
-
 #include <boost/program_options.hpp>
+#undef assert
+
 #include <filesystem>
 #include <iostream>
 #include <memory>
@@ -28,7 +28,7 @@ JunctionCfg JunctionCfg::singleton_;
 
 namespace po = boost::program_options;
 
-po::options_description JunctionCfg::GetOptions() {
+po::options_description GetOptions() {
   po::options_description desc("Junction options");
   desc.add_options()("help", "produce help message")(
       "chroot_path", po::value<std::string>()->implicit_value(""),
@@ -50,6 +50,8 @@ po::options_description JunctionCfg::GetOptions() {
                                  "use stack switching syscalls");
   return desc;
 }
+
+void JunctionCfg::PrintOptions() { std::cerr << GetOptions(); }
 
 Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   po::options_description desc = GetOptions();

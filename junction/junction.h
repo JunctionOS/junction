@@ -1,6 +1,7 @@
 #pragma once
 
-#include <boost/program_options.hpp>
+#include <memory>
+#include <vector>
 
 #include "junction/base/error.h"
 
@@ -22,8 +23,6 @@ class Process;
 
 class JunctionCfg {
  public:
-  using program_options = boost::program_options::options_description;
-
   [[nodiscard]] const std::string_view get_chroot_path() const {
     return chroot_path;
   }
@@ -50,7 +49,7 @@ class JunctionCfg {
   [[nodiscard]] bool restoring() const { return restore; }
   [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
 
-  [[nodiscard]] program_options GetOptions();
+  static void PrintOptions();
   Status<void> FillFromArgs(int argc, char *argv[]);
   void Print();
 

@@ -129,7 +129,7 @@ void usage() {
   std::cerr
       << "usage: <cfg_file> [junction options]... -- <binary> [binary args]..."
       << std::endl;
-  std::cerr << junction::GetCfg().GetOptions();
+  junction::JunctionCfg::PrintOptions();
 }
 
 int main(int argc, char *argv[]) {

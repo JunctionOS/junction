@@ -673,7 +673,9 @@ long junction_entry_snapshot(char const *elf_pathname,
   if (unlikely(!metadata_written)) {
     return MakeCError(metadata_written);
   } else {
+#ifndef NDEBUG
     assert(*metadata_written == metadata_size);
+#endif
   }
 
   auto const memory_written = memory_map.SerializeMemoryRegions(sn);

@@ -3,7 +3,6 @@
 #pragma once
 
 extern "C" {
-#include <assert.h>
 #include <signal.h>
 #include <stdint.h>
 }
