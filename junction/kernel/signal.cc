@@ -147,11 +147,16 @@ void MoveSigframeToJunctionThread(k_sigframe *sigframe, thread_tf &tf) {
   k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
   new_frame->InvalidateAltStack();
 
-  myth.SetSyscallFrame(new_frame);
-  myth.set_in_syscall(true);
-
-  tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_exit_loop);
   tf.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
+
+  if (!in_syscall) {
+    // arrange a check for pending signals before returning
+    myth.SetSyscallFrame(new_frame);
+    myth.set_in_syscall(true);
+    tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_exit_loop);
+  } else {
+    tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
+  }
 }
 
 // Move a @sigframe to the stack @rsp.
