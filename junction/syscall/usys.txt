@@ -1,5 +1,6 @@
 # add syscalls that are implemented by junction to this file
 access:::passthrough
+chdir:::passthrough
 getpid
 gettid
 arch_prctl
@@ -27,6 +28,7 @@ sendfile
 lseek
 fsync
 close
+close_range
 futex
 sched_yield
 brk

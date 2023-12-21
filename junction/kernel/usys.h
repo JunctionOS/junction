@@ -44,6 +44,7 @@ int usys_dup(int oldfd);
 int usys_dup2(int oldfd, int newfd);
 int usys_dup3(int oldfd, int newfd, int flags);
 long usys_close(int fd);
+long usys_close_range(int first, int last, unsigned int flags);
 long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                      int flags);
 long usys_statfs(const char *path, struct statfs *buf);

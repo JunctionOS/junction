@@ -1,4 +1,4 @@
-From efd70247e0227cf05b8c493996edbc36d8e7f188 Mon Sep 17 00:00:00 2001
+From fd6d4b878ae9e645a245327156fd4af04cb8bfc7 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 22 Aug 2023 15:56:03 +0000
 Subject: [PATCH 7/7] switch syscall format
@@ -7,9 +7,9 @@ Subject: [PATCH 7/7] switch syscall format
  sysdeps/unix/sysv/linux/x86_64/clone.S   |   9 +-
  sysdeps/unix/sysv/linux/x86_64/clone3.S  |   7 +-
  sysdeps/unix/sysv/linux/x86_64/syscall.S |  17 +---
- sysdeps/unix/sysv/linux/x86_64/sysdep.h  | 108 ++++++++++++++---------
+ sysdeps/unix/sysv/linux/x86_64/sysdep.h  | 110 ++++++++++++++---------
  sysdeps/unix/sysv/linux/x86_64/vfork.S   |   5 +-
- 5 files changed, 82 insertions(+), 64 deletions(-)
+ 5 files changed, 84 insertions(+), 64 deletions(-)
 
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone.S b/sysdeps/unix/sysv/linux/x86_64/clone.S
 index fc493f3585..785e45aab3 100644
@@ -98,10 +98,10 @@ index 24e001cf77..9bd80ece73 100644
  	cmpq $-4095, %rax	/* Check %rax for error.  */
  	jae SYSCALL_ERROR_LABEL	/* Jump to error handler if error.  */
 diff --git a/sysdeps/unix/sysv/linux/x86_64/sysdep.h b/sysdeps/unix/sysv/linux/x86_64/sysdep.h
-index 2fbf189dd4..cda359932f 100644
+index 2fbf189dd4..e3ff7f1be0 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/sysdep.h
 +++ b/sysdeps/unix/sysv/linux/x86_64/sysdep.h
-@@ -33,8 +33,12 @@
+@@ -33,8 +33,14 @@
  #undef SYS_ify
  #define SYS_TBL_ADDR 0x200000ULL
  #define SYS_ify(syscall_name)	__NR_##syscall_name
@@ -110,13 +110,15 @@ index 2fbf189dd4..cda359932f 100644
 +
 +#define JUNCTION_ENTRY_PRESERVE (SYS_TBL_ADDR + 8 * 454)
 +#define JUNCTION_ENTRY_NOPRESERVE (SYS_TBL_ADDR + 8 * 453)
++#define JUNCTION_ENTRY_SS_PRESERVE (SYS_TBL_ADDR + 8 * 452)
 +
 +#define JCALL_NOPRESERVE call *(JUNCTION_ENTRY_NOPRESERVE)
 +#define JCALL_PRESERVE call *(JUNCTION_ENTRY_PRESERVE)
++#define JCALL_SS_PRESERVE call *(JUNCTION_ENTRY_SS_PRESERVE)
  
  #ifdef __ASSEMBLER__
  
-@@ -197,11 +201,11 @@
+@@ -197,11 +203,11 @@
  # undef	DO_CALL
  # define DO_CALL(syscall_name, args, ulong_arg_1, ulong_arg_2) \
      DOARGS_##args				\
@@ -131,7 +133,7 @@ index 2fbf189dd4..cda359932f 100644
  
  
  # define DOARGS_0 /* nothing */
-@@ -243,76 +247,96 @@
+@@ -243,76 +249,96 @@
  #define INTERNAL_SYSCALL_NCS(number, nr, args...)			\
  	internal_syscall##nr (number, args)
  
@@ -266,7 +268,7 @@ index 2fbf189dd4..cda359932f 100644
  # define VDSO_NAME  "LINUX_2.6"
  # define VDSO_HASH  61765110
 diff --git a/sysdeps/unix/sysv/linux/x86_64/vfork.S b/sysdeps/unix/sysv/linux/x86_64/vfork.S
-index 20d683f717..4911e7eaa2 100644
+index 20d683f717..ede2ed85ac 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/vfork.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/vfork.S
 @@ -33,9 +33,8 @@ ENTRY (__vfork)
@@ -277,7 +279,7 @@ index 20d683f717..4911e7eaa2 100644
 -	movl	$SYS_ify (vfork), %eax
 -	syscall
 +	movl    $SYS_ify (vfork), %eax
-+	JCALL_PRESERVE
++	JCALL_SS_PRESERVE
  
  	/* Push back the return PC.  */
  	pushq	%rdi

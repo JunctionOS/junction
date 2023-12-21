@@ -217,8 +217,18 @@ class FileTable {
   // if successful.
   bool Remove(int fd);
 
+  // Removes fds in the range low to high (inclusive).
+  void RemoveRange(int low, int high);
+
+  // Destroy a file table by dropping its file array. Called only when the
+  // FileTable is no longer in use and will never be used again.
+  void Destroy() { farr_.reset(); }
+
   // Sets an fd as close-on-exec.
   void SetCloseOnExec(int fd);
+
+  // Set close-on-exec for fds in range low to high (inclusive).
+  void SetCloseOnExecRange(int low, int high);
 
   // Tests if an fd is close-on-exec.
   bool TestCloseOnExec(int fd);

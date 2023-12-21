@@ -32,7 +32,7 @@ if [ "$prev" != "$cur" ]; then
 fi
 
 if [ "$err" = "1" ]; then
-	exit 0
+	exit 1
 fi
 
 set -x

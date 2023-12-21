@@ -47,6 +47,7 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(getdents),
       ALLOW_JUNCTION_SYSCALL(getdents64),
       ALLOW_JUNCTION_SYSCALL(newfstatat),
+      ALLOW_JUNCTION_SYSCALL(chdir),
 
       ALLOW_JUNCTION_SYSCALL(mmap),
       ALLOW_JUNCTION_SYSCALL(munmap),

@@ -447,6 +447,8 @@ class ThreadWaker {
     return Wake();
   }
 
+  explicit operator bool() const noexcept { return th_ != nullptr; }
+
  private:
   thread_t *th_ = nullptr;
 };

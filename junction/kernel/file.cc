@@ -146,6 +146,37 @@ bool FileTable::Remove(int fd) {
   return true;
 }
 
+void FileTable::RemoveRange(int low, int high) {
+  assert(low >= 0 && high >= 0);
+  std::vector<std::shared_ptr<File>> tmp;
+  {
+    rt::SpinGuard g(lock_);
+    int max = farr_->len;
+    low = std::min(low, max);
+    high = std::min(high, max);
+
+    tmp.reserve(high - low + 1);
+    for (int fd = low; fd <= high; fd++) {
+      if (!farr_->files[fd]) continue;
+      tmp.emplace_back(std::move(farr_->files[fd]));
+      close_on_exec_.clear(fd);
+    }
+  }
+}
+
+void FileTable::SetCloseOnExecRange(int low, int high) {
+  assert(low >= 0 && high >= 0);
+  rt::SpinGuard g(lock_);
+
+  int max = farr_->len;
+  low = std::min(low, max);
+  high = std::min(high, max);
+
+  for (int fd = low; fd <= high; fd++) {
+    if (farr_->files[fd]) close_on_exec_.set(fd);
+  }
+}
+
 void FileTable::SetCloseOnExec(int fd) {
   rt::SpinGuard g(lock_);
   assert(fd >= 0 && static_cast<size_t>(fd) < farr_->len && farr_->files[fd]);
@@ -420,6 +451,16 @@ int usys_dup3(int oldfd, int newfd, int flags) {
 long usys_close(int fd) {
   FileTable &ftbl = myproc().get_file_table();
   if (!ftbl.Remove(fd)) return -EBADF;
+  return 0;
+}
+
+long usys_close_range(int first, int last, unsigned int flags) {
+  if (unlikely(flags & ~CLOSE_RANGE_CLOEXEC)) return -EINVAL;
+  FileTable &ftbl = myproc().get_file_table();
+  if (flags & CLOSE_RANGE_CLOEXEC)
+    ftbl.SetCloseOnExecRange(first, last);
+  else
+    ftbl.RemoveRange(first, last);
   return 0;
 }
 

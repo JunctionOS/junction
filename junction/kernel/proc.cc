@@ -189,12 +189,16 @@ Thread::~Thread() {
 }
 
 void Process::ProcessFinish() {
-  vfork_waker_.Wake();
   // Check if init has died
   if (unlikely(get_pid() == 1)) {
     syscall_exit(xstate_);
     std::unreachable();
   }
+
+  // Close all file descriptors since ftbl destructor is not called until
+  // process is reaped, but a parent might be blocked on the other end of a
+  // pipe.
+  get_file_table().Destroy();
 
   // safe to access child_procs_ with no lock since the process is dead
 
@@ -225,7 +229,7 @@ void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
 bool Process::ThreadFinish(Thread *th) {
   rt::SpinGuard g(child_thread_lock_);
   thread_map_.erase(th->get_tid());
-  return thread_map_.size() == 0;
+  return thread_map_.size() == 0 && !vfork_waker_;
 }
 
 Status<std::shared_ptr<Process>> CreateInitProcess() {
