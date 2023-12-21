@@ -220,16 +220,35 @@ Process::~Process() {
   ReleasePid(pid_, pgid_);
 }
 
+void Process::StartExec() {
+  rt::SpinGuard g(child_thread_lock_);
+
+  // Ensure that the process is not cleaned up when the last thread dies.
+  doing_exec_ = true;
+
+  // Kill any threads besides this one.
+  for (const auto &[pid, th] : thread_map_)
+    if (pid != mythread().get_tid()) th->Kill();
+
+  // Wait for other threads to exit.
+  rt::Wait(child_thread_lock_, exec_waker_,
+           [this] { return thread_map_.size() == 1; });
+}
+
 void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
   file_tbl_.DoCloseOnExec();
   mem_map_ = std::move(new_mm);
   vfork_waker_.Wake();
+  // We are called with no running threads for this Process; no need to lock.
+  doing_exec_ = false;
 }
 
 bool Process::ThreadFinish(Thread *th) {
   rt::SpinGuard g(child_thread_lock_);
   thread_map_.erase(th->get_tid());
-  return thread_map_.size() == 0 && !vfork_waker_;
+  if (!doing_exec_) return thread_map_.size() == 0;
+  if (thread_map_.size() == 1) exec_waker_.Wake();
+  return false;
 }
 
 Status<std::shared_ptr<Process>> CreateInitProcess() {
