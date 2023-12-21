@@ -303,6 +303,8 @@ class Process : public std::enable_shared_from_this<Process> {
   Status<void> RestoreThread(ThreadMetadata const &tm);
   Status<std::unique_ptr<Thread>> CreateThread();
   Thread &CreateTestThread();
+
+  void StartExec();
   void FinishExec(std::shared_ptr<MemoryMap> &&new_mm);
 
   // Called by a thread to notify that it is exiting.
@@ -385,10 +387,12 @@ class Process : public std::enable_shared_from_this<Process> {
   }
 
  private:
-  const pid_t pid_;     // the process identifier
-  pid_t pgid_;          // the process group identifier
-  int xstate_;          // exit state
-  bool exited_{false};  // If true, the process has been killed
+  const pid_t pid_;         // the process identifier
+  pid_t pgid_;              // the process group identifier
+  int xstate_;              // exit state
+  bool exited_{false};      // If true, the process has been killed
+  bool doing_exec_{false};  // True during exec's teardown of existing threads
+  rt::ThreadWaker exec_waker_;
 
   // TODO: enforce limit
   rlimit limit_nofile_{kDefaultNoFile,

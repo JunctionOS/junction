@@ -257,9 +257,12 @@ struct exec_finish_args {
 
 extern "C" [[noreturn]] void usys_execve_finish(exec_finish_args *args) {
   exec_finish_args arg_copy = std::move(*args);
+  Thread *tptr = &mythread();
+
+  // Wait for any remaining threads to exit
+  tptr->get_process().StartExec();
 
   // Destroy the previous thread and release its memory
-  Thread *tptr = &mythread();
   tptr->~Thread();
 
   // Complete the exec
@@ -284,8 +287,6 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
 
   std::vector<std::string_view> envp_view;
   while (*envp) envp_view.emplace_back(*envp++);
-
-  // TODO(jfried): must stop all other threads
 
   Status<Thread *> ret = Exec(myproc(), **mm, filename, argv_view, envp_view);
   if (!ret) return MakeCError(ret);
