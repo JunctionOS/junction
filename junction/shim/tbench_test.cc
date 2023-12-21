@@ -566,7 +566,8 @@ void BenchSelect(int measure_rounds) {
   FD_ZERO(&rfds);
   while (!fds.empty()) {
     for (int fd : fds) FD_SET(fd, &rfds);
-    int ret = select(fds.back() + 1, &rfds, nullptr, nullptr, nullptr);
+    int maxfd = *std::max_element(fds.begin(), fds.end()) + 1;
+    int ret = select(maxfd, &rfds, nullptr, nullptr, nullptr);
     EXPECT_GT(ret, 0);
     for (auto it = fds.begin(); it != fds.end();) {
       int fd = *it;
