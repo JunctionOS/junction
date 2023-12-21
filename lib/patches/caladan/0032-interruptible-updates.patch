@@ -1,14 +1,14 @@
-From 684459c1571aebc8cf498ff44b88598e1cddb931 Mon Sep 17 00:00:00 2001
+From 948ed31b1c9c7df14fb8e76e7e2c3af95545416e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 21 Dec 2023 02:18:11 -0500
 Subject: [PATCH 32/32] interruptible updates
 
 ---
- inc/runtime/interruptible_wait.h | 12 ++++++++----
- 1 file changed, 8 insertions(+), 4 deletions(-)
+ inc/runtime/interruptible_wait.h | 14 +++++++++-----
+ 1 file changed, 9 insertions(+), 5 deletions(-)
 
 diff --git a/inc/runtime/interruptible_wait.h b/inc/runtime/interruptible_wait.h
-index 488157b9..24fe8322 100644
+index 488157b9..e1d71abd 100644
 --- a/inc/runtime/interruptible_wait.h
 +++ b/inc/runtime/interruptible_wait.h
 @@ -8,6 +8,10 @@
@@ -49,6 +49,15 @@ index 488157b9..24fe8322 100644
  		thread_ready(th);
  }
  
+@@ -56,7 +60,7 @@ static inline void interruptible_wake_prepared(thread_t *th)
+ // This can only be called by a waker, which must have previously synchronized
+ // with a waker lock.
+ static inline bool check_prepared(const thread_t *th) {
+-	return atomic_read(&th->interrupt_state) != 0;
++	return (atomic_read(&th->interrupt_state) & PREPARED_FLAG) != 0;
+ }
+ 
+ // Wake a thread that is blocked.
 @@ -67,7 +71,7 @@ static inline bool check_prepared(const thread_t *th) {
  static inline void interruptible_wake(thread_t *th)
  {
