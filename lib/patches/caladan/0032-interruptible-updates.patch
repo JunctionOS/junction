@@ -1,0 +1,63 @@
+From 684459c1571aebc8cf498ff44b88598e1cddb931 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 21 Dec 2023 02:18:11 -0500
+Subject: [PATCH 32/32] interruptible updates
+
+---
+ inc/runtime/interruptible_wait.h | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/inc/runtime/interruptible_wait.h b/inc/runtime/interruptible_wait.h
+index 488157b9..24fe8322 100644
+--- a/inc/runtime/interruptible_wait.h
++++ b/inc/runtime/interruptible_wait.h
+@@ -8,6 +8,10 @@
+ #include <base/lock.h>
+ #include <runtime/thread.h>
+ 
++#define PREPARED_FLAG		(1U << 30)
++#define PREPARED_MASK		(PREPARED_FLAG - 1)
++#define WAKER_VAL			(1 + PREPARED_FLAG)
++
+ extern void deliver_signals_jmp_thread(thread_t *th);
+ static inline bool sched_needs_signal_check(thread_t *th) {
+ 	return th->junction_thread && !th->in_syscall;
+@@ -18,7 +22,7 @@ static inline bool sched_needs_signal_check(thread_t *th) {
+ static inline bool prepare_interruptible(thread_t *th)
+ {
+ 	assert(th == thread_self());
+-	return atomic_fetch_and_add_relaxed(&th->interrupt_state, 1) > 0;
++	return atomic_fetch_and_add_relaxed(&th->interrupt_state, WAKER_VAL) > 0;
+ }
+ 
+ // Called after enqueuing a signal to set the interrupt flag.
+@@ -40,7 +44,7 @@ static inline bool deliver_interrupt(thread_t *th)
+ // if state == 0: thread was woken normally, no interrupt.
+ static inline int get_interruptible_status(const thread_t *th)
+ {
+-	return atomic_read(&th->interrupt_state);
++	return atomic_read(&th->interrupt_state) & PREPARED_MASK;
+ }
+ 
+ // Wake a thread that is blocked pending a wake or interrupt.
+@@ -48,7 +52,7 @@ static inline int get_interruptible_status(const thread_t *th)
+ // Must have previously synchronized with a waker lock.
+ static inline void interruptible_wake_prepared(thread_t *th)
+ {
+-	if (atomic_sub_and_fetch_relaxed(&th->interrupt_state, 1) == 0)
++	if (atomic_sub_and_fetch_relaxed(&th->interrupt_state, WAKER_VAL) == 0)
+ 		thread_ready(th);
+ }
+ 
+@@ -67,7 +71,7 @@ static inline bool check_prepared(const thread_t *th) {
+ static inline void interruptible_wake(thread_t *th)
+ {
+ 	if (!check_prepared(th) ||
+-		atomic_sub_and_fetch_relaxed(&th->interrupt_state, 1) == 0)
++		atomic_sub_and_fetch_relaxed(&th->interrupt_state, WAKER_VAL) == 0)
+ 		thread_ready(th);
+ }
+ 
+-- 
+2.39.2
+
