@@ -131,54 +131,69 @@ void SharedMutex::UnlockShared() {
   tmp.WakeOne();
 }
 
-__always_inline bool ConditionVariable::DoWait(
-    Mutex &mu, WaitQueue &queue, bool block,
-    const WakeOnTimeout<WaitQueue> *timeout) {
-  assert(mu.IsHeld());
-  assert(!lock_ || lock_ == &mu);
-  lock_ = &mu;
-  UniqueLock ul(mu.lock_);
+__always_inline bool ConditionVariable::DoWait(bool block,
+                                               const bool *timeout) {
+  assert(lock_->IsHeld());
+  UniqueLock ul(lock_->lock_);
   if (timeout && *timeout) return true;
-  if (mu.queue_) {
-    mu.queue_.WakeOne();
+  if (lock_->queue_) {
+    lock_->queue_.WakeOne();
   } else {
-    mu.held_ = false;
+    lock_->held_ = false;
   }
   if (block) return WaitInterruptibleNoRecheck(std::move(ul), queue_);
   WaitNoRecheck(std::move(ul), queue_);
   return true;
 }
 
-void ConditionVariable::Wait(Mutex &mu) { DoWait(mu, queue_, false); }
+void ConditionVariable::Wait(Mutex &mu) {
+  assert(!lock_ || lock_ == &mu);
+  lock_ = &mu;
+  DoWait(false);
+}
 
 bool ConditionVariable::WaitFor(Mutex &mu, Duration d) {
-  WakeOnTimeout timeout(mu.lock_, queue_, d);
-  DoWait(mu, queue_, false, &timeout);
+  assert(!lock_ || lock_ == &mu);
+  lock_ = &mu;
+  bool timeout;
+  Timer timer(TimeoutHandler(timeout), d);
+  DoWait(false, &timeout);
   if (timeout) return false;
   return true;
 }
 
 bool ConditionVariable::WaitUntil(Mutex &mu, Time t) {
-  WakeOnTimeout timeout(mu.lock_, queue_, t);
-  DoWait(mu, queue_, false, &timeout);
+  assert(!lock_ || lock_ == &mu);
+  lock_ = &mu;
+  bool timeout;
+  Timer timer(TimeoutHandler(timeout), t);
+  DoWait(false, &timeout);
   if (timeout) return false;
   return true;
 }
 
 bool ConditionVariable::WaitInterruptible(Mutex &mu) {
-  return DoWait(mu, queue_, true);
+  assert(!lock_ || lock_ == &mu);
+  lock_ = &mu;
+  return DoWait(true);
 }
 
 Status<void> ConditionVariable::WaitInterruptibleFor(Mutex &mu, Duration d) {
-  WakeOnTimeout timeout(mu.lock_, queue_, d);
-  if (!DoWait(mu, queue_, true, &timeout)) return MakeError(EINTR);
+  assert(!lock_ || lock_ == &mu);
+  lock_ = &mu;
+  bool timeout;
+  Timer timer(TimeoutHandler(timeout), d);
+  if (!DoWait(true, &timeout)) return MakeError(EINTR);
   if (timeout) return MakeError(ETIMEDOUT);
   return {};
 }
 
 Status<void> ConditionVariable::WaitInterruptibleUntil(Mutex &mu, Time t) {
-  WakeOnTimeout timeout(mu.lock_, queue_, t);
-  if (!DoWait(mu, queue_, true, &timeout)) return MakeError(EINTR);
+  assert(!lock_ || lock_ == &mu);
+  lock_ = &mu;
+  bool timeout;
+  Timer timer(TimeoutHandler(timeout), t);
+  if (!DoWait(true, &timeout)) return MakeError(EINTR);
   if (timeout) return MakeError(ETIMEDOUT);
   return {};
 }

@@ -30,7 +30,7 @@ extern "C" void TimerTrampoline(unsigned long arg);
 // Timer is an object that calls a function after a deadline
 //
 // The function runs in softirq context, so it should not block and must return
-// quickly. However, it can spawn a new thread if a longer time is needed.
+// quickly. However, it can spawn a thread if more time is needed.
 template <std::invocable<> Callable>
 class Timer : private timer_internal::timer_node {
  public:
@@ -39,7 +39,13 @@ class Timer : private timer_internal::timer_node {
     auto arg = reinterpret_cast<unsigned long>(static_cast<timer_node *>(this));
     timer_init(&entry_, timer_internal::TimerTrampoline, arg);
   }
-  ~Timer() { BUG_ON(timer_busy(&entry_)); }
+  Timer(Callable &&func, Duration d) noexcept : Timer(std::move(func)) {
+    Start(d);
+  }
+  Timer(Callable &&func, Time t) noexcept : Timer(std::move(func)) {
+    StartAt(t);
+  }
+  ~Timer() { Stop(); }
 
   // disable copy and move.
   Timer(const Timer &) = delete;
@@ -47,31 +53,41 @@ class Timer : private timer_internal::timer_node {
   Timer(const Timer &&) = delete;
   Timer &operator=(const Timer &&) = delete;
 
+  // IsPending returns true if a timeout is pending (armed or executing).
+  [[nodiscard]] bool IsPending() const { return timer_busy(&entry_); }
+
+  // TimeLeft returns the duration until the timer expires. If the timer was
+  // never armed, the behavior is undefined.
+  [[nodiscard]] Duration TimeLeft() const {
+    Duration d = Duration::Until(timeout_time_);
+    if (d < Duration(0)) return Duration(0);
+    return d;
+  }
+
   // Start arms the timer to fire after a duration.
   void Start(Duration d) {
-    start_time_ = Time::Now() + d;
-    timer_start(&entry_, start_time_.Microseconds());
+    assert(!IsPending());
+    timeout_time_ = Time::Now() + d;
+    timer_start(&entry_, timeout_time_.Microseconds());
   }
 
   // StartAt arms the timer to fire at a point in time.
   void StartAt(Time t) {
-    start_time_ = t;
-    timer_start(&entry_, t.Microseconds());
+    assert(!IsPending());
+    timeout_time_ = t;
+    timer_start(&entry_, timeout_time_.Microseconds());
   }
 
-  // Cancel stops the timer after it was armed. Returns the duration left if
-  // the cancellation was successful (i.e., the timer did not already fire).
-  std::optional<Duration> Cancel() {
-    if (!timer_cancel(&entry_)) return std::nullopt;
-    return Duration::Until(start_time_);
-  }
+  // Stop stops the timer after it was armed. Returns true if stopping the
+  // timer was successful (i.e., the timer function did not execute).
+  bool Stop() { return timer_cancel(&entry_); }
 
  private:
   void Run() override { func_(); }
 
   struct timer_entry entry_;
   std::decay_t<Callable> func_;
-  Time start_time_;
+  Time timeout_time_;
 };
 
 // Busy-spins for a duration.
@@ -112,33 +128,17 @@ template <Wakeable T>
 class WakeOnTimeout {
  public:
   [[nodiscard]] WakeOnTimeout(Spin &lock, T &waker, Duration timeout)
-      : end_time_(Time::Now() + timeout),
-        lock_(lock),
-        waker_(waker),
-        timer_([this] { DoWake(); }) {
-    timer_.StartAt(end_time_);
-  }
+      : lock_(lock), waker_(waker), timer_([this] { DoWake(); }, timeout) {}
   [[nodiscard]] WakeOnTimeout(Spin &lock, T &waker, Time timeout)
-      : end_time_(timeout),
-        lock_(lock),
-        waker_(waker),
-        timer_([this] { DoWake(); }) {
-    timer_.StartAt(end_time_);
-  }
+      : lock_(lock), waker_(waker), timer_([this] { DoWake(); }, timeout) {}
   [[nodiscard]] WakeOnTimeout(Spin &lock, T &waker,
                               std::optional<Duration> timeout)
       : lock_(lock), waker_(waker), timer_([this] { DoWake(); }) {
-    if (timeout) {
-      end_time_ = Time::Now() + *timeout;
-      timer_.StartAt(end_time_);
-    }
+    if (timeout) timer_.Start(*timeout);
   }
   [[nodiscard]] WakeOnTimeout(Spin &lock, T &waker, std::optional<Time> timeout)
       : lock_(lock), waker_(waker), timer_([this] { DoWake(); }) {
-    if (timeout) {
-      end_time_ = *timeout;
-      timer_.StartAt(end_time_);
-    }
+    if (timeout) timer_.StartAt(*timeout);
   }
   ~WakeOnTimeout() { Stop(); }
 
@@ -151,16 +151,12 @@ class WakeOnTimeout {
   explicit operator bool() const { return timed_out_; }
 
   // Stop cancels the timer, returning true if cancelled before firing.
-  bool Stop() { return timer_.Cancel().has_value(); }
+  bool Stop() { return timer_.Stop(); }
 
-  // TimeLeft returns the duration until the timer expires. If the timer is
-  // unarmed because of an optional duration or time, the behavior is
+  // TimeLeft returns the duration until the timer expires. If the timer was
+  // not started because of an optional duration or time, the behavior is
   // undefined.
-  [[nodiscard]] Duration TimeLeft() const {
-    Duration d = Duration::Until(end_time_);
-    if (d < Duration(0)) return Duration(0);
-    return d;
-  }
+  [[nodiscard]] Duration TimeLeft() const { return timer_.TimeLeft(); }
 
  private:
   void DoWake() {
@@ -168,7 +164,6 @@ class WakeOnTimeout {
     if (waker_.WakeThread(th_)) timed_out_ = true;
   }
 
-  Time end_time_;
   Spin &lock_;
   T &waker_;
   thread_t *th_{thread_self()};

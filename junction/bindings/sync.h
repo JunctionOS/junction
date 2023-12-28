@@ -74,7 +74,7 @@ concept InterruptibleSharedLock = SharedLockable<T> && requires(T t) {
 template <typename T>
 concept Wakeable = requires(T t, thread_t *th) {
   { t.Arm(th) } -> std::same_as<void>;
-  { t.Disarm(th) } -> std::same_as<void>;
+  { t.Disarm(th) } -> std::same_as<bool>;
   { t.WakeThread(th) } -> std::same_as<bool>;
 };
 
@@ -350,10 +350,11 @@ class WaitQueue {
   }
 
   // Disarm removes a thread; must be synchronized by caller.
-  void Disarm(thread_t *th) {
-    if (!th->link_armed) return;
+  bool Disarm(thread_t *th) {
+    if (!th->link_armed) return false;
     list_del_from(&waiters_, &th->link);
     th->link_armed = false;
+    return true;
   }
 
   // Wake up to one thread waiter (must be synchronized by caller)
@@ -425,9 +426,9 @@ class ThreadWaker {
   void Arm(thread_t *th = thread_self()) { th_ = th; }
 
   // Disarm cancels an armed thread; must be synchronized by caller.
-  void Disarm(thread_t *th) {
+  bool Disarm(thread_t *th) {
     assert(!th_ || th_ == th);
-    th_ = nullptr;
+    return std::exchange(th_, nullptr) != nullptr;
   }
 
   // Wake makes the parked thread runnable. Must be called by another thread
@@ -835,8 +836,24 @@ class ConditionVariable {
   void NotifyAll();
 
  private:
-  bool DoWait(Mutex &mu, WaitQueue &queue, bool block,
-              const WakeOnTimeout<WaitQueue> *timeout = nullptr);
+  bool DoWait(bool block, const bool *timeout = nullptr);
+  auto TimeoutHandler(bool &timeout) {
+    timeout = false;
+    return [this, &timeout, th = thread_self()]() {
+      ScopedLock g(lock_->lock_);
+      // Try to disarm; if already disarmed, the thread woke before the timeout.
+      if (!queue_.Disarm(th)) return;
+
+      // Try to reacquire the mutex and wake the thread if not held.
+      timeout = true;
+      if (lock_->held_) {
+        lock_->queue_.Arm(th);
+        return;
+      }
+      lock_->held_ = true;
+      ThreadReady(th);
+    };
+  }
 
   WaitQueue queue_;
   Mutex *lock_{nullptr};
