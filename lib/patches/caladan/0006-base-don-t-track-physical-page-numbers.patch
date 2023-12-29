@@ -1,7 +1,7 @@
-From ff21ace961aeb9e71a11105258c73fe835d70f3d Mon Sep 17 00:00:00 2001
+From 0587351667ea9d5832d92c5e06b9640100d5b877 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 23:48:48 -0500
-Subject: [PATCH 06/20] base: don't track physical page numbers
+Subject: [PATCH 06/33] base: don't track physical page numbers
 
 ---
  base/page.c     |  9 ---------
@@ -9,7 +9,7 @@ Subject: [PATCH 06/20] base: don't track physical page numbers
  2 files changed, 3 insertions(+), 22 deletions(-)
 
 diff --git a/base/page.c b/base/page.c
-index 4be2e5d..27dde0e 100644
+index 4be2e5df..27dde0e6 100644
 --- a/base/page.c
 +++ b/base/page.c
 @@ -89,7 +89,6 @@ static void page_free_check(struct page *pg, size_t pgsize) {;}
@@ -50,7 +50,7 @@ index 4be2e5d..27dde0e 100644
  }
  
 diff --git a/inc/base/page.h b/inc/base/page.h
-index f5d61f9..f4412a4 100644
+index f5d61f98..f4412a4f 100644
 --- a/inc/base/page.h
 +++ b/inc/base/page.h
 @@ -19,10 +19,12 @@ struct page {
@@ -87,5 +87,5 @@ index f5d61f9..f4412a4 100644
   * smpage_to_lgpage - retrieves the large page struct for a 4kb page
   * @pg: the page
 -- 
-2.37.2
+2.39.2
 

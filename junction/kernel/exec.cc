@@ -47,7 +47,7 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
                  char *random_ptr) {
   // get hardware capabilities from CPUID
   cpuid_info info;
-  cpuid(0x00000001, &info);
+  cpuid(0x00000001, 0, &info);
 
   // Disable VDSO since we want to emulate getcpu() and gettime()
   uintptr_t vdso = 0;

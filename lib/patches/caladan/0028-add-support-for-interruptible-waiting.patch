@@ -1,7 +1,7 @@
-From 3cf906ece9c217c3f47b4d804af2ec5432f92c49 Mon Sep 17 00:00:00 2001
+From 966a78e9536aa8fffde10aad63e4d5d9d7b5af6c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 28 Sep 2023 22:57:58 +0000
-Subject: [PATCH 28/31] add support for interruptible waiting
+Subject: [PATCH 28/33] add support for interruptible waiting
 
 ---
  inc/base/atomic.h                | 10 ++++
@@ -17,7 +17,7 @@ Subject: [PATCH 28/31] add support for interruptible waiting
  create mode 100644 runtime/interruptible_wait.c
 
 diff --git a/inc/base/atomic.h b/inc/base/atomic.h
-index 2bf2efb..ebbad94 100644
+index 2bf2efb4..ebbad946 100644
 --- a/inc/base/atomic.h
 +++ b/inc/base/atomic.h
 @@ -27,6 +27,11 @@ static inline int atomic_fetch_and_add(atomic_t *a, int val)
@@ -46,7 +46,7 @@ index 2bf2efb..ebbad94 100644
  	atomic_fetch_and_add(a, 1);
 diff --git a/inc/runtime/interruptible_wait.h b/inc/runtime/interruptible_wait.h
 new file mode 100644
-index 0000000..4fc6333
+index 00000000..4fc63334
 --- /dev/null
 +++ b/inc/runtime/interruptible_wait.h
 @@ -0,0 +1,91 @@
@@ -142,10 +142,10 @@ index 0000000..4fc6333
 +	return atomic_read(&th->interrupt_state) > 0;
 +}
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index e486740..6e52f99 100644
+index 48071274..64ccfda2 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -106,12 +106,16 @@ struct thread {
+@@ -115,12 +115,16 @@ struct thread {
      unsigned int        thread_ready;
      unsigned int        thread_running;
      unsigned int        last_cpu;
@@ -165,7 +165,7 @@ index e486740..6e52f99 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/inc/runtime/timer.h b/inc/runtime/timer.h
-index 1c11df2..0c7d1e7 100644
+index 1c11df25..0c7d1e79 100644
 --- a/inc/runtime/timer.h
 +++ b/inc/runtime/timer.h
 @@ -92,3 +92,5 @@ extern bool timer_cancel_recurring(struct timer_entry *e);
@@ -176,7 +176,7 @@ index 1c11df2..0c7d1e7 100644
 +extern void timer_sleep_interruptible(uint64_t duration_us);
 \ No newline at end of file
 diff --git a/runtime/defs.h b/runtime/defs.h
-index a0c94f9..fbc220e 100644
+index f63167b7..182161d1 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -46,7 +46,7 @@
@@ -190,7 +190,7 @@ index a0c94f9..fbc220e 100644
  				unsigned int *thread_running);
 diff --git a/runtime/interruptible_wait.c b/runtime/interruptible_wait.c
 new file mode 100644
-index 0000000..901ef84
+index 00000000..901ef843
 --- /dev/null
 +++ b/runtime/interruptible_wait.c
 @@ -0,0 +1,12 @@
@@ -208,7 +208,7 @@ index 0000000..901ef84
 +void __weak deliver_signals_jmp_thread(thread_t *th) {}
 \ No newline at end of file
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 7a90ec3..70d8c46 100644
+index 7a90ec3f..70d8c46a 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -16,6 +16,7 @@
@@ -330,7 +330,7 @@ index 7a90ec3..70d8c46 100644
  	struct kthread *k = myk();
  
 diff --git a/runtime/timer.c b/runtime/timer.c
-index 9c3ae25..75d25b1 100644
+index 9c3ae258..75d25b10 100644
 --- a/runtime/timer.c
 +++ b/runtime/timer.c
 @@ -12,6 +12,7 @@
@@ -407,5 +407,5 @@ index 9c3ae25..75d25b1 100644
  {
  	struct timer_entry *e;
 -- 
-2.34.1
+2.39.2
 

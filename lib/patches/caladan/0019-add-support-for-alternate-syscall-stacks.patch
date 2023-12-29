@@ -1,7 +1,7 @@
-From eb868f9a2bde5840baa57d0d8639712ad012bbc4 Mon Sep 17 00:00:00 2001
+From 5018bcb4a6d7cf5a3b63f496298bad28e2e62c39 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
-Subject: [PATCH 19/20] add support for alternate syscall stacks
+Subject: [PATCH 19/33] add support for alternate syscall stacks
 
 some applications do not have space on their stacks for syscalls
 
@@ -19,10 +19,10 @@ intercepted with seccomp. using this option disables preemption in the runtime.
  6 files changed, 43 insertions(+), 2 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index cc9cf91..0f79da8 100644
+index 3c07b5e1..21876bcb 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -99,6 +99,7 @@ struct stack;
+@@ -108,6 +108,7 @@ struct stack;
  struct thread {
      struct thread_tf    tf;
      struct list_node    link;
@@ -31,7 +31,7 @@ index cc9cf91..0f79da8 100644
      unsigned int        main_thread:1;
      unsigned int        has_fsbase:1;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index 85e3a19..c0cc47b 100644
+index 14d218d4..7936ce12 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
 @@ -18,6 +18,7 @@ static size_t arp_static_sz;
@@ -42,7 +42,7 @@ index 85e3a19..c0cc47b 100644
  
  /*
   * Configuration Options
-@@ -359,6 +360,13 @@ static int parse_enable_gc(const char *name, const char *val)
+@@ -357,6 +358,13 @@ static int parse_enable_gc(const char *name, const char *val)
  #endif
  }
  
@@ -56,7 +56,7 @@ index 85e3a19..c0cc47b 100644
  
  /*
   * Parsing Infrastructure
-@@ -395,7 +403,7 @@ static const struct cfg_handler cfg_handlers[] = {
+@@ -393,7 +401,7 @@ static const struct cfg_handler cfg_handlers[] = {
  	{ "enable_storage", parse_enable_storage, false },
  	{ "enable_directpath", parse_enable_directpath, false },
  	{ "enable_gc", parse_enable_gc, false },
@@ -66,10 +66,10 @@ index 85e3a19..c0cc47b 100644
  
  /**
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 51aef66..0c2282c 100644
+index a68cfb63..f4b7da61 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
-@@ -430,6 +430,7 @@ extern unsigned int cfg_request_hardware_queues;
+@@ -449,6 +449,7 @@ extern unsigned int cfg_request_hardware_queues;
  extern uint64_t cfg_ht_punish_us;
  extern uint64_t cfg_qdelay_us;
  extern uint64_t cfg_quantum_us;
@@ -78,7 +78,7 @@ index 51aef66..0c2282c 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/init.c b/runtime/init.c
-index 690daac..79066cf 100644
+index 862446d1..859adc62 100644
 --- a/runtime/init.c
 +++ b/runtime/init.c
 @@ -58,10 +58,10 @@ static const struct init_entry global_init_handlers[] = {
@@ -94,10 +94,10 @@ index 690daac..79066cf 100644
  	THREAD_INITIALIZER(timer),
  	THREAD_INITIALIZER(smalloc),
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index b49ab72..ee376d6 100644
+index 88d3e523..9ac73f80 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -94,7 +94,24 @@ void preempt(void)
+@@ -159,8 +159,25 @@ void preempt(void)
  
  int preempt_init_thread(void)
  {
@@ -105,6 +105,7 @@ index b49ab72..ee376d6 100644
 +	struct stack *stk;
 +
  	perthread_store(preempt_cnt, PREEMPT_NOT_PENDING);
+ 	perthread_store(uintr_stack, (void *)REDZONE_SIZE);
 +
 +	if (!use_sigaltstack)
 +		return 0;
@@ -122,9 +123,9 @@ index b49ab72..ee376d6 100644
  	return 0;
  }
  
-@@ -108,6 +125,9 @@ int preempt_init(void)
- {
+@@ -176,6 +193,9 @@ int preempt_init(void)
  	struct sigaction act;
+ 	struct cpuid_info regs;
  
 +	if (use_sigaltstack)
 +		return 0;
@@ -133,10 +134,10 @@ index b49ab72..ee376d6 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 29d1c16..3c2da08 100644
+index 2cad41b9..6b4f7061 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -791,6 +791,10 @@ static __always_inline thread_t *__thread_create_nostack(void)
+@@ -798,6 +798,10 @@ static __always_inline thread_t *__thread_create_nostack(void)
  		return NULL;
  	}
  
@@ -147,7 +148,7 @@ index 29d1c16..3c2da08 100644
  	th->last_cpu = myk()->curr_cpu;
  	preempt_enable();
  
-@@ -828,6 +832,11 @@ static __always_inline thread_t *__thread_create(void)
+@@ -835,6 +839,11 @@ static __always_inline thread_t *__thread_create(void)
  	preempt_enable();
  
  	th->stack = s;
@@ -159,7 +160,7 @@ index 29d1c16..3c2da08 100644
  	th->main_thread = false;
  	th->has_fsbase = false;
  	th->thread_ready = false;
-@@ -953,6 +962,8 @@ static void thread_finish_exit(void)
+@@ -960,6 +969,8 @@ static void thread_finish_exit(void)
  	gc_remove_thread(th);
  	if (th->stack)
  		stack_free(th->stack);
@@ -169,5 +170,5 @@ index 29d1c16..3c2da08 100644
  	perthread_store(__self, NULL);
  
 -- 
-2.37.2
+2.39.2
 

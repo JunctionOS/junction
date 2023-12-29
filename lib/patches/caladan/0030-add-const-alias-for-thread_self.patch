@@ -1,7 +1,7 @@
-From 695b4db6172515a6e1300813d2f2a1a72a4877c5 Mon Sep 17 00:00:00 2001
+From 2de8b1e2babe7b22115f6bb916062cbf55e69f2b Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sat, 4 Nov 2023 02:41:41 -0400
-Subject: [PATCH 30/31] add const alias for thread_self
+Subject: [PATCH 30/33] add const alias for thread_self
 
 ---
  bindings/rust/build.rs |  1 +
@@ -12,7 +12,7 @@ Subject: [PATCH 30/31] add const alias for thread_self
  5 files changed, 37 insertions(+), 4 deletions(-)
 
 diff --git a/bindings/rust/build.rs b/bindings/rust/build.rs
-index 3e7bc79..5559b66 100644
+index 3e7bc79f..5559b669 100644
 --- a/bindings/rust/build.rs
 +++ b/bindings/rust/build.rs
 @@ -66,6 +66,7 @@ fn main() {
@@ -24,10 +24,10 @@ index 3e7bc79..5559b66 100644
          // bindings for.
          .header("shenango.h")
 diff --git a/inc/base/compiler.h b/inc/base/compiler.h
-index 9a05e12..6264fe5 100644
+index e33bef17..10b17f06 100644
 --- a/inc/base/compiler.h
 +++ b/inc/base/compiler.h
-@@ -56,6 +56,9 @@
+@@ -57,6 +57,9 @@
  	 sizeof(t) == sizeof(int)   || \
  	 sizeof(t) == sizeof(long))
  
@@ -38,7 +38,7 @@ index 9a05e12..6264fe5 100644
   * These attributes are defined only with the sparse checker tool.
   */
 diff --git a/inc/base/thread.h b/inc/base/thread.h
-index e8a5fea..0720130 100644
+index e8a5feaa..07201300 100644
 --- a/inc/base/thread.h
 +++ b/inc/base/thread.h
 @@ -16,6 +16,13 @@
@@ -87,7 +87,7 @@ index e8a5fea..0720130 100644
   * perthread_ptr_stable - get a pointer to a local perthread variable
   * result may be cached by compiler.
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 6e52f99..b371b4a 100644
+index 64ccfda2..b62af74c 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -32,6 +32,8 @@ extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
@@ -112,7 +112,7 @@ index 6e52f99..b371b4a 100644
  
  /*
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 70d8c46..4810995 100644
+index 70d8c46a..48109952 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -22,6 +22,8 @@
@@ -142,5 +142,5 @@ index 70d8c46..4810995 100644
  	}
  
 -- 
-2.34.1
+2.39.2
 

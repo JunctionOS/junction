@@ -1,7 +1,7 @@
-From a61d8389542a83a2e580e6ec151c62786acbc6ba Mon Sep 17 00:00:00 2001
+From a46eb49ddb7d944e7dca2af73620a0186e2c2441 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 27 Apr 2023 17:53:14 -0400
-Subject: [PATCH 21/31] thread nit
+Subject: [PATCH 21/33] thread nit
 
 ---
  inc/runtime/thread.h |  1 +
@@ -9,7 +9,7 @@ Subject: [PATCH 21/31] thread nit
  2 files changed, 9 insertions(+), 3 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index c87bc94..f4a46f5 100644
+index 21876bcb..ada82bca 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -29,6 +29,7 @@ extern thread_t *thread_create(thread_fn_t fn, void *arg);
@@ -21,7 +21,7 @@ index c87bc94..f4a46f5 100644
  DECLARE_PERTHREAD(thread_t *, __self);
  DECLARE_PERTHREAD(unsigned int, kthread_idx);
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 6b4f706..eedc7ee 100644
+index 6b4f7061..eedc7eec 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -962,16 +962,21 @@ int thread_spawn_main(thread_fn_t fn, void *arg)
@@ -50,5 +50,5 @@ index 6b4f706..eedc7ee 100644
  
  	/* if the main thread dies, kill the whole program */
 -- 
-2.34.1
+2.39.2
 

@@ -1,7 +1,7 @@
-From 070e2ef9360fc24a0be438202c51523b2eb6264c Mon Sep 17 00:00:00 2001
+From 317d2e01776759e55b94a8d78b5089886f3721b5 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 30 Nov 2022 23:53:24 -0500
-Subject: [PATCH 08/20] base: provide sigaction functionality for
+Subject: [PATCH 08/33] base: provide sigaction functionality for
  runtime/junction
 
 ---
@@ -14,7 +14,7 @@ Subject: [PATCH 08/20] base: provide sigaction functionality for
 
 diff --git a/base/signal.c b/base/signal.c
 new file mode 100644
-index 0000000..c8d998f
+index 00000000..c8d998f9
 --- /dev/null
 +++ b/base/signal.c
 @@ -0,0 +1,50 @@
@@ -70,7 +70,7 @@ index 0000000..c8d998f
 +}
 diff --git a/inc/base/signal.h b/inc/base/signal.h
 new file mode 100644
-index 0000000..b37c1c5
+index 00000000..b37c1c5c
 --- /dev/null
 +++ b/inc/base/signal.h
 @@ -0,0 +1,9 @@
@@ -84,18 +84,18 @@ index 0000000..b37c1c5
 +
 +extern int base_sigaction(int sig, const struct sigaction *act, struct sigaction *oact);
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 78f6493..b49ab72 100644
+index 5e81df9b..88d3e523 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -6,6 +6,7 @@
- #include <string.h>
- 
- #include <base/log.h>
-+#include <base/signal.h>
- #include <base/syscall.h>
+@@ -14,6 +14,7 @@
  #include <runtime/thread.h>
  #include <runtime/preempt.h>
-@@ -97,28 +98,6 @@ int preempt_init_thread(void)
+ 
++#include <base/signal.h>
+ #include <base/syscall.h>
+ 
+ #include "defs.h"
+@@ -163,28 +164,6 @@ int preempt_init_thread(void)
  	return 0;
  }
  
@@ -124,7 +124,7 @@ index 78f6493..b49ab72 100644
  
  /**
   * preempt_init - global initializer for preemption support
-@@ -137,13 +116,13 @@ int preempt_init(void)
+@@ -205,13 +184,13 @@ int preempt_init(void)
  	}
  
  	act.sa_sigaction = handle_sigusr1;
@@ -141,5 +141,5 @@ index 78f6493..b49ab72 100644
  		return -1;
  	}
 -- 
-2.37.2
+2.39.2
 

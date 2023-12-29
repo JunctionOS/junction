@@ -1,7 +1,7 @@
-From 73cf37193f70caa5f6f641b2fab355e6e564ce79 Mon Sep 17 00:00:00 2001
+From e6a8f0e64e12ba7f0a07f00f70e8001c9139202d Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 24 Nov 2022 21:55:35 -0500
-Subject: [PATCH 04/28] runtime: add thread_create_nostack
+Subject: [PATCH 04/33] runtime: add thread_create_nostack
 
 ---
  inc/runtime/thread.h |  1 +

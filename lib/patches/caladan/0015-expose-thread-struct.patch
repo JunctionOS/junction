@@ -1,16 +1,16 @@
-From 275dfebffca4b3365673cd9cd8200a87018573c5 Mon Sep 17 00:00:00 2001
+From 97785dbbcb2425a8ecbeb0f858478e0f8c1db9c4 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 14 Feb 2023 18:16:43 -0500
-Subject: [PATCH 15/28] expose thread struct
+Subject: [PATCH 15/33] expose thread struct
 
 ---
- inc/runtime/thread.h | 85 +++++++++++++++++++++++++++++++++++++++++---
- runtime/defs.h       | 64 ---------------------------------
- runtime/sched.c      | 10 ------
- 3 files changed, 81 insertions(+), 78 deletions(-)
+ inc/runtime/thread.h | 94 ++++++++++++++++++++++++++++++++++++++++++--
+ runtime/defs.h       | 73 ----------------------------------
+ runtime/sched.c      | 10 -----
+ 3 files changed, 90 insertions(+), 87 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 77c1d374..97a58509 100644
+index 77c1d374..b256fd0d 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -4,6 +4,7 @@
@@ -30,7 +30,7 @@ index 77c1d374..97a58509 100644
  extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
  
  DECLARE_PERTHREAD(thread_t *, __self);
-@@ -48,14 +47,92 @@ inline thread_t *thread_self(void)
+@@ -48,14 +47,101 @@ inline thread_t *thread_self(void)
  	return perthread_read_stable(__self);
  }
  
@@ -76,6 +76,15 @@ index 77c1d374..97a58509 100644
 +#define ARG4(tf)        ((tf)->r8)
 +#define ARG5(tf)        ((tf)->r9)
 +
++/* format of the trap frame set up by uintr_asm_entry */
++struct uintr_frame {
++	struct thread_tf general_regs;
++	unsigned long pad;
++	unsigned long uirrv;
++	unsigned long rip;
++	unsigned long rflags;
++	unsigned long rsp;
++};
 +
 +/*
 + * Thread support
@@ -126,10 +135,10 @@ index 77c1d374..97a58509 100644
  
  
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 18c1f5ce..b489d668 100644
+index d3d205f7..ccf10757 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
-@@ -39,74 +39,10 @@
+@@ -39,83 +39,10 @@
  #define RUNTIME_WATCHDOG_US		50
  #define RUNTIME_RX_BATCH_SIZE		32
  
@@ -176,6 +185,15 @@ index 18c1f5ce..b489d668 100644
 -#define ARG4(tf)        ((tf)->r8)
 -#define ARG5(tf)        ((tf)->r9)
 -
+-/* format of the trap frame set up by uintr_asm_entry */
+-struct uintr_frame {
+-	struct thread_tf general_regs;
+-	unsigned long pad;
+-	unsigned long uirrv;
+-	unsigned long rip;
+-	unsigned long rflags;
+-	unsigned long rsp;
+-};
 -
  /*
   * Thread support

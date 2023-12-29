@@ -1,0 +1,54 @@
+From 95baeab6f6fbdd604aa04996ba63ad9dafbd9488 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sun, 31 Dec 2023 04:21:49 +0000
+Subject: [PATCH 33/33] uintr
+
+---
+ inc/runtime/thread.h |  2 +-
+ runtime/uintr.S      | 10 +++++++---
+ 2 files changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 2dc9bf18..4f8978d2 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -96,7 +96,7 @@ struct thread_tf {
+ /* format of the trap frame set up by uintr_asm_entry */
+ struct uintr_frame {
+ 	struct thread_tf general_regs;
+-	unsigned long pad;
++	unsigned char *xsave_area;
+ 	unsigned long uirrv;
+ 	unsigned long rip;
+ 	unsigned long rflags;
+diff --git a/runtime/uintr.S b/runtime/uintr.S
+index 2347fbc2..8c15ee2a 100644
+--- a/runtime/uintr.S
++++ b/runtime/uintr.S
+@@ -7,8 +7,12 @@
+ .globl uintr_asm_entry
+ .type uintr_asm_entry, @function
+ uintr_asm_entry:
+-	// skip pad, rsp, rip
+-	subq    $24, %rsp
++
++	// xstate_area
++	pushq   $0
++
++	// skip rsp, rip
++	subq    $16, %rsp
+ 
+ 	// fill rest of trapframe
+ 	pushq   %rax
+@@ -53,7 +57,7 @@ uintr_asm_return:
+ 	popq   %r15;
+ 	popq   %rax;
+ 
+-	// remove rip, rsp, pad, uirrv
++	// remove rip, rsp, xsave_area, uirrv
+ 	addq    $32, %rsp
+ 
+ 	uiret
+-- 
+2.39.2
+

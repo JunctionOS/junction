@@ -1,7 +1,7 @@
-From 302d771ee5953720cad59ec0eb2e5f6717ffadd1 Mon Sep 17 00:00:00 2001
+From d2b97b477b12efab29f487152c949cfb75694845 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 14 Mar 2023 10:23:33 -0400
-Subject: [PATCH 14/20] support external polling for tcp/udp sockets
+Subject: [PATCH 14/33] support external polling for tcp/udp sockets
 
 ---
  inc/runtime/poll.h   | 23 ++++++++++++
@@ -14,7 +14,7 @@ Subject: [PATCH 14/20] support external polling for tcp/udp sockets
  7 files changed, 191 insertions(+), 8 deletions(-)
 
 diff --git a/inc/runtime/poll.h b/inc/runtime/poll.h
-index 8658690..86046ef 100644
+index 8658690d..86046ef4 100644
 --- a/inc/runtime/poll.h
 +++ b/inc/runtime/poll.h
 @@ -9,6 +9,29 @@
@@ -48,7 +48,7 @@ index 8658690..86046ef 100644
  	spinlock_t		lock;
  	struct list_head	triggered;
 diff --git a/inc/runtime/tcp.h b/inc/runtime/tcp.h
-index 8c6c8ae..3b00a12 100644
+index 8c6c8aec..3b00a124 100644
 --- a/inc/runtime/tcp.h
 +++ b/inc/runtime/tcp.h
 @@ -5,6 +5,7 @@
@@ -70,7 +70,7 @@ index 8c6c8ae..3b00a12 100644
 +			                    poll_notif_fn_t clearfn, unsigned long data);
 +
 diff --git a/inc/runtime/udp.h b/inc/runtime/udp.h
-index 1e15c46..2aa84ef 100644
+index 1e15c460..2aa84efa 100644
 --- a/inc/runtime/udp.h
 +++ b/inc/runtime/udp.h
 @@ -9,6 +9,7 @@
@@ -91,7 +91,7 @@ index 1e15c46..2aa84ef 100644
  /*
   * UDP Parallel API
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index 0d926ae..cf77110 100644
+index e784427c..035df38c 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
 @@ -3,6 +3,7 @@
@@ -102,7 +102,7 @@ index 0d926ae..cf77110 100644
  
  #include <base/stddef.h>
  #include <base/hash.h>
-@@ -197,6 +198,7 @@ void tcp_conn_set_state(tcpconn_t *c, int new_state)
+@@ -231,6 +232,7 @@ void tcp_conn_set_state(tcpconn_t *c, int new_state)
  	if (c->pcb.state < TCP_STATE_ESTABLISHED &&
  	    new_state >= TCP_STATE_ESTABLISHED) {
  		waitq_release(&c->tx_wq);
@@ -110,7 +110,7 @@ index 0d926ae..cf77110 100644
  	}
  
  	tcp_debug_state_change(c, c->pcb.state, new_state);
-@@ -307,6 +309,9 @@ tcpconn_t *tcp_conn_alloc(void)
+@@ -341,6 +343,9 @@ tcpconn_t *tcp_conn_alloc(void)
  	c->pcb.rcv_wnd = TCP_WIN;
  	c->pcb.rcv_mss = tcp_calculate_mss(net_get_mtu());
  
@@ -120,7 +120,7 @@ index 0d926ae..cf77110 100644
  	return c;
  }
  
-@@ -401,6 +406,8 @@ struct tcpqueue {
+@@ -435,6 +440,8 @@ struct tcpqueue {
  	bool			shutdown;
  	bool			nonblocking;
  
@@ -129,7 +129,7 @@ index 0d926ae..cf77110 100644
  	struct kref ref;
  	struct flow_registration flow;
  };
-@@ -438,6 +445,7 @@ static void tcp_queue_recv(struct trans_entry *e, struct mbuf *m)
+@@ -472,6 +479,7 @@ static void tcp_queue_recv(struct trans_entry *e, struct mbuf *m)
  	spin_lock_np(&q->l);
  	list_add_tail(&q->conns, &c->queue_link);
  	th = waitq_signal(&q->wq, &q->l);
@@ -137,7 +137,7 @@ index 0d926ae..cf77110 100644
  	spin_unlock_np(&q->l);
  	waitq_signal_finish(th);
  
-@@ -497,6 +505,9 @@ int tcp_listen(struct netaddr laddr, int backlog, tcpqueue_t **q_out)
+@@ -531,6 +539,9 @@ int tcp_listen(struct netaddr laddr, int backlog, tcpqueue_t **q_out)
  	q->nonblocking = false;
  	kref_init(&q->ref);
  
@@ -147,7 +147,7 @@ index 0d926ae..cf77110 100644
  
  	if (laddr.port == 0)
  		ret = trans_table_add_with_ephemeral_port(&q->e);
-@@ -549,6 +560,10 @@ int tcp_accept(tcpqueue_t *q, tcpconn_t **c_out)
+@@ -583,6 +594,10 @@ int tcp_accept(tcpqueue_t *q, tcpconn_t **c_out)
  	q->backlog++;
  	c = list_pop(&q->conns, tcpconn_t, queue_link);
  	assert(c != NULL);
@@ -158,7 +158,7 @@ index 0d926ae..cf77110 100644
  	spin_unlock_np(&q->l);
  
  	*c_out = c;
-@@ -561,6 +576,7 @@ static void __tcp_qshutdown(tcpqueue_t *q)
+@@ -595,6 +610,7 @@ static void __tcp_qshutdown(tcpqueue_t *q)
  	spin_lock_np(&q->l);
  	BUG_ON(q->shutdown);
  	q->shutdown = true;
@@ -166,7 +166,7 @@ index 0d926ae..cf77110 100644
  	spin_unlock_np(&q->l);
  
  	/* prevent ingress receive and error dispatch (after RCU period) */
-@@ -606,6 +622,9 @@ void tcp_qclose(tcpqueue_t *q)
+@@ -640,6 +656,9 @@ void tcp_qclose(tcpqueue_t *q)
  		tcp_conn_destroy(c);
  	}
  
@@ -176,7 +176,7 @@ index 0d926ae..cf77110 100644
  	kref_put(&q->ref, tcp_queue_release_ref);
  }
  
-@@ -847,6 +866,10 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
+@@ -881,6 +900,10 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
  		      c->tx_last_ack + c->tx_last_win + c->winmax / 4)) {
  		do_ack = true;
  	}
@@ -187,7 +187,7 @@ index 0d926ae..cf77110 100644
  	spin_unlock_np(&c->lock);
  
  	if (do_ack)
-@@ -1076,6 +1099,10 @@ static void tcp_write_finish(tcpconn_t *c)
+@@ -1110,6 +1133,10 @@ static void tcp_write_finish(tcpconn_t *c)
  
  	tcp_timer_update(c);
  	waitq_release_start(&c->tx_wq, &waiters);
@@ -198,7 +198,7 @@ index 0d926ae..cf77110 100644
  	spin_unlock_np(&c->lock);
  
  	tcp_tx_fast_retransmit_finish(c, retransmit);
-@@ -1190,6 +1217,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
+@@ -1224,6 +1251,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
  	if (!c->tx_closed) {
  		store_release(&c->tx_closed, true);
  		waitq_release(&c->tx_wq);
@@ -206,7 +206,7 @@ index 0d926ae..cf77110 100644
  	}
  
  	/* will be freed by the writer if one is busy */
-@@ -1221,6 +1249,7 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
+@@ -1255,6 +1283,7 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
  	if (c->rx_closed)
  		return;
  
@@ -214,7 +214,7 @@ index 0d926ae..cf77110 100644
  	c->rx_closed = true;
  	waitq_release(&c->rx_wq);
  }
-@@ -1247,6 +1276,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
+@@ -1286,6 +1315,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
  	else
  		WARN();
  
@@ -222,7 +222,7 @@ index 0d926ae..cf77110 100644
  	c->tx_closed = true;
  	waitq_release(&c->tx_wq);
  
-@@ -1331,6 +1361,10 @@ void tcp_close(tcpconn_t *c)
+@@ -1370,6 +1400,10 @@ void tcp_close(tcpconn_t *c)
  	if (ret)
  		tcp_conn_fail(c, -ret);
  	tcp_conn_shutdown_rx(c);
@@ -233,7 +233,7 @@ index 0d926ae..cf77110 100644
  	spin_unlock_np(&c->lock);
  
  	tcp_conn_put(c);
-@@ -1356,6 +1390,55 @@ void tcpq_set_nonblocking(tcpqueue_t *q, bool nonblocking)
+@@ -1395,6 +1429,55 @@ void tcpq_set_nonblocking(tcpqueue_t *q, bool nonblocking)
  	spin_unlock_np(&q->l);
  }
  
@@ -290,7 +290,7 @@ index 0d926ae..cf77110 100644
   * tcp_init_late - starts the TCP worker thread
   *
 diff --git a/runtime/net/tcp.h b/runtime/net/tcp.h
-index 16d066f..bba0c30 100644
+index e9fd3ef3..625281bd 100644
 --- a/runtime/net/tcp.h
 +++ b/runtime/net/tcp.h
 @@ -92,6 +92,8 @@ struct tcpconn {
@@ -303,7 +303,7 @@ index 16d066f..bba0c30 100644
  	bool			rx_closed;
  	bool			rx_exclusive;
 diff --git a/runtime/net/tcp_in.c b/runtime/net/tcp_in.c
-index f76a7a1..cacf73d 100644
+index d3fac688..0499c1d9 100644
 --- a/runtime/net/tcp_in.c
 +++ b/runtime/net/tcp_in.c
 @@ -7,6 +7,8 @@
@@ -315,7 +315,7 @@ index f76a7a1..cacf73d 100644
  #include <base/stddef.h>
  #include <runtime/smalloc.h>
  #include <net/ip.h>
-@@ -260,8 +262,10 @@ void tcp_rx_conn(struct trans_entry *e, struct mbuf *m)
+@@ -266,8 +268,10 @@ void tcp_rx_conn(struct trans_entry *e, struct mbuf *m)
  	store_release(&c->pcb.rcv_nxt_wnd, nxt_wnd);
  
  	/* should we wake a thread */
@@ -327,7 +327,7 @@ index f76a7a1..cacf73d 100644
  
  	/* handle delayed acks */
  	if (++c->acks_delayed_cnt >= 2) {
-@@ -486,8 +490,10 @@ __tcp_rx_conn(tcpconn_t *c, struct mbuf *m, uint32_t ack, uint32_t snd_nxt,
+@@ -492,8 +496,10 @@ __tcp_rx_conn(tcpconn_t *c, struct mbuf *m, uint32_t ack, uint32_t snd_nxt,
  		do_ack = true;
  		goto done;
  	}
@@ -339,7 +339,7 @@ index f76a7a1..cacf73d 100644
  
  	/*
  	 * Fast retransmit -> detect a duplicate ACK if:
-@@ -548,6 +554,7 @@ __tcp_rx_conn(tcpconn_t *c, struct mbuf *m, uint32_t ack, uint32_t snd_nxt,
+@@ -554,6 +560,7 @@ __tcp_rx_conn(tcpconn_t *c, struct mbuf *m, uint32_t ack, uint32_t snd_nxt,
  			assert(!list_empty(&c->rxq));
  			assert(do_drop == false);
  			rx_th = waitq_signal(&c->rx_wq, &c->lock);
@@ -348,7 +348,7 @@ index f76a7a1..cacf73d 100644
  		if (++c->acks_delayed_cnt >= 2) {
  			do_ack = true;
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index ad35660..e79e633 100644
+index ad356607..e79e6330 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -3,6 +3,7 @@
@@ -510,5 +510,5 @@ index ad35660..e79e633 100644
  /*
   * Parallel API
 -- 
-2.37.2
+2.39.2
 

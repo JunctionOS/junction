@@ -1,7 +1,7 @@
-From 6e09d4c994ac7b94942e2832f0f4fc3094382fc6 Mon Sep 17 00:00:00 2001
+From 4131804d1c810710e18f7ea4a9bf20379c63d1d3 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
-Subject: [PATCH 03/28] runtime: allow uthreads to set their own fsbase values
+Subject: [PATCH 03/33] runtime: allow uthreads to set their own fsbase values
 
 ---
  build/shared.mk      |  2 +-
@@ -13,20 +13,20 @@ Subject: [PATCH 03/28] runtime: allow uthreads to set their own fsbase values
  6 files changed, 61 insertions(+), 14 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
-index 1e087d8b..1d5bc4ea 100644
+index a10a2281..aaa8c58c 100644
 --- a/build/shared.mk
 +++ b/build/shared.mk
 @@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
  
  # shared toolchain definitions
  INC = -I$(ROOT_PATH)/inc
--FLAGS  = -g -Wall -D_GNU_SOURCE $(INC)
-+FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -mfsgsbase
+-FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -muintr
++FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -muintr -mfsgsbase
  LDFLAGS = -T $(ROOT_PATH)/base/base.ld
  LD      = gcc
  CC      = gcc
 diff --git a/inc/asm/ops.h b/inc/asm/ops.h
-index f07f2204..98ed53b8 100644
+index c6515737..01b4219a 100644
 --- a/inc/asm/ops.h
 +++ b/inc/asm/ops.h
 @@ -4,6 +4,7 @@
@@ -37,8 +37,8 @@ index f07f2204..98ed53b8 100644
  #include <features.h>
  #include <base/types.h>
  
-@@ -33,6 +34,11 @@ static inline void cpuid(int leaf, struct cpuid_info *regs)
- 	asm volatile("cpuid" : "=a" (regs->eax), "=b" (regs->ebx), "=c" (regs->ecx), "=d" (regs->edx) : "a" (leaf));
+@@ -35,6 +36,11 @@ static inline void cpuid(int leaf, int subleaf, struct cpuid_info *regs)
+ 		     "c"(subleaf));
  }
  
 +static inline void set_fsbase(uint64_t val)
@@ -86,7 +86,7 @@ index d71d30f1..c653e681 100644
  
  /*
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 58df7144..18c1f5ce 100644
+index bcb0a08f..d3d205f7 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -72,6 +72,7 @@ struct thread_tf {
@@ -97,7 +97,7 @@ index 58df7144..18c1f5ce 100644
  };
  
  #define ARG0(tf)        ((tf)->rdi)
-@@ -93,6 +94,7 @@ struct thread {
+@@ -102,6 +103,7 @@ struct thread {
  	struct list_node	link;
  	struct stack		*stack;
  	unsigned int		main_thread:1;
@@ -105,7 +105,7 @@ index 58df7144..18c1f5ce 100644
  	unsigned int		thread_ready;
  	unsigned int		thread_running;
  	unsigned int		last_cpu;
-@@ -140,10 +142,10 @@ DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
+@@ -151,10 +153,10 @@ DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
   */
  static inline struct stack *stack_alloc(void)
  {
@@ -119,7 +119,7 @@ index 58df7144..18c1f5ce 100644
  }
  
  /**
-@@ -258,7 +260,7 @@ static inline bool hardware_q_pending(struct hardware_q *q)
+@@ -269,7 +271,7 @@ static inline bool hardware_q_pending(struct hardware_q *q)
  	tail = ACCESS_ONCE(*q->consumer_idx);
  	idx = tail & (q->nr_descriptors - 1);
  	parity = !!(tail & q->nr_descriptors);

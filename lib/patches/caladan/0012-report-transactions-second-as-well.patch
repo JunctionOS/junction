@@ -1,14 +1,14 @@
-From cb0e9b091538a5e8b04fa0a080a09c280e4bda13 Mon Sep 17 00:00:00 2001
+From 0d4c42cb2e0952742eecb21bb2332547b6d101cc Mon Sep 17 00:00:00 2001
 From: "girfan@mit.edu" <girfan@mit.edu>
 Date: Wed, 25 Jan 2023 10:49:05 -0500
-Subject: [PATCH 12/20] report transactions/second as well
+Subject: [PATCH 12/33] report transactions/second as well
 
 ---
  apps/bench/netperf.cc | 3 +++
  1 file changed, 3 insertions(+)
 
 diff --git a/apps/bench/netperf.cc b/apps/bench/netperf.cc
-index 008aa13..cd413ab 100644
+index 008aa13b..cd413ab3 100644
 --- a/apps/bench/netperf.cc
 +++ b/apps/bench/netperf.cc
 @@ -146,7 +146,10 @@ void RunClient(netaddr raddr, int threads, int samples, size_t buflen,
@@ -23,5 +23,5 @@ index 008aa13..cd413ab 100644
  
  int StringToAddr(const char *str, uint32_t *addr) {
 -- 
-2.37.2
+2.39.2
 

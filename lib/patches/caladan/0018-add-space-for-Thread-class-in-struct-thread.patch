@@ -1,17 +1,17 @@
-From 08399ff6c27683ffc6b7769b8d36d421a58511b6 Mon Sep 17 00:00:00 2001
+From cac5dbf1665f58a9c1a4efacf6b23b68e571ac9c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 19 Feb 2023 00:34:47 -0500
-Subject: [PATCH 18/20] add space for Thread class in struct thread
+Subject: [PATCH 18/33] add space for Thread class in struct thread
 
 ---
  inc/runtime/thread.h | 1 +
  1 file changed, 1 insertion(+)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index a821db5..cc9cf91 100644
+index c78bcc3a..3c07b5e1 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -111,6 +111,7 @@ struct thread {
+@@ -120,6 +120,7 @@ struct thread {
       // Trapframe used by junction to stash registers on syscall entry
      struct thread_tf	junction_tf;
      void 		*xsave_area;
@@ -20,5 +20,5 @@ index a821db5..cc9cf91 100644
      struct list_node    gc_link;
      unsigned int        onk;
 -- 
-2.37.2
+2.39.2
 

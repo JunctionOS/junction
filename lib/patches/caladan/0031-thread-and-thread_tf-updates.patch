@@ -1,7 +1,7 @@
-From 9d1017dca4b5f570b7828f4c315b174b1f4b1fd0 Mon Sep 17 00:00:00 2001
+From 6b2afa5a568931b8d246cbccffe9b50a23fd5d71 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 21 Nov 2023 16:00:02 -0500
-Subject: [PATCH 31/32] thread and thread_tf updates
+Subject: [PATCH 31/33] thread and thread_tf updates
 
 ---
  inc/runtime/interruptible_wait.h |  4 ++-
@@ -29,7 +29,7 @@ index 4fc63334..488157b9 100644
  // Returns true if this thread was interrupted.
  // @th must be thread_self().
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index b371b4ae..3cba36eb 100644
+index b62af74c..2dc9bf18 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -82,6 +82,7 @@ struct thread_tf {
@@ -40,7 +40,7 @@ index b371b4ae..3cba36eb 100644
      uint64_t fsbase; /* holds %fs */
  };
  
-@@ -100,52 +101,28 @@ struct thread_tf {
+@@ -109,52 +110,28 @@ struct uintr_frame {
  struct stack;
  
  struct thread {
@@ -108,7 +108,7 @@ index b371b4ae..3cba36eb 100644
   * High-level routines, use this API most of the time.
   */
 diff --git a/runtime/defs.h b/runtime/defs.h
-index fbc220e2..dda5ed71 100644
+index 182161d1..7ff1d840 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -49,7 +49,7 @@ typedef void (*runtime_fn_t)(void);

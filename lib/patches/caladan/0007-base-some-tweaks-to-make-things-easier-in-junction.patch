@@ -1,7 +1,7 @@
-From 46bc40b1991b492ce8674ea950e49fe169ea3933 Mon Sep 17 00:00:00 2001
+From 4fb3272d08cd895e00aad9ae936aa2a3536cf043 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 30 Nov 2022 18:58:31 -0500
-Subject: [PATCH 07/20] base: some tweaks to make things easier in junction
+Subject: [PATCH 07/33] base: some tweaks to make things easier in junction
 
 - disable backtrace calls on fatal exits
 - init_shutdown directly calls syscall(group_exit) instead of running libc exit handlers
@@ -13,7 +13,7 @@ Subject: [PATCH 07/20] base: some tweaks to make things easier in junction
  4 files changed, 13 insertions(+), 3 deletions(-)
 
 diff --git a/base/init.c b/base/init.c
-index c9c4460..da9fb53 100644
+index c9c44600..da9fb535 100644
 --- a/base/init.c
 +++ b/base/init.c
 @@ -6,6 +6,7 @@
@@ -34,7 +34,7 @@ index c9c4460..da9fb53 100644
  
  /* we initialize these early subsystems by hand */
 diff --git a/base/log.c b/base/log.c
-index 088f83f..4cf2dfa 100644
+index 088f83f1..4cf2dfa1 100644
 --- a/base/log.c
 +++ b/base/log.c
 @@ -62,7 +62,7 @@ void logk_bug(bool fatal, const char *expr,
@@ -47,7 +47,7 @@ index 088f83f..4cf2dfa 100644
  	if (fatal)
  		init_shutdown(EXIT_FAILURE);
 diff --git a/base/syscall.S b/base/syscall.S
-index d98d2e4..a844304 100644
+index d98d2e45..a844304d 100644
 --- a/base/syscall.S
 +++ b/base/syscall.S
 @@ -50,5 +50,11 @@ syscall_mprotect:
@@ -63,7 +63,7 @@ index d98d2e4..a844304 100644
  .globl base_syscall_end
  base_syscall_end:
 diff --git a/inc/base/syscall.h b/inc/base/syscall.h
-index c10f9fb..88d3662 100644
+index c10f9fb3..88d36628 100644
 --- a/inc/base/syscall.h
 +++ b/inc/base/syscall.h
 @@ -7,6 +7,8 @@
@@ -85,5 +85,5 @@ index c10f9fb..88d3662 100644
 +extern void syscall_exit(int status) __noreturn;
 \ No newline at end of file
 -- 
-2.37.2
+2.39.2
 

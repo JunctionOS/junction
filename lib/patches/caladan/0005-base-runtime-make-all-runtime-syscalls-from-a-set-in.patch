@@ -1,7 +1,7 @@
-From a210d6b7ed4d1dc02f951385e47797540bfba35f Mon Sep 17 00:00:00 2001
+From 017ff7c9e0d35390edc1849a6efe1161d28fa472 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 15:59:55 -0500
-Subject: [PATCH 05/20] base/runtime - make all runtime syscalls from a set
+Subject: [PATCH 05/33] base/runtime - make all runtime syscalls from a set
  instruction range
 
 ---
@@ -10,14 +10,14 @@ Subject: [PATCH 05/20] base/runtime - make all runtime syscalls from a set
  base/syscall.S     | 54 ++++++++++++++++++++++++++++++++++++++++++++++
  inc/base/syscall.h | 21 ++++++++++++++++++
  runtime/kthread.c  |  5 +++--
- runtime/preempt.c  | 38 ++++++++++++++++++++++++++------
+ runtime/preempt.c  | 33 ++++++++++++++++++++++++----
  runtime/stack.c    |  7 +++---
- 7 files changed, 120 insertions(+), 32 deletions(-)
+ 7 files changed, 118 insertions(+), 29 deletions(-)
  create mode 100644 base/syscall.S
  create mode 100644 inc/base/syscall.h
 
 diff --git a/Makefile b/Makefile
-index e3370e7..1b7b8fa 100644
+index 46ef149f..e5933c82 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -11,7 +11,8 @@ endif
@@ -30,7 +30,7 @@ index e3370e7..1b7b8fa 100644
  
  #libnet.a - a packet/networking utility library
  net_src = $(wildcard net/*.c)
-@@ -68,7 +69,7 @@ $(test_targets): $(test_obj) libbase.a libruntime.a libnet.a base/base.ld
+@@ -73,7 +74,7 @@ shim:
  
  # general build rules for all targets
  src = $(base_src) $(net_src) $(runtime_src) $(iokernel_src) $(test_src)
@@ -40,7 +40,7 @@ index e3370e7..1b7b8fa 100644
  dep = $(obj:.o=.d)
  
 diff --git a/base/mem.c b/base/mem.c
-index 2781799..8e1314a 100644
+index 27817995..8e1314ab 100644
 --- a/base/mem.c
 +++ b/base/mem.c
 @@ -18,6 +18,7 @@
@@ -102,7 +102,7 @@ index 2781799..8e1314a 100644
  
 diff --git a/base/syscall.S b/base/syscall.S
 new file mode 100644
-index 0000000..d98d2e4
+index 00000000..d98d2e45
 --- /dev/null
 +++ b/base/syscall.S
 @@ -0,0 +1,54 @@
@@ -162,7 +162,7 @@ index 0000000..d98d2e4
 +base_syscall_end:
 diff --git a/inc/base/syscall.h b/inc/base/syscall.h
 new file mode 100644
-index 0000000..c10f9fb
+index 00000000..c10f9fb3
 --- /dev/null
 +++ b/inc/base/syscall.h
 @@ -0,0 +1,21 @@
@@ -189,7 +189,7 @@ index 0000000..c10f9fb
 +extern int syscall_mprotect(void *addr, size_t len, int prot);
 \ No newline at end of file
 diff --git a/runtime/kthread.c b/runtime/kthread.c
-index 3ca9cc3..2a76890 100644
+index 7851d669..aa949e4a 100644
 --- a/runtime/kthread.c
 +++ b/runtime/kthread.c
 @@ -13,6 +13,7 @@
@@ -204,39 +204,34 @@ index 3ca9cc3..2a76890 100644
  	/* yield to the iokernel */
  	do {
  		clear_preempt_needed();
--		s = ioctl(ksched_fd, KSCHED_IOC_PARK, 0);
-+		s = syscall_ioctl(ksched_fd, KSCHED_IOC_PARK, 0);
+-		s = ioctl(ksched_fd, KSCHED_IOC_PARK, perthread_read(uintr_stack));
++		s = syscall_ioctl(ksched_fd, KSCHED_IOC_PARK, perthread_read(uintr_stack));
  	} while (unlikely(s < 0 || preempt_cede_needed(k)));
  
  	k->curr_cpu = s;
-@@ -271,7 +272,7 @@ void kthread_wait_to_attach(void)
+@@ -289,7 +290,7 @@ void kthread_wait_to_attach(void)
  	int s;
  
  	do {
--		s = ioctl(ksched_fd, KSCHED_IOC_START, 0);
-+		s = syscall_ioctl(ksched_fd, KSCHED_IOC_START, 0);
+-		s = ioctl(ksched_fd, KSCHED_IOC_START, perthread_read(uintr_stack));
++		s = syscall_ioctl(ksched_fd, KSCHED_IOC_START, perthread_read(uintr_stack));
  	} while (s < 0);
  
  	k->curr_cpu = s;
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 98c4ea3..78f6493 100644
+index 1c18e721..5e81df9b 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -5,9 +5,10 @@
- #include <signal.h>
- #include <string.h>
+@@ -14,6 +14,8 @@
+ #include <runtime/thread.h>
+ #include <runtime/preempt.h>
  
--#include "base/log.h"
--#include "runtime/thread.h"
--#include "runtime/preempt.h"
-+#include <base/log.h>
 +#include <base/syscall.h>
-+#include <runtime/thread.h>
-+#include <runtime/preempt.h>
- 
++
  #include "defs.h"
  
-@@ -96,6 +97,29 @@ int preempt_init_thread(void)
+ #define __user
+@@ -161,6 +163,29 @@ int preempt_init_thread(void)
  	return 0;
  }
  
@@ -266,7 +261,7 @@ index 98c4ea3..78f6493 100644
  /**
   * preempt_init - global initializer for preemption support
   *
-@@ -113,15 +137,15 @@ int preempt_init(void)
+@@ -180,15 +205,15 @@ int preempt_init(void)
  	}
  
  	act.sa_sigaction = handle_sigusr1;
@@ -285,9 +280,9 @@ index 98c4ea3..78f6493 100644
 +		return -1;
  	}
  
- 	return 0;
+ 	ret = ioctl(ksched_fd, KSCHED_IOC_UINTR_SETUP_USER, uintr_asm_entry);
 diff --git a/runtime/stack.c b/runtime/stack.c
-index da6c3e9..787bdb7 100644
+index da6c3e90..787bdb7a 100644
 --- a/runtime/stack.c
 +++ b/runtime/stack.c
 @@ -10,6 +10,7 @@
@@ -324,5 +319,5 @@ index da6c3e9..787bdb7 100644
  }
  
 -- 
-2.37.2
+2.39.2
 

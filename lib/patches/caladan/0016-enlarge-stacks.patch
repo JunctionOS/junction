@@ -1,14 +1,14 @@
-From f669821e6a4535b11ac0349e4880f18721704f4a Mon Sep 17 00:00:00 2001
+From 9439d2305a4eb2eaa672cf4eaf62ab3d85299b34 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Fri, 17 Feb 2023 17:01:44 -0500
-Subject: [PATCH 16/20] enlarge stacks
+Subject: [PATCH 16/33] enlarge stacks
 
 ---
  runtime/defs.h | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/runtime/defs.h b/runtime/defs.h
-index c08b82f..b75ffad 100644
+index ccf10757..a68cfb63 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -30,8 +30,8 @@
@@ -23,5 +23,5 @@ index c08b82f..b75ffad 100644
  #define RUNTIME_MAX_TIMERS		4096
  #define RUNTIME_SCHED_POLL_ITERS	0
 -- 
-2.37.2
+2.39.2
 

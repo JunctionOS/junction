@@ -1,7 +1,7 @@
-From e94bd2006a64b2be44fbf6789393c30604352d20 Mon Sep 17 00:00:00 2001
+From 2a622cc4cfe65793c0c65331aa1382665bcbaba0 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 6 Sep 2023 03:25:51 -0400
-Subject: [PATCH 25/31] copy small mbufs
+Subject: [PATCH 25/33] copy small mbufs
 
 ---
  inc/net/mbuf.h                               | 18 +++---
@@ -13,7 +13,7 @@ Subject: [PATCH 25/31] copy small mbufs
  delete mode 100644 net/mbuf.c
 
 diff --git a/inc/net/mbuf.h b/inc/net/mbuf.h
-index 6df4065..3acef82 100644
+index 6df40651..3acef82d 100644
 --- a/inc/net/mbuf.h
 +++ b/inc/net/mbuf.h
 @@ -23,18 +23,18 @@ struct mbuf {
@@ -54,7 +54,7 @@ index 6df4065..3acef82 100644
  static inline unsigned char *__mbuf_pull(struct mbuf *m, unsigned int len)
 diff --git a/net/mbuf.c b/net/mbuf.c
 deleted file mode 100644
-index cc1318b..0000000
+index cc1318b4..00000000
 --- a/net/mbuf.c
 +++ /dev/null
 @@ -1,29 +0,0 @@
@@ -88,7 +88,7 @@ index cc1318b..0000000
 -	return dst;
 -}
 diff --git a/runtime/net/core.c b/runtime/net/core.c
-index 4203641..7a6e2fb 100644
+index 4203641a..7a6e2fb3 100644
 --- a/runtime/net/core.c
 +++ b/runtime/net/core.c
 @@ -123,8 +123,6 @@ static struct mbuf *net_rx_alloc_mbuf(struct rx_net_hdr *hdr)
@@ -109,7 +109,7 @@ index 4203641..7a6e2fb 100644
  	m->release_data = 0;
  	m->release = net_tx_release_mbuf;
 diff --git a/runtime/net/directpath/mlx5/mlx5_rx_stride.c b/runtime/net/directpath/mlx5/mlx5_rx_stride.c
-index f837b78..be70be9 100644
+index f837b785..be70be99 100644
 --- a/runtime/net/directpath/mlx5/mlx5_rx_stride.c
 +++ b/runtime/net/directpath/mlx5/mlx5_rx_stride.c
 @@ -17,6 +17,8 @@
@@ -240,7 +240,7 @@ index f837b78..be70be9 100644
  		return ret;
  
 diff --git a/runtime/net/directpath/mlx5/mlx5_rxtx.c b/runtime/net/directpath/mlx5/mlx5_rxtx.c
-index d870391..34b1fe3 100644
+index d8703917..34b1fe32 100644
 --- a/runtime/net/directpath/mlx5/mlx5_rxtx.c
 +++ b/runtime/net/directpath/mlx5/mlx5_rxtx.c
 @@ -301,8 +301,6 @@ static void mbuf_fill_cqe(struct mbuf *m, struct mlx5_cqe64 *cqe)
@@ -253,5 +253,5 @@ index d870391..34b1fe3 100644
  }
  
 -- 
-2.34.1
+2.39.2
 

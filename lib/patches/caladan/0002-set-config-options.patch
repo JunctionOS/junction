@@ -1,7 +1,7 @@
-From e6760f62366fd302113dc5ce6225a0372fc82e23 Mon Sep 17 00:00:00 2001
+From 8777d66ee7d3503f78399452e421073fcdf6afe4 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 21 Nov 2022 00:00:45 -0500
-Subject: [PATCH 02/30] set config options
+Subject: [PATCH 02/33] set config options
 
 ---
  build/config             |  6 +++---
