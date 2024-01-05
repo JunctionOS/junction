@@ -653,6 +653,35 @@ void BenchEPoll(int measure_rounds) {
   close(epfd);
 }
 
+void TestKernelSignalCatch() {
+  static void *kernel_sig_test_page;
+  constexpr size_t kTestPageSize = 4096;
+  constexpr size_t kTestVal = 25;
+
+  auto f = [](int signo, siginfo_t *si, void *c) {
+    EXPECT_EQ(si->si_addr, kernel_sig_test_page);
+    EXPECT_EQ(
+        mprotect(kernel_sig_test_page, kTestPageSize, PROT_READ | PROT_WRITE),
+        0);
+    *reinterpret_cast<uint64_t *>(kernel_sig_test_page) = kTestVal;
+  };
+
+  struct sigaction act, oact;
+  act.sa_sigaction = f;
+  act.sa_flags = SA_SIGINFO;
+  sigemptyset(&act.sa_mask);
+
+  kernel_sig_test_page = mmap(nullptr, kTestPageSize, PROT_NONE,
+                              MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  ASSERT_NE(kernel_sig_test_page, MAP_FAILED);
+
+  ASSERT_EQ(sigaction(SIGSEGV, &act, &oact), 0);
+  EXPECT_EQ(*reinterpret_cast<uint64_t *>(kernel_sig_test_page), kTestVal);
+  EXPECT_EQ(sigaction(SIGSEGV, &oact, nullptr), 0);
+
+  EXPECT_EQ(munmap(kernel_sig_test_page, kTestPageSize), 0);
+}
+
 void BenchGetTime(int measure_rounds) {
   struct timespec ts;
   for (int i = 0; i < measure_rounds; ++i) {
@@ -738,6 +767,7 @@ TEST_F(ThreadingTest, SignalNotBlocked) { TestOneSignalNotBlocked(); }
 
 TEST_F(ThreadingTest, StackedSignals) { TestStackedSignals(); }
 TEST_F(ThreadingTest, TestKill) { TestKill(); }
+TEST_F(ThreadingTest, KernelSignalCatch) { TestKernelSignalCatch(); };
 
 TEST_F(ThreadingTest, SignalPingPongSpin) {
   Bench("SignalPingPongSpin", BenchSignalPingPongSpin);
