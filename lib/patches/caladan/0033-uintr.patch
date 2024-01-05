@@ -1,15 +1,30 @@
-From 95baeab6f6fbdd604aa04996ba63ad9dafbd9488 Mon Sep 17 00:00:00 2001
+From 53bdf03d9ba9d70b5a7ca442fb9a6ae3b5ea4388 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 31 Dec 2023 04:21:49 +0000
 Subject: [PATCH 33/33] uintr
 
 ---
- inc/runtime/thread.h |  2 +-
- runtime/uintr.S      | 10 +++++++---
- 2 files changed, 8 insertions(+), 4 deletions(-)
+ inc/runtime/preempt.h    |  1 +
+ inc/runtime/thread.h     |  4 ++--
+ runtime/preempt.c        | 17 ++++++++++++++++-
+ runtime/uintr.S          | 12 ++++++++----
+ scripts/setup_machine.sh |  8 +++++++-
+ 5 files changed, 34 insertions(+), 8 deletions(-)
 
+diff --git a/inc/runtime/preempt.h b/inc/runtime/preempt.h
+index bc6e10f6..6c3da71b 100644
+--- a/inc/runtime/preempt.h
++++ b/inc/runtime/preempt.h
+@@ -13,6 +13,7 @@ DECLARE_PERTHREAD(void *, uintr_stack);
+ extern void preempt(void);
+ extern void uintr_asm_return(void);
+ 
++extern bool uintr_enabled;
+ extern size_t xsave_max_size;
+ extern size_t xsave_features;
+ 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 2dc9bf18..4f8978d2 100644
+index 2dc9bf18..814181e7 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -96,7 +96,7 @@ struct thread_tf {
@@ -21,8 +36,60 @@ index 2dc9bf18..4f8978d2 100644
  	unsigned long uirrv;
  	unsigned long rip;
  	unsigned long rflags;
+@@ -118,7 +118,7 @@ struct thread {
+     bool        in_syscall;
+     atomic_t        interrupt_state;
+     struct thread_tf    *entry_regs;
+-    unsigned long    junction_tstate_buf[20];
++    unsigned long    junction_tstate_buf[22];
+     struct stack        *stack;
+     uint16_t        last_cpu;
+     uint16_t        cur_kthread;
+diff --git a/runtime/preempt.c b/runtime/preempt.c
+index f49d73e2..026b3d43 100644
+--- a/runtime/preempt.c
++++ b/runtime/preempt.c
+@@ -27,6 +27,8 @@
+ 
+ /* the current preemption count */
+ DEFINE_PERTHREAD(unsigned int, preempt_cnt);
++/* whether uintr is enabled */
++bool uintr_enabled;
+ /* perthread stack to use supply for UIPIs */
+ DEFINE_PERTHREAD(void *, uintr_stack);
+ /* maximum size in bytes needed for xsave */
+@@ -170,8 +172,20 @@ void preempt(void)
+ 
+ int preempt_init_thread(void)
+ {
++	struct stack *s;
++	uint64_t stack_val;
++
+ 	perthread_store(preempt_cnt, PREEMPT_NOT_PENDING);
+-	perthread_store(uintr_stack, (void *)REDZONE_SIZE);
++
++	if (!uintr_enabled)
++		return 0;
++
++	s = stack_alloc();
++	if (!s)
++		return -ENOMEM;
++
++	stack_val = ((uint64_t)&s->usable[STACK_PTR_SIZE]) | 1UL;
++	perthread_store(uintr_stack, (void *)stack_val);
+ 	return 0;
+ }
+ 
+@@ -213,6 +227,7 @@ int preempt_init(void)
+ 	}
+ 
+ 	log_info("uintr: enabled");
++	uintr_enabled = true;
+ 
+ 	ret = syscall(SYS_arch_prctl, ARCH_GET_XCOMP_SUPP, &xsave_features);
+ 	if (unlikely(ret)) {
 diff --git a/runtime/uintr.S b/runtime/uintr.S
-index 2347fbc2..8c15ee2a 100644
+index 2347fbc2..49ce17d5 100644
 --- a/runtime/uintr.S
 +++ b/runtime/uintr.S
 @@ -7,8 +7,12 @@
@@ -35,20 +102,42 @@ index 2347fbc2..8c15ee2a 100644
 +	// xstate_area
 +	pushq   $0
 +
-+	// skip rsp, rip
-+	subq    $16, %rsp
++	// skip fsbase, orig_rax, rsp, rip
++	subq    $32, %rsp
  
  	// fill rest of trapframe
  	pushq   %rax
-@@ -53,7 +57,7 @@ uintr_asm_return:
+@@ -53,8 +57,8 @@ uintr_asm_return:
  	popq   %r15;
  	popq   %rax;
  
 -	// remove rip, rsp, pad, uirrv
-+	// remove rip, rsp, xsave_area, uirrv
- 	addq    $32, %rsp
+-	addq    $32, %rsp
++	// remove rip, rsp, orig_rax, fsbase, xsave_area, uirrv
++	addq    $48, %rsp
  
  	uiret
+ 	nop
+\ No newline at end of file
+diff --git a/scripts/setup_machine.sh b/scripts/setup_machine.sh
+index 5ea6c837..20e40b80 100755
+--- a/scripts/setup_machine.sh
++++ b/scripts/setup_machine.sh
+@@ -19,7 +19,13 @@ tracepoint=$((echo -n "ibase=16; "; echo $sym_addr) | bc)
+ # set up the ksched module
+ rmmod ksched
+ rm /dev/ksched
+-insmod $(dirname $0)/../ksched/build/ksched.ko tracepoint_sched_switch=$tracepoint
++
++if [[ "$1x" = "nouintrx" ]]; then
++  insmod $(dirname $0)/../ksched/build/ksched.ko
++else
++  insmod $(dirname $0)/../ksched/build/ksched.ko tracepoint_sched_switch=$tracepoint
++fi
++
+ mknod /dev/ksched c 280 0
+ chmod uga+rwx /dev/ksched
+ 
 -- 
 2.39.2
 

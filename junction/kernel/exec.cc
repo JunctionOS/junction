@@ -250,31 +250,6 @@ Status<Thread *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   return reinterpret_cast<Thread *>(th->junction_tstate_buf);
 }
 
-struct exec_finish_args {
-  Thread *new_main;
-  std::shared_ptr<MemoryMap> mm;
-};
-
-extern "C" [[noreturn]] void usys_execve_finish(exec_finish_args *args) {
-  exec_finish_args arg_copy = std::move(*args);
-  Thread *tptr = &mythread();
-
-  // Wait for any remaining threads to exit
-  tptr->get_process().StartExec();
-
-  // Destroy the previous thread and release its memory
-  tptr->~Thread();
-
-  // Complete the exec
-  tptr = arg_copy.new_main;
-  tptr->get_process().FinishExec(std::move(arg_copy.mm));
-
-  // Wake the new main thread
-  tptr->ThreadReady();
-
-  rt::Exit();
-}
-
 int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
   // allocate new memory map
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
@@ -293,12 +268,30 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
 
   // Finish exec from a different stack, since this stack may be unmapped when
   // replacing a proc's MM
-  exec_finish_args args{*ret, std::move(*mm)};
+  auto ExecveFinish = [newt = *ret, mm = std::move(*mm)]() mutable {
+    Thread *tptr = &mythread();
 
-  if (IsOnStack(GetSyscallStack())) usys_execve_finish(&args);
+    // Wait for any remaining threads to exit
+    tptr->get_process().StartExec();
 
-  __nosave_switch(reinterpret_cast<thread_fn_t>(usys_execve_finish),
-                  GetSyscallStackBottom(), reinterpret_cast<uint64_t>(&args));
+    // Destroy the previous thread and release its memory
+    tptr->~Thread();
+
+    // Complete the exec
+    newt->get_process().FinishExec(std::move(mm));
+
+    // Wake the new main thread
+    newt->ThreadReady();
+
+    rt::Exit();
+  };
+
+  if (IsOnStack(GetSyscallStack())) {
+    ExecveFinish();
+    std::unreachable();
+  }
+
+  SwitchStack(GetSyscallStackBottom(), ExecveFinish);
 }
 
 int usys_execveat(int fd, const char *filename, const char *argv[],

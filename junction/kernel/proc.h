@@ -19,6 +19,7 @@ extern "C" {
 #include "junction/kernel/itimer.h"
 #include "junction/kernel/mm.h"
 #include "junction/kernel/signal.h"
+#include "junction/kernel/trapframe.h"
 #include "junction/limits.h"
 #include "junction/snapshot/proc.h"
 
@@ -31,11 +32,12 @@ inline constexpr unsigned int kWaitableExited = WEXITED;
 inline constexpr unsigned int kWaitableStopped = WSTOPPED;
 inline constexpr unsigned int kWaitableContinued = WCONTINUED;
 
-enum class SyscallEntry : int {
-  kFunctionCallUserStack = 1,  // function call running on user's stack
-  kFunctionCallSysStack = 2,   // function call that switched to special stack
-  kSyscallTrapSysStack = 3,    // syscall instruction was trapped
-};
+inline void InterruptKthread(struct kthread *k) {
+  if (uintr_enabled)
+    __builtin_ia32_senduipi(k->curr_cpu);
+  else
+    ksys_tgkill(GetLinuxPid(), k->tid, SIGURG);
+}
 
 // Thread is a UNIX thread object.
 class Thread {
@@ -46,10 +48,8 @@ class Thread {
       : proc_(std::move(proc)),
         tid_(tm.GetTid()),
         sighand_(*this),
-        cur_syscall_frame_(tm.GetCurSyscallFrame()),
         child_tid_(tm.GetChildTid()),
         xstate_(tm.GetXstate()) {
-    this->set_in_syscall(tm.GetInSyscall());
     sighand_.Restore(tm);
   }
   ~Thread();
@@ -75,39 +75,6 @@ class Thread {
   [[nodiscard]] bool needs_interrupt() const {
     assert(GetCaladanThread() == thread_self());
     return thread_interrupted(GetCaladanThread());
-  }
-
-  // Can be called inside syscall code to determine syscall entry path
-  [[nodiscard]] SyscallEntry get_syscall_source() const {
-    assert(GetCaladanThread() == thread_self());
-    if (IsOnStack(GetSyscallStack(GetCaladanThread()))) {
-      if (GetCaladanThread()->entry_regs != nullptr)
-        return SyscallEntry::kFunctionCallSysStack;
-      return SyscallEntry::kSyscallTrapSysStack;
-    }
-    return SyscallEntry::kFunctionCallUserStack;
-  }
-
-  [[nodiscard]] bool in_syscall() const {
-    return access_once(GetCaladanThread()->in_syscall);
-  }
-
-  thread_tf &get_fncall_regs() const {
-    assert(get_syscall_source() != SyscallEntry::kSyscallTrapSysStack);
-    assert(GetCaladanThread()->entry_regs != nullptr);
-    return *GetCaladanThread()->entry_regs;
-  }
-
-  sigcontext &get_trap_regs() const {
-    assert(get_syscall_source() == SyscallEntry::kSyscallTrapSysStack);
-    assert(cur_syscall_frame_ != nullptr);
-    return cur_syscall_frame_->uc.uc_mcontext;
-  }
-
-  void set_in_syscall(bool val) {
-    barrier();
-    access_once(GetCaladanThread()->in_syscall) = val;
-    barrier();
   }
 
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
@@ -182,7 +149,7 @@ class Thread {
       bool found = access_once(GetCaladanThread()->cur_kthread) == kthread;
       spin_unlock_np(&ks[kthread]->lock);
       if (found) {
-        ksys_tgkill(GetLinuxPid(), ks[kthread]->tid, SIGURG);
+        InterruptKthread(ks[kthread]);
         return;
       }
     }
@@ -193,7 +160,7 @@ class Thread {
       bool found = access_once(GetCaladanThread()->cur_kthread) == i;
       spin_unlock_np(&ks[i]->lock);
       if (found) {
-        ksys_tgkill(GetLinuxPid(), ks[i]->tid, SIGURG);
+        InterruptKthread(ks[i]);
         return;
       }
     }
@@ -203,30 +170,103 @@ class Thread {
     // the signal will be visible when this thread is next scheduled.
   };
 
-  void SetSyscallFrame(k_sigframe *frame) {
-    cur_syscall_frame_ = frame;
-    GetCaladanThread()->entry_regs = nullptr;
-  }
-
-  [[nodiscard]] k_sigframe *GetSyscallFrame() const {
-    return cur_syscall_frame_;
-  }
-
   [[nodiscard]] ThreadMetadata Snapshot() const &;
 
   friend class ThreadSignalHandler;
 
+  // Get the current Trapframe generated when entering the Junction kernel.
+  Trapframe &GetTrapframe() {
+    DebugSafetyCheck();
+
+    // Function call entry assembly code sets entry_regs to point to a trapframe
+    // on the stack. All other entry points must clear this pointer when
+    // entering the Junction kernel.
+    thread_tf *fncall_regs = GetCaladanThread()->entry_regs;
+    if (fncall_regs) {
+      new (&fcall_tf) FunctionCallTf(fncall_regs);
+      return fcall_tf;
+    }
+
+    assert(cur_trapframe_);
+    return *cur_trapframe_;
+  }
+
+  // The caller must be certain that they are executing in the context of a
+  // system call and not an interrupt.
+  SyscallFrame &GetSyscallFrame() {
+    DebugSafetyCheck();
+
+    thread_tf *fncall_regs = GetCaladanThread()->entry_regs;
+    if (fncall_regs) {
+      new (&fcall_tf) FunctionCallTf(fncall_regs);
+      return fcall_tf;
+    }
+
+    return CastTfToKernelSig();
+  }
+
+  void CopySyscallRegs(thread_tf &dest) const {
+    thread_tf *fncall_regs = GetCaladanThread()->entry_regs;
+    if (fncall_regs)
+      FunctionCallTf(fncall_regs).CopyRegs(dest);
+    else
+      CastTfToKernelSig().CopyRegs(dest);
+  }
+
+  // Set @tf as the current trapframe generated when entering the Junction
+  // kernel. This trapframe must not be a FunctionCallTf.
+  void SetTrapframe(Trapframe &tf) {
+    assert(GetCaladanThread() == thread_self());
+    assert(in_kernel());
+
+    GetCaladanThread()->entry_regs = nullptr;
+    cur_trapframe_ = &tf;
+  }
+
+  [[nodiscard]] bool in_kernel() const {
+    return access_once(GetCaladanThread()->in_syscall);
+  }
+
+  inline void mark_enter_kernel() {
+    access_once(GetCaladanThread()->in_syscall) = true;
+    barrier();
+  }
+
+  inline void mark_leave_kernel() {
+    barrier();
+    access_once(GetCaladanThread()->in_syscall) = false;
+  }
+
  private:
+  // Safety check for functions that can only be called by the owning thread
+  // when in interrupt or syscall context.
+  inline void DebugSafetyCheck() const {
+    // The function should only be called by the owning thread.
+    assert(GetCaladanThread() == thread_self());
+    // The returned trapframe is only valid during a syscall (or until the code
+    // has switched off of the syscall stack).
+    assert(in_kernel() || IsOnStack(GetSyscallStack()));
+  }
+
+  inline KernelSignalTf &CastTfToKernelSig() const {
+    if constexpr (is_debug_build())
+      return dynamic_cast<KernelSignalTf &>(*cur_trapframe_);
+    return reinterpret_cast<KernelSignalTf &>(*cur_trapframe_);
+  }
+
   // Hot items
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   const pid_t tid_;                // the thread identifier
   ThreadSignalHandler sighand_;
 
-  k_sigframe *cur_syscall_frame_{nullptr};  // trapped syscall frame pointer
+  Trapframe *cur_trapframe_;
 
   // Cold items - only accessed at thread exit
   uint32_t *child_tid_{nullptr};  // Used for clone3/exit
   int xstate_;                    // exit state
+
+  // Wrapper around entry trapframe pointer.
+  FunctionCallTf fcall_tf;
 };
 
 // Make sure that Caladan's thread def has enough room for the Thread class

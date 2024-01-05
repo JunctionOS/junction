@@ -1,5 +1,6 @@
 
 extern "C" {
+#include <alloca.h>
 #include <base/signal.h>
 #include <base/thread.h>
 #include <runtime/preempt.h>
@@ -15,6 +16,7 @@ void thread_finish_yield(void);
 #include <cstring>
 
 #include "junction/bindings/log.h"
+#include "junction/bindings/stack.h"
 #include "junction/junction.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/sigframe.h"
@@ -102,17 +104,31 @@ void __noinline print_msg_abort(const char *msg) {
   syscall_exit(-1);
 }
 
-// A kernel signal (trapframe in @sigframe) was delivered while a Junction
-// thread was running. This function moves the sigframe to the Junction thread's
-// syscall stack so it can be restored with preemption enabled.
-void MoveSigframeToJunctionThread(k_sigframe *sigframe, thread_tf &tf) {
+// An interrupt was delivered while a Junction thread was running. This function
+// moves the trapframe to the Junction thread's syscall stack so it can be
+// restored in the future.
+template <class Frame>
+void MoveSigframeToJunctionThread(const Frame &sigframe, thread_tf &tf) {
   assert(IsJunctionThread());
   Thread &myth = mythread();
   stack &syscall_stack = *myth.GetCaladanThread()->stack;
 
-  uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
+  uint64_t rsp = sigframe.GetRsp() - kRedzoneSize;
   bool on_syscall_stack = IsOnStack(rsp, syscall_stack);
-  bool in_syscall = myth.in_syscall();
+  bool in_kernel = myth.in_kernel();
+
+  // There is a race that may occur when a stack-switching system call is
+  // returning: it may clear the in_syscall flag before leaving the stack.
+  // In this case, the trapframe that was saved at syscall entry (and updated
+  // before returning) will be our target restore trapframe instead of the
+  // provided sigframe.
+  if constexpr (Frame::HasStackSwitchRace()) {
+    if (unlikely(!in_kernel && on_syscall_stack)) {
+      myth.GetSyscallFrame().MakeUnwinderSysret(tf);
+      assert(IsOnStack(tf.rsp, syscall_stack));
+      return;
+    }
+  }
 
   // We are going to unwind this sigframe by moving it to the syscall stack
   // and then re-enabling preemption. Because the syscall stack does not support
@@ -122,107 +138,155 @@ void MoveSigframeToJunctionThread(k_sigframe *sigframe, thread_tf &tf) {
   // currently "in_syscall", mark it as such to prevent future signal handlers
   // from running on the syscall stack.
 
-  // There is a race that may occur when a stack-switching system call is
-  // returning: it may clear the in_syscall flag before leaving the stack.
-  // In this case, the trapframe that was saved at syscall entry (and updated
-  // before returning) will be our target restore trapframe instead of the
-  // provided k_sigframe.
-  if (unlikely(!in_syscall && on_syscall_stack)) {
-    if (myth.get_syscall_source() == SyscallEntry::kSyscallTrapSysStack) {
-      tf.rsp = reinterpret_cast<uint64_t>(&myth.GetSyscallFrame()->uc);
-      tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_exit_loop);
-    } else {
-      tf.rsp = reinterpret_cast<uint64_t>(&myth.get_fncall_regs());
-      tf.rip = reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
-    }
-    assert(IsOnStack(tf.rsp, syscall_stack));
-    return;
-  }
-
   if (!on_syscall_stack)
     rsp = reinterpret_cast<uint64_t>(&syscall_stack.usable[STACK_PTR_SIZE]);
 
   // copy the sigframe over
-  k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
-  new_frame->InvalidateAltStack();
+  Frame &stack_frame = sigframe.CloneTo(&rsp);
 
-  tf.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
-
-  if (!in_syscall) {
-    // arrange a check for pending signals before returning
-    myth.SetSyscallFrame(new_frame);
-    myth.set_in_syscall(true);
-    tf.rip = reinterpret_cast<uint64_t>(__syscall_trap_exit_loop);
+  if (!in_kernel) {
+    myth.mark_enter_kernel();
+    myth.SetTrapframe(stack_frame);
+    stack_frame.MakeUnwinderSysret(tf);
   } else {
-    tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
+    stack_frame.MakeUnwinder(tf);
   }
 }
 
-// Move a @sigframe to the stack @rsp.
-void MoveSigframeForImmediateUnwind(uint64_t rsp, k_sigframe *sigframe,
-                                    thread_tf &tf) {
-  // Transfer sigframe to the appropriate stack
-  k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
-  new_frame->InvalidateAltStack();
-
-  // Ensure the sigframe is immediately restored when this thread next runs
-  tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
-  tf.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
-}
-
-// Switch to an altstack, if needed.
-void FixRspAltstack(const DeliveredSignal &sig, uint64_t *rsp) {
-  // do nothing if this sigaction doesn't use an altstack
-  if (!sig.act.wants_altstack()) return;
-
-  // check if the altstack was valid
-  if (sig.ss.ss_flags & SS_DISABLE) return;
-
-  // check if we are already on the altsack
-  if (IsOnStack(*rsp, sig.ss)) return;
-
-  // switch to the altstack
-  *rsp = reinterpret_cast<uint64_t>(sig.ss.ss_sp) + sig.ss.ss_size;
-}
-
+// Setup @signal on the stack given by @rsp (may be switched). @prev_frame is
+// copied to the stack, and @new_frame is set to jump to the signal handler
 void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
-                      const thread_tf &prev_frame, thread_tf &new_frame);
+                      const Trapframe &prev_frame, thread_tf &new_frame) {
+  // Fix RSP to ensure we are on the appropriate stack.
+  *rsp = signal.FixRspAltstack(*rsp);
 
-// Handle a kick delivered by host OS signal (or UIPI in the future)
-void HandleKick(k_sigframe *sigframe) {
+  // Push siginfo.
+  siginfo_t *info = PushToStack(rsp, signal.info);
+
+  // Push the previous frame.
+  Trapframe &stack_frame = prev_frame.CloneTo(rsp);
+
+  // Push a JunctionFrame to unwind the previous frame.
+  JunctionSigframe *jframe = AllocateOnStack<JunctionSigframe>(rsp);
+  jframe->magic = kJunctionFrameMagic;
+  jframe->restore_tf = &stack_frame;
+
+  // Push a fake kernel sigframe.
+  k_sigframe *kframe = AllocateOnStack<k_sigframe>(rsp);
+  kframe->pretcode = reinterpret_cast<char *>(signal.act.restorer);
+  kframe->uc.uc_flags = 0;
+  kframe->uc.uc_link = 0;
+  kframe->uc.uc_stack = signal.ss;
+  kframe->uc.mask = signal.prev_blocked;
+  kframe->uc.uc_mcontext.fpstate = nullptr;
+
+  assert(*rsp % 16 == 8);
+
+  // Prepare a trapframe to jump to this signal handler/stack
+  new_frame.rsp = reinterpret_cast<uint64_t>(kframe);
+  new_frame.rip = reinterpret_cast<uint64_t>(signal.act.handler);
+  new_frame.rdi = static_cast<uint64_t>(signal.info.si_signo);
+  new_frame.rsi = reinterpret_cast<uint64_t>(info);
+  new_frame.rdx = reinterpret_cast<uint64_t>(&kframe->uc);
+}
+
+inline void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
+                             thread_tf &frame) {
+  PushUserSigFrame(signal, rsp, FunctionCallTf(&frame), frame);
+}
+
+// Handle a kick delivered by host OS signal or UIPI.
+// If signals are delivered to a user thread, HandleKick does not return.
+template <typename Sigframe>
+void HandleKick(const Sigframe &sigframe) {
   assert(IsJunctionThread());
 
   Thread &th = mythread();
 
-  // The caller will ensure that user code will first check for signals before
-  // restoring the sigframe, which the situation where the user code is
-  // returning from a syscall but is still on the syscall stack .
-  if (th.in_syscall() || unlikely(IsOnStack(GetSyscallStack()))) return;
+  // Signal delivery will happen when the syscall returns.
+  if (th.in_kernel()) return;
+
+  uint64_t rsp = sigframe.GetRsp() - kRedzoneSize;
+
+  // Deal with potential race for stack-switching system calls that clear the
+  // in_kernel flag before switching back to the caller stack. In this case,
+  // the caller of HandleKick must detect this and rewind the return code
+  // to-recheck for signals.
+  if constexpr (Sigframe::HasStackSwitchRace())
+    if (unlikely(IsOnStack(rsp, GetSyscallStack()))) return;
 
   ThreadSignalHandler &hand = th.get_sighand();
   std::optional<DeliveredSignal> sig = hand.GetNextSignal();
   if (!sig) return;
 
-  // Get current rsp
-  uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
-  FixRspAltstack(*sig, &rsp);
-
   thread_tf restore_tf;
-  // Push the sigframe to the stack; rip/rsp are set in restore_tf.
-  MoveSigframeForImmediateUnwind(rsp, sigframe, restore_tf);
 
   // Push the first signal to the stack.
-  PushUserSigFrame(*sig, &rsp, restore_tf, restore_tf);
+  PushUserSigFrame(*sig, &rsp, sigframe, restore_tf);
 
   // Add subsequent signals.
   while (true) {
     sig = hand.GetNextSignal();
     if (!sig) break;
-    PushUserSigFrame(*sig, &rsp, restore_tf, restore_tf);
+    PushUserSigFrame(*sig, &rsp, restore_tf);
   }
 
-  __switch_and_preempt_enable(&restore_tf);
+  Sigframe::SwitchFromInterruptContext(restore_tf);
+}
+
+void UintrInterruptFinish(const UintrTf &frame, int vector) {
+  if (IsJunctionThread()) {
+    if (vector == SIGURG - 1) {
+      HandleKick(frame);
+      // If we reach this point, no signals were delivered; return to the
+      // interrupted code.
+      return;
+    }
+
+    // We are yielding or ceding; need to stash this frame with this thread.
+    MoveSigframeToJunctionThread(frame, thread_self()->tf);
+  } else {
+    // Move this frame directly on to the stack that was in use.
+    uint64_t rsp = frame.GetRsp() - kRedzoneSize;
+    frame.CloneTo(&rsp).MakeUnwinder(thread_self()->tf);
+  }
+
+  preempt_disable();
+  SetFSBase(perthread_read(runtime_fsbase));
+  void *stack = perthread_read(runtime_stack);
+
+  if (preempt_cede_needed(myk()))
+    nosave_switch_setui(thread_finish_cede, stack);
+  else
+    nosave_switch_setui(thread_finish_yield, stack);
+
   std::unreachable();
+}
+
+extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
+  void *xsave_buf;
+
+  STAT(PREEMPTIONS)++;
+
+  // resume execution if preemption is disabled.
+  if (!preempt_enabled()) {
+    perthread_andi(preempt_cnt, 0x7fffffff);
+    return;
+  }
+
+  // Save xstate now even though we will have to copy it later so that we can
+  // use various Junction functions normally without worrying about clobbering
+  // that state.
+  size_t space = xsave_max_size + kXsaveAlignment - 1;
+  xsave_buf = alloca(space);
+  xsave_buf = std::align(kXsaveAlignment, xsave_max_size, xsave_buf, space);
+  uintr_frame->SaveAndAttachCurrentXstate(xsave_buf);
+
+  // It is safe to call functions that use floating point at this point.
+  UintrInterruptFinish(UintrTf(uintr_frame), uintr_frame->uirrv);
+
+  // If we return to this point, restore the floating point state.
+  uintr_frame->RestoreXstate();
 }
 
 // Signal handler for IOKernel sent signals (SIGUSR1 + SIGUSR2)
@@ -230,6 +294,8 @@ void HandleKick(k_sigframe *sigframe) {
 extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
                                        void *context) {
   STAT(PREEMPTIONS)++;
+
+  assert(!uintr_enabled);
 
   k_ucontext *uc = reinterpret_cast<k_ucontext *>(context);
 
@@ -251,32 +317,31 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
   preempt_disable();
   assert_on_runtime_stack();
 
-  k_sigframe *sigframe = container_of(uc, k_sigframe, uc);
+  KernelSignalTf sigframe(uc);
+  sigframe.GetFrame().InvalidateAltStack();
 
-  bool is_junction_thread = IsJunctionThread();
+  if (IsJunctionThread()) {
+    if (signo == SIGURG) {
+      // Try to setup signals.
+      HandleKick(sigframe);
 
-  // Run signal handlers if needed
-  if (signo == SIGURG && is_junction_thread) {
-    // Try to deliver signals.
-    HandleKick(sigframe);
+      // If we return to this point there is no signal to deliver, move to a
+      // preemption-safe stack, reenable preemption, and then do an
+      // rt_sigreturn.
+      thread_tf restore_tf;
+      MoveSigframeToJunctionThread(sigframe, restore_tf);
+      __switch_and_preempt_enable(&restore_tf);
+      std::unreachable();
+    }
 
-    // If we return to this point there is no signal to deliver, move to a
-    // preemption-safe stack, reenable preemption, and then do an rt_sigreturn.
-    thread_tf restore_tf;
-    MoveSigframeToJunctionThread(sigframe, restore_tf);
-    __switch_and_preempt_enable(&restore_tf);
-    std::unreachable();
+    MoveSigframeToJunctionThread(sigframe, thread_self()->tf);
+  } else {
+    uint64_t rsp = sigframe.GetRsp() - kRedzoneSize;
+    sigframe.CloneTo(&rsp).MakeUnwinder(thread_self()->tf);
   }
 
   // restore runtime FS register
   SetFSBase(perthread_read(runtime_fsbase));
-
-  // set up unwinding from uthread stack
-  if (is_junction_thread)
-    MoveSigframeToJunctionThread(sigframe, thread_self()->tf);
-  else
-    MoveSigframeForImmediateUnwind(sigframe->uc.uc_mcontext.rsp - kRedzoneSize,
-                                   sigframe, thread_self()->tf);
 
   if (signo == SIGUSR1)
     thread_finish_cede();
@@ -310,34 +375,26 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
 }
 
 [[noreturn]] void ThreadSignalHandler::DeliverKernelSigToUser(
-    int signo, siginfo_t *info, k_sigframe *sigframe) {
+    int signo, siginfo_t *info, const KernelSignalTf &sigframe) {
   assert_on_runtime_stack();
 
-  // TODO: just kill the Process
-  if (is_sig_blocked(signo)) print_msg_abort("synchronous signal blocked");
-
-  std::optional<k_sigaction> tmp = GetAction(signo);
+  std::optional<k_sigaction> tmp;
+  if (likely(!is_sig_blocked(signo)))
+    tmp = GetAction(signo);
+  else
+    LOG(WARN) << "synchronous signal blocked";
 
   // synchronous signal kills program if no action is specified
   k_sigaction &act = tmp ? *tmp : SigKillAction;
 
   // Determine stack to use
-  uint64_t rsp = sigframe->uc.uc_mcontext.rsp - kRedzoneSize;
+  uint64_t rsp = sigframe.GetRsp() - kRedzoneSize;
   const stack_t &ss = get_altstack();
   if (act.wants_altstack() && has_altstack() && !IsOnStack(rsp, ss))
     rsp = reinterpret_cast<uint64_t>(ss.ss_sp) + ss.ss_size;
 
   // transfer the frame
-  void *fx_buf = sigframe->CopyXstateToStack(&rsp);
-
-  // add a junction frame between xstate and ucontext
-  rsp -= sizeof(JunctionSigframe);
-  JunctionSigframe *jframe = reinterpret_cast<JunctionSigframe *>(rsp);
-  jframe->type = SigframeType::kKernelSignal;
-  jframe->magic = kJunctionFrameMagic;
-
-  // copy ucontext, siginfo, etc
-  k_sigframe *new_frame = sigframe->CopyToStack(&rsp, fx_buf);
+  k_sigframe *new_frame = sigframe.PushUserVisibleFrame(&rsp);
 
   // fix restorer
   new_frame->pretcode = reinterpret_cast<char *>(act.restorer);
@@ -368,10 +425,7 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
 void ThreadSignalHandler::Snapshot(ThreadMetadata &s) const & {
   sig_q_.Snapshot(s);
   s.SetSignalHandlerBlocked(blocked_);
-  if (saved_blocked_) {
-    s.SetSignalHandlerSavedBlocked(*saved_blocked_);
-  }
-
+  if (saved_blocked_) s.SetSignalHandlerSavedBlocked(*saved_blocked_);
   s.SetSignalHandlerAltStack(sigaltstack_);
 }
 void ThreadSignalHandler::Restore(ThreadMetadata const &tm) {
@@ -386,7 +440,6 @@ void ThreadSignalHandler::Restore(ThreadMetadata const &tm) {
 extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
                                            void *context) {
   k_ucontext *uc = reinterpret_cast<k_ucontext *>(context);
-  k_sigframe *sigframe = container_of(uc, k_sigframe, uc);
 
   if (unlikely(!thread_self()))
     print_msg_abort("Unexpected signal delivered to Caladan code");
@@ -397,7 +450,7 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   if (unlikely(!preempt_enabled()))
     print_msg_abort("signal delivered while preemption is disabled");
 
-  if (unlikely(mythread().in_syscall()))
+  if (unlikely(mythread().in_kernel()))
     print_msg_abort("signal delivered while in Junction syscall handler");
 
   if (unlikely(!context)) print_msg_abort("signal delivered without context");
@@ -405,7 +458,8 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   preempt_disable();
   assert_on_runtime_stack();
 
-  mythread().get_sighand().DeliverKernelSigToUser(signo, info, sigframe);
+  mythread().get_sighand().DeliverKernelSigToUser(signo, info,
+                                                  KernelSignalTf(uc));
   std::unreachable();
 }
 
@@ -458,31 +512,23 @@ bool SignalQueue::Enqueue(const siginfo_t &info) {
 void SignalQueue::Snapshot(ProcessMetadata &snapshot) const & {
   snapshot.SetSignalQueuePending(pending_);
   snapshot.ReserveNPendingSignals(pending_q_.size());
-  for (auto sig : pending_q_) {
-    snapshot.AddPendingSignal(sig);
-  }
+  for (auto sig : pending_q_) snapshot.AddPendingSignal(sig);
 }
 
 void SignalQueue::Snapshot(ThreadMetadata &snapshot) const & {
   snapshot.SetSignalQueuePending(pending_);
   snapshot.ReserveNPendingSignals(pending_q_.size());
-  for (auto sig : pending_q_) {
-    snapshot.AddPendingSignal(sig);
-  }
+  for (auto sig : pending_q_) snapshot.AddPendingSignal(sig);
 }
 
 void SignalQueue::Restore(ProcessMetadata const &pm) {
   pending_ = pm.GetSignalQueuePending();
-  for (auto const &sig : pm.GetPendingSignals()) {
-    Enqueue(sig);
-  }
+  for (auto const &sig : pm.GetPendingSignals()) Enqueue(sig);
 }
 
 void SignalQueue::Restore(ThreadMetadata const &tm) {
   pending_ = tm.GetSignalQueuePending();
-  for (auto const &sig : tm.GetPendingSignals()) {
-    Enqueue(sig);
-  }
+  for (auto const &sig : tm.GetPendingSignals()) Enqueue(sig);
 }
 
 // Unwind a sigframe from a Junction process's thread.
@@ -510,29 +556,9 @@ extern "C" [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp) {
   // update altstack
   hand.SigAltStack(&sigframe->uc.uc_stack, nullptr);
 
-  if (jframe->type == SigframeType::kKernelSignal) {
-    // Clear sigaltstack and signal mask before using kernel to restore
-    sigframe->InvalidateAltStack();
-    sigframe->uc.mask = 0;
-
-    thread_tf tf;
-    tf.rsp = rsp;
-    tf.rip = reinterpret_cast<uint64_t>(syscall_rt_sigreturn);
-    __switch_and_preempt_enable(&tf);
-  } else if (jframe->type == SigframeType::kJunctionTf) {
-    __restore_tf_full_and_preempt_enable(jframe->restore_tf);
-  }
-
+  // Unwind.
+  jframe->restore_tf->JmpUnwind();
   std::unreachable();
-}
-
-// Pushes a trapframe (@src) on the stack at @rsp, returns a pointer to the
-// stack trapframe.
-thread_tf *PushTrapFrameToStack(uint64_t *rsp, const thread_tf &src) {
-  *rsp -= sizeof(thread_tf);
-  thread_tf *new_tf = reinterpret_cast<thread_tf *>(*rsp);
-  *new_tf = src;
-  return new_tf;
 }
 
 // Find next signal pending in either the thread and proc siqueues
@@ -572,12 +598,12 @@ std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal() {
   while (true) {
     std::optional<siginfo_t> info = PopSigInfo(blocked_);
     if (!info) return std::nullopt;
-    sig.info = *info;
-    std::optional<k_sigaction> act = GetAction(sig.info.si_signo);
+    std::optional<k_sigaction> act = GetAction(info->si_signo);
 
     // try again if signal is ignored
     if (!act) continue;
 
+    sig.info = *info;
     sig.act = *act;
     break;
   }
@@ -648,109 +674,6 @@ bool ThreadSignalHandler::EnqueueSignal(const siginfo_t &info) {
   return TestAndSetNotify();
 }
 
-// Setup @signal on the stack given by @rsp (may be switched). @prev_frame is
-// copied to the stack, and @new_frame is set to jump to the signal handler
-void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
-                      const thread_tf &prev_frame, thread_tf &new_frame) {
-  // Fix RSP to ensure we are on the appropriate stack
-  FixRspAltstack(signal, rsp);
-
-  // Push siginfo
-  *rsp -= sizeof(siginfo_t);
-  siginfo_t *info = reinterpret_cast<siginfo_t *>(*rsp);
-  *info = signal.info;
-
-  // Push the restore frame to the stack
-  thread_tf *restore_tf = PushTrapFrameToStack(rsp, prev_frame);
-
-  // Use xsave's stack alignment even though we aren't using it here
-  *rsp = AlignDown(*rsp, kXsaveAlignment);
-
-  // Push metadata using JunctionSigframe
-  *rsp -= sizeof(JunctionSigframe);
-  JunctionSigframe *jframe = reinterpret_cast<JunctionSigframe *>(*rsp);
-  jframe->type = SigframeType::kJunctionTf;
-  jframe->magic = kJunctionFrameMagic;
-  jframe->restore_tf = restore_tf;
-
-  // Push a fake kernel sigframe
-  *rsp -= sizeof(k_sigframe);
-  assert(*rsp % 16 == 8);
-  k_sigframe *kframe = reinterpret_cast<k_sigframe *>(*rsp);
-  kframe->pretcode = reinterpret_cast<char *>(signal.act.restorer);
-  kframe->uc.uc_flags = 0;
-  kframe->uc.uc_link = 0;
-  kframe->uc.uc_stack = signal.ss;
-  kframe->uc.mask = signal.prev_blocked;
-  kframe->uc.uc_mcontext.fpstate = nullptr;
-
-  // Prepare a trapframe to jump to this signal handler/stack
-  new_frame.rsp = reinterpret_cast<uint64_t>(kframe);
-  new_frame.rip = reinterpret_cast<uint64_t>(signal.act.handler);
-  new_frame.rdi = static_cast<uint64_t>(signal.info.si_signo);
-  new_frame.rsi = reinterpret_cast<uint64_t>(info);
-  new_frame.rdx = reinterpret_cast<uint64_t>(&kframe->uc);
-}
-
-// Try to drain pending signals. When done, jump to the last popped signal
-// handler. Always called at the end of a syscall, does not return.
-[[noreturn]] void ThreadSignalHandler::ApplySignalsAndExit(
-    const DeliveredSignal &first_signal, uint64_t rsp,
-    const thread_tf &restore_tf) {
-  thread_tf sighand_tf;  // frame used to exit to signal handler
-
-  PushUserSigFrame(first_signal, &rsp, restore_tf, sighand_tf);
-
-  while (true) {
-    std::optional<DeliveredSignal> d = GetNextSignal();
-    if (d) {
-      PushUserSigFrame(*d, &rsp, sighand_tf, sighand_tf);
-      continue;
-    }
-
-    preempt_disable();
-    mythread().set_in_syscall(false);
-    if (!mythread().needs_interrupt()) {
-      __switch_and_preempt_enable(&sighand_tf);
-      std::unreachable();
-    }
-
-    // a signal slipped in, handle it and try again
-    mythread().set_in_syscall(true);
-    preempt_enable();
-  }
-}
-
-extern "C" [[noreturn]] void ApplySignalsTrampoline(void *arg) {
-  DeliveredSignal &d = *reinterpret_cast<DeliveredSignal *>(arg);
-
-  thread_tf &ctx = mythread().get_fncall_regs();
-
-  // assume that thread_tf is on the stack, use the space above. Leave redzone
-  // empty just for extra safety, though shouldn't be needed.
-  uint64_t rsp = reinterpret_cast<uintptr_t>(&ctx) - kRedzoneSize;
-  rsp = AlignDown(rsp, 16) - 8;
-  FixRspAltstack(d, &rsp);
-
-  mythread().get_sighand().ApplySignalsAndExit(d, rsp, ctx);
-}
-
-// Prepare a trap frame that returns execution to rt_sigreturn to unwind a
-// syscall signal
-void SetupRestoreSignalEntry(uint64_t *rsp, int rax, thread_tf &tf) {
-  assert(mythread().get_syscall_source() == SyscallEntry::kSyscallTrapSysStack);
-
-  // move the frame to the bottom of the signal handler stack
-  k_sigframe *frame =
-      reinterpret_cast<k_sigframe *>(mythread().GetSyscallFrame());
-  k_sigframe *new_frame = frame->CopyToStack(rsp);
-
-  new_frame->uc.uc_mcontext.rax = rax;
-
-  tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
-  tf.rsp = reinterpret_cast<uintptr_t>(&new_frame->uc);
-}
-
 // Called by the Caladan scheduler to deliver signals to a thread that is being
 // scheduled in and is not in a syscall (perhaps it was preempted).
 // GetNextSignal() synchronizes with the signal handler lock, and is always
@@ -770,150 +693,76 @@ extern "C" void deliver_signals_jmp_thread(thread_t *th) {
     std::optional<DeliveredSignal> d = hand.GetNextSignal();
     if (!d) break;
 
-    PushUserSigFrame(*d, &rsp, tf, tf);
+    PushUserSigFrame(*d, &rsp, tf);
   }
 }
 
-[[nodiscard]] bool WantsRestartSysNoHandler(int rax) {
+[[nodiscard]] bool IsRestartSys(int rax) {
   return rax == -ERESTARTNOHAND || rax == -ERESTARTSYS;
 }
 
-// Check if restart is needed post handler. May mutate @rax.
-[[nodiscard]] bool WantsRestartSysPostHandler(int &rax,
-                                              const DeliveredSignal &sig) {
+// Check if restart is needed post handler, updates the trapframe if needed.
+void CheckRestartSysPostHandler(SyscallFrame &entry, int rax,
+                                const DeliveredSignal &sig) {
+  assert(IsRestartSys(rax));
   if (rax == -ERESTARTNOHAND) {
-    rax = -EINTR;
-    return false;
-  }
-
-  if (rax == -ERESTARTSYS) {
-    if (sig.act.is_restartsys()) return true;
-    rax = -EINTR;
-    return false;
-  }
-
-  return false;
-}
-
-uint64_t RewindIndirectSystemCall(uint64_t rip) {
-  static const uint8_t imm[] = {0xff, 0x14, 0x25};
-  const uint8_t *insns = reinterpret_cast<uint8_t *>(rip);
-
-  // call *(imm): ff 14 25 28 0e 20 00    call   *0x200e28
-  // call *(rax):                ff d0    call   *%rax
-
-  static_assert(SYSTBL_TRAMPOLINE_LOC >> 16 == 0x20);
-  // The 7-byte immediate variant will have a 0x20 at rip - 2 regardless of
-  // which entry point was used. The 2-byte register variant will have an 0xff
-  // at this position
-  bool is_reg_operand = *(insns - 2) == 0xff;
-
-  // check for debug purposes only
-  bool is_imm_operand = memcmp(imm, insns - 7, 3) == 0;
-  assert(is_imm_operand ^ is_reg_operand);
-
-  if (is_reg_operand)
-    return rip - 2;
-  else
-    return rip - 7;
-}
-
-// Restart a syscall by returning to the entry of a usys_* function with the
-// same registers and stack data.
-[[noreturn]] void RestartSyscall() {
-  thread_tf tf;
-
-  Thread &myth = mythread();
-
-  SyscallEntry type = myth.get_syscall_source();
-
-  if (type == SyscallEntry::kSyscallTrapSysStack) {
-    const sigcontext &ctx = myth.get_trap_regs();
-
-    // can ignore caller-saved registers for the trap entry path
-    tf.rax = ctx.trapno;
-    tf.rsp = reinterpret_cast<uint64_t>(myth.GetSyscallFrame());
-    tf.rdi = ctx.rdi;
-    tf.rsi = ctx.rsi;
-    tf.rdx = ctx.rdx;
-    tf.r8 = ctx.r8;
-    tf.r9 = ctx.r9;
-    tf.rcx = ctx.r10;
-    assert(tf.rax < SYS_NR);
-    tf.rip = reinterpret_cast<uint64_t>(sys_tbl[tf.rax]);
+    entry.SetRax(-EINTR);
   } else {
-    // copy all registers from syscall entry
-    tf = myth.get_fncall_regs();
-
-    // reset RAX
-    tf.rax = tf.orig_rax;
-
-    tf.rip = RewindIndirectSystemCall(tf.rip);
+    if (sig.act.is_restartsys()) {
+      entry.ResetToSyscallStart();
+    } else {
+      entry.SetRax(-EINTR);
+    }
   }
-
-  __jmp_syscall_restart_nosave(&tf);
 }
 
-void ThreadSignalHandler::RunPending(int rax) {
+// rax is non-zero only if returning from a system call.
+void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
   std::optional<DeliveredSignal> sig = GetNextSignal();
   if (!sig) {
-    if (WantsRestartSysNoHandler(rax)) RestartSyscall();
-    return;
+    if (!IsRestartSys(rax)) return;
+    this_thread().GetSyscallFrame().JmpRestartSyscall();
+    std::unreachable();
   }
 
-  // we don't support re-entrant syscalls on the syscall stack, so we can't
-  // leave state on this stack when running signals. Instead, arrange for the
-  // signal return to bring execution back to the system call entry point,
-  // either with a return value in rax or to repeat the system call.
+  if (IsRestartSys(rax))
+    CheckRestartSysPostHandler(this_thread().GetSyscallFrame(), rax, *sig);
 
-  bool do_restart = WantsRestartSysPostHandler(rax, *sig);
-  SyscallEntry entry = mythread().get_syscall_source();
+  auto DeliverSignalsFinish = [this, d = *sig, entry = &entry]() mutable {
+    uint64_t rsp = entry->GetRsp() - kRedzoneSize;
 
-  if (entry == SyscallEntry::kSyscallTrapSysStack) {
-    sigcontext &ctx = mythread().get_trap_regs();
-    uint64_t rsp = ctx.rsp;
-    FixRspAltstack(*sig, &rsp);
+    thread_tf sighand_tf;
 
-    if (do_restart) {
-      ctx.rip -= 2;
-      ctx.rax = ctx.trapno;
-    } else {
-      ctx.rax = rax;
+    PushUserSigFrame(d, &rsp, *entry, sighand_tf);
+
+    Thread &myth = mythread();
+
+    while (true) {
+      std::optional<DeliveredSignal> d = GetNextSignal();
+      if (d) {
+        PushUserSigFrame(*d, &rsp, sighand_tf);
+        continue;
+      }
+
+      preempt_disable();
+      myth.mark_leave_kernel();
+      if (!myth.needs_interrupt()) {
+        __switch_and_preempt_enable(&sighand_tf);
+        std::unreachable();
+      }
+
+      // a signal slipped in, handle it and try again
+      myth.mark_enter_kernel();
+      preempt_enable();
     }
+  };
 
-    thread_tf tmp;
-    SetupRestoreSignalEntry(&rsp, rax, tmp);
-    ApplySignalsAndExit(*sig, rsp, tmp);
-  }
-
-  thread_tf &ctx = mythread().get_fncall_regs();
-  if (do_restart) {
-    ctx.rip = RewindIndirectSystemCall(ctx.rip);
-    ctx.rax = ctx.orig_rax;
-  } else {
-    ctx.rax = rax;
-  }
-
-  if (entry == SyscallEntry::kFunctionCallUserStack) {
-    // Need to switch stacks to proceed.
-
-    // copy signal to new stack
-    uint64_t new_rsp = GetSyscallStackBottom();
-    new_rsp -= sizeof(DeliveredSignal);
-    DeliveredSignal *d = reinterpret_cast<DeliveredSignal *>(new_rsp);
-    *d = *sig;
-
-    new_rsp = AlignDown(new_rsp, 16) - 8;
-
-    __nosave_switch(ApplySignalsTrampoline, new_rsp,
-                    reinterpret_cast<uint64_t>(d));
-  } else {
-    assert(entry == SyscallEntry::kFunctionCallSysStack);
-    uint64_t rsp = mythread().get_fncall_regs().rsp;
-    FixRspAltstack(*sig, &rsp);
-    ApplySignalsAndExit(*sig, rsp, mythread().get_fncall_regs());
-  }
-}
+  // temporarily switch stacks to finish signal delivery if needed.
+  if (!IsOnStack(GetSyscallStack()))
+    SwitchStack(GetSyscallStackBottom(), DeliverSignalsFinish);
+  else
+    DeliverSignalsFinish();
+};
 
 long usys_rt_sigaction(int sig, const struct k_sigaction *iact,
                        struct k_sigaction *oact, size_t sigsetsize) {
@@ -1053,7 +902,8 @@ long usys_pause() {
 }
 
 extern "C" void RunSignals(int rax) {
-  mythread().get_sighand().RunPending(rax);
+  Thread &th = mythread();
+  th.get_sighand().DeliverSignals(th.GetTrapframe(), rax);
 }
 
 Status<void> InitSignal() {
@@ -1083,16 +933,13 @@ Status<void> InitSignal() {
 }
 
 void SignalTable::Snapshot(ProcessMetadata &s) const & {
-  for (size_t idx = 0; idx < kNumSignals; idx++) {
+  for (size_t idx = 0; idx < kNumSignals; idx++)
     s.AddSignalTableEntry(idx, table_[idx]);
-  }
 }
 
 void SignalTable::Restore(ProcessMetadata const &pm) {
   auto signals = pm.GetSignalTable();
-  for (int i = 0; i < kNumSignals; i++) {
-    table_[i] = signals[i];
-  }
+  for (int i = 0; i < kNumSignals; i++) table_[i] = signals[i];
 }
 
 }  // namespace junction

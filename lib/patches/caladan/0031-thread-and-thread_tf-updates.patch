@@ -1,4 +1,4 @@
-From 6b2afa5a568931b8d246cbccffe9b50a23fd5d71 Mon Sep 17 00:00:00 2001
+From 87fc46819aeda928f1063352dbfbfb4e1d985ce7 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 21 Nov 2023 16:00:02 -0500
 Subject: [PATCH 31/33] thread and thread_tf updates
@@ -9,8 +9,8 @@ Subject: [PATCH 31/33] thread and thread_tf updates
  runtime/defs.h                   |  2 +-
  runtime/interruptible_wait.c     |  1 -
  runtime/sched.c                  |  9 +++---
- runtime/switch.S                 |  3 +-
- 6 files changed, 24 insertions(+), 48 deletions(-)
+ runtime/switch.S                 |  2 +-
+ 6 files changed, 24 insertions(+), 47 deletions(-)
 
 diff --git a/inc/runtime/interruptible_wait.h b/inc/runtime/interruptible_wait.h
 index 4fc63334..488157b9 100644
@@ -180,18 +180,10 @@ index 48109952..8e2a43e8 100644
  	atomic_write(&th->interrupt_state, 0);
  
 diff --git a/runtime/switch.S b/runtime/switch.S
-index 054ffed0..000b2907 100644
+index fbca8606..72ef25d4 100644
 --- a/runtime/switch.S
 +++ b/runtime/switch.S
-@@ -36,7 +36,6 @@
- #define RAX	(112)	/* return code */
- #define RIP	(120)	/* instruction pointer */
- #define RSP	(128)	/* stack pointer */
--#define FSBASE	(136)	/* fsbase */
- 
- /**
-  * __jmp_thread - executes a thread from the runtime
-@@ -119,7 +118,7 @@ __jmp_thread_direct:
+@@ -118,7 +118,7 @@ __jmp_thread_direct:
  	movq    RIP(%rsi), %r8
  
  	/* clear the stack busy flag */

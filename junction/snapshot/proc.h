@@ -55,11 +55,7 @@ class ThreadMetadata {
   void SetChildThreadId(uint32_t *child_tid) {
     constant_.SetChildThreadId(child_tid);
   }
-  void SetInSyscall(bool in_syscall) { constant_.SetInSyscall(in_syscall); }
   void SetExitState(int xstate) { constant_.SetExitState(xstate); }
-  void SetCurrentSyscallFrame(void *cur_syscall_frame) {
-    constant_.SetCurrentSyscallFrame(cur_syscall_frame);
-  }
   void SetSignalHandlerBlocked(uint64_t blocked) {
     constant_.SetSignalHandlerBlocked(blocked);
   }
@@ -124,11 +120,7 @@ class ThreadMetadata {
   }
   pid_t GetTid() const & { return constant_.GetTid(); };
   uint32_t *GetChildTid() const & { return constant_.GetChildTid(); }
-  bool GetInSyscall() const & { return constant_.GetInSyscall(); }
   int GetXstate() const & { return constant_.GetXstate(); }
-  k_sigframe *GetCurSyscallFrame() const & {
-    return constant_.GetCurSyscallFrame();
-  }
   uint64_t GetSignalHandlerBlocked() const & {
     return constant_.GetSignalHandlerBlocked();
   }
@@ -158,11 +150,7 @@ class ThreadMetadata {
     void SetChildThreadId(uint32_t *child_tid) {
       child_tid_ = reinterpret_cast<uintptr_t>(child_tid);
     }
-    void SetInSyscall(bool in_syscall) { in_syscall_ = in_syscall; }
     void SetExitState(int xstate) { xstate_ = xstate; }
-    void SetCurrentSyscallFrame(void *cur_syscall_frame) {
-      cur_syscall_frame_ = reinterpret_cast<uintptr_t>(cur_syscall_frame);
-    }
 
     void SetSignalHandlerBlocked(uint64_t blocked) {
       signal_handler_blocked_ = blocked;
@@ -188,11 +176,7 @@ class ThreadMetadata {
     uint32_t *GetChildTid() const & {
       return reinterpret_cast<uint32_t *>(child_tid_);
     }
-    bool GetInSyscall() const & { return in_syscall_; }
     int GetXstate() const & { return xstate_; }
-    k_sigframe *GetCurSyscallFrame() const & {
-      return reinterpret_cast<k_sigframe *>(cur_syscall_frame_);
-    }
 
     // thread signal handler
     uint64_t GetSignalHandlerBlocked() const & {
@@ -219,9 +203,7 @@ class ThreadMetadata {
     friend ThreadMetadata;
     pid_t tid_;
     uintptr_t child_tid_ = 0;
-    bool in_syscall_;
     int xstate_;
-    uintptr_t cur_syscall_frame_;
 
     // thread signal handler
     uint64_t signal_handler_blocked_;

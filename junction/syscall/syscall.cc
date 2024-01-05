@@ -1,22 +1,22 @@
+
 #include "junction/syscall/syscall.h"
 
 #include <cstring>
-#include <iostream>
 
-#include "junction/bindings/log.h"
 #include "junction/junction.h"
-#include "junction/kernel/ksys.h"
-#include "junction/syscall/strace.h"
 #include "junction/syscall/systbl.h"
-
-extern "C" {
-#include <dlfcn.h>
-}
 
 namespace junction {
 
 Status<void> SyscallInit() {
   sysfn_t *dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);
+
+  if (uintr_enabled) {
+    sys_tbl_strace[451] = sys_tbl[451] =
+        reinterpret_cast<sysfn_t>(junction_fncall_stackswitch_enter_uintr);
+    sys_tbl_strace[452] = sys_tbl[452] = reinterpret_cast<sysfn_t>(
+        junction_fncall_stackswitch_enter_preserve_regs_uintr);
+  }
 
   Status<void> ret =
       KernelMMapFixed(dst_tbl, sizeof(sys_tbl), PROT_READ | PROT_WRITE, 0);

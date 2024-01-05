@@ -6,6 +6,7 @@ add_library(bindings
   sync.cc
   thread.cc
   timer.cc
+  switch.S
 )
 
 target_link_libraries(bindings

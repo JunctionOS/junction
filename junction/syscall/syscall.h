@@ -2,7 +2,7 @@
 
 #include "junction/base/error.h"
 #include "junction/bindings/thread.h"
-#include "junction/kernel/proc.h"
+#include "junction/kernel/sigframe.h"
 #include "junction/syscall/entry.h"
 
 extern "C" {
@@ -21,6 +21,10 @@ static_assert(offsetof(thread, in_syscall) == JUNCTION_IN_SYSCALL_OFF);
 static_assert(offsetof(thread, interrupt_state) == JUNCTION_INT_STATE_OFF);
 static_assert(offsetof(thread, tf) == CALADAN_TF_OFF);
 static_assert(offsetof(k_ucontext, uc_mcontext.rax) == SIGFRAME_RAX_OFFSET);
+static_assert(offsetof(k_ucontext, uc_mcontext.rip) == SIGFRAME_RIP_OFFSET);
+static_assert(offsetof(k_ucontext, uc_mcontext.rsp) == SIGFRAME_RSP_OFFSET);
+static_assert(offsetof(k_ucontext, uc_mcontext.eflags) ==
+              SIGFRAME_RFLAGS_OFFSET);
 
 // Changing members or layout of thread_tf may break assembly code in entry.S
 static_assert(sizeof(thread_tf) == 152);
@@ -44,11 +48,24 @@ void __jmp_syscall_restart_nosave(struct thread_tf *tf) __noreturn;
 long junction_fncall_stackswitch_enter(long arg0, long arg1, long arg2,
                                        long arg3, long arg4, long arg5);
 
+// System call entry point for applications that require syscalls to run on an
+// alternate stack (ie Golang). This variant used when UINTR is enabled.
+long junction_fncall_stackswitch_enter_uintr(long arg0, long arg1, long arg2,
+                                             long arg3, long arg4, long arg5);
+
 // System call entry point for clone/vfork for applications that require
 // syscalls to run on an alternate stack (ie Golang).
 long junction_fncall_stackswitch_enter_preserve_regs(long arg0, long arg1,
                                                      long arg2, long arg3,
                                                      long arg4, long arg5);
+
+// System call entry point for clone/vfork for applications that require
+// syscalls to run on an alternate stack (ie Golang). This variant used when
+// UINTR is enabled.
+long junction_fncall_stackswitch_enter_preserve_regs_uintr(long arg0, long arg1,
+                                                           long arg2, long arg3,
+                                                           long arg4,
+                                                           long arg5);
 
 // System call entry point for most applications.
 long junction_fncall_enter(long arg0, long arg1, long arg2, long arg3,
@@ -61,14 +78,22 @@ long junction_fncall_enter_preserve_regs(long arg0, long arg1, long arg2,
 // Return function for system calls that are delivered by trap.
 void __syscall_trap_return();
 
+// Unwind a kernel signal frame on the system call stack. Checks for pending
+// signals before fully unwinding the frame.
+void __kframe_unwind_loop(uint64_t rax);
+
+// Variant of __syscall_trap_return for UINTR.
+void __syscall_trap_return_uintr();
+
+// Unwind a kernel signal frame on the system call stack. Checks for pending
+// signals before fully unwinding the frame. This variant must be used when
+// UINTR is enabled.
+void __kframe_unwind_loop_uintr(uint64_t rax);
+
 // This symbol is a specific point in junction_fncall_enter_preserve_regs, used
 // to slightly reset the RIP to address a race between an interrupt and a
 // returning system call.
 void __fncall_return_exit_loop();
-
-// Same as __fncall_stackswitch_restore, but for system calls that enter with
-// traps (this is a pointer to a point in __syscall_trap_return).
-void __syscall_trap_exit_loop();
 
 // Entry point for usys_rt_sigreturn, switches stacks and jumps to
 // usys_rt_sigreturn with the sigframe as an argument.
@@ -78,13 +103,13 @@ void usys_rt_sigreturn_enter() __noreturn;
 // preemption.
 void __switch_and_preempt_enable(struct thread_tf *tf) __noreturn;
 
+// Switches stacks and calls new function with 3 argument registers, enabling
+// preemption.
+void __switch_and_interrupt_enable(struct thread_tf *tf) __noreturn;
+
 // Same as __switch_and_preempt_enable, but also restores callee-saved
 // registers, RAX, R10, and six standard argument registers.
 void __restore_tf_full_and_preempt_enable(struct thread_tf *tf);
-
-// Run a function on a stack with 1 argument without saving the current
-// trapframe.
-void __nosave_switch(thread_fn_t fn, uint64_t stack, uint64_t arg0) __noreturn;
 }
 
 }  // namespace junction

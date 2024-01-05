@@ -6,6 +6,14 @@
 
 namespace junction {
 
+constexpr bool is_debug_build() {
+#ifndef NDEBUG
+  return true;
+#else
+  return false;
+#endif
+}
+
 // Force the compiler to access a memory location.
 template <typename T>
 T volatile &access_once(T &t)

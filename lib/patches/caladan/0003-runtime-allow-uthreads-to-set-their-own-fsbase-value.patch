@@ -1,4 +1,4 @@
-From 4131804d1c810710e18f7ea4a9bf20379c63d1d3 Mon Sep 17 00:00:00 2001
+From cc8c5ee4c52b075fda2a5a956f106d6e3418014b Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
 Subject: [PATCH 03/33] runtime: allow uthreads to set their own fsbase values
@@ -9,8 +9,7 @@ Subject: [PATCH 03/33] runtime: allow uthreads to set their own fsbase values
  inc/runtime/thread.h | 14 ++++++++++++--
  runtime/defs.h       | 10 ++++++----
  runtime/sched.c      | 40 +++++++++++++++++++++++++++++++++-------
- runtime/switch.S     |  3 +++
- 6 files changed, 61 insertions(+), 14 deletions(-)
+ 5 files changed, 58 insertions(+), 14 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
 index a10a2281..aaa8c58c 100644
@@ -241,34 +240,6 @@ index 3a82ca52..4e1d37e3 100644
  
  	return 0;
  }
-diff --git a/runtime/switch.S b/runtime/switch.S
-index fbca8606..054ffed0 100644
---- a/runtime/switch.S
-+++ b/runtime/switch.S
-@@ -36,6 +36,7 @@
- #define RAX	(112)	/* return code */
- #define RIP	(120)	/* instruction pointer */
- #define RSP	(128)	/* stack pointer */
-+#define FSBASE	(136)	/* fsbase */
- 
- /**
-  * __jmp_thread - executes a thread from the runtime
-@@ -158,6 +159,7 @@ __jmp_thread_direct:
-  * @tf: the struct thread_tf to save state (%rdi)
-  * @fn: the function pointer to call (%rsi)
-  * @stack: the start of the runtime stack (%rdx)
-+ * @fsbase: the fs base register (%rcx)
-  *
-  * This low-level variant isn't intended to be called directly.
-  * Must be called with preemption disabled.
-@@ -192,6 +194,7 @@ __jmp_runtime:
-  *			  current stack frame
-  * @fn: the function pointer to call (%rdi)
-  * @stack: the start of the runtime stack (%rsi)
-+ * @fsbase: the fs base register (%rdx)
-  *
-  * This low-level variant isn't intended to be called directly.
-  * Must be called with preemption disabled.
 -- 
 2.39.2
 

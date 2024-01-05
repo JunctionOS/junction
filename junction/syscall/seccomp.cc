@@ -20,6 +20,7 @@ extern "C" {
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/sigframe.h"
+#include "junction/kernel/trapframe.h"
 #include "junction/syscall/entry.h"
 #include "junction/syscall/seccomp_bpf.h"
 #include "junction/syscall/syscall.h"
@@ -103,7 +104,6 @@ void log_syscall_msg(const char *msg_needed, long sysn) {
 extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
                                      void *void_context) {
   k_ucontext *ctx = reinterpret_cast<k_ucontext *>(void_context);
-  k_sigframe *sigframe = container_of(ctx, k_sigframe, uc);
 
   if (unlikely(info->si_code != SYS_SECCOMP)) {
     log_syscall_msg("Unexpected signal delivered to syscall handler", 0);
@@ -164,23 +164,28 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
   assert(!IsOnStack(ctx->uc_mcontext.rsp, GetSyscallStack()));
 
   uint64_t rsp = GetSyscallStackBottom();
-  k_sigframe *new_frame = sigframe->CopyToStack(&rsp);
-  new_frame->InvalidateAltStack();
+  KernelSignalTf &stack_tf = KernelSignalTf(ctx).CloneTo(&rsp);
+  k_sigframe &new_frame = stack_tf.GetFrame();
 
   // stash a copy of rax before the syscall
-  new_frame->uc.uc_mcontext.trapno = new_frame->uc.uc_mcontext.rax;
+  new_frame.uc.uc_mcontext.trapno = new_frame.uc.uc_mcontext.rax;
+
+  new_frame.InvalidateAltStack();
 
   // stash a pointer to the sigframe in case we need to restart the syscall
-  mythread().SetSyscallFrame(new_frame);
-  mythread().set_in_syscall(true);
+  mythread().mark_enter_kernel();
+  mythread().SetTrapframe(stack_tf);
 
   // force return to syscall_trap_return
-  new_frame->pretcode = reinterpret_cast<char *>(__syscall_trap_return);
+  if (uintr_enabled)
+    new_frame.pretcode = reinterpret_cast<char *>(__syscall_trap_return_uintr);
+  else
+    new_frame.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
 
   thread_tf tf;
 
   tf.rip = reinterpret_cast<uint64_t>(sys_tbl[sysn]);
-  tf.rsp = reinterpret_cast<uint64_t>(new_frame);
+  tf.rsp = reinterpret_cast<uint64_t>(&new_frame);
   tf.rdi = ctx->uc_mcontext.rdi;
   tf.rsi = ctx->uc_mcontext.rsi;
   tf.rdx = ctx->uc_mcontext.rdx;

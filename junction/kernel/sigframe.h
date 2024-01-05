@@ -4,18 +4,20 @@
 extern "C" {
 #include <runtime/thread.h>
 #include <signal.h>
-
-#include "lib/caladan/runtime/defs.h"
 }
 
 #include <cstdint>
+#include <new>
+#include <type_traits>
+#include <utility>
+
+#include "junction/base/bits.h"
 
 inline constexpr uint64_t kUCFpXstate = 0x1;
 inline constexpr uint32_t kFpXstateMagic1 = 0x46505853U;
 inline constexpr uint32_t kFpXstateMagic2 = 0x46505845U;
 inline constexpr size_t kRedzoneSize = 128;
-inline constexpr size_t kXsaveAlignment = 64;
-inline constexpr uint64_t kJunctionFrameMagic = 0x696e63656e64696fUL;
+inline constexpr size_t kUintrFrameAlign = 16;
 
 namespace junction {
 
@@ -86,7 +88,7 @@ struct k_xstate {
   struct k_fpstate_64 fpstate;
   struct k_xstate_header xstate_hdr;
   struct k_ymmh_state ymmh;
-  /* New processor state extensions go here: */
+  unsigned char state[];
 };
 
 struct k_ucontext {
@@ -97,16 +99,16 @@ struct k_ucontext {
   unsigned long mask; /* mask last for extensibility */
 };
 
-enum class SigframeType : unsigned long {
-  kKernelSignal = 0,
-  kJunctionUIPI,
-  kJunctionTf,
-};
-
 struct k_sigframe {
   char *pretcode;
   struct k_ucontext uc;
   siginfo_t info;
+
+  static k_sigframe *FromUcontext(k_ucontext *uc) {
+    return container_of(uc, k_sigframe, uc);
+  }
+
+  [[nodiscard]] uint64_t GetRsp() const { return uc.uc_mcontext.rsp; }
 
   // The kernel will replace the altstack when we call __rt_sigreturn. Since
   // this call may happen from a different kernel thread then the one that the
@@ -123,63 +125,25 @@ struct k_sigframe {
   k_sigframe *CopyToStack(uint64_t *dest_rsp) const;
 };
 
-struct JunctionSigframe {
-  SigframeType type;
-  unsigned long magic;
-  thread_tf *restore_tf;
-  unsigned long pad;
+static_assert(sizeof(k_sigframe) % 16 == 8);
+
+struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
+  // Save current extended CPU states into dst_buf and attach dst_buf to this
+  // sigframe.
+  void SaveAndAttachCurrentXstate(void *dst_buf);
+
+  // Restore the currently attached extended states.
+  void RestoreXstate() const;
+
+  // Copy the full signal frame (xstate included) to @dest_rsp
+  u_sigframe *CopyToStack(uint64_t *dest_rsp) const;
+
+  [[nodiscard]] uint64_t GetRsp() const { return rsp; }
 };
 
-static_assert(sizeof(JunctionSigframe) % 16 == 0);
+static_assert(sizeof(u_sigframe) == sizeof(uintr_frame));
 
-inline uint64_t GetRsp() {
-  uint64_t rsp;
-  asm volatile("movq %%rsp, %0" : "=r"(rsp));
-  return rsp;
-}
-
-inline bool IsOnStack(uint64_t cur_rsp, const stack_t &ss) {
-  uint64_t sp = reinterpret_cast<uint64_t>(ss.ss_sp);
-
-  return cur_rsp > sp && cur_rsp <= sp + ss.ss_size;
-}
-
-inline bool IsOnStack(uint64_t cur_rsp, const struct stack &ss) {
-  uint64_t sp = reinterpret_cast<uint64_t>(&ss.usable[0]);
-
-  return cur_rsp > sp && cur_rsp <= sp + RUNTIME_STACK_SIZE;
-}
-
-template <typename T>
-inline bool IsOnStack(const T &ss) {
-  return IsOnStack(GetRsp(), ss);
-}
-
-// returns the bottom of the Caladan runtime stack
-inline uint64_t GetRuntimeStack() {
-  return reinterpret_cast<uint64_t>(perthread_read(runtime_stack)) + 8;
-}
-
-// returns the bottom of the local thread's syscall stack
-inline const struct stack &GetSyscallStack(const thread_t *th = thread_self()) {
-  return *th->stack;
-}
-
-// returns the bottom of the local thread's syscall stack
-inline uint64_t GetSyscallStackBottom() {
-  uint64_t *rsp = &thread_self()->stack->usable[STACK_PTR_SIZE - 1];
-  return reinterpret_cast<uint64_t>(rsp);
-}
-
-inline bool on_runtime_stack() {
-  uint64_t rsp = GetRsp();
-  return rsp <= GetRuntimeStack() &&
-         rsp > GetRuntimeStack() - RUNTIME_STACK_SIZE;
-}
-
-inline void assert_on_runtime_stack() {
-  assert_preempt_disabled();
-  assert(on_runtime_stack());
-}
+extern "C" __nofp void UintrFullRestore(u_sigframe *frame);
+extern "C" void UintrLoopReturn(u_sigframe *frame);
 
 }  // namespace junction

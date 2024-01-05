@@ -76,44 +76,15 @@ void ReleasePid(pid_t pid, std::optional<pid_t> pgid = std::nullopt) {
   }
 }
 
-template <typename Tf>
-void CopyRegs(thread_tf &newtf, const Tf &oldtf) {
-  newtf.rdi = oldtf.rdi;
-  newtf.rsi = oldtf.rsi;
-  newtf.rdx = oldtf.rdx;
-  newtf.rcx = oldtf.rcx;
-  newtf.r8 = oldtf.r8;
-  newtf.r9 = oldtf.r9;
-  newtf.r10 = oldtf.r10;
-  newtf.r11 = oldtf.r11;
-  newtf.rbx = oldtf.rbx;
-  newtf.rbp = oldtf.rbp;
-  newtf.r12 = oldtf.r12;
-  newtf.r13 = oldtf.r13;
-  newtf.r14 = oldtf.r14;
-  newtf.r15 = oldtf.r15;
-}
-
-template <typename Ctx>
-void CopyTrapframe(const Ctx &ctx, thread_tf &newtf) {
-  CopyRegs(newtf, ctx);
-  // store RIP in R11 temporarily
-  newtf.r11 = ctx.rip;
-}
-
 void CloneTrapframe(thread_t *newth, const Thread &oldth) {
-  if (oldth.get_syscall_source() == SyscallEntry::kSyscallTrapSysStack)
-    CopyTrapframe(oldth.get_trap_regs(), newth->tf);
-  else
-    CopyTrapframe(oldth.get_fncall_regs(), newth->tf);
+  oldth.CopySyscallRegs(newth->tf);
+  newth->tf.r11 = newth->tf.rip;
 
   // copy fsbase if present
   if (oldth.GetCaladanThread()->has_fsbase) {
     newth->has_fsbase = true;
     newth->tf.fsbase = oldth.GetCaladanThread()->tf.fsbase;
   }
-
-  newth->tf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
 }
 
 long DoClone(clone_args *cl_args, uint64_t rsp) {
@@ -147,10 +118,11 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   Thread &tstate = **tptr;
   thread_t *th = tstate.GetCaladanThread();
 
-  th->tf.rsp = rsp;
-
   // Clone the trap frame
   CloneTrapframe(th, mythread());
+
+  th->tf.rsp = rsp;
+  th->tf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
 
   // Set FSBASE if requested
   if (cl_args->flags & CLONE_SETTLS) thread_set_fsbase(th, cl_args->tls);
@@ -584,9 +556,7 @@ ThreadMetadata Thread::Snapshot() const & {
   s.SetThreadId(tid_);
   s.SetChildThreadId(child_tid_);
   s.SetThreadId(tid_);
-  s.SetInSyscall(this->in_syscall());
   s.SetExitState(xstate_);
-  s.SetCurrentSyscallFrame(cur_syscall_frame_);
 
   sighand_.Snapshot(s);
   return s;
@@ -614,13 +584,7 @@ long usys_vfork() {
 
   cl_args.flags = kVforkRequiredFlags;
 
-  uint64_t rsp;
-  if (mythread().get_syscall_source() == SyscallEntry::kSyscallTrapSysStack)
-    rsp = mythread().get_trap_regs().rsp;
-  else
-    rsp = mythread().get_fncall_regs().rsp;
-
-  long ret = DoClone(&cl_args, rsp);
+  long ret = DoClone(&cl_args, mythread().GetSyscallFrame().GetRsp());
   if (unlikely(GetCfg().strace_enabled())) LogSyscall(ret, "vfork");
 
   return ret;
@@ -656,19 +620,12 @@ long junction_entry_snapshot(char const *elf_pathname,
   auto proc_metadata = myproc().Snapshot();
   thread_tf tf;
   Thread const &thread = mythread();
-  if (thread.get_syscall_source() == SyscallEntry::kSyscallTrapSysStack) {
-    CopyTrapframe(thread.get_trap_regs(), tf);
-    tf.rsp = thread.get_trap_regs().rsp;
-    tf.rip = thread.get_trap_regs().rip;
-  } else {
-    CopyTrapframe(thread.get_fncall_regs(), tf);
-    tf.rsp = thread.get_fncall_regs().rsp;
-    tf.rip = thread.get_fncall_regs().rip;
-  }
+  thread.CopySyscallRegs(tf);
+  // TODO: Does snapshotting care about stashing rip in r11?
+  tf.r11 = tf.rip;
 
-  if (thread.GetCaladanThread()->has_fsbase) {
+  if (thread.GetCaladanThread()->has_fsbase)
     tf.fsbase = thread.GetCaladanThread()->tf.fsbase;
-  }
 
   // make sure 0 is returned to the calling thread
   tf.rax = 0;
@@ -744,8 +701,8 @@ extern "C" [[noreturn]] void usys_exit_finish(int status) {
 void usys_exit(int status) {
   if (IsOnStack(GetSyscallStack())) usys_exit_finish(status);
 
-  __nosave_switch(reinterpret_cast<thread_fn_t>(usys_exit_finish),
-                  GetSyscallStackBottom(), status);
+  nosave_switch(reinterpret_cast<thread_fn_t>(usys_exit_finish),
+                GetSyscallStackBottom(), status);
 }
 
 void usys_exit_group(int status) {

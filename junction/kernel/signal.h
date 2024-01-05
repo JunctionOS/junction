@@ -10,7 +10,9 @@ extern "C" {
 #include <list>
 #include <optional>
 
+#include "junction/bindings/stack.h"
 #include "junction/kernel/sigframe.h"
+#include "junction/kernel/trapframe.h"
 
 namespace junction {
 
@@ -125,6 +127,21 @@ struct DeliveredSignal {
   siginfo_t info;
   stack_t ss;
   k_sigset_t prev_blocked;
+
+  // Fix a stack pointer based on the altstack configuration for this signal.
+  [[nodiscard]] uint64_t FixRspAltstack(uint64_t rsp) const {
+    // do nothing if this sigaction doesn't use an altstack
+    if (!act.wants_altstack()) return rsp;
+
+    // check if the altstack was valid
+    if (ss.ss_flags & SS_DISABLE) return rsp;
+
+    // check if we are already on the altsack
+    if (IsOnStack(rsp, ss)) return rsp;
+
+    // switch to the altstack
+    return reinterpret_cast<uint64_t>(ss.ss_sp) + ss.ss_size;
+  }
 };
 
 class ThreadSignalHandler {
@@ -235,11 +252,11 @@ class ThreadSignalHandler {
   // For convenience, this function takes the return value of the current
   // syscall as its first argument. This function may not return (it may restart
   // a syscall or run a signal handler).
-  void RunPending(int rax);
+  void DeliverSignals(const Trapframe &entry, int rax);
 
   // Entry point for a kernel delivered signal.
   [[noreturn]] void DeliverKernelSigToUser(int signo, siginfo_t *info,
-                                           k_sigframe *sigframe);
+                                           const KernelSignalTf &sigframe);
 
   void Snapshot(ThreadMetadata &s) const &;
   void Restore(ThreadMetadata const &tm);
@@ -249,11 +266,6 @@ class ThreadSignalHandler {
 
   // Pop the next pending signal's information
   std::optional<siginfo_t> PopSigInfo(k_sigset_t blocked, bool reset_flag);
-
-  // Apply a DeliveredSignal to a user's trapframe and jump to the handler
-  [[noreturn]] void ApplySignalsAndExit(const DeliveredSignal &first_signal,
-                                        uint64_t rsp,
-                                        const thread_tf &restore_tf);
 
  private:
   // Check if signal can be delivered, and returns the action if so.

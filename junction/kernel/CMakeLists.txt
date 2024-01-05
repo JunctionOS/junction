@@ -18,6 +18,7 @@ set(SOURCES_C_CPP
   signal.cc
   stdiofile.cc
   time.cc
+  trapframe.cc
 )
 
 set(SOURCES_ASM
