@@ -48,15 +48,16 @@ class SyscallFrame : virtual public Trapframe {
   virtual void CopyRegs(thread_tf &dest_tf) const = 0;
 };
 
-// Trapframes that are created via interrupts.
-class InterruptFrame : virtual public Trapframe {
- public:
-  // Set up @unwind_tf to unwind this trapframe immediately.
-  virtual void MakeUnwinder(thread_tf &unwind_tf) const = 0;
+template <typename T>
+concept InterruptFrame = requires(T t, thread_tf &tf) {
+  { &t } -> std::convertible_to<Trapframe *>;
+  { t.MakeUnwinder(tf) } -> std::same_as<void>;
+  { T::HasStackSwitchRace() } -> std::same_as<bool>;
+  { T::SwitchFromInterruptContext(tf) } -> std::same_as<void>;
 };
 
 // Kernel signals are used both for interrupts and to trap syscall instructions.
-class KernelSignalTf : public InterruptFrame, public SyscallFrame {
+class KernelSignalTf : public SyscallFrame {
  public:
   KernelSignalTf(k_sigframe &sigframe) : sigframe(sigframe) {}
   KernelSignalTf(k_sigframe *sigframe) : sigframe(*sigframe) {}
@@ -79,7 +80,7 @@ class KernelSignalTf : public InterruptFrame, public SyscallFrame {
     return *stack_wrapper;
   }
 
-  inline void MakeUnwinder(thread_tf &unwind_tf) const override {
+  inline void MakeUnwinder(thread_tf &unwind_tf) const {
     unwind_tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
     unwind_tf.rsp = reinterpret_cast<uintptr_t>(&sigframe.uc);
   }
@@ -169,7 +170,7 @@ class FunctionCallTf : public SyscallFrame {
 };
 
 // Wrapper around UINTR frames.
-class UintrTf : public InterruptFrame {
+class UintrTf : public Trapframe {
  public:
   UintrTf(u_sigframe &sigframe) : sigframe(sigframe) {}
   UintrTf(u_sigframe *sigframe) : sigframe(*sigframe) {}
@@ -190,7 +191,7 @@ class UintrTf : public InterruptFrame {
     __switch_and_preempt_enable(&tf);
   }
 
-  inline void MakeUnwinder(thread_tf &unwind_tf) const override {
+  inline void MakeUnwinder(thread_tf &unwind_tf) const {
     unwind_tf.rdi = reinterpret_cast<uint64_t>(&sigframe);
     unwind_tf.rsp = AlignDown(unwind_tf.rdi, 16) - 8;
     unwind_tf.rip = reinterpret_cast<uint64_t>(UintrFullRestore);

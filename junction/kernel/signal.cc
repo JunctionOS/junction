@@ -195,8 +195,10 @@ inline void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
 
 // Handle a kick delivered by host OS signal or UIPI.
 // If signals are delivered to a user thread, HandleKick does not return.
-template <typename Sigframe>
-void HandleKick(const Sigframe &sigframe) {
+template <typename Frame>
+void HandleKick(const Frame &sigframe)
+  requires InterruptFrame<Frame>
+{
   assert(IsJunctionThread());
 
   Thread &th = mythread();
@@ -210,7 +212,7 @@ void HandleKick(const Sigframe &sigframe) {
   // in_kernel flag before switching back to the caller stack. In this case,
   // the caller of HandleKick must detect this and rewind the return code
   // to-recheck for signals.
-  if constexpr (Sigframe::HasStackSwitchRace())
+  if constexpr (Frame::HasStackSwitchRace())
     if (unlikely(IsOnStack(rsp, GetSyscallStack()))) return;
 
   ThreadSignalHandler &hand = th.get_sighand();
@@ -229,7 +231,7 @@ void HandleKick(const Sigframe &sigframe) {
     PushUserSigFrame(*sig, &rsp, restore_tf);
   }
 
-  Sigframe::SwitchFromInterruptContext(restore_tf);
+  Frame::SwitchFromInterruptContext(restore_tf);
 }
 
 // Place UINTR handler logic that follows an xsave here so compiler can
