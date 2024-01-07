@@ -210,7 +210,7 @@ class UniqueLock {
     owns_ = true;
   }
 
-  [[nodiscard]] bool TryLock(L &lock)
+  [[nodiscard]] bool TryLock()
     requires TryableLock<L>
   {
     assert(lock_ && !owns_);
@@ -218,7 +218,7 @@ class UniqueLock {
     return owns_;
   }
 
-  [[nodiscard]] bool InterruptibleLock(L &lock)
+  [[nodiscard]] bool InterruptibleLock()
     requires InterruptibleLock<L>
   {
     assert(lock_ && !owns_);
@@ -297,7 +297,7 @@ class SharedLock {
     owns_ = true;
   }
 
-  [[nodiscard]] bool TryLock(L &lock)
+  [[nodiscard]] bool TryLock()
     requires TryableLock<L>
   {
     assert(lock_ && !owns_);
@@ -305,7 +305,7 @@ class SharedLock {
     return owns_;
   }
 
-  [[nodiscard]] bool InterruptibleLock(L &lock)
+  [[nodiscard]] bool InterruptibleLock()
     requires InterruptibleLock<L>
   {
     assert(lock_ && !owns_);

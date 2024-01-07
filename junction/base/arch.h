@@ -31,6 +31,14 @@ constexpr T PageAlignDown(T addr)
   return AlignDown(addr, kPageSize);
 }
 
+// IsPageAligned returns true if aligned to a page
+template <typename T>
+constexpr bool IsPageAligned(T addr)
+  requires std::is_unsigned_v<T>
+{
+  return PageAlign(addr) == addr;
+}
+
 // SetFSBase sets the %FS.base value.
 inline void SetFSBase(uint64_t val) { _writefsbase_u64(val); }
 
