@@ -37,6 +37,12 @@ inline bool IsOnStack(uint64_t cur_rsp, const struct stack& ss) {
   return cur_rsp > sp && cur_rsp <= sp + RUNTIME_STACK_SIZE;
 }
 
+inline __nofp bool IsOnStackNoFp(uint64_t cur_rsp, const struct stack& ss) {
+  uint64_t sp = reinterpret_cast<uint64_t>(&ss.usable[0]);
+
+  return cur_rsp > sp && cur_rsp <= sp + RUNTIME_STACK_SIZE;
+}
+
 template <typename T>
 inline bool IsOnStack(const T& ss) {
   return IsOnStack(GetRsp(), ss);

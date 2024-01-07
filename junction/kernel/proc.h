@@ -13,6 +13,7 @@ extern "C" {
 #include <map>
 #include <memory>
 
+#include "junction/base/arch.h"
 #include "junction/base/uid.h"
 #include "junction/junction.h"
 #include "junction/kernel/file.h"
@@ -34,7 +35,7 @@ inline constexpr unsigned int kWaitableContinued = WCONTINUED;
 
 inline void InterruptKthread(struct kthread *k) {
   if (uintr_enabled)
-    __builtin_ia32_senduipi(k->curr_cpu);
+    SendUipi(k->curr_cpu);
   else
     ksys_tgkill(GetLinuxPid(), k->tid, SIGURG);
 }

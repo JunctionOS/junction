@@ -11,6 +11,7 @@ extern "C" {
 #include <type_traits>
 #include <utility>
 
+#include "junction/base/arch.h"
 #include "junction/base/bits.h"
 
 inline constexpr uint64_t kUCFpXstate = 0x1;
@@ -104,11 +105,11 @@ struct k_sigframe {
   struct k_ucontext uc;
   siginfo_t info;
 
-  static k_sigframe *FromUcontext(k_ucontext *uc) {
+  static inline k_sigframe *FromUcontext(k_ucontext *uc) {
     return container_of(uc, k_sigframe, uc);
   }
 
-  [[nodiscard]] uint64_t GetRsp() const { return uc.uc_mcontext.rsp; }
+  [[nodiscard]] inline uint64_t GetRsp() const { return uc.uc_mcontext.rsp; }
 
   // The kernel will replace the altstack when we call __rt_sigreturn. Since
   // this call may happen from a different kernel thread then the one that the
@@ -128,17 +129,22 @@ struct k_sigframe {
 static_assert(sizeof(k_sigframe) % 16 == 8);
 
 struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
-  // Save current extended CPU states into dst_buf and attach dst_buf to this
-  // sigframe.
-  void SaveAndAttachCurrentXstate(void *dst_buf);
+  // Attach dst_buf to this sigframe.
+  inline void AttachXstate(void *dst_buf) {
+    assert(!xsave_area);
+    xsave_area = reinterpret_cast<unsigned char *>(dst_buf);
+  }
 
   // Restore the currently attached extended states.
-  void RestoreXstate() const;
+  inline __nofp void RestoreXstate() const {
+    assert(xsave_area);
+    XRestore(xsave_area, xsave_features);
+  }
 
   // Copy the full signal frame (xstate included) to @dest_rsp
   u_sigframe *CopyToStack(uint64_t *dest_rsp) const;
 
-  [[nodiscard]] uint64_t GetRsp() const { return rsp; }
+  [[nodiscard]] inline uint64_t GetRsp() const { return rsp; }
 };
 
 static_assert(sizeof(u_sigframe) == sizeof(uintr_frame));

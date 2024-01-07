@@ -107,8 +107,8 @@ void __noinline print_msg_abort(const char *msg) {
 // An interrupt was delivered while a Junction thread was running. This function
 // moves the trapframe to the Junction thread's syscall stack so it can be
 // restored in the future.
-template <class Frame>
-void MoveSigframeToJunctionThread(const Frame &sigframe, thread_tf &tf) {
+void MoveSigframeToJunctionThread(const KernelSignalTf &sigframe,
+                                  thread_tf &tf) {
   assert(IsJunctionThread());
   Thread &myth = mythread();
   stack &syscall_stack = *myth.GetCaladanThread()->stack;
@@ -122,12 +122,10 @@ void MoveSigframeToJunctionThread(const Frame &sigframe, thread_tf &tf) {
   // In this case, the trapframe that was saved at syscall entry (and updated
   // before returning) will be our target restore trapframe instead of the
   // provided sigframe.
-  if constexpr (Frame::HasStackSwitchRace()) {
-    if (unlikely(!in_kernel && on_syscall_stack)) {
-      myth.GetSyscallFrame().MakeUnwinderSysret(tf);
-      assert(IsOnStack(tf.rsp, syscall_stack));
-      return;
-    }
+  if (unlikely(!in_kernel && on_syscall_stack)) {
+    myth.GetSyscallFrame().MakeUnwinderSysret(tf);
+    assert(IsOnStack(tf.rsp, syscall_stack));
+    return;
   }
 
   // We are going to unwind this sigframe by moving it to the syscall stack
@@ -142,7 +140,7 @@ void MoveSigframeToJunctionThread(const Frame &sigframe, thread_tf &tf) {
     rsp = reinterpret_cast<uint64_t>(&syscall_stack.usable[STACK_PTR_SIZE]);
 
   // copy the sigframe over
-  Frame &stack_frame = sigframe.CloneTo(&rsp);
+  KernelSignalTf &stack_frame = sigframe.CloneTo(&rsp);
 
   if (!in_kernel) {
     myth.mark_enter_kernel();
@@ -234,21 +232,21 @@ void HandleKick(const Sigframe &sigframe) {
   Sigframe::SwitchFromInterruptContext(restore_tf);
 }
 
-void UintrInterruptFinish(const UintrTf &frame, int vector) {
-  if (IsJunctionThread()) {
-    if (vector == SIGURG - 1) {
-      HandleKick(frame);
-      // If we reach this point, no signals were delivered; return to the
-      // interrupted code.
-      return;
-    }
+// Place UINTR handler logic that follows an xsave here so compiler can
+// inline/use floating point.
+void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
+                      uint64_t rsp) {
+  UintrTf &stack_frame = UintrTf(uintr_frame).CloneTo(&rsp);
+  stack_frame.GetFrame().AttachXstate(xsave_buf);
 
-    // We are yielding or ceding; need to stash this frame with this thread.
-    MoveSigframeToJunctionThread(frame, thread_self()->tf);
+  // Set up the proper unwinder.
+  if (!th->junction_thread || th->in_syscall) {
+    stack_frame.MakeUnwinder(th->tf);
   } else {
-    // Move this frame directly on to the stack that was in use.
-    uint64_t rsp = frame.GetRsp() - kRedzoneSize;
-    frame.CloneTo(&rsp).MakeUnwinder(thread_self()->tf);
+    Thread &myth = mythread();
+    myth.mark_enter_kernel();
+    myth.SetTrapframe(stack_frame);
+    stack_frame.MakeUnwinderSysret(th->tf);
   }
 
   preempt_disable();
@@ -274,19 +272,52 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
     return;
   }
 
-  // Save xstate now even though we will have to copy it later so that we can
-  // use various Junction functions normally without worrying about clobbering
-  // that state.
-  size_t space = xsave_max_size + kXsaveAlignment - 1;
-  xsave_buf = alloca(space);
-  xsave_buf = std::align(kXsaveAlignment, xsave_max_size, xsave_buf, space);
-  uintr_frame->SaveAndAttachCurrentXstate(xsave_buf);
+  // Take care here to avoid calling functions not marked as __nofp. (The
+  // compiler will allow you to do this without complaining.)
 
-  // It is safe to call functions that use floating point at this point.
-  UintrInterruptFinish(UintrTf(uintr_frame), uintr_frame->uirrv);
+  thread_t *th = perthread_read(__self);
 
-  // If we return to this point, restore the floating point state.
-  uintr_frame->RestoreXstate();
+  // If we are delivering a user interrupt to a Junction thread, temporarily
+  // save xstate on the current stack. The user signal frame setup will copy it
+  // to the user signal stack.
+  if (th->junction_thread && uintr_frame->uirrv == SIGURG - 1) {
+    uint64_t this_rsp = reinterpret_cast<uint64_t>(
+        alloca(xsave_max_size + kXsaveAlignment - 1));
+    // AlignUp
+    this_rsp = (this_rsp + kXsaveAlignment - 1) & ~(kXsaveAlignment - 1);
+    xsave_buf = reinterpret_cast<void *>(this_rsp);
+
+    // Safe to use fp functions after calling XSave.
+    XSaveCompact(xsave_buf, xsave_features);
+    uintr_frame->AttachXstate(xsave_buf);
+
+    HandleKick(UintrTf(uintr_frame));
+
+    // If we return to this point, restore the floating point state.
+    XRestore(xsave_buf, xsave_features);
+    return;
+  }
+
+  // We need to determine where we should place xstate before saving it.
+  // If this interrupt landed on a non-Junction thread, place the xstate
+  // directly on the interrupted stack. If this interrupt landed on a Junction
+  // thread, place the xstate onto the syscall stack.
+
+  uint64_t rsp = uintr_frame->rsp - kRedzoneSize;
+
+  if (th->junction_thread && !IsOnStackNoFp(rsp, *th->stack))
+    rsp = reinterpret_cast<uint64_t>(&th->stack->usable[STACK_PTR_SIZE]);
+
+  // AlignDown
+  rsp = (rsp - xsave_max_size) & ~(kXsaveAlignment - 1);
+  xsave_buf = reinterpret_cast<void *>(rsp);
+
+  // Safe to use fp functions after calling XSave.
+  XSaveCompact(xsave_buf, xsave_features);
+
+  UintrFinishYield(uintr_frame, th, xsave_buf, rsp);
+
+  __builtin_unreachable();
 }
 
 // Signal handler for IOKernel sent signals (SIGUSR1 + SIGUSR2)

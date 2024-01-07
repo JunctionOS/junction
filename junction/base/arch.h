@@ -15,6 +15,8 @@ inline constexpr size_t kPageSize = 4096;
 inline constexpr size_t kLargePageSize = 2097152;
 inline constexpr size_t kCacheLineSize = 64;
 inline constexpr size_t kXsaveAlignment = 64;
+inline constexpr size_t kXsaveHeaderOffset = 512;
+inline constexpr size_t kXsaveHeaderSize = 64;
 
 // PageAlign aligns an address upward to the nearest page size
 template <typename T>
@@ -60,17 +62,23 @@ inline bool TestUIF() { return __builtin_ia32_testui(); }
 
 // XSaveCompact saves the set of extended CPU states specified in @features into
 // @buf.
-inline void XSaveCompact(void *buf, uint64_t features) {
+inline __nofp void XSaveCompact(void *buf, uint64_t features) {
   assert((uintptr_t)buf % kXsaveAlignment == 0);
+  // Zero the xsave header
+  __builtin_memset(reinterpret_cast<std::byte *>(buf) + kXsaveHeaderOffset, 0,
+                   kXsaveHeaderSize);
   __builtin_ia32_xsavec64(buf, features);
 }
 
 // XRestore restores the set of extended CPU states specified in @features from
 // @buf.
-inline void XRestore(void *buf, uint64_t features) {
+inline __nofp void XRestore(void *buf, uint64_t features) {
   assert((uintptr_t)buf % kXsaveAlignment == 0);
   __builtin_ia32_xrstor64(buf, features);
 }
+
+// Send a user IPI to @cpu.
+inline void SendUipi(unsigned int cpu) { __builtin_ia32_senduipi(cpu); }
 
 // ReadRandom gets random bytes from the hardware RNG (fast).
 Status<size_t> ReadRandom(std::span<std::byte> buf);

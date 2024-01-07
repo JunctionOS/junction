@@ -67,24 +67,6 @@ extern "C" void UintrLoopReturn(u_sigframe *frame) {
   }
 }
 
-__nofp void u_sigframe::SaveAndAttachCurrentXstate(void *dst_buf) {
-  assert(!xsave_area);
-
-  xsave_area = reinterpret_cast<unsigned char *>(dst_buf);
-
-  // zero xsave header
-  k_xstate *kx = reinterpret_cast<k_xstate *>(xsave_area);
-  __builtin_memset(&kx->xstate_hdr, 0, sizeof(kx->xstate_hdr));
-
-  // save state
-  XSaveCompact(xsave_area, xsave_features);
-}
-
-__nofp void u_sigframe::RestoreXstate() const {
-  assert(xsave_area);
-  XRestore(xsave_area, xsave_features);
-}
-
 u_sigframe *u_sigframe::CopyToStack(uint64_t *dest_rsp) const {
   unsigned char *new_xarea = nullptr;
 

@@ -68,7 +68,7 @@ class KernelSignalTf : public InterruptFrame, public SyscallFrame {
   constexpr static bool HasStackSwitchRace() { return true; }
 
   // Returns a reference to the underlying sigframe.
-  [[nodiscard]] k_sigframe &GetFrame() { return sigframe; }
+  [[nodiscard]] inline k_sigframe &GetFrame() { return sigframe; }
 
   void CopyRegs(thread_tf &dest_tf) const override;
 
@@ -79,7 +79,7 @@ class KernelSignalTf : public InterruptFrame, public SyscallFrame {
     return *stack_wrapper;
   }
 
-  void MakeUnwinder(thread_tf &unwind_tf) const override {
+  inline void MakeUnwinder(thread_tf &unwind_tf) const override {
     unwind_tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
     unwind_tf.rsp = reinterpret_cast<uintptr_t>(&sigframe.uc);
   }
@@ -91,10 +91,14 @@ class KernelSignalTf : public InterruptFrame, public SyscallFrame {
 
   void SetRax(uint64_t rax) override { sigframe.uc.uc_mcontext.rax = rax; }
 
-  [[nodiscard]] uint64_t GetRsp() const override { return sigframe.GetRsp(); }
+  [[nodiscard]] inline uint64_t GetRsp() const override {
+    return sigframe.GetRsp();
+  }
 
-  void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
+  inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
     unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
+    // Ensure calls to RunSignals see 0 for the first argument (syscall return
+    // value).
     unwind_tf.rdi = 0;
     if (uintr_enabled)
       unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop_uintr);
@@ -109,7 +113,7 @@ class KernelSignalTf : public InterruptFrame, public SyscallFrame {
   }
 
   // Routine used to switch from a signal delivery context.
-  [[noreturn]] static void SwitchFromInterruptContext(thread_tf &tf) {
+  [[noreturn]] static inline void SwitchFromInterruptContext(thread_tf &tf) {
     assert_preempt_disabled();
     __switch_and_preempt_enable(&tf);
   }
@@ -136,9 +140,9 @@ class FunctionCallTf : public SyscallFrame {
 
   void CopyRegs(thread_tf &dest_tf) const override;
 
-  [[nodiscard]] uint64_t GetRsp() const override { return tf->rsp; }
+  [[nodiscard]] inline uint64_t GetRsp() const override { return tf->rsp; }
 
-  void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
+  inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
     unwind_tf.rsp = reinterpret_cast<uint64_t>(tf);
     unwind_tf.rip = reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
   }
@@ -176,6 +180,9 @@ class UintrTf : public InterruptFrame {
   // period.
   constexpr static bool HasStackSwitchRace() { return false; }
 
+  // Returns a reference to the underlying sigframe.
+  [[nodiscard]] inline u_sigframe &GetFrame() { return sigframe; }
+
   [[noreturn]] void JmpUnwind() override {
     assert_preempt_disabled();
     thread_tf tf;
@@ -183,21 +190,23 @@ class UintrTf : public InterruptFrame {
     __switch_and_preempt_enable(&tf);
   }
 
-  void MakeUnwinder(thread_tf &unwind_tf) const override {
+  inline void MakeUnwinder(thread_tf &unwind_tf) const override {
     unwind_tf.rdi = reinterpret_cast<uint64_t>(&sigframe);
     unwind_tf.rsp = AlignDown(unwind_tf.rdi, 16) - 8;
     unwind_tf.rip = reinterpret_cast<uint64_t>(UintrFullRestore);
   }
 
-  void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
+  inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
     unwind_tf.rdi = reinterpret_cast<uint64_t>(&sigframe);
     unwind_tf.rsp = AlignDown(unwind_tf.rdi, 16) - 8;
     unwind_tf.rip = reinterpret_cast<uint64_t>(UintrLoopReturn);
   }
 
-  [[nodiscard]] uint64_t GetRsp() const override { return sigframe.GetRsp(); }
+  [[nodiscard]] inline uint64_t GetRsp() const override {
+    return sigframe.GetRsp();
+  }
 
-  [[noreturn]] static void SwitchFromInterruptContext(thread_tf &tf) {
+  [[noreturn]] static inline void SwitchFromInterruptContext(thread_tf &tf) {
     assert(!TestUIF());
     __switch_and_interrupt_enable(&tf);
   }
