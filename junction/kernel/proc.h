@@ -60,16 +60,6 @@ class Thread {
   Thread(const Thread &) = delete;
   Thread &operator=(const Thread &) = delete;
 
-  static void operator delete(void *ptr) noexcept {
-    // delete should only be called by a unique pointer handling a thread object
-    // before it first runs. this goal here is to be able to use unique pointers
-    // for cleanup in functions that create new threads.
-    BUG_ON(ptr == thread_self()->junction_tstate_buf);
-    auto *bufptr =
-        reinterpret_cast<decltype(thread_t::junction_tstate_buf) *>(ptr);
-    thread_free(container_of(bufptr, thread_t, junction_tstate_buf));
-  }
-
   [[nodiscard]] pid_t get_tid() const { return tid_; }
   [[nodiscard]] Process &get_process() const { return *proc_; }
   [[nodiscard]] uint32_t *get_child_tid() const { return child_tid_; }
@@ -339,13 +329,12 @@ class Process : public std::enable_shared_from_this<Process> {
   // Create a vforked process from this one.
   Status<std::shared_ptr<Process>> CreateProcessVfork(rt::ThreadWaker &&w);
 
-  Status<std::unique_ptr<Thread>> CreateThreadMain();
-  Status<std::unique_ptr<Thread>> GetThreadMain();
+  Status<Thread *> CreateThreadMain();
+  Status<Thread *> GetThreadMain();
   Status<void> RestoreThread(ThreadMetadata const &tm);
-  Status<std::unique_ptr<Thread>> CreateThread();
+  Status<Thread *> CreateThread();
   Thread &CreateTestThread();
 
-  void StartExec();
   void FinishExec(std::shared_ptr<MemoryMap> &&new_mm);
 
   // Called by a thread to notify that it is exiting.

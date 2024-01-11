@@ -761,7 +761,7 @@ void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
   if (IsRestartSys(rax))
     CheckRestartSysPostHandler(this_thread().GetSyscallFrame(), rax, *sig);
 
-  auto DeliverSignalsFinish = [this, d = *sig, entry = &entry]() mutable {
+  RunOnStack(GetSyscallStack(), [this, d = *sig, entry = &entry]() mutable {
     uint64_t rsp = entry->GetRsp() - kRedzoneSize;
 
     thread_tf sighand_tf;
@@ -788,13 +788,7 @@ void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
       myth.mark_enter_kernel();
       preempt_enable();
     }
-  };
-
-  // temporarily switch stacks to finish signal delivery if needed.
-  if (!IsOnStack(GetSyscallStack()))
-    SwitchStack(GetSyscallStackBottom(), DeliverSignalsFinish);
-  else
-    DeliverSignalsFinish();
+  });
 };
 
 long usys_rt_sigaction(int sig, const struct k_sigaction *iact,

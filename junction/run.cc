@@ -12,6 +12,24 @@ namespace junction {
 
 namespace {
 
+// Start trampoline with zero arg registers; some binaries need this
+extern "C" void junction_exec_start(void *entry_arg);
+asm(R"(
+.globl junction_exec_start
+    .type junction_exec_start, @function
+    junction_exec_start:
+
+    movq %rdi, %r11
+    xor %rdi, %rdi
+    xor %rsi, %rsi
+    xor %rdx, %rdx
+    xor %rcx, %rcx
+    xor %r8, %r8
+    xor %r9, %r9
+
+    jmpq    *%r11
+)");
+
 Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, const std::vector<std::string_view> &argv,
     const std::vector<std::string_view> &envp) {
@@ -32,13 +50,21 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   ftbl.Insert(std::move(ferr));
 
   // Exec program image
-  Status<Thread *> ret = Exec(**proc, (*proc)->get_mem_map(), path, argv, envp);
+  Status<ExecInfo> ret = Exec(**proc, (*proc)->get_mem_map(), path, argv, envp);
   if (!ret) {
     LOG(ERR) << "Failed to exec binary: " << ret.error();
     return MakeError(ret);
   }
 
-  (*ret)->ThreadReady();
+  Status<Thread *> th = (*proc)->CreateThreadMain();
+  if (!th) return MakeError(th);
+
+  thread_tf &tf = (*th)->GetCaladanThread()->tf;
+  tf.rsp = std::get<0>(*ret);
+  tf.rdi = std::get<1>(*ret);
+  tf.rip = reinterpret_cast<uint64_t>(junction_exec_start);
+
+  (*th)->ThreadReady();
   return *proc;
 }
 

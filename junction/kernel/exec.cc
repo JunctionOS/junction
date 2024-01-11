@@ -133,24 +133,6 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
       filename, edata, random_ptr);
 }
 
-// Start trampoline with zero arg registers; some binaries need this
-extern "C" void junction_exec_start(void *entry_arg);
-asm(R"(
-.globl junction_exec_start
-    .type junction_exec_start, @function
-    junction_exec_start:
-
-    movq %rdi, %r11
-    xor %rdi, %rdi
-    xor %rsi, %rsi
-    xor %rdx, %rdx
-    xor %rcx, %rcx
-    xor %r8, %r8
-    xor %r9, %r9
-
-    jmpq    *%r11
-)");
-
 // Restore full trapframe to restore snapshot
 extern "C" void snapshot_exec_start(void *tf);
 asm(R"(
@@ -189,8 +171,8 @@ asm(R"(
 Status<Thread *> Exec(Process &p, MemoryMap &mm, thread_tf &tf,
                       std::string_view pathname) {
   LoadELF(mm, pathname);
-  Status<std::unique_ptr<Thread>> main = p.GetThreadMain();
 
+  Status<Thread *> main = p.GetThreadMain();
   if (!main) return MakeError(main);
 
   thread_t *th = (*main)->GetCaladanThread();
@@ -208,11 +190,10 @@ Status<Thread *> Exec(Process &p, MemoryMap &mm, thread_tf &tf,
   th->tf.rip = reinterpret_cast<uintptr_t>(snapshot_exec_start);
   th->tf.rdi = reinterpret_cast<uintptr_t>(tf_loc);
 
-  main->release();
   return reinterpret_cast<Thread *>(th->junction_tstate_buf);
 }
 
-Status<Thread *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
+Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                       const std::vector<std::string_view> &argv,
                       const std::vector<std::string_view> &envp) {
   // load the ELF program image file
@@ -226,12 +207,6 @@ Status<Thread *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   uint64_t entry =
       edata->interp ? edata->interp->entry_addr : edata->entry_addr;
 
-  Status<std::unique_ptr<Thread>> tstate = p.CreateThreadMain();
-  if (!tstate) return MakeError(tstate);
-  thread_t *th = (*tstate)->GetCaladanThread();
-  th->tf.rip = reinterpret_cast<uintptr_t>(junction_exec_start);
-  th->tf.rdi = reinterpret_cast<uintptr_t>(entry);
-
   // setup a stack
   Status<void *> guard =
       mm.MMap(nullptr, RUNTIME_GUARD_SIZE + RUNTIME_STACK_SIZE, PROT_NONE, 0,
@@ -242,12 +217,10 @@ Status<Thread *> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   Status<void *> ret = mm.MMap(rsp, RUNTIME_STACK_SIZE, PROT_READ | PROT_WRITE,
                                MAP_FIXED, VMType::kStack);
   if (!ret) return MakeError(ret);
-  th->tf.rsp = reinterpret_cast<uint64_t>(rsp) + RUNTIME_STACK_SIZE;
+  uint64_t sp = reinterpret_cast<uint64_t>(rsp) + RUNTIME_STACK_SIZE;
 
-  SetupStack(&th->tf.rsp, argv, envp, *edata);
-
-  tstate->release();
-  return reinterpret_cast<Thread *>(th->junction_tstate_buf);
+  SetupStack(&sp, argv, envp, *edata);
+  return {{sp, entry}};
 }
 
 int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
@@ -263,35 +236,44 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
   std::vector<std::string_view> envp_view;
   while (*envp) envp_view.emplace_back(*envp++);
 
-  Status<Thread *> ret = Exec(myproc(), **mm, filename, argv_view, envp_view);
+  Status<ExecInfo> ret = Exec(myproc(), **mm, filename, argv_view, envp_view);
   if (!ret) return MakeCError(ret);
 
   // Finish exec from a different stack, since this stack may be unmapped when
   // replacing a proc's MM
-  auto ExecveFinish = [newt = *ret, mm = std::move(*mm)]() mutable {
-    Thread *tptr = &mythread();
-
-    // Wait for any remaining threads to exit
-    tptr->get_process().StartExec();
-
-    // Destroy the previous thread and release its memory
-    tptr->~Thread();
+  RunOnStack(GetSyscallStack(), [regs = *ret, mm = std::move(*mm)]() mutable {
+    Thread &myth = mythread();
 
     // Complete the exec
-    newt->get_process().FinishExec(std::move(mm));
+    myth.get_process().FinishExec(std::move(mm));
 
-    // Wake the new main thread
-    newt->ThreadReady();
+    thread_tf start_tf;
 
-    rt::Exit();
-  };
+    // clear argument registers
+    start_tf.rdi = 0;
+    start_tf.rsi = 0;
+    start_tf.rdx = 0;
+    start_tf.rcx = 0;
+    start_tf.r8 = 0;
+    start_tf.r9 = 0;
 
-  if (IsOnStack(GetSyscallStack())) {
-    ExecveFinish();
-    std::unreachable();
-  }
+    start_tf.rsp = std::get<0>(regs);
+    start_tf.rip = std::get<1>(regs);
 
-  SwitchStack(GetSyscallStackBottom(), ExecveFinish);
+    while (true) {
+      preempt_disable();
+      myth.mark_leave_kernel();
+      if (!myth.needs_interrupt()) {
+        __restore_tf_full_and_preempt_enable(&start_tf);
+        std::unreachable();
+      }
+
+      myth.mark_enter_kernel();
+      preempt_enable();
+
+      myth.get_sighand().DeliverSignals(FunctionCallTf(start_tf), 0);
+    }
+  });
 }
 
 int usys_execveat(int fd, const char *filename, const char *argv[],

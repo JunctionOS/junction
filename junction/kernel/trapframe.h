@@ -137,6 +137,7 @@ class KernelSignalTf : public SyscallFrame {
 class FunctionCallTf : public SyscallFrame {
  public:
   FunctionCallTf(thread_tf *tf) : tf(tf) {}
+  FunctionCallTf(thread_tf &tf) : tf(&tf) {}
   FunctionCallTf() = default;
 
   void CopyRegs(thread_tf &dest_tf) const override;

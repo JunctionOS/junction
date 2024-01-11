@@ -54,7 +54,7 @@ inline uint64_t GetRuntimeStack() {
 }
 
 // returns the bottom of the local thread's syscall stack
-inline const struct stack& GetSyscallStack(const thread_t* th = thread_self()) {
+inline struct stack& GetSyscallStack(thread_t* th = thread_self()) {
   return *th->stack;
 }
 
@@ -93,22 +93,30 @@ T* PushToStack(uint64_t* rsp, const T& src) {
 }
 
 template <typename Callable, typename... Args>
-__noreturn void SwitchStack(uint64_t stack, Callable&& func, Args&&... args)
+__noreturn void RunOnStack(struct stack& stack, Callable&& func, Args&&... args)
   requires std::invocable<Callable, Args...>
 {
+  // Just run the function if we're already on the stack
+  if (IsOnStack(stack)) {
+    func(std::forward<Args>(args)...);
+    std::unreachable();
+  }
+
   using Data = rt::thread_internal::basic_data;
   using Wrapper = rt::thread_internal::Wrapper<Data, Callable, Args...>;
 
-  Wrapper* buf = AllocateOnStack<Wrapper>(&stack);
+  uint64_t rsp = reinterpret_cast<uint64_t>(&stack.usable[STACK_PTR_SIZE]);
+  Wrapper* buf = AllocateOnStack<Wrapper>(&rsp);
   new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
-  stack = AlignDown(stack, 16) - 8;
+  rsp = AlignDown(rsp, 16) - 8;
 
   auto f = [](void* arg) {
     Wrapper* w = reinterpret_cast<Wrapper*>(arg);
     w->Run();
   };
 
-  nosave_switch(f, stack, reinterpret_cast<uint64_t>(buf));
+  nosave_switch(f, rsp, reinterpret_cast<uint64_t>(buf));
+  std::unreachable();
 }
 
 }  // namespace junction

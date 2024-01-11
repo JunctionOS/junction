@@ -100,7 +100,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
       return -ENOSYS;
   }
 
-  Status<std::unique_ptr<Thread>> tptr;
+  Status<Thread *> tptr;
 
   if (do_vfork) {
     rt::ThreadWaker waker;
@@ -138,7 +138,6 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   else
     tstate.set_child_tid(nullptr);
 
-  (*tptr).release();
   thread_ready(th);
 
   // Wait for child thread to exit or exec
@@ -192,35 +191,30 @@ Process::~Process() {
   ReleasePid(pid_, pgid_);
 }
 
-void Process::StartExec() {
-  rt::SpinGuard g(child_thread_lock_);
-
-  // Ensure that the process is not cleaned up when the last thread dies.
-  doing_exec_ = true;
-
-  // Kill any threads besides this one.
-  for (const auto &[pid, th] : thread_map_)
-    if (pid != mythread().get_tid()) th->Kill();
-
-  // Wait for other threads to exit.
-  rt::Wait(child_thread_lock_, exec_waker_,
-           [this] { return thread_map_.size() == 1; });
-}
-
 void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
+  {
+    rt::SpinGuard g(child_thread_lock_);
+
+    // Kill any threads besides this one.
+    for (const auto &[pid, th] : thread_map_)
+      if (pid != mythread().get_tid()) th->Kill();
+
+    // Wait for other threads to exit.
+    rt::Wait(child_thread_lock_, exec_waker_,
+             [this] { return thread_map_.size() == 1; });
+  }
+
   file_tbl_.DoCloseOnExec();
   mem_map_ = std::move(new_mm);
   vfork_waker_.Wake();
-  // We are called with no running threads for this Process; no need to lock.
-  doing_exec_ = false;
 }
 
 bool Process::ThreadFinish(Thread *th) {
   rt::SpinGuard g(child_thread_lock_);
   thread_map_.erase(th->get_tid());
-  if (!doing_exec_) return thread_map_.size() == 0;
-  if (thread_map_.size() == 1) exec_waker_.Wake();
-  return false;
+  size_t remaining_threads = thread_map_.size();
+  if (remaining_threads == 1) exec_waker_.Wake();
+  return remaining_threads == 0;
 }
 
 Status<std::shared_ptr<Process>> CreateInitProcess() {
@@ -261,7 +255,7 @@ Thread &Process::CreateTestThread() {
   return *tstate;
 }
 
-Status<std::unique_ptr<Thread>> Process::CreateThreadMain() {
+Status<Thread *> Process::CreateThreadMain() {
   thread_t *th = thread_create(nullptr, 0);
   if (!th) return MakeError(ENOMEM);
 
@@ -269,7 +263,7 @@ Status<std::unique_ptr<Thread>> Process::CreateThreadMain() {
   new (tstate) Thread(shared_from_this(), get_pid());
   th->junction_thread = true;
   thread_map_[get_pid()] = tstate;
-  return std::unique_ptr<Thread>(tstate);
+  return tstate;
 }
 
 Status<void> Process::Restore(ProcessMetadata const &pm,
@@ -325,13 +319,13 @@ Status<void> Process::RestoreThread(ThreadMetadata const &tm) {
 
 // Used for starting the main thread, will change when restoring multiple
 // threads
-Status<std::unique_ptr<Thread>> Process::GetThreadMain() {
+Status<Thread *> Process::GetThreadMain() {
   Thread *main = thread_map_[get_pid()];
   if (main == nullptr) return MakeError(EINVAL);
-  return std::unique_ptr<Thread>(main);
+  return main;
 }
 
-Status<std::unique_ptr<Thread>> Process::CreateThread() {
+Status<Thread *> Process::CreateThread() {
   thread_t *th = thread_create(nullptr, 0);
   if (unlikely(!th)) return MakeError(ENOMEM);
 
@@ -342,17 +336,21 @@ Status<std::unique_ptr<Thread>> Process::CreateThread() {
   }
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(shared_from_this(), *tid);
-  th->junction_thread = true;
-  std::unique_ptr<Thread> th_ptr(tstate);
 
   {
-    rt::SpinGuard g(child_thread_lock_);
-    if (unlikely(exited())) return MakeError(1);
+    rt::UniqueLock g(child_thread_lock_);
+    if (unlikely(exited())) {
+      g.Unlock();
+      ReleasePid(*tid);
+      thread_free(th);
+      return MakeError(1);
+    }
+    new (tstate) Thread(shared_from_this(), *tid);
+    th->junction_thread = true;
     thread_map_[*tid] = tstate;
   }
 
-  return th_ptr;
+  return tstate;
 }
 
 int WaitStateToSi(unsigned int state) {
