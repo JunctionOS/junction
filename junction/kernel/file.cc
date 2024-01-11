@@ -151,7 +151,7 @@ void FileTable::RemoveRange(int low, int high) {
   std::vector<std::shared_ptr<File>> tmp;
   {
     rt::SpinGuard g(lock_);
-    int max = farr_->len;
+    int max = farr_->len - 1;
     low = std::min(low, max);
     high = std::min(high, max);
 
