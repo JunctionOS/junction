@@ -90,10 +90,13 @@ void __syscall_trap_return_uintr();
 // UINTR is enabled.
 void __kframe_unwind_loop_uintr(uint64_t rax);
 
-// This symbol is a specific point in junction_fncall_enter_preserve_regs, used
-// to slightly reset the RIP to address a race between an interrupt and a
-// returning system call.
+// Unwind a function call frame. Checks for pending signals before fully
+// unwinding the frame.
 void __fncall_return_exit_loop();
+
+// Unwind a function call frame. Checks for pending signals before fully
+// unwinding the frame. This variant must be used when UINTR is enabled.
+void __fncall_return_exit_loop_uintr();
 
 // Entry point for usys_rt_sigreturn, switches stacks and jumps to
 // usys_rt_sigreturn with the sigframe as an argument.

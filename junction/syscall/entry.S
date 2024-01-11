@@ -710,16 +710,45 @@ __fncall_return_exit_loop:
 	jg      1f
 
 	RESTORETF_STACK
-	add $8, %rsp // ignore rip
-	popq %rsp // restore rsp
+	movq    (%rsp), %r11 // stash rip
+	popq    %rsp // restore rsp
 	subq    $8, %rsp
-	ret
+	jmp     *%r11
 
 1:
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 	xorq    %rdi, %rdi
 	call    RunSignals
 	jmp     __fncall_return_exit_loop
+
+.align 16
+.globl __fncall_return_exit_loop_uintr
+.type __fncall_return_exit_loop_uintr, @function
+__fncall_return_exit_loop_uintr:
+	movq 	%gs:__perthread___self(%rip), %r11
+
+	clui
+
+	// check for interrupts
+	movl    JUNCTION_INT_STATE_OFF(%r11), %edi
+	test    %edi, %edi
+	jg      1f
+
+	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
+
+	RESTORETF_STACK
+	movq    (%rsp), %r11 // stash rip
+	popq    %rsp // restore rsp
+	subq    $8, %rsp
+	stui
+	jmp     *%r11
+
+
+1:
+	stui
+	xorq    %rdi, %rdi
+	call    RunSignals
+	jmp     __fncall_return_exit_loop_uintr
 
 /*
  * junction_fncall_stackswitch_enter_preserve_regs - variant of

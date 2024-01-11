@@ -146,7 +146,12 @@ class FunctionCallTf : public SyscallFrame {
 
   inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
     unwind_tf.rsp = reinterpret_cast<uint64_t>(tf);
-    unwind_tf.rip = reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
+    if (uintr_enabled) {
+      unwind_tf.rip =
+          reinterpret_cast<uint64_t>(__fncall_return_exit_loop_uintr);
+    } else {
+      unwind_tf.rip = reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
+    }
   }
 
   [[noreturn]] void JmpRestartSyscall() override;
