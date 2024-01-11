@@ -346,13 +346,13 @@ class WaitQueue {
   void Arm(thread_t *th = thread_self()) {
     assert(!th->link_armed);
     th->link_armed = true;
-    list_add_tail(&waiters_, &th->link);
+    list_add_tail(&waiters_, &th->interruptible_link);
   }
 
   // Disarm removes a thread; must be synchronized by caller.
   bool Disarm(thread_t *th) {
     if (!th->link_armed) return false;
-    list_del_from(&waiters_, &th->link);
+    list_del_from(&waiters_, &th->interruptible_link);
     th->link_armed = false;
     return true;
   }
@@ -360,7 +360,7 @@ class WaitQueue {
   // Wake up to one thread waiter (must be synchronized by caller)
   // Returns true if a waiter was found and removed from the list.
   bool WakeOne() {
-    thread_t *th = list_pop(&waiters_, thread_t, link);
+    thread_t *th = list_pop(&waiters_, thread_t, interruptible_link);
     if (th == nullptr) return false;
     th->link_armed = false;
     ThreadReady(th);
@@ -371,7 +371,7 @@ class WaitQueue {
   bool WakeAll() {
     bool did_wakeup = false;
     while (true) {
-      thread_t *th = list_pop(&waiters_, thread_t, link);
+      thread_t *th = list_pop(&waiters_, thread_t, interruptible_link);
       if (th == nullptr) return did_wakeup;
       th->link_armed = false;
       ThreadReady(th);
@@ -383,7 +383,7 @@ class WaitQueue {
   // Must be synchronized by caller.
   bool WakeThread(thread_t *th) {
     if (!th->link_armed) return false;
-    list_del_from(&waiters_, &th->link);
+    list_del_from(&waiters_, &th->interruptible_link);
     th->link_armed = false;
     ThreadReady(th);
     return true;
@@ -392,7 +392,7 @@ class WaitQueue {
   // Pop removes a waiter without waking it, so it can be armed on a different
   // WaitQueue. Returns nullptr if there all no waiters.
   thread_t *Pop() {
-    thread_t *th = list_pop(&waiters_, thread_t, link);
+    thread_t *th = list_pop(&waiters_, thread_t, interruptible_link);
     if (th) th->link_armed = false;
     return th;
   }
