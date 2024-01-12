@@ -456,6 +456,8 @@ __kframe_unwind_finish_uintr:
 .globl junction_fncall_enter
 .type junction_fncall_enter, @function
 junction_fncall_enter:
+	.cfi_startproc
+
 	// align stack
 	subq $8, %rsp
 
@@ -477,6 +479,8 @@ junction_fncall_enter:
 
 	SAVETF_STACK_AND_MARK_SYSCALL
 
+	.cfi_adjust_cfa_offset 152;
+
 	CALL_SYSCALL_FUNC(%rax, %r11)
 
 	// save the return value
@@ -492,14 +496,17 @@ junction_fncall_enter:
 	jg      2f
 
 	addq    $(19 * 8), %rsp // remove 18 registers on stack plus alignment
+	.cfi_adjust_cfa_offset -152;
 	ret
 
 2:
+	.cfi_def_cfa_offset 160
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 	movq    %rax, %rdi
 	call    RunSignals
-	movq 	RAX(%rsp), %rax
+	movq    RAX(%rsp), %rax
 	jmp     1b
+	.cfi_endproc
 
 /*
  * junction_fncall_stackswitch_enter - entry point for runtimes that require
@@ -514,7 +521,7 @@ junction_fncall_enter:
 junction_fncall_stackswitch_enter:
 
 	// Mark begin syscall, *before* starting to use the syscall stack
-	movq 	%gs:__perthread___self(%rip), %r11
+	movq    %gs:__perthread___self(%rip), %r11
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 
 	// Find bottom of syscall stack
@@ -525,11 +532,11 @@ junction_fncall_stackswitch_enter:
 	addq    $(JUNCTION_STACK_SIZE - 16), %r11
 
 	// push orig_rax
-	movq 	%rax, -8(%r11)
+	movq    %rax, -8(%r11)
 
 	// push return stack pointer
-	leaq  8(%rsp), %r10
-	movq  %r10, -16(%r11)
+	leaq    8(%rsp), %r10
+	movq    %r10, -16(%r11)
 
 	// push RIP to new stack
 	movq    (%rsp), %r10
@@ -548,7 +555,7 @@ junction_fncall_stackswitch_enter:
 	movq    %rax, RAX(%rsp)
 
 1:
-	movq 	%gs:__perthread___self(%rip), %r11
+	movq    %gs:__perthread___self(%rip), %r11
 	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
 
 	// check for interrupts
@@ -557,7 +564,7 @@ junction_fncall_stackswitch_enter:
 	jg      2f
 
 	// restore stack pointer
-	movq 	RSP(%rsp), %rsp
+	movq    RSP(%rsp), %rsp
 	subq    $8, %rsp
 	ret
 
@@ -653,6 +660,8 @@ junction_fncall_stackswitch_enter_uintr:
 .type junction_fncall_enter_preserve_regs, @function
 junction_fncall_enter_preserve_regs:
 
+	.cfi_startproc
+
 	// align stack
 	subq $8, %rsp
 
@@ -671,6 +680,8 @@ junction_fncall_enter_preserve_regs:
 
 	SAVETF_STACK_AND_MARK_SYSCALL
 
+	.cfi_adjust_cfa_offset 152
+
 	CALL_SYSCALL_FUNC(%rax, %r11)
 
 	// save the return value
@@ -687,14 +698,17 @@ junction_fncall_enter_preserve_regs:
 
 	RESTORETF_STACK
 	addq    $(4 * 8), %rsp // remove rsp, rip, and orig_rax, alignment
+	.cfi_adjust_cfa_offset -152;
 	ret
 
 2:
+	.cfi_def_cfa_offset 160
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 	movq    %rax, %rdi
 	call    RunSignals
 	movq 	RAX(%rsp), %rax
 	jmp     1b
+	.cfi_endproc
 
 
 .align 16

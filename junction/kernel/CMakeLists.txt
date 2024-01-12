@@ -22,6 +22,7 @@ set(SOURCES_C_CPP
 )
 
 set(SOURCES_ASM
+  exec.S
   ksys.S
 )
 

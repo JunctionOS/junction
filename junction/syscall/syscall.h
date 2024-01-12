@@ -46,34 +46,38 @@ void __jmp_syscall_restart_nosave(struct thread_tf *tf) __noreturn;
 // System call entry point for applications that require syscalls to run on an
 // alternate stack (ie Golang).
 long junction_fncall_stackswitch_enter(long arg0, long arg1, long arg2,
-                                       long arg3, long arg4, long arg5);
+                                       long arg3, long arg4, long arg5,
+                                       long sys_nr);
 
 // System call entry point for applications that require syscalls to run on an
 // alternate stack (ie Golang). This variant used when UINTR is enabled.
 long junction_fncall_stackswitch_enter_uintr(long arg0, long arg1, long arg2,
-                                             long arg3, long arg4, long arg5);
+                                             long arg3, long arg4, long arg5,
+                                             long sys_nr);
 
 // System call entry point for clone/vfork for applications that require
 // syscalls to run on an alternate stack (ie Golang).
 long junction_fncall_stackswitch_enter_preserve_regs(long arg0, long arg1,
                                                      long arg2, long arg3,
-                                                     long arg4, long arg5);
+                                                     long arg4, long arg5,
+                                                     long sys_nr);
 
 // System call entry point for clone/vfork for applications that require
 // syscalls to run on an alternate stack (ie Golang). This variant used when
 // UINTR is enabled.
 long junction_fncall_stackswitch_enter_preserve_regs_uintr(long arg0, long arg1,
                                                            long arg2, long arg3,
-                                                           long arg4,
-                                                           long arg5);
+                                                           long arg4, long arg5,
+                                                           long sys_nr);
 
 // System call entry point for most applications.
 long junction_fncall_enter(long arg0, long arg1, long arg2, long arg3,
-                           long arg4, long arg5);
+                           long arg4, long arg5, long sys_nr);
 
 // System call entry point for clone/vfork for most applications.
 long junction_fncall_enter_preserve_regs(long arg0, long arg1, long arg2,
-                                         long arg3, long arg4, long arg5);
+                                         long arg3, long arg4, long arg5,
+                                         long sys_nr);
 
 // Return function for system calls that are delivered by trap.
 void __syscall_trap_return();

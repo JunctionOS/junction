@@ -77,18 +77,10 @@ constexpr SignalAction ParseAction(const k_sigaction &act, int sig) {
 }
 
 // A signal handler that can be injected into a program to cleanly kill it
-extern "C" void SigKillHandler(int, siginfo_t *, void *);
-asm(R"(
-  .globl SigKillHandler
-  .type SigKillHandler, @function
-  SigKillHandler:
-
-  push $231;  // __NR_exit_group
-  addl $128, %edi; // exit code: 128 + signo
-
-  call junction_fncall_enter
-  nop
-)");
+extern "C" void SigKillHandler(int signo, siginfo_t *info, void *c) {
+  junction_fncall_enter(128 + signo, 0, 0, 0, 0, 0, __NR_exit_group);
+  std::unreachable();
+}
 
 static k_sigaction SigKillAction = {
     .handler = SigKillHandler,
