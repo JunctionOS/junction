@@ -1,0 +1,48 @@
+From c7541cdd29bca3faec015a66b44508b1b27cc0aa Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 11 Jan 2024 19:23:34 -0500
+Subject: [PATCH 35/35] make logging safe
+
+---
+ base/log.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/base/log.c b/base/log.c
+index c085086..c957b7d 100644
+--- a/base/log.c
++++ b/base/log.c
+@@ -19,16 +19,22 @@
+ /* log levels greater than this value won't be printed */
+ int max_loglevel = LOG_DEBUG;
+ 
++__weak void log_message_begin(uint64_t *cb_data) { }
++__weak void log_message_end(uint64_t *cb_data) { }
++
+ void logk(int level, const char *fmt, ...)
+ {
+ 	char buf[MAX_LOG_LEN];
+ 	va_list ptr;
+ 	off_t off;
+ 	int cpu, ret;
++	uint64_t cb_data;
+ 
+ 	if (level > max_loglevel)
+ 		return;
+ 
++	log_message_begin(&cb_data);
++
+ 	cpu = sched_getcpu();
+ 
+ 	if (likely(base_init_done)) {
+@@ -51,6 +57,8 @@ void logk(int level, const char *fmt, ...)
+ 	off = MIN(MAX_LOG_LEN - 1, off + ret);
+ 	buf[off] = '\n';
+ 	syscall_write(1, buf, off + 1);
++
++	log_message_end(&cb_data);
+ }
+ 
+ #define MAX_CALL_DEPTH	256
+-- 
+2.39.2
+

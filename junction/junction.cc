@@ -26,6 +26,21 @@ pid_t GetLinuxPid() { return linux_pid; }
 
 JunctionCfg JunctionCfg::singleton_;
 
+extern "C" void log_message_begin(uint64_t *cb_data) {
+  if (base_init_done && thread_self() != NULL) {
+    preempt_disable();
+    *cb_data = GetFSBase();
+    SetFSBase(perthread_read(runtime_fsbase));
+  }
+}
+
+extern "C" void log_message_end(uint64_t *cb_data) {
+  if (base_init_done && thread_self() != NULL) {
+    SetFSBase(*cb_data);
+    preempt_enable();
+  }
+}
+
 namespace po = boost::program_options;
 
 po::options_description GetOptions() {
