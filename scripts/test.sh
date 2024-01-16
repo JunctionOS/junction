@@ -1,6 +1,11 @@
 #!/bin/bash
 set -x
 
+REGEX=""
+if [ $# -eq 1 ]; then
+  REGEX="$1"
+fi 
+
 # Globals
 SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
@@ -30,7 +35,11 @@ mkdir /tmp/junction
 # Run tests
 cd $TEST_DIR
 export GTEST_COLOR=1
-sudo $CTEST --output-on-failure --verbose --timeout 120
+if [ "${REGEX}" = "" ]; then
+  sudo $CTEST --output-on-failure --verbose --timeout 120
+else
+  sudo $CTEST --output-on-failure --verbose --timeout 120 --tests-regex "${REGEX}"
+fi
 
 # Cleanup test state
 rm -rf /tmp/junction
