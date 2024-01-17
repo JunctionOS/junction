@@ -300,10 +300,7 @@ Status<void> Process::Restore(ProcessMetadata const &pm,
 
   parent_ = parent;
   const void *base = mem_map_->get_base();
-  LOG(INFO) << "proc: Restored process with pid=" << pid_
-            << ", mapping=" << base << "-"
-            << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(base) +
-                                        kMemoryMappingSize);
+
   return {};
 }
 
@@ -713,7 +710,6 @@ extern "C" [[noreturn]] void usys_exit_finish(int status) {
 
 void usys_exit(int status) {
   if (IsOnStack(GetSyscallStack())) usys_exit_finish(status);
-
   nosave_switch(reinterpret_cast<thread_fn_t>(usys_exit_finish),
                 GetSyscallStackBottom(), status);
 }

@@ -7,6 +7,7 @@
 
 import sys
 import argparse
+import snapshot
 from PIL import Image, ImageChops
 from pathlib import Path
 from typing import Optional
@@ -19,6 +20,17 @@ parser.add_argument(
     '-c',
     '--check',
     help='Check that the thumbnail generated is the same as the one in the file provided')
+parser.add_argument(
+    '-s',
+    '--snapshot',
+    help='Snapshot the program before generating the thumbnail',
+    action='store_true')
+parser.add_argument(
+    '--elf',
+    help='Path to snapshot ELF')
+parser.add_argument(
+    '--metadata',
+    help='Path to snapshot metadata')
 parser.add_argument(
     '-v',
     '--verbose',
@@ -70,6 +82,14 @@ def main():
     args = parser.parse_args()
     image_path = Path(args.image)
 
+    if args.snapshot:
+        ret = snapshot.snapshot(args.elf, args.metadata)
+        if ret:
+            print("OK: snapshot done")
+        else:
+            print("Ok: restored from snapshot")
+
+    
     thumbnail = resize(image_path, args.verbose)
 
     if args.check:
