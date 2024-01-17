@@ -312,6 +312,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
   [[nodiscard]] bool exited() const { return access_once(exited_); }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
+  [[nodiscard]] bool is_stopped() const { return stopped_; }
 
   [[nodiscard]] const std::string_view get_bin_path() const {
     return binary_path_;
@@ -347,25 +348,12 @@ class Process : public std::enable_shared_from_this<Process> {
   // Called when a process exits, will attempt to notify all threads.
   void DoExit(int status);
 
-  void SignalLocked(const siginfo_t &si) {
-    assert(shared_sig_q_.IsHeld());
-    shared_sig_q_.Enqueue(si);
-    if (si.si_signo == SIGCLD) child_waiters_.WakeAll();
-  }
-
-  void FindThreadForSignal(int signo) {
-    rt::SpinGuard g(child_thread_lock_);
-    // TODO: add logic to find a thread that hasn't blocked this signal (and
-    // ideally is waiting). For now, just signal all threads.
-    for (const auto &[pid, th] : thread_map_) th->SendIpi();
-  }
-
   void Signal(const siginfo_t &si) {
-    {
-      rt::SpinGuard g(shared_sig_q_);
-      SignalLocked(si);
+    if (SignalInMask(kStopStartSignals, si.si_signo)) {
+      SignalStopStart(si.si_signo == SIGSTOP);
+      return;
     }
-    FindThreadForSignal(si.si_signo);
+    SignalLocked(rt::UniqueLock<rt::Spin>(shared_sig_q_), si);
   }
 
   void Signal(int signo) {
@@ -375,6 +363,12 @@ class Process : public std::enable_shared_from_this<Process> {
   }
 
   Status<void> SignalThread(pid_t tid, const siginfo_t &si) {
+    // Force job control signals to be delivered globally
+    if (unlikely(SignalInMask(kProcessWideSignals, si.si_signo))) {
+      Signal(si);
+      return {};
+    }
+
     rt::SpinGuard g(child_thread_lock_);
 
     auto it = thread_map_.find(tid);
@@ -400,7 +394,7 @@ class Process : public std::enable_shared_from_this<Process> {
   void FillWaitInfo(siginfo_t &info) const;
   int GetWaitStatus() const;
   void ReapChild(Process *child);
-  void NotifyParentWait(unsigned int state, int status);
+  void NotifyParentWait(unsigned int state, int status = 0);
   Status<pid_t> DoWait(idtype_t idtype, id_t id, int options, siginfo_t *infop,
                        int *wstatus);
   Status<Process *> FindWaitableProcess(idtype_t idtype, id_t id,
@@ -416,13 +410,80 @@ class Process : public std::enable_shared_from_this<Process> {
     return it->second->weak_from_this().lock();
   }
 
+  // Called by threads to wait for SIGCONT. This call must occur inside of a
+  // system call, and GetSyscallFrame() must be contain a trapframe that is
+  // ready to be restored.
+  void ThreadStopWait();
+
  private:
+  void SignalAllThreads() {
+    assert(child_thread_lock_.IsHeld());
+    for (const auto &[pid, th] : thread_map_)
+      if (th->get_sighand().SharedSignalNotifyCheck()) th->SendIpi();
+  }
+
+  void FindThreadForSignal(int signo) {
+    assert(child_thread_lock_.IsHeld());
+    // TODO: add logic to find a thread that hasn't blocked this signal (and
+    // ideally is waiting). For now, just signal all threads.
+    SignalAllThreads();
+  }
+
+  void SignalStopStart(bool stop) {
+    rt::ScopedLock g(child_thread_lock_);
+    stopped_ = stop;
+    if (!stop) {
+      stopped_threads_.WakeAll();
+      NotifyParentWait(kWaitableContinued);
+    } else {
+      SignalAllThreads();
+    }
+  }
+
+  // Places a signal into the Process-wide signal queue and sends an IPI to a
+  // thread to deliver it. May also notify a parent if this signal changes this
+  // process's waitable state. Takes ownership of @lock, releasing it before
+  // sending IPIs to threads.
+  void SignalLocked(rt::UniqueLock<rt::Spin> &&lock, const siginfo_t &si) {
+    assert(!!lock);
+    assert(!SignalInMask(kStopStartSignals, si.si_signo));
+    bool needs_ipi = shared_sig_q_.Enqueue(si);
+    lock.Unlock();
+
+    rt::ScopedLock g(child_thread_lock_);
+    if (si.si_signo == SIGKILL)
+      SignalAllThreads();
+    else if (needs_ipi)
+      FindThreadForSignal(si.si_signo);
+  }
+
   const pid_t pid_;         // the process identifier
   pid_t pgid_;              // the process group identifier
   int xstate_;              // exit state
   bool exited_{false};      // If true, the process has been killed
   bool doing_exec_{false};  // True during exec's teardown of existing threads
   rt::ThreadWaker exec_waker_;
+
+  // Processes and Threads contain several locks. Sometimes multiple locks need
+  // to be acquired, below is the allowed orderings for acquiring pairs of
+  // locks.
+
+  // The three locks are:
+  // (1) process-wide shared signal queue lock
+  // (2) child_thread_lock_ (manages lifetimes of Threads)
+  // (3) per-Thread signal handler/queue lock
+
+  // Additionally, each Process (except the first) has a parent Process, and
+  // may also have child processes (different than its Threads).
+
+  // A holder of a per-thread sighand lock can acquire the shared sigq lock.
+  // A holder of child_thread_lock_ can acquire a thread's sighand/queue lock.
+  // A holder of child_thread_lock_ can acquire the parent's shared sigq lock.
+  // A dying Process can acquire its parent's shared sigq lock and its
+  // childrens' shared sigq locks.
+
+  // TODO(jfried): describe ref-counting/lifecycle management for Processes and
+  // Threads.
 
   // TODO: enforce limit
   rlimit limit_nofile_{kDefaultNoFile,
@@ -446,13 +507,29 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Protected by shared_sig_q_lock_
   SignalQueue shared_sig_q_;
-  rt::WaitQueue child_waiters_;
+  // Waiters for changes to the waitable states of children of this Process
+  rt::WaitQueue child_waiters_;  // protected by @shared_sig_q_
   std::vector<std::shared_ptr<Process>> child_procs_;
 
   // @child_thread_lock_ protects @thread_map_, must be held while accessing
   // another Thread to prevent it from exiting.
   rt::Spin child_thread_lock_;
   std::map<pid_t, Thread *> thread_map_;
+
+  // State to manage stopping Threads, protected by @child_thread_lock_.
+  // @stopped is set to true when a SIGSTOP is received (and cleared when a
+  // SIGCONT is received).
+  // All threads have stopped running once stopped_count_ is equal to the number
+  // of threads in the thread_map_.
+  //
+  // NOTE: SIGSTOP and SIGCONT are diverted away from the normal signal
+  // processing path, so there is no synchronization with the shared signal
+  // queue. The code does synchronize with all thread signal handler locks
+  // (potentially sending IPIs) to ensure that updates to this state are visible
+  // to each Thread.
+  rt::WaitQueue stopped_threads_;
+  unsigned int stopped_count_{0};
+  bool stopped_{false};
 
   // Protected by parent_'s shared_sig_q_lock_
   std::shared_ptr<Process> parent_;

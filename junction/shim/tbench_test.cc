@@ -428,11 +428,19 @@ void TestKill() {
 void BenchPosixSpawn(int measure_rounds) {
   for (int i = 0; i < measure_rounds; i++) {
     int pipefds[2];
+    int pipefds_parent_to_child[2];
     int ret = pipe(pipefds);
+    EXPECT_EQ(ret, 0);
+
+    ret = pipe(pipefds_parent_to_child);
     EXPECT_EQ(ret, 0);
 
     posix_spawn_file_actions_t file_actions;
     ret = posix_spawn_file_actions_init(&file_actions);
+    EXPECT_EQ(ret, 0);
+
+    ret = posix_spawn_file_actions_adddup2(&file_actions,
+                                           pipefds_parent_to_child[0], 0);
     EXPECT_EQ(ret, 0);
 
     ret = posix_spawn_file_actions_adddup2(&file_actions, pipefds[1], 2);
@@ -442,6 +450,14 @@ void BenchPosixSpawn(int measure_rounds) {
     EXPECT_EQ(ret, 0);
 
     ret = posix_spawn_file_actions_addclose(&file_actions, pipefds[0]);
+    EXPECT_EQ(ret, 0);
+
+    ret = posix_spawn_file_actions_addclose(&file_actions,
+                                            pipefds_parent_to_child[1]);
+    EXPECT_EQ(ret, 0);
+
+    ret = posix_spawn_file_actions_addclose(&file_actions,
+                                            pipefds_parent_to_child[0]);
     EXPECT_EQ(ret, 0);
 
     pid_t child;
@@ -455,8 +471,20 @@ void BenchPosixSpawn(int measure_rounds) {
     EXPECT_EQ(ret, 0);
 
     close(pipefds[1]);
+    close(pipefds_parent_to_child[0]);
 
-    EXPECT_EQ(child, waitpid(child, nullptr, 0));
+    int wstatus;
+
+    EXPECT_EQ(kill(child, SIGSTOP), 0);
+    EXPECT_EQ(child, waitpid(child, &wstatus, WUNTRACED));
+    EXPECT_TRUE(WIFSTOPPED(wstatus));
+    EXPECT_EQ(kill(child, SIGCONT), 0);
+
+    char b;
+    EXPECT_EQ(write(pipefds_parent_to_child[1], &b, 1), 1);
+
+    EXPECT_EQ(child, waitpid(child, &wstatus, 0));
+    EXPECT_TRUE(WIFEXITED(wstatus));
 
     size_t bytes_read = 0;
     std::string expected = "in child process\n";

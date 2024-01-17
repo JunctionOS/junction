@@ -1,32 +1,48 @@
-From fd6d4b878ae9e645a245327156fd4af04cb8bfc7 Mon Sep 17 00:00:00 2001
+From fc0137a210c2efd06913773ae7b0ef69c901e42b Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 22 Aug 2023 15:56:03 +0000
 Subject: [PATCH 7/7] switch syscall format
 
 ---
- sysdeps/unix/sysv/linux/x86_64/clone.S   |   9 +-
- sysdeps/unix/sysv/linux/x86_64/clone3.S  |   7 +-
+ .gitignore                               |   1 +
+ sysdeps/unix/sysv/linux/x86_64/clone.S   |  10 +--
+ sysdeps/unix/sysv/linux/x86_64/clone3.S  |   8 +-
  sysdeps/unix/sysv/linux/x86_64/syscall.S |  17 +---
  sysdeps/unix/sysv/linux/x86_64/sysdep.h  | 110 ++++++++++++++---------
- sysdeps/unix/sysv/linux/x86_64/vfork.S   |   5 +-
- 5 files changed, 84 insertions(+), 64 deletions(-)
+ sysdeps/unix/sysv/linux/x86_64/vfork.S   |  11 ++-
+ 6 files changed, 91 insertions(+), 66 deletions(-)
 
+diff --git a/.gitignore b/.gitignore
+index 07d4a129e5..168f23a469 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -44,3 +44,4 @@ core
+ /linuxthreads_db
+ /rtkaio
+ *.pyc
++build/
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone.S b/sysdeps/unix/sysv/linux/x86_64/clone.S
-index fc493f3585..785e45aab3 100644
+index fc493f3585..3ec7e5d007 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone.S
-@@ -79,8 +79,8 @@ ENTRY (__clone)
+@@ -73,14 +73,13 @@ ENTRY (__clone)
+ 	movq	%r8, %rdx
+ 	movq	%r9, %r8
+ 	mov	8(%rsp), %R10_LP
+-	movl	$SYS_ify(clone),%eax
++	push	$SYS_ify(clone)
+ 
+ 	/* End FDE now, because in the child the unwind info will be
  	   wrong.  */
  	cfi_endproc;
  
 -        sub $0x8, %rsp
 -        call *(SYSTBL_NAME_ADDR(clone))
-+	sub $0x8, %rsp
 +	JCALL_PRESERVE
  
  	testq	%rax,%rax
  	jl	SYSCALL_ERROR_LABEL
-@@ -104,8 +104,9 @@ L(thread_start):
+@@ -104,8 +103,9 @@ L(thread_start):
  	call	*%rax
  	/* Call exit with return value from function call. */
  	movq	%rax, %rdi
@@ -39,20 +55,21 @@ index fc493f3585..785e45aab3 100644
  
  	cfi_startproc;
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone3.S b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-index 23e40e9dee..415066dec1 100644
+index 23e40e9dee..fd06785c37 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone3.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-@@ -56,7 +56,8 @@ ENTRY (__clone3)
+@@ -55,8 +55,8 @@ ENTRY (__clone3)
+ 	   wrong.  */
  	cfi_endproc
  
- 	sub $0x8, %rsp
+-	sub $0x8, %rsp
 -	call *(SYSTBL_NAME_ADDR(clone3))
-+	movl    $SYS_ify(clone3), %eax
++	push    $SYS_ify(clone3)
 +	JCALL_PRESERVE
  
  	test	%RAX_LP, %RAX_LP
  	jl	SYSCALL_ERROR_LABEL
-@@ -80,7 +81,9 @@ L(thread_start):
+@@ -80,7 +80,9 @@ L(thread_start):
  	movq	%rax, %rdi
  
  	and	$-16, %RSP_LP
@@ -268,18 +285,24 @@ index 2fbf189dd4..e3ff7f1be0 100644
  # define VDSO_NAME  "LINUX_2.6"
  # define VDSO_HASH  61765110
 diff --git a/sysdeps/unix/sysv/linux/x86_64/vfork.S b/sysdeps/unix/sysv/linux/x86_64/vfork.S
-index 20d683f717..ede2ed85ac 100644
+index 20d683f717..afc02d6df6 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/vfork.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/vfork.S
-@@ -33,9 +33,8 @@ ENTRY (__vfork)
+@@ -33,9 +33,14 @@ ENTRY (__vfork)
  	cfi_adjust_cfa_offset(-8)
  	cfi_register(%rip, %rdi)
  
 -	/* Stuff the syscall number in RAX and enter into the kernel.  */
 -	movl	$SYS_ify (vfork), %eax
 -	syscall
-+	movl    $SYS_ify (vfork), %eax
++	subq $8, %rsp
++	cfi_adjust_cfa_offset(8)
++	push    $SYS_ify (vfork)
++	cfi_adjust_cfa_offset(8)
 +	JCALL_SS_PRESERVE
++
++	addq $16, %rsp
++	cfi_adjust_cfa_offset(-16)
  
  	/* Push back the return PC.  */
  	pushq	%rdi

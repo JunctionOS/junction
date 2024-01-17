@@ -15,6 +15,22 @@ inline constexpr size_t kJunctionFrameAlign = 16;
 
 namespace junction {
 
+enum class SigframeType : unsigned long {
+  kKernelSignal = 0,
+  kJunctionUIPI,
+  kJunctionTf,
+};
+
+// Frame pushed to stack when delivering signals to the user.
+struct alignas(kJunctionFrameAlign) JunctionSigframe {
+  SigframeType type;
+  void *tf;
+  unsigned long magic;
+  unsigned long pad;
+
+  void Unwind();
+};
+
 class Trapframe {
  public:
   // Get the RSP from this trapframe.
@@ -24,11 +40,16 @@ class Trapframe {
   // instance.
   virtual Trapframe &CloneTo(uint64_t *rsp) const = 0;
 
+  // Clone this trapframe onto a signal handler stack with a Sigframe to unwind
+  // it.
+  virtual JunctionSigframe &CloneSigframe(uint64_t *rsp) const = 0;
+
   // Immediately restores this trapframe.
   [[noreturn]] virtual void JmpUnwind() = 0;
 
   // Set up @unwind_tf to unwind this trapframe after performing a final check
-  // for pending signals.
+  // for pending signals. Unwinders here cannot assume that the frame is a
+  // system call and therefore must not pass a non-zero argument to RunSignals.
   virtual void MakeUnwinderSysret(thread_tf &unwind_tf) const = 0;
 };
 
@@ -73,6 +94,15 @@ class KernelSignalTf : public SyscallFrame {
 
   void CopyRegs(thread_tf &dest_tf) const override;
 
+  JunctionSigframe &CloneSigframe(uint64_t *rsp) const override {
+    k_sigframe *stack_tf = sigframe.CopyToStack(rsp);
+    JunctionSigframe *jframe = AllocateOnStack<JunctionSigframe>(rsp);
+    jframe->type = SigframeType::kKernelSignal;
+    jframe->tf = stack_tf;
+    jframe->magic = kJunctionFrameMagic;
+    return *jframe;
+  }
+
   KernelSignalTf &CloneTo(uint64_t *rsp) const override {
     KernelSignalTf *stack_wrapper = AllocateOnStack<KernelSignalTf>(rsp);
     k_sigframe *stack_tf = sigframe.CopyToStack(rsp);
@@ -98,13 +128,15 @@ class KernelSignalTf : public SyscallFrame {
 
   inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
     unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
-    // Ensure calls to RunSignals see 0 for the first argument (syscall return
-    // value).
-    unwind_tf.rdi = 0;
-    if (uintr_enabled)
+    if (uintr_enabled) {
+      // Ensure calls to RunSignals see 0 for the first argument (syscall return
+      // value).
+      unwind_tf.rdi = 0;
       unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop_uintr);
-    else
+    } else {
+      // __kframe_unwind_loop will provide a zero argument to RunSignals.
       unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop);
+    }
   }
 
   [[noreturn]] void JmpRestartSyscall() override;
@@ -171,6 +203,15 @@ class FunctionCallTf : public SyscallFrame {
     return *stack_wrapper;
   }
 
+  JunctionSigframe &CloneSigframe(uint64_t *rsp) const override {
+    thread_tf *stack_tf = PushToStack(rsp, *tf);
+    JunctionSigframe *jframe = AllocateOnStack<JunctionSigframe>(rsp);
+    jframe->type = SigframeType::kJunctionTf;
+    jframe->tf = stack_tf;
+    jframe->magic = kJunctionFrameMagic;
+    return *jframe;
+  }
+
  private:
   thread_tf *tf;
 };
@@ -225,15 +266,31 @@ class UintrTf : public Trapframe {
     return *stack_wrapper;
   }
 
+  JunctionSigframe &CloneSigframe(uint64_t *rsp) const override {
+    u_sigframe *stack_tf = sigframe.CopyToStack(rsp);
+    JunctionSigframe *jframe = AllocateOnStack<JunctionSigframe>(rsp);
+    jframe->type = SigframeType::kJunctionUIPI;
+    jframe->tf = stack_tf;
+    jframe->magic = kJunctionFrameMagic;
+    return *jframe;
+  }
+
  private:
   u_sigframe &sigframe;
 };
 
-// Frame pushed to stack when delivering signals to the user.
-struct alignas(kJunctionFrameAlign) JunctionSigframe {
-  Trapframe *restore_tf;
-  unsigned long magic;
-};
+inline void JunctionSigframe::Unwind() {
+  switch (type) {
+    case SigframeType::kKernelSignal:
+      KernelSignalTf(reinterpret_cast<k_sigframe *>(tf)).JmpUnwind();
+    case SigframeType::kJunctionUIPI:
+      UintrTf(reinterpret_cast<u_sigframe *>(tf)).JmpUnwind();
+    case SigframeType::kJunctionTf:
+      FunctionCallTf(reinterpret_cast<thread_tf *>(tf)).JmpUnwind();
+    default:
+      BUG();
+  }
+}
 
 static_assert(sizeof(JunctionSigframe) % 16 == 0);
 

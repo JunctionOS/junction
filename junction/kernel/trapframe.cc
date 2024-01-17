@@ -38,8 +38,6 @@ void FunctionCallTf::CopyRegs(thread_tf &dest_tf) const {
 }
 
 k_sigframe *KernelSignalTf::PushUserVisibleFrame(uint64_t *rsp) const {
-  KernelSignalTf *stack_wrapper = AllocateOnStack<KernelSignalTf>(rsp);
-
   // transfer the frame
   void *fx_buf = sigframe.CopyXstateToStack(rsp);
 
@@ -50,8 +48,8 @@ k_sigframe *KernelSignalTf::PushUserVisibleFrame(uint64_t *rsp) const {
   // copy ucontext, siginfo, etc
   k_sigframe *new_frame = sigframe.CopyToStack(rsp, fx_buf);
 
-  new (stack_wrapper) KernelSignalTf(new_frame);
-  jframe->restore_tf = stack_wrapper;
+  jframe->type = SigframeType::kKernelSignal;
+  jframe->tf = new_frame;
   return new_frame;
 }
 
@@ -107,11 +105,8 @@ void FunctionCallTf::ResetToSyscallStart() {
 }
 
 [[noreturn]] void FunctionCallTf::JmpRestartSyscall() {
-  // original tf must be preserved; use a temp tf.
-  thread_tf temp_tf = *tf;
-  temp_tf.rax = temp_tf.orig_rax;
-  temp_tf.rip = RewindIndirectSystemCall(temp_tf.rip);
-  __jmp_syscall_restart_nosave(&temp_tf);
+  ResetToSyscallStart();
+  __jmp_syscall_restart_nosave(tf);
 }
 
 }  // namespace junction

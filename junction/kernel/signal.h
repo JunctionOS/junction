@@ -64,8 +64,12 @@ constexpr k_sigset_t MultiSignalMask(Args... args) {
 }
 
 // Mask of signals that can only be handling in the kernel.
-constexpr k_sigset_t kSignalKernelOnlyMask =
+constexpr k_sigset_t kSignalKernelOnlyMask = MultiSignalMask(SIGKILL, SIGSTOP);
+
+constexpr k_sigset_t kProcessWideSignals =
     MultiSignalMask(SIGKILL, SIGSTOP, SIGCONT);
+
+constexpr k_sigset_t kStopStartSignals = MultiSignalMask(SIGSTOP, SIGCONT);
 
 // k_sigaction defines the actions for a signal (in sync with Linux definition)
 struct k_sigaction {
@@ -186,13 +190,6 @@ class ThreadSignalHandler {
     return {};
   }
 
-  bool TestAndSetNotify() {
-    assert(sig_q_.IsHeld());
-    if (notified_) return false;
-    notified_ = true;
-    return notified_;
-  }
-
   // All updates to blocked_ must happen through this function.
   // Returns false if a signal was pending and the mask was not changed.
   bool ReplaceMask(k_sigset_t new_mask) {
@@ -248,6 +245,13 @@ class ThreadSignalHandler {
   // Add a queued signal. Returns true if a notification is needed.
   bool EnqueueSignal(const siginfo_t &info);
 
+  // Called when a signal has been added on the shared queue to determine if an
+  // interrupt should be sent to this thread.
+  bool SharedSignalNotifyCheck() {
+    rt::SpinGuard g(sig_q_);
+    return TestAndSetNotify();
+  }
+
   // Called by this thread when in syscall context to run any pending signals.
   // For convenience, this function takes the return value of the current
   // syscall as its first argument. This function may not return (it may restart
@@ -262,10 +266,11 @@ class ThreadSignalHandler {
   void Restore(ThreadMetadata const &tm);
 
   // Retrieve the next signal to be delivered to the user.
-  std::optional<DeliveredSignal> GetNextSignal();
+  std::optional<DeliveredSignal> GetNextSignal(bool *stopped);
 
   // Pop the next pending signal's information
-  std::optional<siginfo_t> PopSigInfo(k_sigset_t blocked, bool reset_flag);
+  std::optional<siginfo_t> PopSigInfo(k_sigset_t blocked, bool reset_flag,
+                                      bool *stopped);
 
  private:
   // Check if signal can be delivered, and returns the action if so.
@@ -280,6 +285,13 @@ class ThreadSignalHandler {
   k_sigset_t GetSigframeRestoreMask();
 
   void ResetInterruptState();
+
+  bool TestAndSetNotify() {
+    assert(sig_q_.IsHeld());
+    if (notified_) return false;
+    notified_ = true;
+    return notified_;
+  }
 
   void SetInterruptFlagIfNeeded() {
     assert(sig_q_.IsHeld());

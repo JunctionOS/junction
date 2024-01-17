@@ -17,6 +17,14 @@ SYSCALL_DEFS_FILES = [
     "/usr/include/x86_64-linux-gnu/asm/unistd_64.h"
 ]
 
+"""
+Use these flags to control whether strace logs before/after the syscall
+executes (or both). Logging before the syscall occurs can be useful for
+identifying where a thread is blocking.
+"""
+STRACE_LOG_AFTER_RETURN = True
+STRACE_LOG_BEFORE_RETURN = False
+
 STRACE_ARGS_THAT_ARE_PATHNAMES = set([
     ("openat", 1),
     ("open", 0),
@@ -51,12 +59,9 @@ systabl_targets[454] = "junction_fncall_enter_preserve_regs"
 for i in range(451, 455):
     systabl_strace_targets[i] = systabl_targets[i]
 
-
-def emit_strace_target(pretty_name, function_name, output):
-    fn = f"\nextern \"C\" uint64_t {function_name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
-    runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
-    if "execve" not in name and "exit" not in name:
-        fn += runsyscall_cmd
+def genLogSyscallCall(pretty_name, with_ret):
+    fn = ""
+    if with_ret:
         fn += f"\n\tLogSyscall(ret, \"{pretty_name}\","
     else:
         fn += f"\n\tLogSyscall(\"{pretty_name}\","
@@ -69,9 +74,21 @@ def emit_strace_target(pretty_name, function_name, output):
         if i < 5:
             fn += ","
     fn += ");"
+    return fn
 
-    if "execve" in name or "exit" in name:
-        fn += runsyscall_cmd
+def emit_strace_target(pretty_name, function_name, output):
+    fn = f"\nextern \"C\" uint64_t {function_name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
+    runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
+
+    is_exec_or_exit = "execve" in name or "exit" in name
+
+    if STRACE_LOG_BEFORE_RETURN or is_exec_or_exit:
+        fn += genLogSyscallCall(pretty_name, False)
+
+    fn += runsyscall_cmd
+
+    if STRACE_LOG_AFTER_RETURN and not is_exec_or_exit:
+        fn += genLogSyscallCall(pretty_name, True)
 
     fn += "\n\treturn ret;"
     fn += "\n}"

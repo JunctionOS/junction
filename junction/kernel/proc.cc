@@ -214,6 +214,8 @@ bool Process::ThreadFinish(Thread *th) {
   thread_map_.erase(th->get_tid());
   size_t remaining_threads = thread_map_.size();
   if (remaining_threads == 1) exec_waker_.Wake();
+  if (stopped_ && stopped_count_ == remaining_threads)
+    NotifyParentWait(kWaitableStopped);
   return remaining_threads == 0;
 }
 
@@ -405,17 +407,14 @@ void Process::ReapChild(Process *child) {
 void Process::NotifyParentWait(unsigned int state, int status) {
   if (!parent_) return;
 
-  {
-    rt::SpinGuard g(parent_->shared_sig_q_);
-    wait_status_ = status;
-    wait_state_ = state;
+  rt::UniqueLock<rt::Spin> lock(parent_->shared_sig_q_);
+  wait_status_ = status;
+  wait_state_ = state;
 
-    siginfo_t sig;
-    FillWaitInfo(sig);
-    parent_->SignalLocked(sig);
-  }
-
-  parent_->FindThreadForSignal(SIGCHLD);
+  siginfo_t sig;
+  FillWaitInfo(sig);
+  // forward signal
+  parent_->SignalLocked(std::move(lock), sig);
 }
 
 void Process::DoExit(int status) {
@@ -426,6 +425,7 @@ void Process::DoExit(int status) {
 
     xstate_ = status;
     store_release(&exited_, true);
+    stopped_threads_.WakeAll();
 
     for (const auto &[pid, th] : thread_map_) th->Kill();
   }
@@ -462,8 +462,8 @@ Status<Process *> Process::FindWaitableProcess(idtype_t idtype, id_t id,
 
 Status<pid_t> Process::DoWait(idtype_t idtype, id_t id, int options,
                               siginfo_t *infop, int *wstatus) {
-  unsigned int wait_state_flags = WEXITED | WSTOPPED;
-  wait_state_flags |= (options & WCONTINUED);
+  unsigned int wait_state_flags = WEXITED;
+  wait_state_flags |= options & (WCONTINUED | WSTOPPED);
 
   bool nonblocking = options & WNOHANG;
   bool dont_reap = options & WNOWAIT;
@@ -481,7 +481,7 @@ Status<pid_t> Process::DoWait(idtype_t idtype, id_t id, int options,
     // check one more time, we may have been woken by a SIGCHLD
     if (!tmp || !*tmp) tmp = FindWaitableProcess(idtype, id, wait_state_flags);
     if (!tmp) return MakeError(tmp);
-    if (!*tmp) return MakeError(EINTR);
+    if (!*tmp) return MakeError(ERESTARTSYS);
   } else {
     tmp = FindWaitableProcess(idtype, id, wait_state_flags);
     if (!tmp) return MakeError(tmp);
@@ -501,6 +501,21 @@ std::pair<idtype_t, id_t> PidtoId(pid_t pid) {
   if (pid == -1) return {P_ALL, 0};
   if (pid == 0) return {P_PGID, 0};
   return {P_PID, pid};
+}
+
+void Process::ThreadStopWait() {
+  // Flag should be set on entry.
+  assert(rt::GetInterruptibleStatus(thread_self()) !=
+         rt::InterruptibleStatus::kNone);
+  assert(mythread().in_kernel());
+
+  rt::SpinGuard g(child_thread_lock_);
+
+  if (++stopped_count_ == thread_map_.size())
+    NotifyParentWait(kWaitableStopped);
+
+  rt::Wait(child_thread_lock_, stopped_threads_,
+           [&]() { return !stopped_ || exited_; });
 }
 
 pid_t usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru) {

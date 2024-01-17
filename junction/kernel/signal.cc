@@ -82,7 +82,7 @@ extern "C" void SigKillHandler(int signo, siginfo_t *info, void *c) {
   std::unreachable();
 }
 
-static k_sigaction SigKillAction = {
+static const k_sigaction SigKillAction = {
     .handler = SigKillHandler,
     .sa_flags = SA_ONSTACK | SA_RESTART | SA_NODEFER,
     .sa_mask = ~0UL,  // all signals masked
@@ -94,6 +94,33 @@ void __noinline print_msg_abort(const char *msg) {
   syscall_write(2, msg, strlen(msg));
   syscall_write(2, "\n", 1);
   syscall_exit(-1);
+}
+
+// Interrupt handlers don't run in syscall context (they run with
+// preemption/interrupts disabled). If a SIGSTOP is delivered, we switch to a
+// syscall context (with the return trapframe set to the interrupt trapframe) so
+// we can do an interruptible wait for a future SIGCONT. This same mechanism is
+// used for signal delivery from the runtime scheduler context.
+void ForceIntoSyscall(Thread &myth, const Trapframe &cur_frame,
+                      thread_tf &jmp_tf) {
+  assert(myth.GetCaladanThread() == thread_self());
+  assert(!myth.in_kernel());
+  const stack &syscall_stack = *myth.GetCaladanThread()->stack;
+
+  // If an interrupts was delivered on top of the syscall stack, earlier code
+  // should have detected this and restored to the syscall exit handler.
+  assert(!IsOnStack(cur_frame.GetRsp(), syscall_stack));
+
+  // Copy the interrupt frame to the syscall stack
+  uint64_t rsp = GetSyscallStackBottom();
+  Trapframe &stack_frame = cur_frame.CloneTo(&rsp);
+
+  // Mark entering the kernel and record the location of the exit frame.
+  myth.mark_enter_kernel();
+  myth.SetTrapframe(stack_frame);
+
+  // Provide the caller with a tf that will jump to the syscall exit handler.
+  stack_frame.MakeUnwinderSysret(jmp_tf);
 }
 
 // An interrupt was delivered while a Junction thread was running. This function
@@ -115,6 +142,7 @@ void MoveSigframeToJunctionThread(const KernelSignalTf &sigframe,
   // before returning) will be our target restore trapframe instead of the
   // provided sigframe.
   if (unlikely(!in_kernel && on_syscall_stack)) {
+    myth.mark_enter_kernel();
     myth.GetSyscallFrame().MakeUnwinderSysret(tf);
     assert(IsOnStack(tf.rsp, syscall_stack));
     return;
@@ -154,12 +182,7 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
   siginfo_t *info = PushToStack(rsp, signal.info);
 
   // Push the previous frame.
-  Trapframe &stack_frame = prev_frame.CloneTo(rsp);
-
-  // Push a JunctionFrame to unwind the previous frame.
-  JunctionSigframe *jframe = AllocateOnStack<JunctionSigframe>(rsp);
-  jframe->magic = kJunctionFrameMagic;
-  jframe->restore_tf = &stack_frame;
+  prev_frame.CloneSigframe(rsp);
 
   // Push a fake kernel sigframe.
   k_sigframe *kframe = AllocateOnStack<k_sigframe>(rsp);
@@ -188,7 +211,7 @@ inline void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
 // Handle a kick delivered by host OS signal or UIPI.
 // If signals are delivered to a user thread, HandleKick does not return.
 template <typename Frame>
-void HandleKick(const Frame &sigframe)
+inline void HandleKick(const Frame &sigframe)
   requires InterruptFrame<Frame>
 {
   assert(IsJunctionThread());
@@ -207,21 +230,31 @@ void HandleKick(const Frame &sigframe)
   if constexpr (Frame::HasStackSwitchRace())
     if (unlikely(IsOnStack(rsp, GetSyscallStack()))) return;
 
-  ThreadSignalHandler &hand = th.get_sighand();
-  std::optional<DeliveredSignal> sig = hand.GetNextSignal();
-  if (!sig) return;
-
+  bool stop = false;
   thread_tf restore_tf;
+
+  ThreadSignalHandler &hand = th.get_sighand();
+  std::optional<DeliveredSignal> sig = hand.GetNextSignal(&stop);
+  if (!sig) {
+    if (stop) {
+      ForceIntoSyscall(th, sigframe, restore_tf);
+      Frame::SwitchFromInterruptContext(restore_tf);
+      std::unreachable();
+    }
+    return;
+  }
 
   // Push the first signal to the stack.
   PushUserSigFrame(*sig, &rsp, sigframe, restore_tf);
 
   // Add subsequent signals.
   while (true) {
-    sig = hand.GetNextSignal();
+    sig = hand.GetNextSignal(&stop);
     if (!sig) break;
     PushUserSigFrame(*sig, &rsp, restore_tf);
   }
+
+  if (stop) ForceIntoSyscall(th, FunctionCallTf(restore_tf), restore_tf);
 
   Frame::SwitchFromInterruptContext(restore_tf);
 }
@@ -388,9 +421,9 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
       return act;
     case SignalAction::kIgnore:
     case SignalAction::kContinue:
-      return std::nullopt;
     case SignalAction::kStop:
-      // TODO: add support for stopping
+      // TODO(jfried) remove these signal actions?
+      return std::nullopt;
     case SignalAction::kTerminate:
     case SignalAction::kCoredump:
       return SigKillAction;
@@ -410,7 +443,7 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
     LOG(WARN) << "synchronous signal blocked";
 
   // synchronous signal kills program if no action is specified
-  k_sigaction &act = tmp ? *tmp : SigKillAction;
+  const k_sigaction &act = tmp ? *tmp : SigKillAction;
 
   // Determine stack to use
   uint64_t rsp = sigframe.GetRsp() - kRedzoneSize;
@@ -506,10 +539,13 @@ std::optional<siginfo_t> SignalQueue::Pop(k_sigset_t blocked,
 
     signo_count++;
 
+    // Is this the first instance of this signal that we've found?
     if (!si.si_signo) {
       if (!remove) return *p;
       si = *p;
       p = pending_q_.erase(p);
+      // Legacy signals are only enqueued once, end the search here.
+      if (si.si_signo < kNumStandardSignals) break;
     } else if (signo_count > 1) {
       break;
     }
@@ -523,10 +559,15 @@ std::optional<siginfo_t> SignalQueue::Pop(k_sigset_t blocked,
 bool SignalQueue::Enqueue(const siginfo_t &info) {
   int signo = info.si_signo;
 
-  if (unlikely(pending_q_.size() >= kMaxQueuedRT) &&
-      signo >= kNumStandardSignals) {
-    LOG_ONCE(ERR) << "Dropping RT signals";
-    return false;
+  assert(!SignalInMask(kStopStartSignals, signo));
+
+  if (signo < kNumStandardSignals) {
+    if (is_sig_pending(signo)) return false;
+  } else {
+    if (unlikely(pending_q_.size() >= kMaxQueuedRT)) {
+      LOG_ONCE(ERR) << "Dropping RT signals";
+      return false;
+    }
   }
 
   pending_q_.emplace_back(info);
@@ -582,13 +623,14 @@ extern "C" [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp) {
   hand.SigAltStack(&sigframe->uc.uc_stack, nullptr);
 
   // Unwind.
-  jframe->restore_tf->JmpUnwind();
+  jframe->Unwind();
   std::unreachable();
 }
 
-// Find next signal pending in either the thread and proc siqueues
-std::optional<siginfo_t> ThreadSignalHandler::PopSigInfo(
-    k_sigset_t blocked, bool reset_flag = true) {
+// Find next signal pending in either the thread or proc siqueues.
+std::optional<siginfo_t> ThreadSignalHandler::PopSigInfo(k_sigset_t blocked,
+                                                         bool reset_flag = true,
+                                                         bool *stop = nullptr) {
   std::optional<siginfo_t> tmp;
 
   // Make sure sig_q_ lock is never acquired while holding shared_q lock
@@ -598,6 +640,13 @@ std::optional<siginfo_t> ThreadSignalHandler::PopSigInfo(
 
   {
     rt::SpinGuard g(shared_q_);
+
+    // Check for SIGSTOP
+    if (stop && this_thread().get_process().is_stopped()) {
+      *stop = true;
+      return std::nullopt;
+    }
+
     tmp = shared_q_.Pop(blocked);
   }
   if (tmp) return tmp;
@@ -617,11 +666,13 @@ ThreadSignalHandler::ThreadSignalHandler(Thread &thread)
     : shared_q_(thread.get_process().get_signal_queue()), mythread_(thread){};
 
 // Find next actionable signal
-std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal() {
+std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal(bool *stop) {
   DeliveredSignal sig;
 
+  assert(stop != nullptr);
+
   while (true) {
-    std::optional<siginfo_t> info = PopSigInfo(blocked_);
+    std::optional<siginfo_t> info = PopSigInfo(blocked_, true, stop);
     if (!info) return std::nullopt;
     std::optional<k_sigaction> act = GetAction(info->si_signo);
 
@@ -638,7 +689,7 @@ std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal() {
   if (sig.ss.ss_flags & kSigStackAutoDisarm) DisableAltStack();
 
   // Apply blocked signal mask
-  unsigned long to_block = sig.act.sa_flags;
+  unsigned long to_block = sig.act.sa_mask;
   if (!sig.act.is_nodefer()) to_block |= SignalMask(sig.info.si_signo);
   sig.prev_blocked = GetSigframeRestoreMask();
   ReplaceMask(to_block);
@@ -708,17 +759,30 @@ extern "C" void deliver_signals_jmp_thread(thread_t *th) {
   assert_preempt_disabled();
   assert_on_runtime_stack();
 
-  ThreadSignalHandler &hand = Thread::fromCaladanThread(th).get_sighand();
-
-  thread_tf &tf = thread_self()->tf;
-
+  Thread &myth = Thread::fromCaladanThread(th);
+  thread_tf &tf = th->tf;
   uint64_t rsp = tf.rsp;
 
-  while (true) {
-    std::optional<DeliveredSignal> d = hand.GetNextSignal();
-    if (!d) break;
+  assert(!myth.in_kernel());
 
-    PushUserSigFrame(*d, &rsp, tf);
+  if (IsOnStack(rsp, GetSyscallStack(th))) {
+    myth.mark_enter_kernel();
+    myth.GetSyscallFrame().MakeUnwinderSysret(tf);
+    return;
+  }
+
+  ThreadSignalHandler &hand = myth.get_sighand();
+
+  while (true) {
+    bool stop = false;
+    std::optional<DeliveredSignal> d = hand.GetNextSignal(&stop);
+    if (d) {
+      PushUserSigFrame(*d, &rsp, tf);
+      continue;
+    }
+
+    if (stop) ForceIntoSyscall(myth, FunctionCallTf(tf), tf);
+    break;
   }
 }
 
@@ -743,9 +807,19 @@ void CheckRestartSysPostHandler(SyscallFrame &entry, int rax,
 
 // rax is non-zero only if returning from a system call.
 void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
-  std::optional<DeliveredSignal> sig = GetNextSignal();
+  bool stop = false;
+  std::optional<DeliveredSignal> sig = GetNextSignal(&stop);
   if (!sig) {
-    if (!IsRestartSys(rax)) return;
+    bool wants_restart = IsRestartSys(rax);
+    if (stop) {
+      // Don't restart after stopping.
+      if (wants_restart) this_thread().GetSyscallFrame().SetRax(-EINTR);
+      myproc().ThreadStopWait();
+      // The interrupt flag is not cleared; this function will immediately run
+      // again.
+      return;
+    }
+    if (!wants_restart) return;
     this_thread().GetSyscallFrame().JmpRestartSyscall();
     std::unreachable();
   }
@@ -762,10 +836,17 @@ void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
 
     Thread &myth = mythread();
 
+    bool stop = false;
+
     while (true) {
-      std::optional<DeliveredSignal> d = GetNextSignal();
+      std::optional<DeliveredSignal> d = GetNextSignal(&stop);
       if (d) {
         PushUserSigFrame(*d, &rsp, sighand_tf);
+        continue;
+      } else if (stop) {
+        FunctionCallTf temp_tf(sighand_tf);
+        myth.SetTrapframe(temp_tf);
+        myth.get_process().ThreadStopWait();
         continue;
       }
 
