@@ -18,7 +18,7 @@ add_dependencies(go_sample go_snapshot)
 
 # add_test(
 #   NAME go_hello_world_snapshot_test
-#   COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
+#   COMMAND sh -c "rm -f ${metadata} ${elf} && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
 # 	  ${go_hello} snap ${elf} ${metadata}"
 # )
 

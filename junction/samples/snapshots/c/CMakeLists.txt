@@ -12,7 +12,7 @@ add_executable(repeated_snapshot
 
 add_test(
   NAME c_hello_world_snapshot_test
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
+  COMMAND sh -c "rm -f ${metadata} ${elf} && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
   $<TARGET_FILE:entrypoint> ${metadata} ${elf}"
 )
 

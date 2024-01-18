@@ -41,7 +41,7 @@ endforeach()
 
 add_test(
   NAME python_hello_world_snapshot_test
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
+  COMMAND sh -c "rm -f ${metadata} ${elf} && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
   ${Python3_EXECUTABLE} ${python_hello} snap ${metadata} ${elf}"
 )
 
@@ -52,7 +52,7 @@ add_test(
 
 add_test(
   NAME python_resizer_snapshot_test
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
+  COMMAND sh -c "rm -f ${metadata} ${elf} && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
   ${Python3_EXECUTABLE} ${python_resizer} ${images_path}/almost_dayrise_house.jpg\
   -s --elf ${elf} --metadata ${metadata} -c ${thumbnails}/almost_dayrise_house.jpg"
 )
@@ -65,7 +65,7 @@ add_test(
 
 # add_test(
 #   NAME python_numpy_snapshot_test
-#   COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
+#   COMMAND sh -c "rm -f ${metadata} ${elf} && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
 #   $(which python) ${python_numpy} snap ${metadata} ${elf}"
 # )
 
