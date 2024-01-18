@@ -311,6 +311,7 @@ Status<void> Process::RestoreThread(ThreadMetadata const &tm) {
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), tm);
+  access_once(tstate->GetCaladanThread()->in_syscall) = true;
   th->junction_thread = true;
   thread_map_[tm.GetTid()] = tstate;
   return {};
