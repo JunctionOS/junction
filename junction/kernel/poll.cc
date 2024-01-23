@@ -102,7 +102,12 @@ int DoPoll(pollfd *fds, nfds_t nfds, std::optional<Duration> timeout,
     }
   }
 
-  if (nevents == 0 && signaled) return -EINTR;
+  if (nevents == 0 && signaled) {
+    // Restart the syscall if the timer doesn't need to be adjusted
+    // TODO(jfried): support restarting syscalls with parameters that need to be
+    // fixed before restarting.
+    return timeout ? -EINTR : -ERESTARTSYS;
+  }
   return nevents;
 }
 
@@ -259,7 +264,7 @@ std::pair<int, Duration> DoSelect(
 
   Duration d(0);
   if (timeout) d = timed_out.TimeLeft();
-  if (nevents == 0 && signaled) return std::make_pair(-EINTR, d);
+  if (nevents == 0 && signaled) return std::make_pair(timeout ? -EINTR : -ERESTARTSYS, d);
   int ret = EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
   return std::make_pair(ret, d);
 }
@@ -443,7 +448,7 @@ int EPollFile::Wait(std::span<epoll_event> events_out,
     if (!events_.empty()) return DeliverEvents(events_out);
   }
 
-  if (signaled) return -EINTR;
+  if (signaled) return timeout ? -EINTR : -ERESTARTSYS;
   return 0;
 }
 

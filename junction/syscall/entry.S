@@ -496,11 +496,11 @@ __kframe_unwind_finish_uintr:
 	// get return IP
 	movq 8(%rsp), %r11
 
+	// get system call number from stack
+	movq 16(%rsp), %rax
+
 	// save rax to orig_rax
 	pushq %rax
-
-	// get system call number from stack
-	movq 24(%rsp), %rax
 
 	// push return stack pointer
 	leaq  24(%rsp), %r10
@@ -518,6 +518,7 @@ __kframe_unwind_finish_uintr:
  * Macro for function call syscall entry that does stack-switching.
  * The system call number is the first stack argument.
  */
+ .set SyscallStackArgument, 1
 .macro JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
 	// Mark begin syscall, *before* starting to use the syscall stack.
 	movq    %gs:__perthread___self(%rip), %r11;
@@ -530,6 +531,11 @@ __kframe_unwind_finish_uintr:
 	// and (B) ensure correct alignment for the next call
 	addq    $(JUNCTION_STACK_SIZE - 16), %r11;
 
+	.if SyscallStackArgument
+		// get system call number from stack
+		movq   8(%rsp), %rax
+	.endif
+
 	// push orig_rax
 	movq    %rax, -8(%r11);
 
@@ -540,9 +546,6 @@ __kframe_unwind_finish_uintr:
 	// push RIP to new stack
 	movq    (%rsp), %r10;
 	movq    %r10, -24(%r11);
-
-	// get system call number from stack
-	movq   8(%rsp), %rax;
 
 	// switch to new stack
 	leaq    -24(%r11), %rsp;
@@ -701,7 +704,9 @@ __fncall_return_exit_loop_uintr:
 .type junction_fncall_stackswitch_enter_preserve_regs, @function
 junction_fncall_stackswitch_enter_preserve_regs:
 
+	.set SyscallStackArgument, 0
 	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
+	.set SyscallStackArgument, 1
 
 	CALL_SYSCALL_FUNC(%rax, %r11)
 
@@ -723,7 +728,9 @@ junction_fncall_stackswitch_enter_preserve_regs:
 .type junction_fncall_stackswitch_enter_preserve_regs_uintr, @function
 junction_fncall_stackswitch_enter_preserve_regs_uintr:
 
+	.set SyscallStackArgument, 0
 	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
+	.set SyscallStackArgument, 1
 
 	CALL_SYSCALL_FUNC(%rax, %r11)
 
