@@ -1,4 +1,20 @@
 #!/bin/bash
+
+function usage() {
+    echo "usage: scripts/test.sh [-s|--snap-samples]" >&2
+    exit 255
+}
+
+SNAP_SAMPLES="OFF"
+
+for arg in "$@"; do
+    shift
+    case "${arg}" in
+        '--help'|'-h') usage ;;
+        '--snap-samples'|'-s') SNAP_SAMPLES="ON" ;;
+    esac
+done
+
 set -xe
 
 # Globals
@@ -13,5 +29,5 @@ CMAKE=${BIN_DIR}/bin/cmake
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
-$CMAKE -DCMAKE_BUILD_TYPE=Release ..
+$CMAKE -DSNAPSHOT_SAMPLES=${SNAP_SAMPLES} -DCMAKE_BUILD_TYPE=Release ..
 make -j `nproc`

@@ -9,7 +9,7 @@ export DEBIAN_FRONTEND=noninteractive
 
 # Install Linux packages
 sudo apt update
-sudo -E apt install -y perl libboost-dev libboost-program-options-dev bison gcc-12 g++-12 gawk golang
+sudo -E apt install -y perl libboost-dev libboost-program-options-dev bison gcc-12 g++-12 gawk
 sudo -E apt install -y clang-tidy-16 clang-format-16 || true
 
 # Initialize submodules
