@@ -1,15 +1,14 @@
-From 53bdf03d9ba9d70b5a7ca442fb9a6ae3b5ea4388 Mon Sep 17 00:00:00 2001
+From 2e7e4dca2a979e9fc9587cca1b1a9053a4461a73 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 31 Dec 2023 04:21:49 +0000
-Subject: [PATCH 33/33] uintr
+Subject: [PATCH 33/35] uintr
 
 ---
- inc/runtime/preempt.h    |  1 +
- inc/runtime/thread.h     |  4 ++--
- runtime/preempt.c        | 17 ++++++++++++++++-
- runtime/uintr.S          | 12 ++++++++----
- scripts/setup_machine.sh |  8 +++++++-
- 5 files changed, 34 insertions(+), 8 deletions(-)
+ inc/runtime/preempt.h |  1 +
+ inc/runtime/thread.h  |  4 ++--
+ runtime/preempt.c     | 17 ++++++++++++++++-
+ runtime/uintr.S       | 12 ++++++++----
+ 4 files changed, 27 insertions(+), 7 deletions(-)
 
 diff --git a/inc/runtime/preempt.h b/inc/runtime/preempt.h
 index bc6e10f6..6c3da71b 100644
@@ -119,25 +118,6 @@ index 2347fbc2..49ce17d5 100644
  	uiret
  	nop
 \ No newline at end of file
-diff --git a/scripts/setup_machine.sh b/scripts/setup_machine.sh
-index 5ea6c837..20e40b80 100755
---- a/scripts/setup_machine.sh
-+++ b/scripts/setup_machine.sh
-@@ -19,7 +19,13 @@ tracepoint=$((echo -n "ibase=16; "; echo $sym_addr) | bc)
- # set up the ksched module
- rmmod ksched
- rm /dev/ksched
--insmod $(dirname $0)/../ksched/build/ksched.ko tracepoint_sched_switch=$tracepoint
-+
-+if [[ "$1x" = "nouintrx" ]]; then
-+  insmod $(dirname $0)/../ksched/build/ksched.ko
-+else
-+  insmod $(dirname $0)/../ksched/build/ksched.ko tracepoint_sched_switch=$tracepoint
-+fi
-+
- mknod /dev/ksched c 280 0
- chmod uga+rwx /dev/ksched
- 
 -- 
 2.39.2
 
