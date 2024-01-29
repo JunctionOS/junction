@@ -264,7 +264,8 @@ std::pair<int, Duration> DoSelect(
 
   Duration d(0);
   if (timeout) d = timed_out.TimeLeft();
-  if (nevents == 0 && signaled) return std::make_pair(timeout ? -EINTR : -ERESTARTSYS, d);
+  if (nevents == 0 && signaled)
+    return std::make_pair(timeout ? -EINTR : -ERESTARTSYS, d);
   int ret = EncodeSelectFDs(sfds, readfds, writefds, exceptfds);
   return std::make_pair(ret, d);
 }

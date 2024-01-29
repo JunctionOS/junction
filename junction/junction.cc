@@ -60,9 +60,11 @@ po::options_description GetOptions() {
       "environment flags for binary")(
       "strace,s", po::bool_switch()->default_value(false), "strace mode")(
       "restore,r", po::bool_switch()->default_value(false),
-      "restore from a snapshot")("stackswitch",
-                                 po::bool_switch()->default_value(false),
-                                 "use stack switching syscalls");
+      "restore from a snapshot")("loglevel,l",
+                                 po::value<int>()->default_value(LOG_DEBUG),
+                                 "the maximum log level to print")(
+      "stackswitch", po::bool_switch()->default_value(false),
+      "use stack switching syscalls");
   return desc;
 }
 
@@ -99,6 +101,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 
   strace = vm["strace"].as<bool>();
   stack_switching = vm["stackswitch"].as<bool>();
+  max_loglevel = vm["loglevel"].as<int>();
 
   restore = vm["restore"].as<bool>();
 
