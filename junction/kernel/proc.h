@@ -33,11 +33,15 @@ inline constexpr unsigned int kWaitableExited = WEXITED;
 inline constexpr unsigned int kWaitableStopped = WSTOPPED;
 inline constexpr unsigned int kWaitableContinued = WCONTINUED;
 
-inline void InterruptKthread(struct kthread *k) {
-  if (uintr_enabled)
-    SendUipi(k->curr_cpu);
-  else
-    ksys_tgkill(GetLinuxPid(), k->tid, SIGURG);
+inline bool SignalIfOwned(struct kthread *k, const thread_t *th) {
+  spin_lock_np(&k->lock);
+  bool found = access_once(th->cur_kthread) == k->kthread_idx;
+  // send IPI with lock held to prevent potential race where the core parks and
+  // invalidates its target table entry.
+  if (found && uintr_enabled) SendUipi(k->curr_cpu);
+  spin_lock_np(&k->lock);
+  if (found && !uintr_enabled) ksys_tgkill(GetLinuxPid(), k->tid, SIGURG);
+  return found;
 }
 
 // Thread is a UNIX thread object.
@@ -128,33 +132,20 @@ class Thread {
      * signal will be visible when the thread resumes.
      */
 
+    thread_t *th = GetCaladanThread();
+
     // Try to wake this thread's interruptible waiter, if it has one.
-    if (deliver_interrupt(GetCaladanThread())) return;
+    if (deliver_interrupt(th)) return;
 
     // Try to find the kthread hosting this thread.
     // cur_kthread is updated with the scheduler lock held, and is set to NCPU
     // when it is scheduled out.
-    unsigned int kthread = access_once(GetCaladanThread()->cur_kthread);
-    if (kthread < NCPU) {
-      spin_lock_np(&ks[kthread]->lock);
-      bool found = access_once(GetCaladanThread()->cur_kthread) == kthread;
-      spin_unlock_np(&ks[kthread]->lock);
-      if (found) {
-        InterruptKthread(ks[kthread]);
-        return;
-      }
-    }
+    unsigned int kthread = access_once(th->cur_kthread);
+    if (kthread < NCPU && SignalIfOwned(ks[kthread], th)) return;
 
-    // kthread is hopping around, check with each other kthread.
-    for (unsigned int i = 0; i < maxks; i++) {
-      spin_lock_np(&ks[i]->lock);
-      bool found = access_once(GetCaladanThread()->cur_kthread) == i;
-      spin_unlock_np(&ks[i]->lock);
-      if (found) {
-        InterruptKthread(ks[i]);
-        return;
-      }
-    }
+    // thread is hopping around, check with each other kthread.
+    for (unsigned int i = 0; i < maxks; i++)
+      if (SignalIfOwned(ks[i], th)) return;
 
     // this thread is not observed running on any core. at this point we have
     // synchronized with each other kthread's scheduler lock, ensuring that
