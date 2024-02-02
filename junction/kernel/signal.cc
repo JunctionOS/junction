@@ -828,7 +828,10 @@ void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
     CheckRestartSysPostHandler(this_thread().GetSyscallFrame(), rax, *sig);
 
   RunOnStack(GetSyscallStack(), [this, d = *sig, entry = &entry]() mutable {
-    uint64_t rsp = entry->GetRsp() - kRedzoneSize;
+    // HACK: entry might be sitting on top of this RSP, will need a better a
+    // solution, but for now just try to avoid the area immediately above RSP.
+    uint64_t rsp =
+        entry->GetRsp() - std::max(kRedzoneSize, 2 * sizeof(thread_tf));
 
     thread_tf sighand_tf;
 
