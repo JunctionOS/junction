@@ -39,7 +39,7 @@ inline bool SignalIfOwned(struct kthread *k, const thread_t *th) {
   // send IPI with lock held to prevent potential race where the core parks and
   // invalidates its target table entry.
   if (found && uintr_enabled) SendUipi(k->curr_cpu);
-  spin_lock_np(&k->lock);
+  spin_unlock_np(&k->lock);
   if (found && !uintr_enabled) ksys_tgkill(GetLinuxPid(), k->tid, SIGURG);
   return found;
 }
