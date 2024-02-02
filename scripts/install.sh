@@ -17,6 +17,7 @@ git submodule update --init --recursive --jobs=`nproc`
 
 # Install modules
 cd $SCRIPT_DIR
+./install_cereal.sh
 ./install_cmake.sh
 ./install_caladan.sh
 ./install_glibc.sh

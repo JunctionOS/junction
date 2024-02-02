@@ -25,6 +25,7 @@ set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3 -flto=auto -ffast-math -fconcepts-diag
 include_directories(
   ${CMAKE_SOURCE_DIR}
   SYSTEM ${CMAKE_SOURCE_DIR}/lib/caladan/inc
+  SYSTEM ${CMAKE_SOURCE_DIR}/lib/cereal/include
 )
 
 add_subdirectory(lib)

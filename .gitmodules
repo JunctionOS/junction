@@ -10,3 +10,6 @@
 	path = lib/FlameGraph
 	url = https://github.com/brendangregg/FlameGraph.git
 	ignore = dirty
+[submodule "lib/cereal"]
+	path = lib/cereal
+	url = https://github.com/USCiLab/cereal.git
