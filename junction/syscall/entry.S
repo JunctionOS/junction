@@ -487,6 +487,7 @@ __kframe_unwind_finish_uintr:
  * Macro for function call syscall entry that does not stack-switching.
  * The system call number is the first stack argument.
  */
+.set SyscallStackArgument, 1
 .macro JUNCTION_FNCALL_PROLOGUE
 	.cfi_startproc
 
@@ -496,8 +497,10 @@ __kframe_unwind_finish_uintr:
 	// get return IP
 	movq 8(%rsp), %r11
 
-	// get system call number from stack
-	movq 16(%rsp), %rax
+	.if SyscallStackArgument
+		// get system call number from stack
+		movq 16(%rsp), %rax
+	.endif
 
 	// save rax to orig_rax
 	pushq %rax
@@ -513,6 +516,13 @@ __kframe_unwind_finish_uintr:
 
 	.cfi_adjust_cfa_offset 152;
 .endm
+
+.macro JUNCTION_FNCALL_PROLOGUE_EAX
+	.set SyscallStackArgument, 0
+	JUNCTION_FNCALL_PROLOGUE
+	.set SyscallStackArgument, 1
+.endm
+
 
 /**
  * Macro for function call syscall entry that does stack-switching.
@@ -551,6 +561,12 @@ __kframe_unwind_finish_uintr:
 	leaq    -24(%r11), %rsp;
 
 	SAVETF_STACK
+.endm
+
+.macro JUNCTION_FNCALL_STACKSWITCH_PROLOGUE_EAX
+	.set SyscallStackArgument, 0
+	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
+	.set SyscallStackArgument, 1
 .endm
 
 /*
@@ -648,7 +664,7 @@ junction_fncall_stackswitch_enter_uintr:
 .type junction_fncall_enter_preserve_regs, @function
 junction_fncall_enter_preserve_regs:
 
-	JUNCTION_FNCALL_PROLOGUE
+	JUNCTION_FNCALL_PROLOGUE_EAX
 
 	CALL_SYSCALL_FUNC(%rax, %r11)
 
@@ -704,9 +720,7 @@ __fncall_return_exit_loop_uintr:
 .type junction_fncall_stackswitch_enter_preserve_regs, @function
 junction_fncall_stackswitch_enter_preserve_regs:
 
-	.set SyscallStackArgument, 0
-	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
-	.set SyscallStackArgument, 1
+	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE_EAX
 
 	CALL_SYSCALL_FUNC(%rax, %r11)
 
@@ -728,9 +742,7 @@ junction_fncall_stackswitch_enter_preserve_regs:
 .type junction_fncall_stackswitch_enter_preserve_regs_uintr, @function
 junction_fncall_stackswitch_enter_preserve_regs_uintr:
 
-	.set SyscallStackArgument, 0
-	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
-	.set SyscallStackArgument, 1
+	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE_EAX
 
 	CALL_SYSCALL_FUNC(%rax, %r11)
 

@@ -1,16 +1,16 @@
-From 0c1c82cf1f429dec637af941a3c3b5d442c89e7c Mon Sep 17 00:00:00 2001
+From 1accaebf354d08d94659b0c781b8a25406f196f2 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 22 Aug 2023 15:56:03 +0000
 Subject: [PATCH 7/7] switch syscall format
 
 ---
  .gitignore                               |   1 +
- sysdeps/unix/sysv/linux/x86_64/clone.S   |  10 +--
- sysdeps/unix/sysv/linux/x86_64/clone3.S  |   8 +-
+ sysdeps/unix/sysv/linux/x86_64/clone.S   |  11 +--
+ sysdeps/unix/sysv/linux/x86_64/clone3.S  |   7 +-
  sysdeps/unix/sysv/linux/x86_64/syscall.S |  17 +---
  sysdeps/unix/sysv/linux/x86_64/sysdep.h  | 110 ++++++++++++++---------
  sysdeps/unix/sysv/linux/x86_64/vfork.S   |   5 +-
- 6 files changed, 85 insertions(+), 66 deletions(-)
+ 6 files changed, 86 insertions(+), 65 deletions(-)
 
 diff --git a/.gitignore b/.gitignore
 index 07d4a129e5..168f23a469 100644
@@ -22,15 +22,15 @@ index 07d4a129e5..168f23a469 100644
  *.pyc
 +build/
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone.S b/sysdeps/unix/sysv/linux/x86_64/clone.S
-index fc493f3585..3ec7e5d007 100644
+index fc493f3585..f1fb69d487 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone.S
-@@ -73,14 +73,13 @@ ENTRY (__clone)
+@@ -73,14 +73,14 @@ ENTRY (__clone)
  	movq	%r8, %rdx
  	movq	%r9, %r8
  	mov	8(%rsp), %R10_LP
 -	movl	$SYS_ify(clone),%eax
-+	push	$SYS_ify(clone)
++	movl	$SYS_ify(clone), %eax
  
  	/* End FDE now, because in the child the unwind info will be
  	   wrong.  */
@@ -38,11 +38,12 @@ index fc493f3585..3ec7e5d007 100644
  
 -        sub $0x8, %rsp
 -        call *(SYSTBL_NAME_ADDR(clone))
++	sub $0x8, %rsp
 +	JCALL_PRESERVE
  
  	testq	%rax,%rax
  	jl	SYSCALL_ERROR_LABEL
-@@ -104,8 +103,9 @@ L(thread_start):
+@@ -104,8 +104,9 @@ L(thread_start):
  	call	*%rax
  	/* Call exit with return value from function call. */
  	movq	%rax, %rdi
@@ -55,21 +56,21 @@ index fc493f3585..3ec7e5d007 100644
  
  	cfi_startproc;
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone3.S b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-index 23e40e9dee..fd06785c37 100644
+index 23e40e9dee..50521c4a3e 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone3.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-@@ -55,8 +55,8 @@ ENTRY (__clone3)
+@@ -55,8 +55,9 @@ ENTRY (__clone3)
  	   wrong.  */
  	cfi_endproc
  
--	sub $0x8, %rsp
++	movl    $SYS_ify(clone3), %eax
+ 	sub $0x8, %rsp
 -	call *(SYSTBL_NAME_ADDR(clone3))
-+	push    $SYS_ify(clone3)
 +	JCALL_PRESERVE
  
  	test	%RAX_LP, %RAX_LP
  	jl	SYSCALL_ERROR_LABEL
-@@ -80,7 +80,9 @@ L(thread_start):
+@@ -80,7 +81,9 @@ L(thread_start):
  	movq	%rax, %rdi
  
  	and	$-16, %RSP_LP
