@@ -1,4 +1,3 @@
-
 extern "C" {
 #include <base/syscall.h>
 }
@@ -67,13 +66,48 @@ extern "C" void UintrLoopReturn(u_sigframe *frame) {
   }
 }
 
+// Restores saved xstates. Must be called from uthread context.
+void __nofp u_sigframe::RestoreXstate() const {
+  assert(xsave_area);
+
+  thread_t *th = perthread_read(__self);
+  assert(th);
+
+  bool is_perthread_area = xsave_area == GetXsaveAreaNoFp(*th->stack);
+
+  // disable interrupts while manipulating th's xsave/xrstor fields
+  bool reenable_uif = __builtin_ia32_testui();
+  __builtin_ia32_clui();
+
+  XRestore(xsave_area, xsave_features);
+
+  if (is_perthread_area) {
+    // mark the per-uthread area as unused
+    th->xsave_area_in_use = false;
+    // allow potential xsaveopts
+    perthread_store(last_xrstor_buf, xsave_area);
+  } else {
+    // disallow xsaveopt
+    perthread_store(last_xrstor_buf, NULL);
+  }
+
+  if (reenable_uif) __builtin_ia32_stui();
+}
+
 u_sigframe *u_sigframe::CopyToStack(uint64_t *dest_rsp) const {
   unsigned char *new_xarea = nullptr;
 
   if (xsave_area) {
-    *dest_rsp = AlignDown(*dest_rsp - xsave_max_size, kXsaveAlignment);
-    new_xarea = reinterpret_cast<unsigned char *>(*dest_rsp);
-    std::memcpy(new_xarea, xsave_area, xsave_max_size);
+    thread_t *th = thread_self();
+    // don't make copies of the per-uthread xsave area.
+    if (xsave_area == GetXsaveArea(*th->stack)) {
+      assert(!!th->xsave_area_in_use);
+      new_xarea = xsave_area;
+    } else {
+      *dest_rsp = AlignDown(*dest_rsp - xsave_max_size, kXsaveAlignment);
+      new_xarea = reinterpret_cast<unsigned char *>(*dest_rsp);
+      std::memcpy(new_xarea, xsave_area, xsave_max_size);
+    }
   }
 
   // allocate remainder of sigframe

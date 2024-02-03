@@ -61,13 +61,30 @@ inline void ClearUIF() { __builtin_ia32_clui(); }
 inline bool TestUIF() { return __builtin_ia32_testui(); }
 
 // XSaveCompact saves the set of extended CPU states specified in @features into
-// @buf.
+// @buf using the compacted format. It uses the init optimization to avoid
+// saving states that are not in use.
 inline __nofp void XSaveCompact(void *buf, uint64_t features) {
   assert((uintptr_t)buf % kXsaveAlignment == 0);
   // Zero the xsave header
   __builtin_memset(reinterpret_cast<std::byte *>(buf) + kXsaveHeaderOffset, 0,
                    kXsaveHeaderSize);
   __builtin_ia32_xsavec64(buf, features);
+}
+
+// XSave saves the set of extended CPU states specified in @features into
+// @buf with no optimizations.
+inline __nofp void XSave(void *buf, uint64_t features) {
+  assert((uintptr_t)buf % kXsaveAlignment == 0);
+  __builtin_ia32_xsave64(buf, features);
+}
+
+// XSaveOpt saves the set of extended CPU states specified in @features into
+// @buf using the modified optimization to avoid saving states that have not
+// been modified since the last xrstor. This should only be used with a @buf
+// that was created with XSave and used for the last XRestore.
+inline __nofp void XSaveOpt(void *buf, uint64_t features) {
+  assert((uintptr_t)buf % kXsaveAlignment == 0);
+  __builtin_ia32_xsaveopt64(buf, features);
 }
 
 // XRestore restores the set of extended CPU states specified in @features from

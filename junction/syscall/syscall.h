@@ -1,6 +1,7 @@
-// syscall.hpp - support for virtual syscalls.
+// syscall.h - support for virtual syscalls.
 
 #include "junction/base/error.h"
+#include "junction/bindings/stack.h"
 #include "junction/bindings/thread.h"
 #include "junction/kernel/sigframe.h"
 #include "junction/syscall/entry.h"
@@ -16,6 +17,7 @@ Status<void> SyscallInit();
 // Update in entry.S if changed.
 static_assert(offsetof(thread, stack) == JUNCTION_STACK_OFFSET);
 static_assert(sizeof(struct stack) == JUNCTION_STACK_SIZE);
+static_assert(JUNCTION_STACK_RESERVED == XSAVE_AREA_SIZE);
 static_assert(offsetof(thread, entry_regs) == JUNCTION_TF_PTR_OFF);
 static_assert(offsetof(thread, in_syscall) == JUNCTION_IN_SYSCALL_OFF);
 static_assert(offsetof(thread, interrupt_state) == JUNCTION_INT_STATE_OFF);

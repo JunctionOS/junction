@@ -539,7 +539,7 @@ __kframe_unwind_finish_uintr:
 
 	// subtract 16 to (A) leave space for unused fsbase field in trapframe
 	// and (B) ensure correct alignment for the next call
-	addq    $(JUNCTION_STACK_SIZE - 16), %r11;
+	addq    $(JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 16), %r11;
 
 	.if SyscallStackArgument
 		// get system call number from stack

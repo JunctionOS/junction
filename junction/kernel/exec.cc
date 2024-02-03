@@ -212,7 +212,7 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
 
   // Finish exec from a different stack, since this stack may be unmapped when
   // replacing a proc's MM
-  RunOnStack(GetSyscallStack(), [regs = *ret, mm = std::move(*mm)]() mutable {
+  RunOnSyscallStack([regs = *ret, mm = std::move(*mm)]() mutable {
     Thread &myth = mythread();
 
     // Complete the exec

@@ -58,10 +58,31 @@ inline struct stack& GetSyscallStack(thread_t* th = thread_self()) {
   return *th->stack;
 }
 
-// returns the bottom of the local thread's syscall stack
-inline uint64_t GetSyscallStackBottom() {
-  uint64_t* rsp = &thread_self()->stack->usable[STACK_PTR_SIZE - 1];
+// returns the bottom of a syscall stack (for nofp targets)
+inline __nofp void* GetXsaveAreaNoFp(struct stack& stack) {
+  return &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE];
+}
+
+// returns the bottom of a syscall stack
+inline void* GetXsaveArea(struct stack& stack) {
+  return &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE];
+}
+
+// returns the bottom of a syscall stack (for nofp targets)
+inline __nofp uint64_t GetSyscallStackBottomNoFp(struct stack& stack) {
+  uint64_t* rsp = &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1];
   return reinterpret_cast<uint64_t>(rsp);
+}
+
+// returns the bottom of a syscall stack
+inline uint64_t GetSyscallStackBottom(struct stack& stack) {
+  uint64_t* rsp = &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1];
+  return reinterpret_cast<uint64_t>(rsp);
+}
+
+// returns the bottom of a thread's syscall stack
+inline uint64_t GetSyscallStackBottom(thread_t* th = thread_self()) {
+  return GetSyscallStackBottom(*th->stack);
 }
 
 inline bool on_runtime_stack() {
@@ -93,7 +114,8 @@ T* PushToStack(uint64_t* rsp, const T& src) {
 }
 
 template <typename Callable, typename... Args>
-__noreturn void RunOnStack(struct stack& stack, Callable&& func, Args&&... args)
+__noreturn void RunOnStack(stack& stack, size_t reserved, Callable&& func,
+                           Args&&... args)
   requires std::invocable<Callable, Args...>
 {
   // Just run the function if we're already on the stack
@@ -105,7 +127,9 @@ __noreturn void RunOnStack(struct stack& stack, Callable&& func, Args&&... args)
   using Data = rt::thread_internal::basic_data;
   using Wrapper = rt::thread_internal::Wrapper<Data, Callable, Args...>;
 
-  uint64_t rsp = reinterpret_cast<uint64_t>(&stack.usable[STACK_PTR_SIZE]);
+  size_t offset = STACK_PTR_SIZE -
+                  (align_up(reserved, sizeof(uintptr_t)) / sizeof(uintptr_t));
+  uint64_t rsp = reinterpret_cast<uint64_t>(&stack.usable[offset]);
   Wrapper* buf = AllocateOnStack<Wrapper>(&rsp);
   new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
   rsp = AlignDown(rsp, 16) - 8;
@@ -117,6 +141,23 @@ __noreturn void RunOnStack(struct stack& stack, Callable&& func, Args&&... args)
 
   nosave_switch(f, rsp, reinterpret_cast<uint64_t>(buf));
   std::unreachable();
+}
+
+template <typename Callable, typename... Args>
+__noreturn void RunOnStack(stack& stack, Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
+  assert(&stack != &GetSyscallStack());
+  RunOnStack(stack, 0, std::forward<Callable>(func),
+             std::forward<Args>(args)...);
+}
+
+template <typename Callable, typename... Args>
+__noreturn void RunOnSyscallStack(Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
+  RunOnStack(GetSyscallStack(), XSAVE_AREA_SIZE, std::forward<Callable>(func),
+             std::forward<Args>(args)...);
 }
 
 }  // namespace junction

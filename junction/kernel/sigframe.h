@@ -135,11 +135,9 @@ struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
     xsave_area = reinterpret_cast<unsigned char *>(dst_buf);
   }
 
-  // Restore the currently attached extended states.
-  inline __nofp void RestoreXstate() const {
-    assert(xsave_area);
-    XRestore(xsave_area, xsave_features);
-  }
+  // Restore the currently attached extended states. Checks and clears the
+  // xsave_area_in_use flag if needed.
+  __nofp void RestoreXstate() const;
 
   // Copy the full signal frame (xstate included) to @dest_rsp
   u_sigframe *CopyToStack(uint64_t *dest_rsp) const;

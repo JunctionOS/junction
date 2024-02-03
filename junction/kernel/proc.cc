@@ -716,9 +716,7 @@ void usys_exit(int status) {
 }
 
 void usys_exit_group(int status) {
-  // TODO(jfried): this must kill all other threads in this thread group...
   myproc().DoExit(status);
-
   usys_exit(status);
 }
 
