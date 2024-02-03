@@ -1,7 +1,7 @@
-From 2e7e4dca2a979e9fc9587cca1b1a9053a4461a73 Mon Sep 17 00:00:00 2001
+From 523cd4d6858ae8ceb372db935c021c754e471851 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 31 Dec 2023 04:21:49 +0000
-Subject: [PATCH 33/35] uintr
+Subject: [PATCH 32/32] uintr
 
 ---
  inc/runtime/preempt.h |  1 +
@@ -23,7 +23,7 @@ index bc6e10f6..6c3da71b 100644
  extern size_t xsave_features;
  
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 2dc9bf18..814181e7 100644
+index 12362f0b..a24c65e1 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -96,7 +96,7 @@ struct thread_tf {
@@ -37,7 +37,7 @@ index 2dc9bf18..814181e7 100644
  	unsigned long rflags;
 @@ -118,7 +118,7 @@ struct thread {
      bool        in_syscall;
-     atomic_t        interrupt_state;
+     atomic8_t        interrupt_state;
      struct thread_tf    *entry_regs;
 -    unsigned long    junction_tstate_buf[20];
 +    unsigned long    junction_tstate_buf[22];

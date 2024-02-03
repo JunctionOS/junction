@@ -1,14 +1,14 @@
-From c7541cdd29bca3faec015a66b44508b1b27cc0aa Mon Sep 17 00:00:00 2001
+From 22d2f80eae780dd66883b6011a4e423915f6a5c7 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 11 Jan 2024 19:23:34 -0500
-Subject: [PATCH 35/35] make logging safe
+Subject: [PATCH 29/32] make logging safe
 
 ---
  base/log.c | 8 ++++++++
  1 file changed, 8 insertions(+)
 
 diff --git a/base/log.c b/base/log.c
-index c085086..c957b7d 100644
+index c085086b..c957b7da 100644
 --- a/base/log.c
 +++ b/base/log.c
 @@ -19,16 +19,22 @@

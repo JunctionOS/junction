@@ -350,8 +350,8 @@ __switch_and_interrupt_enable:
 	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
 
 	// check for interrupts
-	movl    JUNCTION_INT_STATE_OFF(%r11), %esi
-	test    %esi, %esi
+	movb    JUNCTION_INT_STATE_OFF(%r11), %cl
+	test    %cl, %cl
 	jg      2f
 
 	\final_unwind
@@ -442,8 +442,8 @@ __kframe_unwind_loop_uintr:
 	clui
 
 	movq    %gs:__perthread___self(%rip), %r11
-	movl    JUNCTION_INT_STATE_OFF(%r11), %esi
-	test    %esi, %esi
+	movb    JUNCTION_INT_STATE_OFF(%r11), %cl
+	test    %cl, %cl
 	jg 1f
 
 	// clear syscall flag
