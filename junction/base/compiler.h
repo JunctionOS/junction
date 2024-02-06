@@ -3,6 +3,7 @@
 #pragma once
 
 #include <typeinfo>
+#include <type_traits>
 
 namespace junction {
 
@@ -52,5 +53,21 @@ NewT *most_derived_cast(T *x) {
   if (is_most_derived<NewT>(*x)) return static_cast<NewT *>(x);
   return nullptr;
 }
+
+namespace detail {
+template <typename, template <typename...> typename>
+struct is_instantiation_impl : public std::false_type {};
+
+template <template <typename...> typename U, typename... Ts>
+struct is_instantiation_impl<U<Ts...>, U> : public std::true_type {};
+}  // namespace detail
+
+template <typename T, template <typename...> typename U>
+using is_instantiation_of =
+    detail::is_instantiation_impl<std::remove_cvref_t<T>, U>;
+
+// is_instantiation_of_v is true if type T is an instantiation of a template U.
+template <typename T, template <typename...> typename U>
+inline constexpr bool is_instantiation_of_v = is_instantiation_of<T, U>::value;
 
 }  // namespace junction
