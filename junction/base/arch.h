@@ -15,8 +15,8 @@ inline constexpr size_t kPageSize = 4096;
 inline constexpr size_t kLargePageSize = 2097152;
 inline constexpr size_t kCacheLineSize = 64;
 inline constexpr size_t kXsaveAlignment = 64;
-inline constexpr size_t kXsaveHeaderOffset = 512;
-inline constexpr size_t kXsaveHeaderSize = 64;
+inline constexpr size_t kXsaveMaxComponents = 19;
+inline constexpr uint32_t kXsaveCpuid = 13;
 
 // PageAlign aligns an address upward to the nearest page size
 template <typename T>
@@ -60,15 +60,48 @@ inline void ClearUIF() { __builtin_ia32_clui(); }
 // TestUIF returns true if user interrupts are enabled.
 inline bool TestUIF() { return __builtin_ia32_testui(); }
 
+// XSave structures
+struct xstate_header {
+  uint64_t xstate_bv;
+  uint64_t xcomp_bv;
+  uint64_t reserved[6];
+};
+
+struct fpstate_64 {
+  uint16_t cwd;
+  uint16_t swd;
+  /* Note this is not the same as the 32-bit/x87/FSAVE twd: */
+  uint16_t twd;
+  uint16_t fop;
+  uint64_t rip;
+  uint64_t rdp;
+  uint32_t mxcsr;
+  uint32_t mxcsr_mask;
+  uint32_t st_space[32];  /*  8x  FP registers, 16 bytes each */
+  uint32_t xmm_space[64]; /* 16x XMM registers, 16 bytes each */
+  uint32_t reserved2[12];
+  uint64_t sw_reserved[6];
+};
+
+struct xstate {
+  struct fpstate_64 fpstate;
+  struct xstate_header xstate_hdr;
+  unsigned char xsave_area[];
+};
+
+static_assert(offsetof(xstate, xstate_hdr) == 512);
+
 // XSaveCompact saves the set of extended CPU states specified in @features into
 // @buf using the compacted format. It uses the init optimization to avoid
 // saving states that are not in use.
-inline __nofp void XSaveCompact(void *buf, uint64_t features) {
+inline __nofp void XSaveCompact(void *buf, uint64_t features, size_t size = 0) {
   assert((uintptr_t)buf % kXsaveAlignment == 0);
-  // Zero the xsave header
-  __builtin_memset(reinterpret_cast<std::byte *>(buf) + kXsaveHeaderOffset, 0,
-                   kXsaveHeaderSize);
+  xstate *x = reinterpret_cast<xstate *>(buf);
+  // Zero the xsave header.
+  __builtin_memset(&x->xstate_hdr, 0, sizeof(x->xstate_hdr));
   __builtin_ia32_xsavec64(buf, features);
+  // Stash the size.
+  x->fpstate.sw_reserved[0] = size;
 }
 
 // XSave saves the set of extended CPU states specified in @features into
@@ -87,12 +120,14 @@ inline __nofp void XSaveOpt(void *buf, uint64_t features) {
   __builtin_ia32_xsaveopt64(buf, features);
 }
 
-// XRestore restores the set of extended CPU states specified in @features from
-// @buf.
-inline __nofp void XRestore(void *buf, uint64_t features) {
+// XRestore restores the set of extended CPU states saved in @buf.
+inline __nofp void XRestore(void *buf) {
   assert((uintptr_t)buf % kXsaveAlignment == 0);
-  __builtin_ia32_xrstor64(buf, features);
+  xstate *x = reinterpret_cast<xstate *>(buf);
+  __builtin_ia32_xrstor64(buf, x->xstate_hdr.xstate_bv);
 }
+
+inline __nofp uint64_t GetActiveXstates() { return __builtin_ia32_xgetbv(1); }
 
 // Send a user IPI to @cpu.
 inline void SendUipi(unsigned int cpu) { __builtin_ia32_senduipi(cpu); }

@@ -578,6 +578,7 @@ pid_t usys_getpid() { return myproc().get_pid(); }
 pid_t usys_gettid() { return mythread().get_tid(); }
 
 int usys_arch_prctl(int code, unsigned long addr) {
+  // TODO: supporting Intel AMX requires requesting the feature from the kernel.
   if (code != ARCH_SET_FS) return -EINVAL;
   thread_set_fsbase(thread_self(), addr);
   return 0;

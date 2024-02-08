@@ -91,6 +91,21 @@ inline bool on_runtime_stack() {
          rsp > GetRuntimeStack() - RUNTIME_STACK_SIZE;
 }
 
+inline __nofp bool on_uintr_stack() {
+  uint64_t rsp;
+  asm volatile("movq %%rsp, %0" : "=r"(rsp));
+
+  uint64_t ustack = reinterpret_cast<uint64_t>(perthread_read(uintr_stack));
+  ustack &= ~0x1UL;
+
+  return rsp >= ustack && rsp < ustack + RUNTIME_STACK_SIZE;
+}
+
+inline __nofp void assert_on_uintr_stack() {
+  assert(!__builtin_ia32_testui());
+  assert(on_uintr_stack());
+}
+
 inline void assert_on_runtime_stack() {
   assert_preempt_disabled();
   assert(on_runtime_stack());

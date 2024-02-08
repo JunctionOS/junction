@@ -262,6 +262,8 @@ __always_inline void HandleKick(const Frame &sigframe)
 // inline/use floating point.
 void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
                       uint64_t rsp) {
+  assert_on_uintr_stack();
+
   UintrTf &stack_frame = UintrTf(uintr_frame).CloneTo(&rsp);
   stack_frame.GetFrame().AttachXstate(xsave_buf);
 
@@ -289,12 +291,15 @@ void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
 }
 
 void HandleKickUintrFinish(u_sigframe *uintr_frame, void *xsave_buf) {
+  assert_on_uintr_stack();
   uintr_frame->AttachXstate(xsave_buf);
   HandleKick(UintrTf(uintr_frame));
 }
 
 extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
-  void *xsave_buf;
+  void *xsave_buf = nullptr;
+
+  assert_on_uintr_stack();
 
   STAT(PREEMPTIONS)++;
 
@@ -308,46 +313,30 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   // compiler will allow you to do this without complaining.)
 
   thread_t *th = perthread_read(__self);
+  stack &syscall_stack = *th->stack;
+
+  const uint64_t in_use_xfeatures = GetActiveXstates();
+  assert((in_use_xfeatures & xsave_enabled_bitmap) == in_use_xfeatures);
 
   // try to use the per-uthread xsave area. when signals are stacked this may
   // not be possible.
   if (!th->xsave_area_in_use) {
-    // xsaveopt uses the modified optimization to avoid saving states that have
-    // not been modified since the last restore from this buffer. Hardware
-    // limitations prevent it from distinguishing between xrstors in different
-    // applications that use the same virtual address for the buffer. To check
-    // that the last executed xrstor was performed with this buffer by this
-    // application, we track per-core (using perthread) the last buffer used for
-    // xrstor. When a kthread parks, this field is cleared. We assume that
-    // non-Junction processes (system services, etc.) which may share this core
-    // do not use xrstor. If they do, we will need to run Junction on isolated
-    // cores in order to make this correct.
-
-    xsave_buf = GetXsaveAreaNoFp(*th->stack);
-    if (th->xsave_area_active && xsave_buf == perthread_read(last_xrstor_buf)) {
-      // Use the modified optimization when xrstor was last used with this buf
-      XSaveOpt(xsave_buf, xsave_features);
-    } else {
-      // Use the full xsave (more expensive than the compact version) in the
-      // hope that we can use xsaveopt next time.
-      XSave(xsave_buf, xsave_features);
-    }
+    xsave_buf = GetXsaveAreaNoFp(syscall_stack);
+    XSaveCompact(xsave_buf, in_use_xfeatures);
     th->xsave_area_in_use = true;
-    th->xsave_area_active = true;
-  } else {
-    xsave_buf = nullptr;
   }
 
   if (th->junction_thread && uintr_frame->uirrv == SIGURG - 1) {
     if (!xsave_buf) {
       // Temporarily save xstate on the UINTR stack. HandleKick will copy it if
       // a signal is delivered.
-      uint64_t this_rsp = reinterpret_cast<uint64_t>(
-          alloca(xsave_max_size + kXsaveAlignment - 1));
+      size_t buf_sz = GetXsaveAreaSize(in_use_xfeatures);
+      uint64_t this_rsp =
+          reinterpret_cast<uint64_t>(alloca(buf_sz + kXsaveAlignment - 1));
       // AlignUp
-      this_rsp = (this_rsp + kXsaveAlignment - 1) & ~(kXsaveAlignment - 1);
+      this_rsp = AlignUpNoFp(this_rsp, kXsaveAlignment);
       xsave_buf = reinterpret_cast<void *>(this_rsp);
-      XSaveCompact(xsave_buf, xsave_features);
+      XSaveCompact(xsave_buf, in_use_xfeatures, buf_sz);
     }
 
     // Use a function that is not marked nofp to perform the remaining
@@ -359,24 +348,25 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
     return;
   }
 
+  // We need to determine where we should place xstate before saving it.
+  // If this interrupt landed on a non-Junction thread, place the xstate
+  // directly on the interrupted stack. If this interrupt landed on a Junction
+  // thread, place the xstate onto the syscall stack.
   uint64_t rsp = uintr_frame->rsp - kRedzoneSize;
+  if (th->junction_thread && !IsOnStackNoFp(rsp, syscall_stack))
+    rsp = GetSyscallStackBottomNoFp(syscall_stack);
 
   if (!xsave_buf) {
-    // We need to determine where we should place xstate before saving it.
-    // If this interrupt landed on a non-Junction thread, place the xstate
-    // directly on the interrupted stack. If this interrupt landed on a Junction
-    // thread, place the xstate onto the syscall stack.
-    if (th->junction_thread && !IsOnStackNoFp(rsp, *th->stack))
-      rsp = GetSyscallStackBottomNoFp(*th->stack);
-
-    // AlignDown
-    rsp = (rsp - xsave_max_size) & ~(kXsaveAlignment - 1);
+    // Allocate space on the target stack for the xsave.
+    // AlignDown:
+    size_t buf_sz = GetXsaveAreaSize(in_use_xfeatures);
+    rsp = (rsp - buf_sz) & ~(kXsaveAlignment - 1);
     xsave_buf = reinterpret_cast<void *>(rsp);
 
-    // Safe to use fp functions after calling XSave.
-    XSaveCompact(xsave_buf, xsave_features);
+    XSaveCompact(xsave_buf, in_use_xfeatures, buf_sz);
   }
 
+  // Safe to use regular functions now that we have done an XSave.
   UintrFinishYield(uintr_frame, th, xsave_buf, rsp);
 
   __builtin_unreachable();
@@ -1045,13 +1035,8 @@ extern "C" void RunSignals(int rax) {
 }
 
 Status<void> InitSignal() {
-  if (uintr_enabled && xsave_max_size > XSAVE_AREA_SIZE) {
-    LOG(ERR) << "ERROR: this machine requires " << xsave_max_size
-             << " bytes for XSAVE area, but only " << XSAVE_AREA_SIZE
-             << " bytes were reserved. "
-             << "Please recompile with a larger XSAVE_AREA_RESERVED.";
-    return MakeError(-1);
-  }
+  Status<void> ret = InitXsave();
+  if (!ret) return ret;
 
   struct sigaction act;
   sigemptyset(&act.sa_mask);

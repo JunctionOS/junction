@@ -200,6 +200,7 @@ class Thread {
   void SetTrapframe(Trapframe &tf) {
     assert(GetCaladanThread() == thread_self());
     assert(in_kernel());
+    assert(IsOnStack(reinterpret_cast<uint64_t>(&tf), GetSyscallStack()));
 
     GetCaladanThread()->entry_regs = nullptr;
     cur_trapframe_ = &tf;
