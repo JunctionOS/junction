@@ -145,20 +145,19 @@ Status<void> InitXsave() {
   xsave_enabled_bitmap = regs.eax;
   xsave_enabled_bitmap |= (uint64_t)regs.edx << 32;
 
-  xsave_max_sizes[0] = offsetof(xstate, xsave_area);
-  xsave_max_sizes[1] = xsave_max_sizes[0];
-  size_t last_size = xsave_max_sizes[0];
+  size_t last_size = offsetof(xstate, xsave_area);
+
+  // Legacy state area is always included.
+  xsave_max_sizes[0] = xsave_max_sizes[1] = last_size;
 
   for (size_t i = 2; i < kXsaveMaxComponents; i++) {
     if ((xsave_enabled_bitmap & BIT(i)) == 0) continue;
     cpuid(kXsaveCpuid, i, &regs);
 
     bool align = (regs.ecx & BIT(1)) != 0;
-    size_t start_offset = xsave_max_sizes[i - 1];
-    if (align) start_offset = AlignUp(start_offset, 64);
-
-    xsave_max_sizes[i] = regs.eax + start_offset;
-    last_size = xsave_max_sizes[i];
+    if (align) last_size = AlignUp(last_size, 64);
+    last_size += regs.eax;
+    xsave_max_sizes[i] = last_size;
   }
 
   // Validate our choice for fixed XSAVE_AREA_SIZE

@@ -25,22 +25,28 @@ inline uint64_t GetRsp() {
   return rsp;
 }
 
-inline bool IsOnStack(uint64_t cur_rsp, const stack_t& ss) {
-  uint64_t sp = reinterpret_cast<uint64_t>(ss.ss_sp);
+inline bool IsOnStack(uint64_t cur_rsp, uint64_t top, uint64_t bottom) {
+  return cur_rsp > top && cur_rsp <= bottom;
+}
 
-  return cur_rsp > sp && cur_rsp <= sp + ss.ss_size;
+inline __nofp bool IsOnStackNoFp(uint64_t cur_rsp, uint64_t top,
+                                 uint64_t bottom) {
+  return cur_rsp > top && cur_rsp <= bottom;
+}
+
+inline bool IsOnStack(uint64_t cur_rsp, const stack_t& ss) {
+  uint64_t top = reinterpret_cast<uint64_t>(ss.ss_sp);
+  return IsOnStack(cur_rsp, top, top + ss.ss_size);
 }
 
 inline bool IsOnStack(uint64_t cur_rsp, const struct stack& ss) {
-  uint64_t sp = reinterpret_cast<uint64_t>(&ss.usable[0]);
-
-  return cur_rsp > sp && cur_rsp <= sp + RUNTIME_STACK_SIZE;
+  uint64_t top = reinterpret_cast<uint64_t>(&ss.usable[0]);
+  return IsOnStack(cur_rsp, top, top + RUNTIME_STACK_SIZE);
 }
 
 inline __nofp bool IsOnStackNoFp(uint64_t cur_rsp, const struct stack& ss) {
-  uint64_t sp = reinterpret_cast<uint64_t>(&ss.usable[0]);
-
-  return cur_rsp > sp && cur_rsp <= sp + RUNTIME_STACK_SIZE;
+  uint64_t top = reinterpret_cast<uint64_t>(&ss.usable[0]);
+  return IsOnStackNoFp(cur_rsp, top, top + RUNTIME_STACK_SIZE);
 }
 
 template <typename T>
@@ -98,7 +104,7 @@ inline __nofp bool on_uintr_stack() {
   uint64_t ustack = reinterpret_cast<uint64_t>(perthread_read(uintr_stack));
   ustack &= ~0x1UL;
 
-  return rsp >= ustack && rsp < ustack + RUNTIME_STACK_SIZE;
+  return IsOnStackNoFp(rsp, ustack - RUNTIME_STACK_SIZE, ustack);
 }
 
 inline __nofp void assert_on_uintr_stack() {
