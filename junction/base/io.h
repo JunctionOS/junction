@@ -13,6 +13,7 @@ extern "C" {
 
 #include <algorithm>
 #include <cstddef>
+#include <cstring>
 #include <memory>
 #include <span>
 #include <streambuf>
@@ -146,9 +147,9 @@ class StreamBufferReader : public std::streambuf {
         if (Fill(out_size - n) == 0) return n;
       }
 
-      // copy from internal buf to dst
+      // copy from internal buf to s
       size_t copy_size = std::min(out_size - n, bytes_left());
-      std::copy_n(pos(), copy_size, dst.begin() + n);
+      std::memcpy(pos(), s + n, copy_size);
       inc_pos(copy_size);
       n += copy_size;
     }
@@ -165,15 +166,9 @@ class StreamBufferReader : public std::streambuf {
 
  private:
   // helpers
-  [[nodiscard]] inline std::byte *start() const {
-    return reinterpret_cast<std::byte *>(eback());
-  }
-  [[nodiscard]] inline std::byte *pos() const {
-    return reinterpret_cast<std::byte *>(gptr());
-  }
-  [[nodiscard]] inline std::byte *end() const {
-    return reinterpret_cast<std::byte *>(egptr());
-  }
+  [[nodiscard]] inline char *start() const { return eback(); }
+  [[nodiscard]] inline char *pos() const { return gptr(); }
+  [[nodiscard]] inline char *end() const { return egptr(); }
   inline void set_avail_bytes(size_t total) {
     assert(total <= size);
     setg(start(), start(), start() + total);
@@ -182,7 +177,7 @@ class StreamBufferReader : public std::streambuf {
     assert(pos() + n <= end());
     gbump(static_cast<int>(n));
   }
-  [[nodiscard]] inline size_t bytes_left() const { return end() - pos(); }
+  [[nodiscard]] inline ssize_t bytes_left() const { return end() - pos(); }
 
   // Fill overwrites the contents of buf_ reading as much as possible
   // from the underlying Reader until at least min_size bytes are read.
@@ -192,8 +187,7 @@ class StreamBufferReader : public std::streambuf {
     assert(!bytes_left());
     size_t n = 0;
     while (n < min_size) {
-      Status<size_t> ret =
-          in_.Read(std::span{start() + n, start() + (size - n)});
+      Status<size_t> ret = in_.Read(readable_span(start() + n, size - n));
       if (!ret) break;
       n += *ret;
     }
