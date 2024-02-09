@@ -149,7 +149,7 @@ class StreamBufferReader : public std::streambuf {
 
       // copy from internal buf to s
       size_t copy_size = std::min(out_size - n, bytes_left());
-      std::memcpy(pos(), s + n, copy_size);
+      std::memcpy(s + n, pos(), copy_size);
       inc_pos(copy_size);
       n += copy_size;
     }
