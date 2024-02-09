@@ -21,6 +21,7 @@ extern "C" {
 #include <vector>
 
 #include "junction/base/arch.h"
+#include "junction/base/compiler.h"
 #include "junction/base/error.h"
 
 namespace junction {
@@ -203,25 +204,24 @@ template <Writer T>
 class BufferedWriter {
  public:
   using WriterType = T;
+
   BufferedWriter(T &out, size_t len = kPageSize * 16) noexcept : out_(out) {
     buf_.reserve(len);
   }
-  // copy
-  BufferedWriter(const BufferedWriter &w) : out_(w.out_), buf_(w.buf_) {}
-  // move
+
+  // disable copy
+  BufferedWriter(const BufferedWriter &w) = delete;
+  BufferedWriter &operator=(const BufferedWriter &w) = delete;
+
+  // enable move
   BufferedWriter(BufferedWriter &&w) noexcept
       : out_(std::move(w.out_)), buf_(std::move(w.buf_)) {}
-  // assignments
-  BufferedWriter &operator=(const BufferedWriter &w) {
-    out_ = w.out_;
-    buf_ = w.buf_;
-    return *this;
-  }
   BufferedWriter &operator=(BufferedWriter &&w) noexcept {
     out_ = std::move(w.out_);
     buf_ = std::move(w.buf_);
     return *this;
   }
+
   ~BufferedWriter() { Flush(); }
 
   Status<size_t> Write(std::span<const std::byte> src) {
@@ -271,7 +271,13 @@ class StreamBufferWriter final : public std::streambuf {
 
  protected:
   std::streamsize xsputn(const char *s, std::streamsize n) override {
-    return xsputn(out_, s, n);
+    if constexpr (is_instantiation_of_v<T, BufferedWriter>) {
+      Status<size_t> ret = out_.Write(writable_span(s, n));
+      return !ret ? 0 : n;
+    } else {
+      Status<void> ret = WriteFull(out_, writable_span(s, n));
+      return !ret ? 0 : n;
+    }
   }
 
   int_type overflow(int_type ch) override {
@@ -284,33 +290,16 @@ class StreamBufferWriter final : public std::streambuf {
     return std::char_traits<char>::not_eof(ch);
   }
 
-  int sync() override { return sync(out_); }
+  int sync() override {
+    if constexpr (is_instantiation_of_v<T, BufferedWriter>) {
+      Status<void> ret = out_.Flush();
+      return !ret ? -1 : 0;
+    } else {
+      return 0;
+    }
+  }
 
  private:
-  template <Writer U>
-  std::streamsize xsputn(U &out, const char *s, std::streamsize n) {
-    Status<void> ret = WriteFull(out_, writable_span(s, n));
-    return !ret ? 0 : n;
-  }
-
-  template <Writer U>
-  std::streamsize xsputn(BufferedWriter<U> &out, const char *s,
-                         std::streamsize n) {
-    Status<size_t> ret = out.Write(writable_span(s, n));
-    return !ret ? 0 : n;
-  }
-
-  template <Writer U>
-  int sync(U &out) {
-    return 0;
-  }
-
-  template <Writer U>
-  int sync(BufferedWriter<U> &out) {
-    Status<void> ret = out.Flush();
-    return !ret ? -1 : 0;
-  }
-
   T &out_;
 };
 
