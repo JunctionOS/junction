@@ -139,7 +139,6 @@ class StreamBufferReader : public std::streambuf {
   std::streamsize xsgetn(char *s, std::streamsize out_size) override {
     std::span<std::byte> dst = readable_span(s, out_size);
     std::streamsize n = 0;
-    Status<size_t> ret;
 
     while (n < out_size) {
       if (bytes_left() == 0) {
@@ -148,14 +147,12 @@ class StreamBufferReader : public std::streambuf {
         if (out_size - n >= size) {
           // reading directly to the dst span has ReadFull semantics
           while (n < out_size) {
-            ret = in_.Read(dst.subspan(n));
+            Status<size_t> ret = in_.Read(dst.subspan(n));
             if (!ret) return n;
             n += *ret;
           }
-        } else {
-          ret = Fill();
-          if (!ret) return n;
-        }
+        } else if (Fill(out_size - n) == 0)
+          return n;
       }
 
       // copy from internal buf to dst
@@ -170,48 +167,28 @@ class StreamBufferReader : public std::streambuf {
 
   int_type underflow() override {
     if (bytes_left() == 0) {
-      Status<size_t> ret = Fill();
-      if (!ret) return std::char_traits<char>::eof();
+      if (Fill(1) == 0) return std::char_traits<char>::eof();
     }
 
     // return character at pos
     return std::char_traits<char>::not_eof(*gptr());
   }
 
-  std::streamsize showmanyc() override { return bytes_left(); }
-
-  int pbackfail(int c) override {
-    if (eback() == gptr() || c != *gptr() || c == std::char_traits<char>::eof())
-      return std::char_traits<char>::eof();
-
-    inc_pos(-1);
-    return std::char_traits<char>::not_eof(c);
-  }
-
  private:
-  // Fill() overwrites the contents of buf_ reading as much as possible
-  // from the underlying Reader.
+  // Fill overwrites the contents of buf_ reading as much as possible
+  // from the underlying Reader until at least out_size bytes are read.
   //
-  // Returns the number of bytes read, possibly less than the size of
-  // buf_ if EOF is reached.
-  //
-  // Fill() returns an error if either:
-  // 1. the underlying reader was at EOF before Fill() was called
-  // 2. Read returned an error value not equal to 0.
-  Status<size_t> Fill() {
+  // Returns the number of bytes read, ignoring errors returned from Read.
+  size_t Fill(size_t out_size) {
     size_t n = 0;
-    while (n < size) {
-      Status<size_t> ret = in_.Read(std::span{start(), start() + size});
-      if (!ret) {
-        // check for EOF
-        if (ret.error() == 0) break;
-        return MakeError(ret);
-      }
+    while (n < out_size) {
+      Status<size_t> ret =
+          in_.Read(std::span{start() + n, start() + (size - n)});
+      if (!ret) break;
       n += *ret;
     }
     set_pos(0);
     set_limit(n);
-    if (n == 0) return MakeError(0);
     return n;
   }
 
@@ -267,7 +244,6 @@ class BufferedWriter {
         if (unlikely(!ret)) return MakeError(ret);
       }
     }
-
     return {in_size};
   }
 
