@@ -105,28 +105,19 @@ class StreamBufferReader : public std::streambuf {
   // allow move.
   StreamBufferReader(StreamBufferReader &&r) noexcept
       : in_(std::move(r.in_)), buf_(std::move(r.buf_)) {
-    setg(r.eback(), r.gptr(), r.egptr());
+    setg(r.start(), r.pos(), r.end());
+    r.setg(nullptr, nullptr, nullptr);
   }
   StreamBufferReader &operator=(StreamBufferReader &&r) noexcept {
-    in_ = r.in_;
+    in_ = std::move(r.in_);
     buf_ = std::move(r.buf_);
-    setg(r.eback(), r.gptr(), r.egptr());
+    setg(r.start(), r.pos(), r.end());
+    r.setg(nullptr, nullptr, nullptr);
     return *this;
   }
   ~StreamBufferReader() = default;
 
  protected:
-  // helpers
-  inline std::byte *start() { return reinterpret_cast<std::byte *>(eback()); }
-  inline std::byte *pos() { return reinterpret_cast<std::byte *>(gptr()); }
-  inline std::byte *limit() { return reinterpret_cast<std::byte *>(egptr()); }
-  inline void set_pos(size_t n) { setg(eback(), eback() + n, egptr()); }
-  inline void inc_pos(int n) { gbump(n); }
-  inline void set_limit(size_t n) { setg(eback(), gptr(), eback() + n); }
-  inline std::streamsize bytes_left() {
-    return static_cast<std::streamsize>(egptr() - gptr());
-  }
-
   // xsgetn has ReadFull semantics
   //
   // From the docs:
@@ -144,21 +135,21 @@ class StreamBufferReader : public std::streambuf {
       if (bytes_left() == 0) {
         // fast path: copy to dst span if remaining size is >= the internal
         // buffer's size
-        if (out_size - n >= size) {
-          // reading directly to the dst span has ReadFull semantics
-          while (n < out_size) {
-            Status<size_t> ret = in_.Read(dst.subspan(n));
-            if (!ret) return n;
-            n += *ret;
-          }
-        } else if (Fill(out_size - n) == 0)
-          return n;
+        while (out_size - n >= size) {
+          // read directly to the dst span.
+          Status<size_t> ret = in_.Read(dst.subspan(n));
+          if (!ret) return n;
+          n += *ret;
+          if (n == out_size) return n;
+        }
+
+        if (Fill(out_size - n) == 0) return n;
       }
 
       // copy from internal buf to dst
       size_t copy_size = std::min(out_size - n, bytes_left());
       std::copy_n(pos(), copy_size, dst.begin() + n);
-      inc_pos(static_cast<int>(copy_size));
+      inc_pos(copy_size);
       n += copy_size;
     }
 
@@ -166,29 +157,47 @@ class StreamBufferReader : public std::streambuf {
   }
 
   int_type underflow() override {
-    if (bytes_left() == 0) {
-      if (Fill(1) == 0) return std::char_traits<char>::eof();
-    }
+    if (bytes_left() == 0 && Fill(1) == 0) return std::char_traits<char>::eof();
 
     // return character at pos
-    return std::char_traits<char>::not_eof(*gptr());
+    return std::char_traits<char>::not_eof(*pos());
   }
 
  private:
+  // helpers
+  [[nodiscard]] inline std::byte *start() const {
+    return reinterpret_cast<std::byte *>(eback());
+  }
+  [[nodiscard]] inline std::byte *pos() const {
+    return reinterpret_cast<std::byte *>(gptr());
+  }
+  [[nodiscard]] inline std::byte *end() const {
+    return reinterpret_cast<std::byte *>(egptr());
+  }
+  inline void set_avail_bytes(size_t total) {
+    assert(total <= size);
+    setg(start(), start(), start() + total);
+  }
+  inline void inc_pos(size_t n) {
+    assert(pos() + n <= end());
+    gbump(static_cast<int>(n));
+  }
+  [[nodiscard]] inline size_t bytes_left() const { return end() - pos(); }
+
   // Fill overwrites the contents of buf_ reading as much as possible
-  // from the underlying Reader until at least out_size bytes are read.
+  // from the underlying Reader until at least min_size bytes are read.
   //
   // Returns the number of bytes read, ignoring errors returned from Read.
-  size_t Fill(size_t out_size) {
+  size_t Fill(size_t min_size) {
+    assert(!bytes_left());
     size_t n = 0;
-    while (n < out_size) {
+    while (n < min_size) {
       Status<size_t> ret =
           in_.Read(std::span{start() + n, start() + (size - n)});
       if (!ret) break;
       n += *ret;
     }
-    set_pos(0);
-    set_limit(n);
+    set_avail_bytes(n);
     return n;
   }
 
