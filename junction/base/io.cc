@@ -8,7 +8,7 @@ namespace junction {
 
 namespace {
 
-constexpr int kStackSlots = 8;
+constexpr int kStackSlots = 16;
 
 size_t SumIOV(std::span<const iovec> iov) {
   size_t len = 0;
@@ -32,8 +32,8 @@ std::span<iovec> PullIOV(std::span<iovec> iov, size_t n) {
   return {};
 }
 
-template <auto func>
-Status<void> DoFull(VectorIO &io, std::span<const iovec> iov) {
+template <typename T, auto func>
+Status<void> DoFull(T &io, std::span<const iovec> iov) {
   // first try to send without copying the vector
   Status<size_t> ret = (io.*func)(iov);
   if (!ret) return MakeError(ret);
@@ -63,12 +63,12 @@ Status<void> DoFull(VectorIO &io, std::span<const iovec> iov) {
 
 }  // namespace
 
-Status<void> WritevFull(VectorIO &io, std::span<const iovec> iov) {
-  return DoFull<&VectorIO::Writev>(io, iov);
+Status<void> WritevFull(VectoredWriter &writer, std::span<const iovec> iov) {
+  return DoFull<VectoredWriter, &VectoredWriter::Writev>(writer, iov);
 }
 
-Status<void> ReadvFull(VectorIO &io, std::span<const iovec> iov) {
-  return DoFull<&VectorIO::Readv>(io, iov);
+Status<void> ReadvFull(VectoredReader &reader, std::span<const iovec> iov) {
+  return DoFull<VectoredReader, &VectoredReader::Readv>(reader, iov);
 }
 
 }  // namespace junction

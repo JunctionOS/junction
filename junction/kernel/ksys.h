@@ -13,6 +13,7 @@ extern "C" {
 #include <utility>
 
 #include "junction/base/error.h"
+#include "junction/base/io.h"
 
 namespace junction {
 
@@ -65,7 +66,7 @@ void ksys_exit(int status) __attribute__((noreturn));
 }
 
 // KernelFile provides a wrapper around a Linux FD.
-class KernelFile {
+class KernelFile : public VectoredWriter {
  public:
   // Open creates a new file descriptor attached to a file path.
   static Status<KernelFile> Open(std::string_view path, int flags,

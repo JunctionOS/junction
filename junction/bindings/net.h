@@ -118,7 +118,7 @@ class UDPConn {
 };
 
 // TCP connections.
-class TCPConn : public VectorIO {
+class TCPConn : public VectoredReader, public VectoredWriter {
   friend class TCPQueue;
 
  public:

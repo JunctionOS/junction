@@ -213,7 +213,7 @@ class BufferedWriter {
   BufferedWriter(const BufferedWriter &w) = delete;
   BufferedWriter &operator=(const BufferedWriter &w) = delete;
 
-  // enable move
+  // allow move
   BufferedWriter(BufferedWriter &&w) noexcept
       : out_(std::move(w.out_)), buf_(std::move(w.buf_)) {}
   BufferedWriter &operator=(BufferedWriter &&w) noexcept {
@@ -247,7 +247,7 @@ class BufferedWriter {
         if (unlikely(!ret)) return MakeError(ret);
       }
     }
-    return {in_size};
+    return in_size;
   }
 
   Status<void> Flush() {
@@ -303,15 +303,22 @@ class StreamBufferWriter final : public std::streambuf {
   T &out_;
 };
 
-// VectorIO is an interface for vector reads and writes.
-class VectorIO {
+// VectoredReader is an interface for vector reads.
+class VectoredReader {
  public:
-  virtual ~VectorIO() = default;
+  virtual ~VectoredReader() = default;
   virtual Status<size_t> Readv(std::span<const iovec> iov) = 0;
+};
+
+Status<void> ReadvFull(VectoredReader &reader, std::span<const iovec> iov);
+
+// VectoredWriter is an interface for vector writes.
+class VectoredWriter {
+ public:
+  virtual ~VectoredWriter() = default;
   virtual Status<size_t> Writev(std::span<const iovec> iov) = 0;
 };
 
-Status<void> ReadvFull(VectorIO &io, std::span<const iovec> iov);
-Status<void> WritevFull(VectorIO &io, std::span<const iovec> iov);
+Status<void> WritevFull(VectoredWriter &writer, std::span<const iovec> iov);
 
 }  // namespace junction
