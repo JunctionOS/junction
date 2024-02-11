@@ -76,7 +76,7 @@ class UDPConn {
   // Reads a datagram and gets from remote address.
   Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr) {
     ssize_t ret = udp_read_from(c_, buf.data(), buf.size_bytes(), raddr);
-    if (ret <= 0) return MakeError(static_cast<int>(-ret));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a datagram and sets to remote address.
@@ -89,7 +89,7 @@ class UDPConn {
   // Reads a datagram.
   Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = udp_read(c_, buf.data(), buf.size_bytes());
-    if (ret <= 0) return MakeError(static_cast<int>(-ret));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a datagram.
@@ -188,7 +188,7 @@ class TCPConn : public VectoredReader, public VectoredWriter {
   // Reads from the TCP stream.
   Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = tcp_read(c_, buf.data(), buf.size_bytes());
-    if (ret <= 0) return MakeError(static_cast<int>(-ret));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes to the TCP stream.
@@ -201,7 +201,7 @@ class TCPConn : public VectoredReader, public VectoredWriter {
   // Reads a vector from the TCP stream.
   Status<size_t> Readv(std::span<const iovec> iov) override {
     ssize_t ret = tcp_readv(c_, iov.data(), static_cast<int>(iov.size()));
-    if (ret <= 0) return MakeError(static_cast<int>(-ret));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a vector to the TCP stream.

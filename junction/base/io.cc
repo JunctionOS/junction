@@ -56,6 +56,8 @@ Status<void> DoFull(T &io, std::span<const iovec> iov) {
     if (s.empty()) break;
     ret = (io.*func)(s);
     if (!ret) return MakeError(ret);
+    if constexpr (std::same_as<T, VectoredReader>)
+      if (*ret == 0) return MakeError(EIO);
   }
 
   return {};
