@@ -98,7 +98,7 @@ class KernelFile : public VectoredWriter {
   // Read from the file.
   Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = ksys_pread(fd_, buf.data(), buf.size_bytes(), off_);
-    if (ret <= 0) return MakeError(static_cast<int>(-ret));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
     off_ += ret;
     return static_cast<size_t>(ret);
   }

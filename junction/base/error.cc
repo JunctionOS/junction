@@ -4,8 +4,6 @@ namespace junction {
 
 std::string_view Error::ToString() const {
   switch (code()) {
-    case EEOF:
-      return "End of file";
     case EPERM:
       return "Operation not permitted";
     case ENOENT:
