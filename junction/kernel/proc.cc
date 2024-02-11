@@ -299,8 +299,6 @@ Status<void> Process::Restore(ProcessMetadata const &pm,
   }
 
   parent_ = parent;
-  const void *base = mem_map_->get_base();
-
   return {};
 }
 

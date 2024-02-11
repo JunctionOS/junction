@@ -66,7 +66,7 @@ inline std::span<const std::byte> writable_span(const char *buf, size_t len) {
   return {reinterpret_cast<const std::byte *>(buf), len};
 }
 
-// Reads the full span of bytes.
+// ReadFull reads all of the bytes in a span.
 template <Reader T>
 Status<void> ReadFull(T &t, std::span<std::byte> buf) {
   size_t n = 0;
@@ -80,7 +80,8 @@ Status<void> ReadFull(T &t, std::span<std::byte> buf) {
   return {};
 }
 
-// Writes the full span of bytes.
+// WriteFull writes all of the bytes in a span.
+// FIXME(amb): Remove this function after fixing TCP sockets
 template <Writer T>
 Status<void> WriteFull(T &t, std::span<const std::byte> buf) {
   size_t n = 0;
@@ -93,66 +94,6 @@ Status<void> WriteFull(T &t, std::span<const std::byte> buf) {
   return {};
 }
 
-template <Writer T>
-class BufferedWriter {
- public:
-  BufferedWriter(T &out, size_t len = kDefaultBufferSize) noexcept : out_(out) {
-    buf_.reserve(len);
-  }
-
-  // disable copy
-  BufferedWriter(const BufferedWriter &w) = delete;
-  BufferedWriter &operator=(const BufferedWriter &w) = delete;
-
-  // allow move
-  BufferedWriter(BufferedWriter &&w) noexcept
-      : out_(w.out_), buf_(std::move(w.buf_)) {}
-  BufferedWriter &operator=(BufferedWriter &&w) noexcept {
-    out_ = w.out_;
-    buf_ = std::move(w.buf_);
-    return *this;
-  }
-
-  ~BufferedWriter() { Flush(); }
-
-  Status<size_t> Write(std::span<const std::byte> src) {
-    size_t in_size = src.size();
-    size_t n = 0;
-    while (n < in_size) {
-      // fast path: avoid extra copies if @src is already large enough
-      if (buf_.empty() && (in_size - n) >= buf_.capacity()) {
-        Status<void> ret = WriteFull(out_, src.subspan(n));
-        if (unlikely(!ret)) return MakeError(ret);
-        break;
-      }
-
-      // cold path: copy @src into the buffer
-      size_t copy_size = std::min(in_size - n, buf_.capacity() - buf_.size());
-      std::ranges::copy(src.begin() + static_cast<ssize_t>(n),
-                        src.begin() + static_cast<ssize_t>(n + copy_size),
-                        std::back_inserter(buf_));
-      n += copy_size;
-
-      if (buf_.size() == buf_.capacity()) {
-        Status<void> ret = Flush();
-        if (unlikely(!ret)) return MakeError(ret);
-      }
-    }
-    return in_size;
-  }
-
-  Status<void> Flush() {
-    Status<void> ret = WriteFull(out_, buf_);
-    buf_.clear();
-    if (!ret) return MakeError(ret);
-    return {};
-  }
-
- private:
-  T &out_;
-  std::vector<std::byte> buf_;
-};
-
 template <Reader T>
 class BufferedReader {
  public:
@@ -160,11 +101,9 @@ class BufferedReader {
       : in_(in), len_(len) {
     buf_ = std::make_unique_for_overwrite<std::byte[]>(len);
   }
-
   // disable copy
   BufferedReader(const BufferedReader &r) = delete;
   BufferedReader &operator=(const BufferedReader &r) = delete;
-
   // allow move
   BufferedReader(BufferedReader &&r) noexcept
       : in_(r.in_), len_(r.len_), buf_(std::move(r.buf_)) {}
@@ -174,7 +113,6 @@ class BufferedReader {
     buf_ = std::move(r.buf_);
     return *this;
   }
-
   ~BufferedReader() = default;
 
   Status<size_t> Read(std::span<std::byte> dst) {
@@ -217,6 +155,63 @@ class BufferedReader {
   size_t len_;
   std::unique_ptr<std::byte[]> buf_;
   std::span<const std::byte> pos_;
+};
+
+template <Writer T>
+class BufferedWriter {
+ public:
+  BufferedWriter(T &out, size_t len = kDefaultBufferSize) noexcept : out_(out) {
+    buf_.reserve(len);
+  }
+  // disable copy
+  BufferedWriter(const BufferedWriter &w) = delete;
+  BufferedWriter &operator=(const BufferedWriter &w) = delete;
+  // allow move
+  BufferedWriter(BufferedWriter &&w) noexcept
+      : out_(w.out_), buf_(std::move(w.buf_)) {}
+  BufferedWriter &operator=(BufferedWriter &&w) noexcept {
+    out_ = w.out_;
+    buf_ = std::move(w.buf_);
+    return *this;
+  }
+  ~BufferedWriter() { Flush(); }
+
+  Status<size_t> Write(std::span<const std::byte> src) {
+    size_t in_size = src.size();
+    size_t n = 0;
+    while (n < in_size) {
+      // fast path: avoid extra copies if @src is already large enough
+      if (buf_.empty() && (in_size - n) >= buf_.capacity()) {
+        Status<void> ret = WriteFull(out_, src.subspan(n));
+        if (unlikely(!ret)) return MakeError(ret);
+        break;
+      }
+
+      // cold path: copy @src into the buffer
+      size_t copy_size = std::min(in_size - n, buf_.capacity() - buf_.size());
+      std::ranges::copy(src.begin() + static_cast<ssize_t>(n),
+                        src.begin() + static_cast<ssize_t>(n + copy_size),
+                        std::back_inserter(buf_));
+      n += copy_size;
+
+      if (buf_.size() == buf_.capacity()) {
+        Status<void> ret = Flush();
+        if (unlikely(!ret)) return MakeError(ret);
+      }
+    }
+    return in_size;
+  }
+
+  Status<void> Flush() {
+    Status<void> ret = WriteFull(out_, buf_);
+    buf_.clear();
+    if (!ret) return MakeError(ret);
+    return {};
+  }
+
+ private:
+  T &out_;
+  std::vector<std::byte> buf_;
 };
 
 // StreamBufferReader provides interoperability with std::streambuf for reads

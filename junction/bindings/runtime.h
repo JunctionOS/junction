@@ -45,19 +45,19 @@ inline unsigned int RuntimeGuaranteedCores() {
 // Will disable preemption and set the correct FS register
 class RuntimeLibcGuard {
  public:
-  [[nodiscard]] RuntimeLibcGuard() {
+  [[nodiscard]] RuntimeLibcGuard() noexcept {
     preempt_disable();
-    _prev_fs_base = GetFSBase();
+    prev_fs_base_ = GetFSBase();
     SetFSBase(perthread_read(runtime_fsbase));
   }
 
   ~RuntimeLibcGuard() {
-    SetFSBase(_prev_fs_base);
+    SetFSBase(prev_fs_base_);
     preempt_enable();
   }
 
  private:
-  uint64_t _prev_fs_base;
+  uint64_t prev_fs_base_;
 };
 
 };  // namespace junction::rt
