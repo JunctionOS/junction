@@ -73,7 +73,7 @@ Status<void> ReadFull(T &t, std::span<std::byte> buf) {
   while (n < buf.size()) {
     Status<size_t> ret = t.Read(buf.subspan(n));
     if (!ret) return MakeError(ret);
-    if (*ret == 0) return MakeError(EIO);
+    if (*ret == 0) return MakeError(EUNEXPECTEDEOF);
     n += *ret;
   }
   assert(n == buf.size());
@@ -362,10 +362,10 @@ class StreamBufferWriter final : public std::streambuf {
   std::streamsize xsputn(const char *s, std::streamsize n) override {
     std::span<const std::byte> src = writable_span(s, n);
 
-    // Flush pending buffer first
+    // Add to pending buffer first (and flush if full)
     if (pos() > start()) {
       size_t n_copied = WriteToBuffer(src);
-      if (sync() == -1) return 0;
+      if (bytes_left() == 0 && sync() == -1) return 0;
       src = src.subspan(n_copied);
       if (src.empty()) return n_copied;
     }
@@ -392,7 +392,7 @@ class StreamBufferWriter final : public std::streambuf {
   }
 
   int sync() override {
-    Status<void> ret = WriteFull(out_, {start(), len_});
+    Status<void> ret = WriteFull(out_, {start(), pos() - start()});
     if (!ret) return -1;
     setp(start(), start() + len_);
     return 0;

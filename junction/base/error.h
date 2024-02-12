@@ -21,6 +21,7 @@ extern "C" {
 #define ERESTARTSYS 512
 #define ERESTARTNOINTR 513
 #define ERESTARTNOHAND 514
+#define EUNEXPECTEDEOF 515
 
 namespace junction {
 
