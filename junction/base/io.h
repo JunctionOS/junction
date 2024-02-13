@@ -1,8 +1,4 @@
 // io.h - utilities for I/O
-//
-// TODO(amb): we should remove WriteFull(), but first Caladan's TCP stack must
-// be fixed to never return less than the requested bytes. This is the correct
-// POSIX behavior for write(), but ReadFull() is still needed for read().
 
 #pragma once
 
@@ -81,7 +77,6 @@ Status<void> ReadFull(T &t, std::span<std::byte> buf) {
 }
 
 // WriteFull writes all of the bytes in a span.
-// FIXME(amb): Remove this function after fixing TCP sockets
 template <Writer T>
 Status<void> WriteFull(T &t, std::span<const std::byte> buf) {
   size_t n = 0;
@@ -98,9 +93,9 @@ template <Reader T>
 class BufferedReader {
  public:
   BufferedReader(T &in, size_t len = kDefaultBufferSize) noexcept
-      : in_(in), len_(len) {
-    buf_ = std::make_unique_for_overwrite<std::byte[]>(len);
-  }
+      : in_(in),
+        len_(len),
+        buf_(std::make_unique_for_overwrite<std::byte[]>(len)) {}
   // disable copy
   BufferedReader(const BufferedReader &r) = delete;
   BufferedReader &operator=(const BufferedReader &r) = delete;
@@ -123,7 +118,7 @@ class BufferedReader {
     // Read directly from the reader without copying if dst is large enough
     dst = dst.subspan(n);
     if (dst.size() >= len_) {
-      Status<size_t> ret = in_.Read({buf_.get(), len_});
+      Status<size_t> ret = in_.Read({dst.data(), len_});
       if (!ret) return MakeError(ret);
       return n + *ret;
     }
@@ -139,7 +134,7 @@ class BufferedReader {
   size_t ReadFromBuffer(std::span<std::byte> dst) {
     size_t n = std::min(dst.size(), pos_.size());
     if (n == 0) return 0;
-    std::copy_n(dst.begin(), n, pos_.begin());
+    std::copy_n(pos_.begin(), n, dst.begin());
     pos_ = pos_.subspan(n);
     return n;
   }
@@ -176,30 +171,27 @@ class BufferedWriter {
   }
   ~BufferedWriter() { Flush(); }
 
-  Status<size_t> Write(std::span<const std::byte> src) {
-    size_t in_size = src.size();
-    size_t n = 0;
-    while (n < in_size) {
-      // fast path: avoid extra copies if @src is already large enough
-      if (buf_.empty() && (in_size - n) >= buf_.capacity()) {
-        Status<void> ret = WriteFull(out_, src.subspan(n));
+  Status<void> Write(std::span<const std::byte> src) {
+    while (!src.empty()) {
+      if (buf_.empty() && src.size() >= buf_.capacity()) {
+        Status<size_t> ret = out_.Write(src);
         if (unlikely(!ret)) return MakeError(ret);
-        break;
+        src = src.subspan(*ret);
+        continue;
       }
 
-      // cold path: copy @src into the buffer
-      size_t copy_size = std::min(in_size - n, buf_.capacity() - buf_.size());
-      std::ranges::copy(src.begin() + static_cast<ssize_t>(n),
-                        src.begin() + static_cast<ssize_t>(n + copy_size),
-                        std::back_inserter(buf_));
-      n += copy_size;
+      // copy @src into the buffer
+      size_t copy_size = std::min(src.size(), buf_.capacity() - buf_.size());
+      std::copy_n(src.begin(), copy_size, std::back_inserter(buf_));
+      src = src.subspan(copy_size);
 
       if (buf_.size() == buf_.capacity()) {
         Status<void> ret = Flush();
-        if (unlikely(!ret)) return MakeError(ret);
+        if (unlikely(!ret)) return ret;
       }
     }
-    return in_size;
+
+    return {};
   }
 
   Status<void> Flush() {
@@ -220,8 +212,8 @@ class StreamBufferReader : public std::streambuf {
  public:
   StreamBufferReader(T &in, size_t len = kDefaultBufferSize) noexcept
       : in_(in),
-        buf_(std::make_unique_for_overwrite<std::byte[]>(len)),
-        len_(len) {
+        len_(len),
+        buf_(std::make_unique_for_overwrite<std::byte[]>(len)) {
     char *ptr = reinterpret_cast<char *>(buf_.get());
     setg(ptr, ptr, ptr);
   }
@@ -231,7 +223,7 @@ class StreamBufferReader : public std::streambuf {
 
   // allow move.
   StreamBufferReader(StreamBufferReader &&r) noexcept
-      : in_(r.in_), buf_(std::move(r.buf_)), len_(r.len_) {
+      : in_(r.in_), len_(r.len_), buf_(std::move(r.buf_)) {
     setg(r.start(), r.pos(), r.end());
     r.setg(nullptr, nullptr, nullptr);
   }
@@ -243,7 +235,7 @@ class StreamBufferReader : public std::streambuf {
     r.setg(nullptr, nullptr, nullptr);
     return *this;
   }
-  ~StreamBufferReader() = default;
+  ~StreamBufferReader() override = default;
 
  protected:
   // xsgetn has ReadFull semantics
@@ -257,35 +249,35 @@ class StreamBufferReader : public std::streambuf {
   // bytes copied to dst before hitting EOF
   std::streamsize xsgetn(char *s, std::streamsize out_size) override {
     std::span<std::byte> dst = readable_span(s, out_size);
-    std::streamsize n = 0;
 
-    while (n < out_size) {
-      if (bytes_left() == 0) {
+    while (dst.size()) {
+      if (is_empty()) {
         // fast path: copy to dst span if remaining size is >= the internal
         // buffer's size
-        while (out_size - n >= len_) {
-          // read directly to the dst span.
-          Status<size_t> ret = in_.Read(dst.subspan(n));
-          if (!ret) return n;
-          n += *ret;
-          if (n == out_size) return n;
+        if (dst.size() >= len_) {
+          Status<size_t> ret = in_.Read(dst);
+          if (unlikely(!ret)) break;
+          dst = dst.subspan(*ret);
+          continue;
         }
 
-        if (Fill(out_size - n) == 0) return n;
+        Status<void> ret = Fill(dst.size());
+        if (unlikely(!ret)) break;
       }
 
-      // copy from internal buf to
-      size_t copy_size = std::min(out_size - n, bytes_left());
-      std::memcpy(s + n, pos(), copy_size);
+      // copy from internal buf
+      assert(!is_empty());
+      size_t copy_size = std::min(dst.size(), bytes_left());
+      std::memcpy(dst.data(), pos(), copy_size);
       inc_pos(copy_size);
-      n += copy_size;
+      dst = dst.subspan(copy_size);
     }
 
-    return out_size;
+    return reinterpret_cast<char *>(dst.data()) - s;
   }
 
   int_type underflow() override {
-    if (bytes_left() == 0 && Fill(1) == 0) return std::char_traits<char>::eof();
+    if (is_empty() && !Fill(1)) return std::char_traits<char>::eof();
 
     // return character at pos
     return std::char_traits<char>::not_eof(*pos());
@@ -304,22 +296,25 @@ class StreamBufferReader : public std::streambuf {
     assert(pos() + n <= end());
     gbump(static_cast<int>(n));
   }
+
   [[nodiscard]] inline size_t bytes_left() const { return end() - pos(); }
+  [[nodiscard]] inline bool is_empty() const { return bytes_left() == 0; }
 
   // Fill overwrites the contents of buf_ reading as much as possible
   // from the underlying Reader until at least min_size bytes are read.
   //
-  // Returns the number of bytes read, ignoring errors returned from Read.
-  size_t Fill(size_t min_size) {
+  Status<void> Fill(size_t min_size) {
     assert(!bytes_left());
     size_t n = 0;
     while (n < min_size) {
       Status<size_t> ret = in_.Read(readable_span(start() + n, len_ - n));
-      if (!ret || *ret == 0) break;
+      if (!ret) break;
       n += *ret;
     }
+
+    if (unlikely(!n)) return MakeError(EIO);
     set_avail_bytes(n);
-    return n;
+    return {};
   }
 
   T &in_;
@@ -356,32 +351,26 @@ class StreamBufferWriter final : public std::streambuf {
     w.setp(nullptr, nullptr);
     return *this;
   }
-  ~StreamBufferWriter() = default;
+  ~StreamBufferWriter() override = default;
 
  protected:
   std::streamsize xsputn(const char *s, std::streamsize n) override {
     std::span<const std::byte> src = writable_span(s, n);
 
-    // Add to pending buffer first (and flush if full)
-    if (pos() > start()) {
+    while (src.size()) {
+      if (is_empty() && src.size() >= len_) {
+        Status<size_t> ret = out_.Write(src);
+        if (unlikely(!ret)) break;
+        src = src.subspan(*ret);
+        continue;
+      }
+
       size_t n_copied = WriteToBuffer(src);
-      if (bytes_left() == 0 && sync() == -1) return 0;
       src = src.subspan(n_copied);
-      if (src.empty()) return n_copied;
+      if (bytes_left() == 0 && sync() == -1) break;
     }
 
-    // Write without buffering if remaining payload is large enough
-    if (src.size() >= len_) {
-      Status<void> ret = WriteFull(out_, src);
-      if (!ret) return 0;
-      return n;
-    }
-
-    // Otherwise write the rest to the buffer
-    assert(src.size() == bytes_left());
-    size_t n_copied = WriteToBuffer(src);
-    assert(n_copied < len_);
-    return n;
+    return reinterpret_cast<const char *>(src.data()) - s;
   }
 
   int_type overflow(int_type ch) override {
@@ -392,7 +381,7 @@ class StreamBufferWriter final : public std::streambuf {
   }
 
   int sync() override {
-    Status<void> ret = WriteFull(out_, {start(), pos() - start()});
+    Status<void> ret = WriteFull(out_, writable_span(start(), pos() - start()));
     if (!ret) return -1;
     setp(start(), start() + len_);
     return 0;
@@ -408,11 +397,11 @@ class StreamBufferWriter final : public std::streambuf {
     pbump(static_cast<int>(n));
   }
   [[nodiscard]] inline size_t bytes_left() const { return end() - pos(); }
+  [[nodiscard]] inline bool is_empty() const { return bytes_left() == len_; }
 
   size_t WriteToBuffer(std::span<const std::byte> src) {
-    assert(bytes_left() > 0);
     size_t n = std::min(src.size(), bytes_left());
-    if (n > 0) std::memcpy(start(), src.data(), n);
+    if (n > 0) std::memcpy(pos(), src.data(), n);
     inc_pos(n);
     return n;
   }

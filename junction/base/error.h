@@ -18,16 +18,20 @@ extern "C" {
 #include <utility>
 
 // Junction-internal error codes (should not be passed to user)
-#define ERESTARTSYS 512
-#define ERESTARTNOINTR 513
-#define ERESTARTNOHAND 514
-#define EUNEXPECTEDEOF 515
+
+enum {
+  ERESTARTSYS = 512,
+  ERESTARTNOINTR = 513,
+  ERESTARTNOHAND = 514,
+  EUNEXPECTEDEOF = 515,
+};
 
 namespace junction {
 
 // Asserts if an integer is a valid linux error code
 inline void assert_code_is_valid(int code) {
-  assert(code >= 0 && code <= EREMOTEIO);
+  assert((code >= 0 && code <= EREMOTEIO) ||
+         (code >= ERESTARTSYS && code <= EUNEXPECTEDEOF));
 }
 
 class Error {
