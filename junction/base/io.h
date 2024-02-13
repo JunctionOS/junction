@@ -17,7 +17,6 @@ extern "C" {
 #include <vector>
 
 #include "junction/base/arch.h"
-#include "junction/base/compiler.h"
 #include "junction/base/error.h"
 
 namespace junction {
@@ -247,8 +246,8 @@ class StreamBufferReader : public std::streambuf {
   //
   // This implementation translates all errors to EOF and returns the number of
   // bytes copied to dst before hitting EOF
-  std::streamsize xsgetn(char *s, std::streamsize out_size) override {
-    std::span<std::byte> dst = readable_span(s, out_size);
+  std::streamsize xsgetn(char *s, std::streamsize n) override {
+    std::span<std::byte> dst = readable_span(s, n);
 
     while (dst.size()) {
       if (is_empty()) {
@@ -273,7 +272,7 @@ class StreamBufferReader : public std::streambuf {
       dst = dst.subspan(copy_size);
     }
 
-    return reinterpret_cast<char *>(dst.data()) - s;
+    return n - dst.size();
   }
 
   int_type underflow() override {
@@ -370,7 +369,7 @@ class StreamBufferWriter final : public std::streambuf {
       if (bytes_left() == 0 && sync() == -1) break;
     }
 
-    return reinterpret_cast<const char *>(src.data()) - s;
+    return n - src.size();
   }
 
   int_type overflow(int_type ch) override {
@@ -400,9 +399,8 @@ class StreamBufferWriter final : public std::streambuf {
   [[nodiscard]] inline bool is_empty() const { return bytes_left() == len_; }
 
   size_t WriteToBuffer(std::span<const std::byte> src) {
-    assert(bytes_left() > 0);
     size_t n = std::min(src.size(), bytes_left());
-    if (n > 0) std::memcpy(pos(), src.data(), n);
+    std::memcpy(pos(), src.data(), n);
     inc_pos(n);
     return n;
   }
