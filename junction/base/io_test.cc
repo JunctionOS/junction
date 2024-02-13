@@ -65,102 +65,86 @@ class StreamBufferWriterWrapper {
 
 class IOTest : public ::testing::Test {};
 
-bool validate_data(std::span<std::byte> in, uint8_t firstval) {
-  unsigned char *p = reinterpret_cast<unsigned char *>(in.data());
-  for (size_t i = 0; i < in.size(); i++) {
-    if (*p++ != firstval + i) return false;
-  }
-
-  return true;
-}
-
 template <class IOReaderWriter, class IOReader>
 void TestReader(IOReaderWriter &rw, IOReader &r) {
-  for (size_t i = 0; i < kDataSize; i++) {
-    char b = i;
-    rw.Write(writable_span(&b, 1));
-  }
+  std::vector<std::byte> test_data_(kDataSize);
+  for (size_t i = 0; i < kDataSize; i++)
+    test_data_.push_back(std::byte(rand()));
 
+  ASSERT_TRUE(WriteFull(rw, {test_data_.data(), kDataSize}));
   rw.Flush();
 
-  char b[kMaxRequestSize];
-  auto spn = readable_span(b, kMaxRequestSize);
+  std::vector<std::byte> read_data(kDataSize);
   size_t pos = 0;
 
-  // Read fast path
-  Status<size_t> ret = r.Read(spn.subspan(0, kBufDepth));
-  ASSERT_TRUE(ret && *ret == kBufDepth);
-  ASSERT_TRUE(validate_data(spn.subspan(0, kBufDepth), pos));
-  pos += kBufDepth;
+  auto pull = [&](size_t nbytes) {
+    Status<size_t> ret = r.Read({read_data.data() + pos, nbytes});
+    ASSERT_TRUE(ret);
+    ASSERT_GT(*ret, 0);
+    pos += *ret;
+  };
 
-  // Partial fill and subsequent read
-  ret = r.Read(spn.subspan(0, kHalfBufDepth));
-  ASSERT_TRUE(ret && *ret == kHalfBufDepth);
-  ret = r.Read(spn.subspan(kHalfBufDepth, kHalfBufDepth));
-  ASSERT_TRUE(ret && *ret == kHalfBufDepth);
-  ASSERT_TRUE(validate_data(spn.subspan(0, kBufDepth), pos));
-  pos += kBufDepth;
+  // Trigger read fast path
+  pull(kBufDepth);
 
-  // Partial fill subsequent read with fast path
-  ret = r.Read(spn.subspan(0, kHalfBufDepth));
-  ASSERT_TRUE(ret && *ret == kHalfBufDepth);
-  ret = r.Read(spn.subspan(kHalfBufDepth, kHalfBufDepth + kBufDepth));
-  ASSERT_TRUE(ret && *ret == kHalfBufDepth + kBufDepth);
-  ASSERT_TRUE(validate_data(spn.subspan(0, 2 * kBufDepth), pos));
-  pos += 2 * kBufDepth;
+  // Trigger fill and subsequent read from buffer
+  pull(kHalfBufDepth);
+  pull(kHalfBufDepth);
+
+  // Trigger fill and subsequent read with fast path
+  pull(kHalfBufDepth);
+  pull(kHalfBufDepth + kBufDepth);
 
   // Read data in random chunk sizes
-  while (true) {
-    size_t span_sz = 1 + (rand() % kMaxRequestSize);
-    ret = r.Read(spn.subspan(0, span_sz));
-    if (!ret || *ret == 0) {
-      ASSERT_EQ(pos, kDataSize);
-      break;
-    }
-    ASSERT_TRUE(validate_data(spn.subspan(0, *ret), pos));
-    pos += *ret;
+  while (pos < kDataSize) {
+    size_t pull_sz = std::min(1 + (rand() % kMaxRequestSize), kDataSize - pos);
+    pull(pull_sz);
   }
+
+  ASSERT_EQ(memcmp(read_data.data(), test_data_.data(), kDataSize), 0);
 }
 
 // Tests a writer instance
 template <class IOReaderWriter, class IOWriter>
 void TestWriter(IOReaderWriter &rw, IOWriter &w) {
-  std::vector<std::byte> test_data_;
-  test_data_.reserve(kDataSize);
+  std::vector<std::byte> test_data_(kDataSize);
   for (size_t i = 0; i < kDataSize; i++)
-    test_data_.push_back(*reinterpret_cast<std::byte *>(&i));
-
-  std::span<std::byte> spn(test_data_.data(), kDataSize);
+    test_data_.push_back(std::byte(rand()));
 
   size_t pos = 0;
+
+  auto push = [&](size_t nbytes) {
+    auto ret = w.Write({test_data_.data() + pos, nbytes});
+    ASSERT_TRUE(ret);
+    if constexpr (std::is_same<decltype(ret), Status<size_t>>::value) {
+      ASSERT_GT(*ret, 0);
+      pos += *ret;
+    } else {
+      pos += nbytes;
+    }
+  };
+
   // fast path
-  ASSERT_TRUE(w.Write(spn.subspan(pos, kBufDepth)));
-  pos += kBufDepth;
+  push(kBufDepth);
 
   // Partial fill and subsequent write
-  ASSERT_TRUE(w.Write(spn.subspan(pos, kHalfBufDepth)));
-  pos += kHalfBufDepth;
-  ASSERT_TRUE(w.Write(spn.subspan(pos, kHalfBufDepth)));
-  pos += kHalfBufDepth;
+  push(kHalfBufDepth);
+  push(kHalfBufDepth);
 
   // Partial fill subsequent write with fast path
-  ASSERT_TRUE(w.Write(spn.subspan(pos, kHalfBufDepth)));
-  pos += kHalfBufDepth;
-  ASSERT_TRUE(w.Write(spn.subspan(pos, kHalfBufDepth + kBufDepth)));
-  pos += kHalfBufDepth + kBufDepth;
+  push(kHalfBufDepth);
+  push(kHalfBufDepth + kBufDepth);
 
   // Write data in random chunk sizes
   while (pos < kDataSize) {
     size_t write_size =
         std::min(1 + (rand() % kMaxRequestSize), kDataSize - pos);
-    ASSERT_TRUE(w.Write(spn.subspan(pos, write_size)));
-    pos += write_size;
+    push(write_size);
   }
 
   w.Flush();
 
-  std::vector<std::byte> read_data;
-  read_data.reserve(kDataSize);
+  std::vector<std::byte> read_data(kDataSize);
   ASSERT_TRUE(ReadFull(rw, std::span<std::byte>(read_data.data(), kDataSize)));
   ASSERT_EQ(memcmp(read_data.data(), test_data_.data(), kDataSize), 0);
 }
