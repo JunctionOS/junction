@@ -180,6 +180,13 @@ inline Status<void> KernelMProtect(void *addr, size_t length, int prot) {
   return {};
 }
 
+// Pass mapping hints.
+inline Status<void> KernelMAdvise(void *addr, size_t length, int hint) {
+  int ret = ksys_madvise(addr, length, hint);
+  if (ret < 0) return MakeError(ret);
+  return {};
+}
+
 // Get file status.
 inline Status<void> KernelStat(const char *path, struct stat *buf) {
   int ret = ksys_stat(path, buf);

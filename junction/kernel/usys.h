@@ -70,12 +70,12 @@ ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
                         size_t bufsiz);
 
 // Memory
-uintptr_t usys_brk(uintptr_t addr);
+intptr_t usys_brk(uintptr_t addr);
 intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
                    off_t offset);
 int usys_mprotect(void *addr, size_t len, int prot);
 int usys_munmap(void *addr, size_t len);
-long usys_madvise(void *addr, size_t length, int advice);
+int usys_madvise(void *addr, size_t len, int hint);
 
 // Net
 long usys_socket(int domain, int type, int protocol);

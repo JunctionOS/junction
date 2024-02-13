@@ -226,12 +226,6 @@ Status<std::shared_ptr<Process>> CreateInitProcess() {
 
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
-
-  const void *base = (*mm)->get_base();
-  LOG(INFO) << "proc: Creating process with pid=" << *pid
-            << ", mapping=" << base << "-"
-            << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(base) +
-                                        kMemoryMappingSize);
   return std::make_shared<Process>(*pid, std::move(*mm), *pid);
 }
 
@@ -618,6 +612,60 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
   return ret;
 }
 
+// TODO: move this logic into the snapshotting file.
+std::vector<elf_phdr> GetPHDRs(std::vector<VMArea> &vmas) {
+  std::vector<elf_phdr> phdrs;
+  phdrs.reserve(vmas.size());
+  uint64_t offset = vmas.size() * sizeof(elf_phdr) + sizeof(elf_header);
+  offset = AlignUp(offset, kPageSize);
+
+  for (const VMArea &vma : vmas) {
+    uint32_t flags = 0;
+    if (vma.prot & PROT_EXEC) flags |= kFlagExec;
+    if (vma.prot & PROT_WRITE) flags |= kFlagWrite;
+    if (vma.prot & PROT_READ) flags |= kFlagRead;
+    elf_phdr phdr = {
+        .type = kPTypeLoad,
+        .flags = flags,
+        .offset = offset,
+        .vaddr = vma.start,
+        .paddr = 0,             // don't care
+        .filesz = vma.Length(), // memory region size
+        .memsz = vma.Length(),  // memory region size
+        .align = kPageSize,     // align to page size
+    };
+    phdrs.push_back(phdr);
+    offset += vma.Length();
+  }
+
+  return phdrs;
+}
+
+// TODO: move this logic into the snapshotting file.
+Status<size_t> SerializeMemoryRegions(std::vector<VMArea> &vmas,
+                                      Snapshotter &s) {
+  std::vector<iovec> iov;
+  for (const VMArea &vma : vmas) {
+    size_t mem_region_len = vma.Length();
+    assert(IsPageAligned(mem_region_len));
+
+    // TODO(amb): Copied this code but it looks incorrect
+    // some regions are not readable so we need to remap them as readable
+    // before they get written to the elf
+    if (!(vma.prot & PROT_READ)) {
+      auto ret =
+          KernelMMapFixed(reinterpret_cast<void *>(vma.start), mem_region_len,
+                          vma.prot | PROT_READ, 0);
+      if (!ret) return MakeError(ret);
+    }
+    iovec v = {.iov_base = reinterpret_cast<std::byte *>(vma.start),
+               .iov_len = mem_region_len};
+    iov.push_back(v);
+  }
+  return s.ElfWritev(std::span(iov));
+}
+
+// TODO: move this logic into the snapshotting file.
 long junction_entry_snapshot(char const *elf_pathname,
                              char const *metadata_pathname) {
   if (elf_pathname == nullptr || metadata_pathname == nullptr) {
@@ -641,17 +689,8 @@ long junction_entry_snapshot(char const *elf_pathname,
   tf.rax = 0;
 
   proc_metadata.SetTrapframe(tf);
-
-  auto const &memory_map = myproc().get_mem_map();
-  size_t const header_size =
-      (memory_map.get_n_vmareas()) * sizeof(elf_phdr) + sizeof(elf_header);
-#ifndef NDEBUG
-  size_t const metadata_size = proc_metadata.SerializedSize();
-#endif
-
-  std::vector<elf_phdr> elf_pheaders =
-      memory_map.GetPheaders(static_cast<uint64_t>(AlignUp(header_size, 4096)));
-
+  std::vector<VMArea> vmas = myproc().get_mem_map().get_vmas();
+  std::vector<elf_phdr> elf_pheaders = GetPHDRs(vmas);
   Status<Snapshotter> s =
       Snapshotter::Open(tf.rip /* entry point */, elf_pheaders,
                         {elf_pathname, strlen(elf_pathname)},
@@ -661,23 +700,16 @@ long junction_entry_snapshot(char const *elf_pathname,
                   strlen("FAILED TO START SNAPSHOT\n"));
     return MakeCError(s);
   }
-  Snapshotter &sn = *s;
 
+  Snapshotter &sn = *s;
   proc_metadata.Serialize(sn);
   auto const metadata_written = sn.MetadataFlush();
   if (unlikely(!metadata_written)) {
     return MakeCError(metadata_written);
-  } else {
-#ifndef NDEBUG
-    assert(*metadata_written == metadata_size);
-#endif
   }
 
-  auto const memory_written = memory_map.SerializeMemoryRegions(sn);
-  if (unlikely(!memory_written)) {
-    return MakeCError(memory_written);
-  }
-
+  Status<size_t> memory_written = SerializeMemoryRegions(vmas, sn);
+  if (!memory_written) return MakeCError(memory_written);
   return 0;
 }
 

@@ -48,7 +48,7 @@ class JunctionFile {
                       off_t off) {
     assert(!(flags & (MAP_FIXED | MAP_ANONYMOUS)));
     flags |= MAP_PRIVATE;
-    return mm.MMap(f_, nullptr, length, prot, flags, off);
+    return mm.MMap(nullptr, length, prot, flags, f_, off);
   }
 
   // Map a portion of the file to a fixed address.
@@ -56,7 +56,7 @@ class JunctionFile {
                          int flags, off_t off) {
     assert(!(flags & MAP_ANONYMOUS));
     flags |= MAP_FIXED | MAP_PRIVATE;
-    Status<void *> ret = mm.MMap(f_, addr, length, prot, flags, off);
+    Status<void *> ret = mm.MMap(addr, length, prot, flags, f_, off);
     if (!ret) return MakeError(ret);
     return {};
   }
@@ -179,9 +179,8 @@ Status<void> LoadOneSegment(MemoryMap &mm, JunctionFile &f, off_t map_off,
 
   // Map the remaining anonymous part of the segment.
   if (mem_end > gap_end) {
-    Status<void *> ret =
-        mm.MMap(reinterpret_cast<void *>(gap_end), mem_end - gap_end, prot,
-                MAP_FIXED, VMType::kMemory);
+    Status<void *> ret = mm.MMapAnonymous(reinterpret_cast<void *>(gap_end),
+                                          mem_end - gap_end, prot, MAP_FIXED);
     if (unlikely(!ret)) return MakeError(ret);
   }
 
@@ -196,8 +195,7 @@ Status<std::pair<uintptr_t, size_t>> LoadSegments(
   off_t map_off = 0;
   size_t map_len = CountTotalLength(phdrs);
   if (reloc) {
-    Status<void *> ret =
-        mm.MMap(nullptr, map_len, PROT_NONE, 0, VMType::kMemory);
+    Status<void *> ret = mm.MMapAnonymous(nullptr, map_len, PROT_NONE, 0);
     if (unlikely(!ret)) return MakeError(ret);
     map_off = reinterpret_cast<off_t>(*ret);
   }

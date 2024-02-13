@@ -179,14 +179,13 @@ Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
       edata->interp ? edata->interp->entry_addr : edata->entry_addr;
 
   // setup a stack
-  Status<void *> guard =
-      mm.MMap(nullptr, RUNTIME_GUARD_SIZE + RUNTIME_STACK_SIZE, PROT_NONE, 0,
-              VMType::kStack);
+  Status<void *> guard = mm.MMapAnonymous(
+      nullptr, RUNTIME_GUARD_SIZE + RUNTIME_STACK_SIZE, PROT_NONE, 0);
   if (!guard) return MakeError(guard);
   void *rsp = reinterpret_cast<void *>(
       (reinterpret_cast<uintptr_t>(*guard) + RUNTIME_GUARD_SIZE));
-  Status<void *> ret = mm.MMap(rsp, RUNTIME_STACK_SIZE, PROT_READ | PROT_WRITE,
-                               MAP_FIXED, VMType::kStack);
+  Status<void *> ret = mm.MMapAnonymous(
+      rsp, RUNTIME_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_STACK);
   if (!ret) return MakeError(ret);
   uint64_t sp = reinterpret_cast<uint64_t>(rsp) + RUNTIME_STACK_SIZE;
 

@@ -41,7 +41,7 @@ long usys_sysinfo(struct sysinfo *info) {
   info->loads[1] = 0;
   info->loads[2] = 0;
   info->totalram = kMemoryMappingSize;
-  info->freeram = info->totalram - myproc().get_mem_map().get_mem_usage();
+  info->freeram = info->totalram - myproc().get_mem_map().HeapUsage();
   info->sharedram = 0;
   info->bufferram = 0;
   info->totalswap = 0;

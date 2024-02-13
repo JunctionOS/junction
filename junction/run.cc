@@ -124,11 +124,8 @@ void JunctionMain(int argc, char *argv[]) {
     LOG(INFO) << "snapshot: restoring from snapshot (elf=" << args[1]
               << ", metadata=" << args[0] << ")";
     proc = RestoreFromSnapshot(args[0], args[1]);
-    auto base = (*proc).get()->get_mem_map().get_base();
     LOG(INFO) << "snapshot: restored process with pid="
-              << (*proc).get()->get_pid() << ", mapping=" << base << "-"
-              << reinterpret_cast<void *>(reinterpret_cast<uintptr_t>(base) +
-                                          kMemoryMappingSize);
+              << (*proc).get()->get_pid();
   } else {
     // Create the first process
     proc = CreateFirstProcess(args[0], args, envp);
