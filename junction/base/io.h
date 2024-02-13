@@ -400,6 +400,7 @@ class StreamBufferWriter final : public std::streambuf {
   [[nodiscard]] inline bool is_empty() const { return bytes_left() == len_; }
 
   size_t WriteToBuffer(std::span<const std::byte> src) {
+    assert(bytes_left() > 0);
     size_t n = std::min(src.size(), bytes_left());
     if (n > 0) std::memcpy(pos(), src.data(), n);
     inc_pos(n);
