@@ -82,7 +82,7 @@ void __nofp u_sigframe::RestoreXstate() const {
   thread_t *th = perthread_read(__self);
   assert(th);
 
-  bool is_perthread_area = xsave_area == GetXsaveAreaNoFp(*th->stack);
+  bool is_perthread_area = xsave_area == GetXsaveArea(*th->stack);
 
   // disable interrupts while manipulating th's xsave/xrstor fields
   bool reenable_uif = __builtin_ia32_testui();

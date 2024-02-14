@@ -25,37 +25,29 @@ inline uint64_t GetRsp() {
   return rsp;
 }
 
-inline bool IsOnStack(uint64_t cur_rsp, uint64_t top, uint64_t bottom) {
+__always_inline __nofp bool IsOnStack(uint64_t cur_rsp, uint64_t top,
+                                      uint64_t bottom) {
   return cur_rsp > top && cur_rsp <= bottom;
 }
 
-inline __nofp bool IsOnStackNoFp(uint64_t cur_rsp, uint64_t top,
-                                 uint64_t bottom) {
-  return cur_rsp > top && cur_rsp <= bottom;
-}
-
-inline bool IsOnStack(uint64_t cur_rsp, const stack_t& ss) {
+__always_inline __nofp bool IsOnStack(uint64_t cur_rsp, const stack_t& ss) {
   uint64_t top = reinterpret_cast<uint64_t>(ss.ss_sp);
   return IsOnStack(cur_rsp, top, top + ss.ss_size);
 }
 
-inline bool IsOnStack(uint64_t cur_rsp, const struct stack& ss) {
+__always_inline __nofp bool IsOnStack(uint64_t cur_rsp,
+                                      const struct stack& ss) {
   uint64_t top = reinterpret_cast<uint64_t>(&ss.usable[0]);
   return IsOnStack(cur_rsp, top, top + RUNTIME_STACK_SIZE);
 }
 
-inline __nofp bool IsOnStackNoFp(uint64_t cur_rsp, const struct stack& ss) {
-  uint64_t top = reinterpret_cast<uint64_t>(&ss.usable[0]);
-  return IsOnStackNoFp(cur_rsp, top, top + RUNTIME_STACK_SIZE);
-}
-
 template <typename T>
-inline bool IsOnStack(const T& ss) {
+__always_inline __nofp bool IsOnStack(const T& ss) {
   return IsOnStack(GetRsp(), ss);
 }
 
 // returns the bottom of the Caladan runtime stack
-inline uint64_t GetRuntimeStack() {
+__always_inline __nofp uint64_t GetRuntimeStack() {
   return reinterpret_cast<uint64_t>(perthread_read(runtime_stack)) + 8;
 }
 
@@ -64,24 +56,13 @@ inline struct stack& GetSyscallStack(thread_t* th = thread_self()) {
   return *th->stack;
 }
 
-// returns the bottom of a syscall stack (for nofp targets)
-inline __nofp void* GetXsaveAreaNoFp(struct stack& stack) {
+// returns the bottom of a syscall stack
+__always_inline __nofp void* GetXsaveArea(struct stack& stack) {
   return &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE];
 }
 
 // returns the bottom of a syscall stack
-inline void* GetXsaveArea(struct stack& stack) {
-  return &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE];
-}
-
-// returns the bottom of a syscall stack (for nofp targets)
-inline __nofp uint64_t GetSyscallStackBottomNoFp(struct stack& stack) {
-  uint64_t* rsp = &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1];
-  return reinterpret_cast<uint64_t>(rsp);
-}
-
-// returns the bottom of a syscall stack
-inline uint64_t GetSyscallStackBottom(struct stack& stack) {
+__always_inline __nofp uint64_t GetSyscallStackBottom(struct stack& stack) {
   uint64_t* rsp = &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1];
   return reinterpret_cast<uint64_t>(rsp);
 }
@@ -104,7 +85,7 @@ inline __nofp bool on_uintr_stack() {
   uint64_t ustack = reinterpret_cast<uint64_t>(perthread_read(uintr_stack));
   ustack &= ~0x1UL;
 
-  return IsOnStackNoFp(rsp, ustack - RUNTIME_STACK_SIZE, ustack);
+  return IsOnStack(rsp, ustack - RUNTIME_STACK_SIZE, ustack);
 }
 
 inline __nofp void assert_on_uintr_stack() {

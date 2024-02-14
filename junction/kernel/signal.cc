@@ -296,6 +296,13 @@ void HandleKickUintrFinish(u_sigframe *uintr_frame, void *xsave_buf) {
   HandleKick(UintrTf(uintr_frame));
 }
 
+inline bool __nofp InterruptNeeded(thread_t *th) {
+  if (ACCESS_ONCE(th->interrupt_state.cnt)) return true;
+
+  struct kthread *k = perthread_read(mykthread);
+  return preempt_cede_needed(k) | preempt_yield_needed(k);
+}
+
 extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   void *xsave_buf = nullptr;
 
@@ -315,13 +322,16 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   thread_t *th = perthread_read(__self);
   stack &syscall_stack = *th->stack;
 
+  // Check if we need to deliver signals or yield/cede.
+  if (!InterruptNeeded(th)) return;
+
   const uint64_t in_use_xfeatures = GetActiveXstates();
   assert((in_use_xfeatures & xsave_enabled_bitmap) == in_use_xfeatures);
 
   // try to use the per-uthread xsave area. when signals are stacked this may
   // not be possible.
   if (!th->xsave_area_in_use) {
-    xsave_buf = GetXsaveAreaNoFp(syscall_stack);
+    xsave_buf = GetXsaveArea(syscall_stack);
     XSaveCompact(xsave_buf, in_use_xfeatures);
     th->xsave_area_in_use = true;
   }
@@ -334,7 +344,7 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
       uint64_t this_rsp =
           reinterpret_cast<uint64_t>(alloca(buf_sz + kXsaveAlignment - 1));
       // AlignUp
-      this_rsp = AlignUpNoFp(this_rsp, kXsaveAlignment);
+      this_rsp = AlignUp(this_rsp, kXsaveAlignment);
       xsave_buf = reinterpret_cast<void *>(this_rsp);
       XSaveCompact(xsave_buf, in_use_xfeatures, buf_sz);
     }
@@ -353,14 +363,14 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   // directly on the interrupted stack. If this interrupt landed on a Junction
   // thread, place the xstate onto the syscall stack.
   uint64_t rsp = uintr_frame->rsp - kRedzoneSize;
-  if (th->junction_thread && !IsOnStackNoFp(rsp, syscall_stack))
-    rsp = GetSyscallStackBottomNoFp(syscall_stack);
+  if (th->junction_thread && !IsOnStack(rsp, syscall_stack))
+    rsp = GetSyscallStackBottom(syscall_stack);
 
   if (!xsave_buf) {
     // Allocate space on the target stack for the xsave.
     // AlignDown:
     size_t buf_sz = GetXsaveAreaSize(in_use_xfeatures);
-    rsp = (rsp - buf_sz) & ~(kXsaveAlignment - 1);
+    rsp = AlignDown(rsp, kXsaveAlignment);
     xsave_buf = reinterpret_cast<void *>(rsp);
 
     XSaveCompact(xsave_buf, in_use_xfeatures, buf_sz);

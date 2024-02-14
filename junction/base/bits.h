@@ -15,16 +15,7 @@ inline constexpr size_t kBitsPerByte = 8;
 
 // AlignUp aligns the value up to a power of two alignment
 template <typename T>
-constexpr T AlignUp(T val, size_t align) noexcept
-  requires std::is_unsigned_v<T>
-{
-  assert(std::has_single_bit(align));
-  return T((val + (T(align) - 1)) & ~T(align - 1));
-}
-
-// AlignUp aligns the value up to a power of two alignment
-template <typename T>
-constexpr T __nofp AlignUpNoFp(T val, size_t align) noexcept
+__always_inline __nofp constexpr T AlignUp(T val, size_t align) noexcept
   requires std::is_unsigned_v<T>
 {
   assert(std::has_single_bit(align));
@@ -33,7 +24,7 @@ constexpr T __nofp AlignUpNoFp(T val, size_t align) noexcept
 
 // AlignDown aligns the value down to a power of two alignment
 template <typename T>
-constexpr T AlignDown(T val, size_t align) noexcept
+__always_inline __nofp constexpr T AlignDown(T val, size_t align) noexcept
   requires std::is_unsigned_v<T>
 {
   assert(std::has_single_bit(align));
