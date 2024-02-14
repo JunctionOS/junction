@@ -1,20 +1,38 @@
 execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/hello.go ${CMAKE_CURRENT_BINARY_DIR})
+execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/resizer.go ${CMAKE_CURRENT_BINARY_DIR})
 execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/snapshot_sys.h ${CMAKE_CURRENT_BINARY_DIR})
+# copy images
+execute_process(
+  COMMAND cp -r ${CMAKE_CURRENT_SOURCE_DIR}/images ${CMAKE_CURRENT_BINARY_DIR}
+)
 
 add_library(go_snapshot snapshot.c)
 
 set(go_hello "${CMAKE_CURRENT_BINARY_DIR}/hello")
+set(go_resizer "${CMAKE_CURRENT_BINARY_DIR}/resizer")
 
 add_custom_command(
   OUTPUT hello
   COMMAND go build -o ${go_hello} ${CMAKE_CURRENT_BINARY_DIR}/hello.go
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hello.go ${CMAKE_CURRENT_BINARY_DIR}/libgo_snapshot.a
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hello.go ${CMAKE_CURRENT_BINARY_DIR}/libgo_snapshot.a
+)
+
+add_custom_command(
+  OUTPUT resizer
+  COMMAND go build -o ${go_resizer} ${CMAKE_CURRENT_BINARY_DIR}/resizer.go
+  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hello.go ${CMAKE_CURRENT_BINARY_DIR}/libgo_snapshot.a
 )
 
 add_custom_target(go_sample ALL
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hello)
+  DEPENDS ${go_hello})
 
 add_dependencies(go_sample go_snapshot)
+
+add_custom_target(go_resizer_bin ALL
+  DEPENDS ${go_resizer}
+)
+
+add_dependencies(go_resizer_bin go_snapshot)
 
 # add_test(
 #   NAME go_hello_world_snapshot_test
