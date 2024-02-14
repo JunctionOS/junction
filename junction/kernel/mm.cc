@@ -40,6 +40,7 @@ bool MappingsValid(const std::map<uintptr_t, VMArea> &vmareas) {
   for (const auto &[end, vma] : vmareas) {
     if (end != vma.end) return false;
     if (vma.start >= vma.end) return false;
+    if (!IsPageAligned(vma.start) || !IsPageAligned(vma.end)) return false;
     if (vma.type == VMType::kFile && !vma.file) return false;
     if (vma.type != VMType::kFile && vma.file) return false;
     if (last_end > vma.start) return false;
@@ -150,7 +151,8 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
       VMArea left = vma;
       TrimTail(left, end);
       left.prot = prot;
-      if (MergeRight(prev_it->second, left)) vmareas_.erase(prev_it);
+      if (prev_it != vmareas_.end() && MergeRight(prev_it->second, left))
+        vmareas_.erase(prev_it);
       vmareas_.insert(it, std::pair(end, std::move(left)));
       TrimHead(vma, end);
       continue;
@@ -158,7 +160,8 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
 
     // If we're here we know [start, end) surrounds [vma.start, vma.end)
     vma.prot = prot;
-    if (MergeRight(prev_it->second, vma)) vmareas_.erase(prev_it);
+    if (prev_it != vmareas_.end() && MergeRight(prev_it->second, vma))
+      vmareas_.erase(prev_it);
   }
 }
 
