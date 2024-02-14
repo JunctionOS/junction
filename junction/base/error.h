@@ -30,7 +30,7 @@ namespace junction {
 
 // Asserts if an integer is a valid linux error code
 inline void assert_code_is_valid(int code) {
-  assert((code >= 0 && code <= EREMOTEIO) ||
+  assert((code > 0 && code <= EREMOTEIO) ||
          (code >= ERESTARTSYS && code <= EUNEXPECTEDEOF));
 }
 
@@ -76,7 +76,6 @@ std::ostream& operator<<(std::ostream& os, const Error& x);
 
 // Returns an unexpected error object from an errno code.
 [[nodiscard]] inline std::unexpected<Error> MakeError(int code) {
-  assert(code > 0);
   return std::unexpected(Error(code));
 }
 

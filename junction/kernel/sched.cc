@@ -21,7 +21,14 @@ long usys_sched_yield() {
 
 long usys_getcpu(unsigned *cpu, unsigned *node,
                  [[maybe_unused]] struct getcpu_cache *cache) {
-  if (cpu) *cpu = rt::Preempt::get_cpu();
+  unsigned int tmp;
+  {
+    rt::Preempt p;
+    rt::PreemptGuard g(p);
+    tmp = p.get_cpu();
+  }
+
+  if (cpu) *cpu = tmp;
   if (node) *node = 0;
   return 0;
 }

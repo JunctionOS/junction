@@ -212,7 +212,12 @@ int shim_pthread_rwlock_wrlock(pthread_rwlock_t *r) {
 
 int shim_pthread_rwlock_unlock(pthread_rwlock_t *r) {
   ShimRWMutex *rw = ShimRWMutex::fromPthread(r);
-  rw->rwmutex.Unlock();
+  assert(rw->rwmutex.IsHeld());
+  if (rw->rwmutex.IsHeldShared()) {
+    rw->rwmutex.UnlockShared();
+  } else {
+    rw->rwmutex.Unlock();
+  }
   return 0;
 }
 

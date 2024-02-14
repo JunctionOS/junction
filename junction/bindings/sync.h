@@ -693,6 +693,12 @@ class SharedMutex {
   // IsHeld() returns true if the lock is held.
   [[nodiscard]] bool IsHeld() const { return cnt_ != 0; }
 
+  // IsHeldShared() returns true if the lock is held in shared mode.
+  [[nodiscard]] bool IsHeldShared() const { return cnt_ > 0; }
+
+  // IsHeldExclusive() returns true if the lock is held in exlusive mode.
+  [[nodiscard]] bool IsHeldExclusive() const { return cnt_ < 0; }
+
   //
   // Exclusive (writer) lock API
   //

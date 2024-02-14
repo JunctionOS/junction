@@ -29,7 +29,7 @@ std::shared_ptr<LinuxFile> LinuxFile::Open(const std::string_view &pathname,
 
 Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {
   ssize_t ret = ksys_pread(fd_, buf.data(), buf.size_bytes(), *off);
-  if (ret <= 0) return MakeError(-ret);
+  if (ret < 0) return MakeError(-ret);
   *off += ret;
   return ret;
 }

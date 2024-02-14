@@ -20,7 +20,7 @@ StdIOFile::~StdIOFile() {}
 
 Status<size_t> StdIOFile::Read(std::span<std::byte> buf, off_t *off) {
   long ret = ksys_read(fd_, buf.data(), buf.size_bytes());
-  if (ret <= 0) return MakeError(-ret);
+  if (ret < 0) return MakeError(-ret);
   *off = ret;
   return ret;
 }
