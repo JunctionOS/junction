@@ -629,10 +629,10 @@ std::vector<elf_phdr> GetPHDRs(std::vector<VMArea> &vmas) {
         .flags = flags,
         .offset = offset,
         .vaddr = vma.start,
-        .paddr = 0,             // don't care
-        .filesz = vma.Length(), // memory region size
-        .memsz = vma.Length(),  // memory region size
-        .align = kPageSize,     // align to page size
+        .paddr = 0,              // don't care
+        .filesz = vma.Length(),  // memory region size
+        .memsz = vma.Length(),   // memory region size
+        .align = kPageSize,      // align to page size
     };
     phdrs.push_back(phdr);
     offset += vma.Length();
@@ -653,9 +653,8 @@ Status<size_t> SerializeMemoryRegions(std::vector<VMArea> &vmas,
     // some regions are not readable so we need to remap them as readable
     // before they get written to the elf
     if (!(vma.prot & PROT_READ)) {
-      auto ret =
-          KernelMMapFixed(reinterpret_cast<void *>(vma.start), mem_region_len,
-                          vma.prot | PROT_READ, 0);
+      auto ret = KernelMMapFixed(reinterpret_cast<void *>(vma.start),
+                                 mem_region_len, vma.prot | PROT_READ, 0);
       if (!ret) return MakeError(ret);
     }
     iovec v = {.iov_base = reinterpret_cast<std::byte *>(vma.start),

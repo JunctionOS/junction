@@ -3,6 +3,7 @@
 // TODO(amb): Add better fairness to SharedMutex?
 
 #include "junction/bindings/sync.h"
+
 #include "junction/bindings/timer.h"
 
 namespace junction::rt {

@@ -246,7 +246,7 @@ Status<void *> MemoryMap::MMap(void *addr, size_t len, int prot, int flags,
   if ((flags & MAP_SHARED) != 0) {
     LOG_ONCE(ERR) << "mm: shared mmap() mappings are unsupported";
     // FIXME(amb): Java requires us to continue here to run
-    //return MakeError(EINVAL);
+    // return MakeError(EINVAL);
   }
 
   // check length and alignment
