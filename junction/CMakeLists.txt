@@ -87,6 +87,11 @@ else()
   message("Missing custom ld.so interpreter and libc.so")
 endif()
 
+
+if(PERMISSIVE_SECCOMP)
+  add_compile_definitions(PERMISSIVE_SECCOMP="1")
+endif()
+
 # Build all modules
 add_subdirectory(base)
 add_subdirectory(bindings)
@@ -101,8 +106,8 @@ add_subdirectory(syscall)
 
 # Build junction
 add_library(junction
-  assert_override.cc
   junction.cc
+  libc_override.cc
   new_override.cc
 )
 target_link_libraries(junction INTERFACE

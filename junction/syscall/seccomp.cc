@@ -42,6 +42,9 @@ Status<void> _install_seccomp_filter() {
       ALLOW_CALADAN_SYSCALL(pwritev2),
       ALLOW_CALADAN_SYSCALL(writev),
 
+#ifdef PERMISSIVE_SECCOMP
+      ALLOW_ANY_JUNCTION_SYSCALL,
+#else
       // TODO: remove these
       ALLOW_JUNCTION_SYSCALL(tgkill),
       ALLOW_JUNCTION_SYSCALL(access),
@@ -60,6 +63,7 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(pread64),
       ALLOW_JUNCTION_SYSCALL(exit_group),
       ALLOW_JUNCTION_SYSCALL(stat),
+#endif
       TRAP,
   };
   struct sock_fprog prog = {

@@ -166,6 +166,18 @@ static uint32_t base_end_hi =
       BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, base_end_lo, 1, 0),               \
       BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW)
 
+#define ALLOW_ANY_JUNCTION_SYSCALL                                    \
+  BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                         \
+      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, ksys_start_addr_hi, 0, 8),  \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                     \
+      BPF_JUMP(BPF_JMP + BPF_JGE + BPF_K, ksys_start_addr_low, 0, 6), \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_msb),                     \
+      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, ksys_end_addr_hi, 4, 0),    \
+      BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, ksys_end_addr_hi, 0, 3),    \
+      BPF_STMT(BPF_LD + BPF_W + BPF_ABS, ip_lsb),                     \
+      BPF_JUMP(BPF_JMP + BPF_JGT + BPF_K, ksys_end_addr_low, 1, 0),   \
+      BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW)
+
 #define ALLOW_SYSCALL(name)                                                \
   EXAMINE_SYSCALL, BPF_JUMP(BPF_JMP + BPF_JEQ + BPF_K, __NR_##name, 0, 1), \
       BPF_STMT(BPF_RET + BPF_K, SECCOMP_RET_ALLOW)

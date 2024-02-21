@@ -226,7 +226,9 @@ Status<std::shared_ptr<Process>> CreateInitProcess() {
 
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
-  return std::make_shared<Process>(*pid, std::move(*mm), *pid);
+
+  init_proc = std::make_shared<Process>(*pid, std::move(*mm), *pid);
+  return init_proc;
 }
 
 Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
@@ -501,8 +503,12 @@ void Process::ThreadStopWait() {
 
   rt::SpinGuard g(child_thread_lock_);
 
-  if (++stopped_count_ == thread_map_.size())
+  if (++stopped_count_ == thread_map_.size()) {
     NotifyParentWait(kWaitableStopped);
+
+    // Also notify waiters that all threads have stopped
+    stopped_threads_.WakeAll();
+  }
 
   rt::Wait(child_thread_lock_, stopped_threads_,
            [&]() { return !stopped_ || exited_; });

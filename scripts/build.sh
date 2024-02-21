@@ -6,12 +6,14 @@ function usage() {
 }
 
 SNAP_SAMPLES="OFF"
+PERMISSIVE_SECCOMP="OFF"
 
 for arg in "$@"; do
     shift
     case "${arg}" in
         '--help'|'-h') usage ;;
         '--snap-samples'|'-s') SNAP_SAMPLES="ON" ;;
+        '--permissive-seccomp'|'-p') PERMISSIVE_SECCOMP="ON";;
     esac
 done
 
@@ -29,5 +31,5 @@ CMAKE=${BIN_DIR}/bin/cmake
 mkdir -p $BUILD_DIR
 cd $BUILD_DIR
 
-$CMAKE -DSNAPSHOT_SAMPLES=${SNAP_SAMPLES} -DCMAKE_BUILD_TYPE=Release ..
+$CMAKE -DPERMISSIVE_SECCOMP=${PERMISSIVE_SECCOMP} -DSNAPSHOT_SAMPLES=${SNAP_SAMPLES} -DCMAKE_BUILD_TYPE=Release ..
 make -j `nproc`

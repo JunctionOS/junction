@@ -407,6 +407,14 @@ class Process : public std::enable_shared_from_this<Process> {
   // ready to be restored.
   void ThreadStopWait();
 
+  Status<void> WaitForFullStop() {
+    rt::SpinGuard g(child_thread_lock_);
+    rt::Wait(child_thread_lock_, stopped_threads_,
+             [&]() { return stopped_count_ == thread_map_.size() || exited_; });
+    if (exited_) return MakeError(ESRCH);
+    return {};
+  }
+
  private:
   void SignalAllThreads() {
     assert(child_thread_lock_.IsHeld());
