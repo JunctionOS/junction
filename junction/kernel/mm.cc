@@ -212,12 +212,10 @@ Status<uintptr_t> MemoryMap::SetBreak(uintptr_t brk_addr) {
     return brk_addr_;
   }
 
-  // Calculate the location of the mapping.
-  void *addr = reinterpret_cast<void *>(PageAlign(oldbrk));
-  size_t len = PageAlign(newbrk) - PageAlign(oldbrk);
-
   if (newbrk > oldbrk) {
     // Grow the heap mapping.
+    void *addr = reinterpret_cast<void *>(PageAlign(oldbrk));
+    size_t len = PageAlign(newbrk) - PageAlign(oldbrk);
     Status<void> ret = KernelMMapFixed(addr, len, PROT_READ | PROT_WRITE, 0);
     if (!ret) {
       LOG(ERR) << "mm: growing brk address failed. " << ret.error();
@@ -225,6 +223,8 @@ Status<uintptr_t> MemoryMap::SetBreak(uintptr_t brk_addr) {
     }
     Insert(VMArea(addr, len, PROT_READ | PROT_WRITE, VMType::kHeap));
   } else {
+    void *addr = reinterpret_cast<void *>(PageAlign(newbrk));
+    size_t len = PageAlign(oldbrk) - PageAlign(newbrk);
     // Shrink the heap mapping.
     Status<void> ret = KernelMMapFixed(addr, len, PROT_NONE, 0);
     if (!ret) {
