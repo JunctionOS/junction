@@ -111,8 +111,11 @@ class KernelSignalTf : public SyscallFrame {
   }
 
   inline void MakeUnwinder(thread_tf &unwind_tf) const {
-    unwind_tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
     unwind_tf.rsp = reinterpret_cast<uintptr_t>(&sigframe.uc);
+    if (!uintr_enabled)
+      unwind_tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
+    else
+      unwind_tf.rip = reinterpret_cast<uintptr_t>(__kframe_unwind_uiret);
   }
 
   // Push this instance to the stack in such a way that it can be directly
@@ -127,15 +130,18 @@ class KernelSignalTf : public SyscallFrame {
   }
 
   inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
-    unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
     if (uintr_enabled) {
-      // Ensure calls to RunSignals see 0 for the first argument (syscall return
-      // value).
-      unwind_tf.rdi = 0;
-      unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop_uintr);
+      // Ensure syscall return value is 0.
+      unwind_tf.rsi = 0;
+      // align stack and set to to beginning of sigframe
+      unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe);
+      unwind_tf.rdi = unwind_tf.rsp;
+      unwind_tf.rip = reinterpret_cast<uint64_t>(UintrKFrameLoopReturn);
+      assert(unwind_tf.rsp % 16 == 8);
     } else {
       // __kframe_unwind_loop will provide a zero argument to RunSignals.
       unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop);
+      unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
     }
   }
 

@@ -413,16 +413,10 @@ __kframe_unwind_loop:
  * This is the "restorer" function for a signal delivered by a seccomp trap.
  * When called, %rax contains the return value of the syscall and the stack
  * pointer points to the sigcontext that will be restored by the actual kernel's
- * rt_sigreturn() system call.
- *
- * __kframe_unwind_loop_uintr - portion of __syscall_trap_return_uintr
- * used to unwind any kernel signal frame (not just system calls).
+ * rt_sigreturn() system call. This variant to be used when UINTR is enabled.
  *
  * No return.
  */
-
-.globl __kframe_unwind_loop_uintr
-.type __kframe_unwind_loop_uintr, @function
 
 .globl __syscall_trap_return_uintr
 .type __syscall_trap_return_uintr, @function
@@ -432,54 +426,74 @@ __syscall_trap_return_uintr:
 	// store rax in sigframe
 	movq    %rax, SIGFRAME_RAX_OFFSET(%rsp)
 
-	// setup return value as 1st argument for RunSignals
-	movq    %rax, %rdi
+	// align stack
+	subq    $8, %rsp
 
-	// Drop into __kframe_unwind_loop_uintr
+	// get addr of k_sigframe for UintrKFrameLoopReturn
+	movq    %rsp, %rdi
 
-__kframe_unwind_loop_uintr:
-	// disable interrupts
-	clui
+	// setup return value as 2nd argument for UintrKFrameLoopReturn
+	movq    %rax, %rsi
 
-	movq    %gs:__perthread___self(%rip), %r11
-	movb    JUNCTION_INT_STATE_OFF(%r11), %cl
-	test    %cl, %cl
-	jg 1f
+	jmp     UintrKFrameLoopReturn
+	nop
 
-	// clear syscall flag
-	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
+#define TMP_RIP %r8
+#define TMP_RSP %r9
+#define TMP_RFLAGS %r10
 
-	// push rip, rflags, and rsp to stack for UIRET
-	movq    SIGFRAME_RSP_OFFSET(%rsp), %r11
-	movq    %r11, -8(%rsp)
 
-	movq    SIGFRAME_RFLAGS_OFFSET(%rsp), %r11
-	movq    %r11, -16(%rsp)
-
-	movq    SIGFRAME_RIP_OFFSET(%rsp), %r11
-	movq    %r11, -24(%rsp)
-
-	leaq    -24(%rsp), %r11
-	movq    %r11, SIGFRAME_RSP_OFFSET(%rsp)
-
-	leaq    __kframe_unwind_finish_uintr(%rip), %r11
-	movq    %r11, SIGFRAME_RIP_OFFSET(%rsp)
-
-	// use kernel to restore registers
-	jmp     syscall_rt_sigreturn
-
-1:
-	// run pending signals
-	call     RunSignals
-
-	// argument for RunSignals should be zero for any subsequent checks
-	xorq     %rdi, %rdi
-
-	// try again
-	jmp      __kframe_unwind_loop_uintr
+/* __kframe_unwind_uiret - immediately restore a kernel signal frame using the
+ * uiret instruction to avoid a syscall. Expect %rsp to be a pointer to the
+ * k_ucontext for this frame.
+ */
 
 .align 16
-__kframe_unwind_finish_uintr:
+.globl __kframe_unwind_uiret
+.type __kframe_unwind_uiret, @function
+__kframe_unwind_uiret:
+
+	// get rid of unneeded part of ucontext
+	addq    $SIGFRAME_SIGCONTEXT, %rsp
+
+	// shuffle final fields in sigcontext to match uiret format
+	movq    SIGCONTEXT_RIP(%rsp), TMP_RIP
+	movq    SIGCONTEXT_RSP(%rsp), TMP_RSP
+	movq    SIGCONTEXT_EFLAGS(%rsp), TMP_RFLAGS
+
+	movq    TMP_RIP, SIGCONTEXT_RSP(%rsp)
+	movq    TMP_RFLAGS, SIGCONTEXT_RIP(%rsp)
+	movq    TMP_RSP, SIGCONTEXT_EFLAGS(%rsp)
+
+	// get address of xstate
+	movq    SIGCONTEXT_XSTATE(%rsp), %r11
+
+	// set eax:edx to component mask saved in xstate
+	movq    0x200(%r11),%rax
+	movq    %rax,%rdx
+	shrq    $0x20,%rdx
+
+	// restore xstate
+	xrstor   (%r11)
+
+	// restore general registers
+	popq    %r8
+	popq    %r9
+	popq    %r10
+	popq    %r11
+	popq    %r12
+	popq    %r13
+	popq    %r14
+	popq    %r15
+	popq    %rdi
+	popq    %rsi
+	popq    %rbp
+	popq    %rbx
+	popq    %rdx
+	popq    %rax
+	popq    %rcx
+
+	// restore rip, rsp, and rflags, and re-enable interrupts.
 	uiret
 	nop
 

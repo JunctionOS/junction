@@ -1053,11 +1053,16 @@ Status<void> InitSignal() {
   act.sa_sigaction = synchronous_signal_handler;
   act.sa_flags = SA_ONSTACK | SA_SIGINFO | SA_NODEFER;
 
+  if (uintr_enabled)
+    act.sa_restorer = &__kframe_unwind_uiret;
+  else
+    act.sa_restorer = &syscall_rt_sigreturn;
+
   // Only synchronous signals need be delivered by the host kernel. Other
   // signal numbers will be emulated fully inside Junction.
   for (size_t sig = 1; sig <= kNumStandardSignals; sig++) {
     if (!SignalInMask(kSignalSynchronousMask, sig)) continue;
-    if (unlikely(base_sigaction(sig, &act, nullptr) != 0))
+    if (unlikely(base_sigaction_full(sig, &act, nullptr) != 0))
       return MakeError(errno);
   }
 
@@ -1065,7 +1070,7 @@ Status<void> InitSignal() {
   // alternate stacks and transfers frames to the correct altstacks
   act.sa_sigaction = caladan_signal_handler;
   for (auto sig : {SIGUSR1, SIGUSR2, SIGURG}) {
-    if (unlikely(base_sigaction(sig, &act, nullptr) != 0)) {
+    if (unlikely(base_sigaction_full(sig, &act, nullptr) != 0)) {
       return MakeError(errno);
     }
   }
