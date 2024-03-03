@@ -84,8 +84,6 @@
 	popq   %r11
 	// restore rsp
 	popq   %rsp
-	// correct rsp
-	subq    $8, %rsp;
 .endm
 
 
@@ -684,6 +682,8 @@ junction_fncall_enter_preserve_regs:
 
 .macro FNCALL_RET_SAVE
 	RESTORETF_STACK
+	// correct rsp
+	subq    $8, %rsp;
 	ret
 .endm
 
@@ -740,6 +740,8 @@ junction_fncall_stackswitch_enter_preserve_regs:
 
 .macro RESTORETF_RET
 	RESTORETF_STACK
+	// correct rsp
+	subq    $8, %rsp;
 	ret
 .endm
 
@@ -765,6 +767,8 @@ junction_fncall_stackswitch_enter_preserve_regs_uintr:
 .macro RESTORETF_STUI_RET
 	RESTORETF_STACK
 	stui
+	// correct rsp
+	subq    $8, %rsp;
 	ret
 .endm
 
