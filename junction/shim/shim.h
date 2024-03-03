@@ -29,9 +29,11 @@ struct CallNumber {
     pthread_rwlock_trywrlock,
     pthread_rwlock_wrlock,
     pthread_rwlock_unlock,
+#if 0
     pthread_barrier_init,
     pthread_barrier_wait,
     pthread_barrier_destroy,
+#endif
     pthread_cond_init,
     pthread_cond_signal,
     pthread_cond_broadcast,

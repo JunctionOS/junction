@@ -57,6 +57,7 @@ struct ShimRWMutex {
   }
 };
 
+#if 0
 struct ShimBarrier {
   rt::Latch br;
   ShimBarrier(int count) : br(count) {}
@@ -66,6 +67,7 @@ struct ShimBarrier {
 };
 
 static_assert(sizeof(pthread_barrier_t) >= sizeof(ShimBarrier));
+#endif
 static_assert(sizeof(pthread_mutex_t) >= sizeof(ShimMutex));
 static_assert(sizeof(pthread_cond_t) >= sizeof(ShimCondVar));
 static_assert(sizeof(pthread_rwlock_t) >= sizeof(ShimRWMutex));
@@ -101,6 +103,7 @@ int shim_pthread_mutex_destroy(pthread_mutex_t *mutex) {
   return 0;
 }
 
+#if 0
 int shim_pthread_barrier_init(pthread_barrier_t *__restrict barrier,
                               const pthread_barrierattr_t *__restrict attr,
                               unsigned count) {
@@ -124,6 +127,7 @@ int shim_pthread_barrier_destroy(pthread_barrier_t *barrier) {
   std::destroy_at(b);
   return 0;
 }
+#endif
 
 int shim_pthread_cond_init(pthread_cond_t *__restrict cond,
                            const pthread_condattr_t *__restrict cond_attr) {

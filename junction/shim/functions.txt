@@ -10,9 +10,9 @@ int, pthread_rwlock_tryrdlock, pthread_rwlock_t *
 int, pthread_rwlock_trywrlock, pthread_rwlock_t *
 int, pthread_rwlock_wrlock, pthread_rwlock_t *
 int, pthread_rwlock_unlock, pthread_rwlock_t *
-int, pthread_barrier_init, pthread_barrier_t *__restrict, const pthread_barrierattr_t *__restrict, unsigned
-int, pthread_barrier_wait, pthread_barrier_t *
-int, pthread_barrier_destroy, pthread_barrier_t *
+#int, pthread_barrier_init, pthread_barrier_t *__restrict, const pthread_barrierattr_t *__restrict, unsigned
+#int, pthread_barrier_wait, pthread_barrier_t *
+#int, pthread_barrier_destroy, pthread_barrier_t *
 int, pthread_cond_init, pthread_cond_t *__restrict, const pthread_condattr_t *__restrict
 int, pthread_cond_signal, pthread_cond_t *
 int, pthread_cond_broadcast, pthread_cond_t *
