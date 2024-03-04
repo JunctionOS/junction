@@ -1,15 +1,30 @@
-From d8dc14a5975a30c96b7e464c8d740d6f03f5f672 Mon Sep 17 00:00:00 2001
+From dda9de1e62206ea2458eeb33de4d0271587c53e6 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 6 Sep 2023 03:26:18 -0400
 Subject: [PATCH 26/33] latency tuning
 
 ---
- iokernel/directpath/core.c | 2 +-
- iokernel/sched.c           | 7 +++++++
- 2 files changed, 8 insertions(+), 1 deletion(-)
+ iokernel/defs.h              |  2 +-
+ iokernel/directpath/core.c   |  2 +-
+ iokernel/directpath/queues.c | 10 ++++++----
+ iokernel/sched.c             | 23 +++++++++++++++++++----
+ 4 files changed, 27 insertions(+), 10 deletions(-)
 
+diff --git a/iokernel/defs.h b/iokernel/defs.h
+index d00ddb1..9575f3c 100644
+--- a/iokernel/defs.h
++++ b/iokernel/defs.h
+@@ -476,7 +476,7 @@ extern void directpath_preallocate(bool use_rmp, unsigned int nrqs, unsigned int
+ 
+ /* must be called from the dataplane thread */
+ extern bool directpath_poll(void);
+-extern bool directpath_poll_proc(struct proc *p, uint64_t *delay_cycles, uint64_t cur_tsc);
++extern bool directpath_poll_proc(struct proc *p, uint64_t *delay_cycles, uint64_t cur_tsc, bool should_arm);
+ extern void directpath_notify_waking(struct proc *p, struct thread *th);
+ extern void directpath_dataplane_notify_kill(struct proc *p);
+ extern void directpath_dataplane_attach(struct proc *p);
 diff --git a/iokernel/directpath/core.c b/iokernel/directpath/core.c
-index ab8c5525..39e92af3 100644
+index ab8c552..39e92af 100644
 --- a/iokernel/directpath/core.c
 +++ b/iokernel/directpath/core.c
 @@ -639,7 +639,7 @@ static int create_cq(struct directpath_ctx *dp, struct cq *cq, uint32_t log_nr_c
@@ -21,19 +36,62 @@ index ab8c5525..39e92af3 100644
  	DEVX_SET(cqc, cq_ctx, cqe_comp_en, 0 /* no compression */); // TODO enable this
  	// DEVX_SET(cqc, cq_ctx, mini_cqe_res_format, );
  	// DEVX_SET(cqc, cq_ctx, cqe_comp_layout, 0 /* BASIC_CQE_COMPRESSION */);
+diff --git a/iokernel/directpath/queues.c b/iokernel/directpath/queues.c
+index 9ad4115..835bfab 100644
+--- a/iokernel/directpath/queues.c
++++ b/iokernel/directpath/queues.c
+@@ -88,7 +88,8 @@ static void directpath_queue_update_state(struct directpath_ctx *ctx,
+ }
+ 
+ static uint64_t directpath_poll_cq_delay(struct directpath_ctx *ctx,
+-	                                     struct thread *th, struct cq *cq)
++                                         struct thread *th, struct cq *cq,
++                                         bool do_arm)
+ {
+ 	uint32_t cons_idx;
+ 	struct mlx5_cqe64 *cqe;
+@@ -96,7 +97,7 @@ static uint64_t directpath_poll_cq_delay(struct directpath_ctx *ctx,
+ 	cons_idx = ACCESS_ONCE(th->q_ptrs->directpath_rx_tail);
+ 	cqe = get_cqe(cq, cons_idx);
+ 	if (!cqe) {
+-		directpath_arm_queue(ctx, cq, cons_idx);
++		if (do_arm) directpath_arm_queue(ctx, cq, cons_idx);
+ 		return 0;
+ 	}
+ 
+@@ -137,7 +138,8 @@ void directpath_poll_proc_prefetch_th1(void *cqp, uint32_t cons_idx)
+ 	prefetch(cqe);
+ }
+ 
+-bool directpath_poll_proc(struct proc *p, uint64_t *delay_cycles, uint64_t cur_tsc)
++bool directpath_poll_proc(struct proc *p, uint64_t *delay_cycles,
++                          uint64_t cur_tsc, bool should_arm)
+ {
+ 	struct directpath_ctx *ctx = (struct directpath_ctx *)p->directpath_data;
+ 	struct cq *cq;
+@@ -154,7 +156,7 @@ bool directpath_poll_proc(struct proc *p, uint64_t *delay_cycles, uint64_t cur_t
+ 		cq = &ctx->qps[i].rx_cq;
+ 
+ 		if (!bitmap_test(ctx->armed_rx_queues, i))
+-			delay = MAX(directpath_poll_cq_delay(ctx, th, cq), delay);
++			delay = MAX(directpath_poll_cq_delay(ctx, th, cq, should_arm), delay);
+ 
+ 		if (cfg.no_directpath_active_rss)
+ 			continue;
 diff --git a/iokernel/sched.c b/iokernel/sched.c
-index 18b80849..b4e8f671 100644
+index 18b8084..db0edbb 100644
 --- a/iokernel/sched.c
 +++ b/iokernel/sched.c
-@@ -20,6 +20,7 @@
+@@ -20,6 +20,8 @@
  #include "hw_timestamp.h"
  
  #define PROC_TIMER_WHEEL_THRESH_US 100
 +#define PROC_TIMER_WHEEL_ENABLE_THRESH 200
++#define PROC_STANDARD_POLL_THRESH 16
  
  /* a bitmap of cores available to be allocated by the scheduler */
  DEFINE_BITMAP(sched_allowed_cores, NCPU);
-@@ -40,6 +41,7 @@ unsigned int sched_cores_tbl[NCPU];
+@@ -40,6 +42,7 @@ unsigned int sched_cores_tbl[NCPU];
  int sched_cores_nr;
  
  static int nr_guaranteed;
@@ -41,7 +99,7 @@ index 18b80849..b4e8f671 100644
  
  LIST_HEAD(poll_list);
  
-@@ -575,6 +577,9 @@ static bool sched_proc_can_unpoll(struct proc *p)
+@@ -575,6 +578,9 @@ static bool sched_proc_can_unpoll(struct proc *p)
  	if (unlikely(!p->started))
  		return false;
  
@@ -51,7 +109,46 @@ index 18b80849..b4e8f671 100644
  	return !p->has_directpath || p->has_vfio_directpath;
  }
  
-@@ -890,6 +895,7 @@ int sched_attach_proc(struct proc *p)
+@@ -642,7 +648,8 @@ static void sched_measure_delay(struct proc *p)
+ 
+ 	bool directpath_armed = true;
+ 	if (p->has_vfio_directpath) {
+-		directpath_armed = directpath_poll_proc(p, &rxq_delay, cur_tsc);
++		bool do_arm = nr_procs > PROC_STANDARD_POLL_THRESH;
++		directpath_armed = directpath_poll_proc(p, &rxq_delay, cur_tsc, do_arm);
+ 
+ 		consumed_strides += atomic64_read(&p->runtime_info->directpath_strides_consumed);
+ 		posted_strides = ACCESS_ONCE(p->runtime_info->directpath_strides_posted);
+@@ -698,6 +705,14 @@ static void sched_detect_io_for_idle_runtime(struct proc *p)
+ 	int i;
+ 	uint64_t delay;
+ 
++	if (p->has_vfio_directpath) {
++		delay = 0;
++		directpath_poll_proc(p, &delay, cur_tsc, false);
++		if (delay)
++			sched_add_core(p);
++		return;
++	}
++
+ 	for (i = 0; i < p->thread_count; i++) {
+ 		th = &p->threads[i];
+ 
+@@ -777,12 +792,10 @@ void sched_poll(void)
+ 			prefetch(p_next);
+ 			sched_measure_delay(p);
+ 		}
+-	} else if (!cfg.noidlefastwake && !cfg.vfio_directpath) {
++	} else if (!cfg.noidlefastwake && nr_procs < PROC_STANDARD_POLL_THRESH) {
+ 		/* check if any idle directpath runtimes have received I/Os */
+ 		for (i = 0; i < dp.nr_clients; i++) {
+ 			p = dp.clients[i];
+-			if (p->has_vfio_directpath)
+-				continue;
+ 			if (p->has_directpath && sched_threads_active(p) == 0)
+ 				sched_detect_io_for_idle_runtime(p);
+ 		}
+@@ -890,6 +903,7 @@ int sched_attach_proc(struct proc *p)
  
  	nr_guaranteed += p->sched_cfg.guaranteed_cores;
  	proc_enable_sched_poll_nocheck(p);
@@ -59,7 +156,7 @@ index 18b80849..b4e8f671 100644
  
  	return 0;
  }
-@@ -903,6 +909,7 @@ void sched_detach_proc(struct proc *p)
+@@ -903,6 +917,7 @@ void sched_detach_proc(struct proc *p)
  	proc_disable_sched_poll(p);
  	sched_ops->proc_detach(p);
  	nr_guaranteed -= p->sched_cfg.guaranteed_cores;
