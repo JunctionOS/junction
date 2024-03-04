@@ -58,6 +58,9 @@ with open(OUTPUT_FILE_SHIM, "w") as f:
 		fnName = lx[1]
 		args = lx[2:]
 
+		if fnName in ["pthread_mutex_lock", "pthread_mutex_trylock", "pthread_mutex_unlock"]:
+			continue
+
 		# Header line
 		f.write(f"{retType} {fnName}(")
 		for idx, typ in enumerate(args):

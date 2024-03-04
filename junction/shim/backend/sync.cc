@@ -10,6 +10,7 @@ extern "C" {
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
 #include "junction/shim/shim.h"
+#include "junction/shim/sync.h"
 
 namespace junction {
 
@@ -19,26 +20,14 @@ inline constexpr uint32_t kInitMagic = 0xDEADBEEF;
 
 struct ShimCondVar {
   uint32_t init_magic{kInitMagic};
-  rt::ConditionVariable cv;
+  ShimCondVar() { condvar_init(&cv); }
+  condvar_t cv;
   clockid_t clockid;
   static inline void InitCheck(ShimCondVar *cv) {
     if (unlikely(cv->init_magic != kInitMagic)) new (cv) ShimCondVar();
   }
   static inline ShimCondVar *fromPthread(pthread_cond_t *m) {
     ShimCondVar *sm = reinterpret_cast<ShimCondVar *>(m);
-    InitCheck(sm);
-    return sm;
-  }
-};
-
-struct ShimMutex {
-  uint32_t init_magic{kInitMagic};
-  rt::Mutex mutex;
-  static inline void InitCheck(ShimMutex *m) {
-    if (unlikely(m->init_magic != kInitMagic)) new (m) ShimMutex();
-  }
-  static inline ShimMutex *fromPthread(pthread_mutex_t *m) {
-    ShimMutex *sm = reinterpret_cast<ShimMutex *>(m);
     InitCheck(sm);
     return sm;
   }
@@ -82,18 +71,18 @@ int shim_pthread_mutex_init(pthread_mutex_t *mutex,
 
 int shim_pthread_mutex_lock(pthread_mutex_t *mutex) {
   ShimMutex *m = ShimMutex::fromPthread(mutex);
-  m->mutex.Lock();
+  __mutex_lock(&m->mutex);
   return 0;
 }
 
 int shim_pthread_mutex_trylock(pthread_mutex_t *mutex) {
   ShimMutex *m = ShimMutex::fromPthread(mutex);
-  return m->mutex.TryLock() ? 0 : EBUSY;
+  return mutex_try_lock(&m->mutex) ? 0 : EBUSY;
 }
 
 int shim_pthread_mutex_unlock(pthread_mutex_t *mutex) {
-  ShimMutex *m = ShimMutex::fromPthread(mutex);
-  m->mutex.Unlock();
+  ShimMutex *m = ShimMutex::fromPthreadNoCheck(mutex);
+  __mutex_unlock(&m->mutex);
   return 0;
 }
 
@@ -141,20 +130,21 @@ int shim_pthread_cond_init(pthread_cond_t *__restrict cond,
 
 int shim_pthread_cond_signal(pthread_cond_t *cond) {
   ShimCondVar *c = ShimCondVar::fromPthread(cond);
-  c->cv.Notify();
+  condvar_signal(&c->cv);
   return 0;
 }
 
 int shim_pthread_cond_broadcast(pthread_cond_t *cond) {
   ShimCondVar *c = ShimCondVar::fromPthread(cond);
-  c->cv.NotifyAll();
+  condvar_broadcast(&c->cv);
   return 0;
 }
 
 int shim_pthread_cond_wait(pthread_cond_t *cond, pthread_mutex_t *mutex) {
   ShimCondVar *c = ShimCondVar::fromPthread(cond);
   ShimMutex *m = ShimMutex::fromPthread(mutex);
-  c->cv.Wait(m->mutex);
+  condvar_wait(&c->cv, &m->mutex);
+
   return 0;
 }
 
@@ -170,7 +160,7 @@ int shim_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mutex,
   uint64_t now_us = now_ts.tv_sec * kSeconds + now_ts.tv_nsec / 1000;
 
   if (wait_us <= now_us) return ETIMEDOUT;
-  bool done = c->cv.WaitFor(m->mutex, Duration(wait_us - now_us));
+  bool done = condvar_wait_timed(&c->cv, &m->mutex, wait_us - now_us);
   return done ? 0 : ETIMEDOUT;
 }
 
