@@ -17,8 +17,6 @@ extern "C" {
 namespace junction {
 
 class Thread;
-class ThreadMetadata;
-class ProcessMetadata;
 
 typedef uint64_t k_sigset_t;
 typedef void (*sighandler)(int sig, siginfo_t *info, void *uc);
@@ -111,11 +109,6 @@ class SignalQueue : public rt::Spin {
   [[nodiscard]] bool is_sig_pending(int signo) const {
     return SignalInMask(get_pending(), signo);
   }
-
-  void Snapshot(ProcessMetadata &) const &;
-  void Snapshot(ThreadMetadata &) const &;
-  void Restore(ProcessMetadata const &pm);
-  void Restore(ThreadMetadata const &tm);
 
  private:
   void set_sig_pending(int signo) { pending_ |= SignalMask(signo); }
@@ -262,9 +255,6 @@ class ThreadSignalHandler {
   [[noreturn]] void DeliverKernelSigToUser(int signo, siginfo_t *info,
                                            const KernelSignalTf &sigframe);
 
-  void Snapshot(ThreadMetadata &s) const &;
-  void Restore(ThreadMetadata const &tm);
-
   // Retrieve the next signal to be delivered to the user.
   std::optional<DeliveredSignal> GetNextSignal(bool *stopped);
 
@@ -340,9 +330,6 @@ class alignas(kCacheLineSize) SignalTable {
     rt::SpinGuard g(lock_);
     return std::exchange(table_[sig - 1], sa);
   }
-
-  void Snapshot(ProcessMetadata &s) const &;
-  void Restore(ProcessMetadata const &pm);
 
  private:
   rt::Spin lock_;  // protects @table_

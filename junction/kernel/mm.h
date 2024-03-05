@@ -98,12 +98,6 @@ class alignas(kCacheLineSize) MemoryMap {
   // LogMappings prints all the mappings to the log.
   void LogMappings();
 
-  // Snapshot functions
-  // TODO(amb): Use Cereal here
-  MemoryMap(const ProcessMetadata &pm);
-  void Snapshot(ProcessMetadata &s);
-  void Restore(ProcessMetadata const &pm, FileTable &ftbl);
-
  private:
   // Clear removes existing VMAreas that overlap with the range [start, end)
   // Ex: ClearMappings(2, 6) when vmareas_ = [1, 3), [5, 7) results in vmareas_

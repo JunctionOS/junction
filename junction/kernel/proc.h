@@ -22,7 +22,6 @@ extern "C" {
 #include "junction/kernel/signal.h"
 #include "junction/kernel/trapframe.h"
 #include "junction/limits.h"
-#include "junction/snapshot/proc.h"
 
 namespace junction {
 
@@ -48,15 +47,7 @@ inline bool SignalIfOwned(struct kthread *k, const thread_t *th) {
 class Thread {
  public:
   Thread(std::shared_ptr<Process> proc, pid_t tid)
-      : proc_(std::move(proc)), tid_(tid), sighand_(*this) {}
-  Thread(std::shared_ptr<Process> proc, ThreadMetadata const &tm)
-      : proc_(std::move(proc)),
-        tid_(tm.GetTid()),
-        sighand_(*this),
-        child_tid_(tm.GetChildTid()),
-        xstate_(tm.GetXstate()) {
-    sighand_.Restore(tm);
-  }
+      : proc_(std::move(proc)), tid_(tid) {}
   ~Thread();
 
   Thread(Thread &&) = delete;
@@ -152,8 +143,6 @@ class Thread {
     // the signal will be visible when this thread is next scheduled.
   };
 
-  [[nodiscard]] ThreadMetadata Snapshot() const &;
-
   friend class ThreadSignalHandler;
 
   // Get the current Trapframe generated when entering the Junction kernel.
@@ -240,7 +229,7 @@ class Thread {
   // Hot items
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   const pid_t tid_;                // the thread identifier
-  ThreadSignalHandler sighand_;
+  ThreadSignalHandler sighand_{*this};
 
   Trapframe *cur_trapframe_;
 
@@ -275,14 +264,6 @@ class Process : public std::enable_shared_from_this<Process> {
     RegisterProcess(*this);
   }
   // Constructor for restoring from a snapshot
-  Process(ProcessMetadata const &pm)
-      : pid_(pm.GetPid()),
-        pgid_(pm.GetPgid()),
-        xstate_(pm.GetXstate()),
-        exited_(pm.GetExited()),
-        limit_nofile_(pm.GetLimitNofile()) {
-    RegisterProcess(*this);
-  }
   ~Process();
 
   Process(Process &&) = delete;
@@ -324,7 +305,6 @@ class Process : public std::enable_shared_from_this<Process> {
 
   Status<Thread *> CreateThreadMain();
   Status<Thread *> GetThreadMain();
-  Status<void> RestoreThread(ThreadMetadata const &tm);
   Status<Thread *> CreateThread();
   Thread &CreateTestThread();
 
@@ -376,10 +356,6 @@ class Process : public std::enable_shared_from_this<Process> {
     si.si_signo = signo;
     return SignalThread(tid, si);
   }
-
-  [[nodiscard]] ProcessMetadata Snapshot() const &;
-  [[nodiscard]] Status<void> Restore(ProcessMetadata const &pm,
-                                     std::shared_ptr<Process> parent);
 
   [[nodiscard]] unsigned int get_wait_state() const { return wait_state_; }
 

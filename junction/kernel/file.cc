@@ -21,8 +21,6 @@ extern "C" {
 #include "junction/kernel/proc.h"
 #include "junction/kernel/stdiofile.h"
 #include "junction/kernel/usys.h"
-#include "junction/snapshot/file.h"
-#include "junction/snapshot/proc.h"
 
 namespace {
 
@@ -51,13 +49,6 @@ std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap) {
 }
 
 }  // namespace detail
-
-File::File(FileMetadata const &fm)
-    : type_(static_cast<FileType>(fm.GetType())),
-      flags_(fm.GetFlags()),
-      mode_(fm.GetMode()),
-      off_(fm.GetOffset()),
-      filename_(std::string(fm.GetFilename().value_or(""))) {}
 
 FileTable::FileTable()
     : farr_(std::make_unique<FArr>(kInitialCap)),
@@ -196,27 +187,6 @@ void FileTable::DoCloseOnExec() {
   close_on_exec_.clear();
 }
 
-void FileTable::Snapshot(ProcessMetadata &s) const & {
-  size_t count = 0;
-  // We have to get the count this way because otherwise
-  // the metadata returns the wrong number of files and
-  // deserializing will try to read garbage
-  for (size_t fd = 0; fd < farr_->len; fd++) {
-    std::shared_ptr<File> f = farr_->files[fd];
-    if (f.get() != nullptr) {
-      count++;
-    }
-  }
-  s.ReserveNFiles(count);
-  for (size_t fd = 0; fd < farr_->len; fd++) {
-    std::shared_ptr<File> f = farr_->files[fd];
-    if (f.get() != nullptr) {
-      s.AddFile(f->Snapshot(fd));
-    }
-  }
-  // TODO(snapshot): close_on_exec_.Serialize(s);
-}
-
 //
 // System call implementations
 //
@@ -324,22 +294,6 @@ Status<size_t> File::Readv(std::span<iovec> vec, off_t *off) {
   }
   if (total_bytes) return total_bytes;
   return ret;
-}
-
-FileMetadata File::Snapshot(int fd) const & {
-  FileMetadata s;
-  s.SetType(static_cast<int>(type_));
-  s.SetFlags(flags_);
-  s.SetMode(mode_);
-  s.SetOffset(off_);
-  s.SetFd(fd);
-  if (this->HasFilename()) {
-    s.SetFilename(filename_);
-  }
-
-  // TODO(snapshot): snapshot epoll files
-
-  return s;
 }
 
 ssize_t usys_writev(int fd, const iovec *iov, int iovcnt) {

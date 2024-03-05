@@ -17,13 +17,6 @@ void ITimer::Run() {
   timer_restart(&entry_, next_fire_->Microseconds());
 }
 
-void ITimer::Snapshot(ProcessMetadata &s) const & {
-  s.SetITimerInterval(interval_);
-  if (next_fire_ != std::nullopt) {
-    s.SetITimerNextFire(*next_fire_);
-  }
-}
-
 long usys_setitimer(int which, const struct itimerval *new_value,
                     struct itimerval *old_value) {
   if (unlikely(which != ITIMER_REAL)) {

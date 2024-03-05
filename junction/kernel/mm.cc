@@ -368,36 +368,6 @@ void MemoryMap::LogMappings() {
   }
 }
 
-MemoryMap::MemoryMap(const ProcessMetadata &pm)
-    : brk_start_(pm.GetMemoryMapBase()),
-      brk_end_(pm.GetMemoryMapLen()),
-      brk_addr_(pm.GetMemoryMapBrkAddr()) {}
-
-void MemoryMap::Snapshot(ProcessMetadata &s) {
-  s.SetMemoryMapBreakAddr(brk_addr_);
-  s.SetMemoryMapBase(brk_start_);
-  s.SetMemoryMapLen(brk_end_ - brk_start_);
-}
-
-void MemoryMap::Restore(ProcessMetadata const &pm, FileTable &ftbl) {
-  for (const auto &m_vma : pm.GetVMAreas()) {
-    VMArea vma;
-    vma.end = m_vma.GetEnd();
-    vma.type = static_cast<VMType>(m_vma.GetType());
-    auto filename = std::string{m_vma.GetFilename().value_or("")};
-    std::shared_ptr<File> file;
-    for (size_t fd = 0; fd < pm.GetFiles().size(); fd++) {
-      auto f = ftbl.Get(fd);
-      if (f && (f->GetFilename() == filename)) {
-        file = ftbl.Dup(fd);
-        break;
-      }
-    }
-    vma.file = std::move(file);
-    vmareas_[vma.end] = vma;
-  }
-}
-
 intptr_t usys_brk(uintptr_t addr) {
   MemoryMap &mm = myproc().get_mem_map();
   Status<uintptr_t> ret = mm.SetBreak(addr);

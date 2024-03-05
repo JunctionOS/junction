@@ -11,27 +11,38 @@ const char *elf_filename = "/tmp/entrypoint.elf";
 const char *metadata_filename = "/tmp/entrypoint.metadata";
 
 int main(int argc, char *argv[]) {
-  const char *elf;
-  const char *metadata;
-  elf = elf_filename;
-  metadata = metadata_filename;
+  // const char *elf;
+  // const char *metadata;
+  // elf = elf_filename;
+  // metadata = metadata_filename;
 
   printf("Hello, world!\n");
 
-  if (argc > 2) {
-    elf = argv[2];
-    metadata = argv[1];
-    auto r = snapshot(elf, metadata);
+  // Leave a pipe open for testing
+  int fds[2];
+  int ret = pipe(fds);
+  assert(ret == 0);
 
-    if (r == 0) {
-      printf("snapshotted!\n");
-    } else if (r == 1) {
-      printf("restored!\n");
-    } else {
-      printf("snapshot/restore failed :-(\n");
-      return -1;
-    }
+  int fd = epoll_create(0);
+  assert(fd >= 0);
+
+  struct epoll_event ev = {EPOLLIN, 0};
+  ret = epoll_ctl(fd, EPOLL_CTL_ADD, fds[0], &ev);
+  assert(ret == 0);
+
+  int linuxfd = open("test.txt", O_RDONLY, 0644);
+  printf("linux fd: %d\n", linuxfd);
+  if (linuxfd == -1) {
+    printf("error: %s\n", strerror(errno));
   }
+
+  // Stop and wait for snapshot.
+  kill(getpid(), SIGSTOP);
+
+  printf("restored\n");
+  char p;
+  ssize_t rd_ret = read(linuxfd, &p, 1);
+  printf("read '%c' from test.txt: %zd\n", p, rd_ret);
 
   return 0;
 }

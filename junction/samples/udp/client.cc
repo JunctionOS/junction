@@ -17,6 +17,8 @@ extern "C" {
 #include <unistd.h>
 }
 
+#include <csignal>
+
 const int PORT = 15000;
 
 double GetElapsed(struct timeval *begin, struct timeval *end) {
@@ -91,6 +93,9 @@ int main(int argc, char *argv[]) {
   }
 
   printf("Sending to IP: %s\n", str);
+
+  // Stop and wait for snapshot.
+  kill(getpid(), SIGSTOP);
 
   gettimeofday(&begin, NULL);
 

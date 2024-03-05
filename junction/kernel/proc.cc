@@ -264,53 +264,6 @@ Status<Thread *> Process::CreateThreadMain() {
   return tstate;
 }
 
-Status<void> Process::Restore(ProcessMetadata const &pm,
-                              std::shared_ptr<Process> parent) {
-  binary_path_ = pm.GetBinaryPath();
-  // restore file table
-  for (auto const &fm : pm.GetFiles()) {
-    auto name = std::string{fm.GetFilename().value_or("")};
-    auto f = std::make_shared<File>(fm);
-    file_tbl_.InsertAt(fm.GetFd(), std::move(f));
-  }
-
-  auto mm = std::make_shared<MemoryMap>(pm);
-  // pass in file table so it can find the file by name
-  mm->Restore(pm, file_tbl_);
-  mem_map_ = std::move(mm);
-
-  signal_tbl_.Restore(pm);
-  shared_sig_q_.Restore(pm);
-
-  for (auto const &cm : pm.GetChildProcs()) {
-    auto child = std::make_shared<Process>(cm);
-    Status<void> ret = child.get()->Restore(cm, get_this());
-    if (unlikely(!ret)) return MakeError(ret);
-    child_procs_.push_back(std::move(child));
-  }
-
-  for (auto const &tm : pm.GetThreads()) {
-    Status<void> ret = RestoreThread(tm);
-    if (unlikely(!ret)) return MakeError(ret);
-  }
-
-  parent_ = parent;
-  return {};
-}
-
-// Create a Caladan thread for the Junction thread we restored
-Status<void> Process::RestoreThread(ThreadMetadata const &tm) {
-  thread_t *th = thread_create(nullptr, 0);
-  if (unlikely(!th)) return MakeError(ENOMEM);
-
-  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(shared_from_this(), tm);
-  access_once(tstate->GetCaladanThread()->in_syscall) = true;
-  th->junction_thread = true;
-  thread_map_[tm.GetTid()] = tstate;
-  return {};
-}
-
 // Used for starting the main thread, will change when restoring multiple
 // threads
 Status<Thread *> Process::GetThreadMain() {
@@ -529,48 +482,6 @@ long usys_waitid(int which, pid_t pid, siginfo_t *infop, int options,
   return 0;
 }
 
-ProcessMetadata Process::Snapshot() const & {
-  ProcessMetadata s;
-  s.SetProcId(pid_);
-  s.SetProcGid(pgid_);
-  if (exited_) {
-    s.SetProcExitState(xstate_);
-  }
-  s.SetProcLimitNumberOfFiles(limit_nofile_);
-  s.SetBinaryPath(binary_path_);
-
-  s.ReserveNThreads(thread_map_.size());
-  for (auto const &[_tid, thread] : thread_map_) {
-    s.AddThread(thread->Snapshot());
-  }
-
-  file_tbl_.Snapshot(s);
-  mem_map_->Snapshot(s);
-  signal_tbl_.Snapshot(s);
-  shared_sig_q_.Snapshot(s);
-
-  s.ReserveNChildProcs(child_procs_.size());
-  for (auto const &child : child_procs_) {
-    auto const &snapshot = child->Snapshot();
-    s.AddChildProc(&snapshot);
-  }
-
-  it_real_.Snapshot(s);
-
-  return s;
-}
-
-ThreadMetadata Thread::Snapshot() const & {
-  ThreadMetadata s;
-  s.SetThreadId(tid_);
-  s.SetChildThreadId(child_tid_);
-  s.SetThreadId(tid_);
-  s.SetExitState(xstate_);
-
-  sighand_.Snapshot(s);
-  return s;
-}
-
 pid_t usys_getpid() { return myproc().get_pid(); }
 
 pid_t usys_gettid() { return mythread().get_tid(); }
@@ -616,106 +527,6 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
                reinterpret_cast<void *>(cl_args->tls));
 
   return ret;
-}
-
-// TODO: move this logic into the snapshotting file.
-std::vector<elf_phdr> GetPHDRs(std::vector<VMArea> &vmas) {
-  std::vector<elf_phdr> phdrs;
-  phdrs.reserve(vmas.size());
-  uint64_t offset = vmas.size() * sizeof(elf_phdr) + sizeof(elf_header);
-  offset = AlignUp(offset, kPageSize);
-
-  for (const VMArea &vma : vmas) {
-    uint32_t flags = 0;
-    if (vma.prot & PROT_EXEC) flags |= kFlagExec;
-    if (vma.prot & PROT_WRITE) flags |= kFlagWrite;
-    if (vma.prot & PROT_READ) flags |= kFlagRead;
-    elf_phdr phdr = {
-        .type = kPTypeLoad,
-        .flags = flags,
-        .offset = offset,
-        .vaddr = vma.start,
-        .paddr = 0,              // don't care
-        .filesz = vma.Length(),  // memory region size
-        .memsz = vma.Length(),   // memory region size
-        .align = kPageSize,      // align to page size
-    };
-    phdrs.push_back(phdr);
-    offset += vma.Length();
-  }
-
-  return phdrs;
-}
-
-// TODO: move this logic into the snapshotting file.
-Status<size_t> SerializeMemoryRegions(std::vector<VMArea> &vmas,
-                                      Snapshotter &s) {
-  std::vector<iovec> iov;
-  for (const VMArea &vma : vmas) {
-    size_t mem_region_len = vma.Length();
-    assert(IsPageAligned(mem_region_len));
-
-    // TODO(amb): Copied this code but it looks incorrect
-    // some regions are not readable so we need to remap them as readable
-    // before they get written to the elf
-    if (!(vma.prot & PROT_READ)) {
-      auto ret = KernelMMapFixed(reinterpret_cast<void *>(vma.start),
-                                 mem_region_len, vma.prot | PROT_READ, 0);
-      if (!ret) return MakeError(ret);
-    }
-    iovec v = {.iov_base = reinterpret_cast<std::byte *>(vma.start),
-               .iov_len = mem_region_len};
-    iov.push_back(v);
-  }
-  return s.ElfWritev(std::span(iov));
-}
-
-// TODO: move this logic into the snapshotting file.
-long junction_entry_snapshot(char const *elf_pathname,
-                             char const *metadata_pathname) {
-  if (elf_pathname == nullptr || metadata_pathname == nullptr) {
-    return -1;
-  }
-  std::string_view elf_path{elf_pathname, strlen(elf_pathname)};
-  std::string_view metadata_path{metadata_pathname, strlen(metadata_pathname)};
-  LOG(INFO) << "snapshot: started snapshot (elf=" << elf_path
-            << ", metadata=" << metadata_path << ")";
-  auto proc_metadata = myproc().Snapshot();
-  thread_tf tf;
-  Thread const &thread = mythread();
-  thread.CopySyscallRegs(tf);
-  // TODO: Does snapshotting care about stashing rip in r11?
-  tf.r11 = tf.rip;
-
-  if (thread.GetCaladanThread()->has_fsbase)
-    tf.fsbase = thread.GetCaladanThread()->tf.fsbase;
-
-  // make sure 0 is returned to the calling thread
-  tf.rax = 0;
-
-  proc_metadata.SetTrapframe(tf);
-  std::vector<VMArea> vmas = myproc().get_mem_map().get_vmas();
-  std::vector<elf_phdr> elf_pheaders = GetPHDRs(vmas);
-  Status<Snapshotter> s =
-      Snapshotter::Open(tf.rip /* entry point */, elf_pheaders,
-                        {elf_pathname, strlen(elf_pathname)},
-                        {metadata_pathname, strlen(metadata_pathname)});
-  if (unlikely(!s)) {
-    syscall_write(2, "FAILED TO START SNAPSHOT\n",
-                  strlen("FAILED TO START SNAPSHOT\n"));
-    return MakeCError(s);
-  }
-
-  Snapshotter &sn = *s;
-  proc_metadata.Serialize(sn);
-  auto const metadata_written = sn.MetadataFlush();
-  if (unlikely(!metadata_written)) {
-    return MakeCError(metadata_written);
-  }
-
-  Status<size_t> memory_written = SerializeMemoryRegions(vmas, sn);
-  if (!memory_written) return MakeCError(memory_written);
-  return 0;
 }
 
 long usys_clone(unsigned long clone_flags, unsigned long newsp,

@@ -1,7 +1,6 @@
 message(STATUS "Building junction snapshot")
 
 set(SOURCES_C_CPP
-  proc.cc
   snapshot.cc
 )
 

@@ -330,10 +330,6 @@ class EPollFile : public File {
     events_.erase(decltype(events_)::s_iterator_to(o));
   }
 
-  void Snapshot(/* unclear */) const & {
-    // TODO(snapshot): snapshot epoll files
-  }
-
  private:
   int DeliverEvents(std::span<epoll_event> events_out);
 

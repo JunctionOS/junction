@@ -6,7 +6,7 @@
 #include "junction/junction.h"
 #include "junction/kernel/exec.h"
 #include "junction/kernel/stdiofile.h"
-#include "junction/snapshot/proc.h"
+#include "junction/snapshot/snapshot.h"
 
 namespace junction {
 
@@ -55,15 +55,11 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
 
 Status<std::shared_ptr<Process>> RestoreFromSnapshot(
     std::string_view metadata_path, std::string_view elf_path) {
-  Status<ProcessMetadata> pm = ReadProcessMetadata(std::string(metadata_path));
-  if (unlikely(!pm)) return MakeError(pm);
-
-  auto proc = std::make_shared<Process>(*pm);
-  Status<void> ret = proc.get()->Restore(*pm, nullptr);
-  if (unlikely(!ret)) return MakeError(ret);
+  auto [proc, trapframe] = RestoreProcess(std::string(metadata_path));
 
   // Create and insert STDIN, STDOUT, STDERR files
   // TODO(bcwh) reopen these based on metadata in Process::Restore()
+  // TODO(cereal): this should happen automatically
   std::shared_ptr<StdIOFile> fin =
       std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
   std::shared_ptr<StdIOFile> fout =
@@ -76,8 +72,6 @@ Status<std::shared_ptr<Process>> RestoreFromSnapshot(
   ftbl.Insert(std::move(ferr));
 
   MemoryMap &mm = proc.get()->get_mem_map();
-
-  thread_tf trapframe = (*pm).GetTrapframe();
 
   Status<Thread *> main = Exec(*proc, mm, trapframe, elf_path);
 
