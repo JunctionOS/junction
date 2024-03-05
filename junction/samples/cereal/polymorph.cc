@@ -6,32 +6,30 @@
 
 int main() {
   {
-    std::shared_ptr<DummyData> p1 = std::make_shared<DummyData>(1024);
-    std::shared_ptr<DummyData> p2 = std::make_shared<SmartData>(4096, -1);
+    Table tab;
+    tab.push(std::make_shared<DummyData>(1024));
+    tab.push(create_smart(4096, -1));
 
     std::ofstream dummy_file("test.bin");
     cereal::BinaryOutputArchive archive(dummy_file);
 
-    archive(p1, p2);
+    archive(tab);
 
     std::cout << "fields before serialization\n";
 
-    p1->test();
-    p2->test();
+    tab.test();
   }
 
   {
     std::ifstream is("test.bin");
     cereal::BinaryInputArchive ar(is);
 
-    std::shared_ptr<DummyData> p1;
-    std::shared_ptr<DummyData> p2;
-    ar(p1, p2);
+    Table tab;
+    ar(tab);
 
     std::cout << "fields after deserialization\n";
 
-    p1->test();
-    p2->test();
+    tab.test();
   }
 
   return 0;

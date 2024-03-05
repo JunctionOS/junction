@@ -8,5 +8,6 @@ add_subdirectory(tcp)
 add_subdirectory(udp)
 
 if(SNAPSHOT_SAMPLES)
+  add_subdirectory(cereal)
   add_subdirectory(snapshots)
 endif()

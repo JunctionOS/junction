@@ -1,47 +1,29 @@
+#pragma once
+
 #include "cereal/archives/binary.hpp"
 #include "cereal/types/base_class.hpp"
+#include "cereal/types/memory.hpp"
 #include "cereal/types/polymorphic.hpp"
+#include "cereal/types/vector.hpp"
+#include "dumb.h"
 
-class DummyData {
+class Table {
  public:
-  DummyData() : num_(0) {}
-  DummyData(int num) : num_(num) {}
+  void push(std::shared_ptr<DummyData> dat) { tab_.push_back(std::move(dat)); }
+
+  void test() const {
+    for (auto const &dat : tab_) {
+      dat->test();
+    }
+  }
 
   template <class Archive>
   void serialize(Archive &ar) {
-    ar(num_);
-  }
-
-  virtual void test() {
-    std::cout << "DummyData:\n";
-    std::cout << "num=" << num_ << std::endl;
-  }
-
-  int get_num() { return num_; }
-
- private:
-  int num_;
-};
-
-class SmartData : public DummyData {
- public:
-  SmartData() : DummyData(0), fd_(0) {}
-  SmartData(int num, int fd) : DummyData(num), fd_(fd) {}
-
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(cereal::base_class<DummyData>(this), fd_);
-  }
-
-  virtual void test() {
-    std::cout << "SmartData:\n";
-    std::cout << "num=" << this->get_num() << std::endl;
-    std::cout << "fd=" << fd_ << std::endl;
+    ar(tab_);
   }
 
  private:
-  int fd_;
+  std::vector<std::shared_ptr<DummyData>> tab_;
 };
 
-CEREAL_REGISTER_TYPE(SmartData);
-CEREAL_REGISTER_POLYMORPHIC_RELATION(DummyData, SmartData)
+std::shared_ptr<DummyData> create_smart(int num, int fd);
