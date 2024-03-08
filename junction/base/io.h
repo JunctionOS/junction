@@ -350,7 +350,7 @@ class StreamBufferWriter final : public std::streambuf {
     w.setp(nullptr, nullptr);
     return *this;
   }
-  ~StreamBufferWriter() override = default;
+  ~StreamBufferWriter() override { sync(); };
 
  protected:
   std::streamsize xsputn(const char *s, std::streamsize n) override {
