@@ -437,14 +437,16 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Constructor for deserialization
   // TODO(cereal): implement
-  Process(pid_t pid) : pid_(pid), signal_tbl_(DeferInit) {
+  template <class Archive>
+  Process(pid_t pid, Archive &ar) : pid_(pid), signal_tbl_(DeferInit) {
     RegisterProcess(*this);
+    ar(signal_tbl_, shared_sig_q_);
   }
 
   template <class Archive>
   void save(Archive &ar) const {
     // TODO(cereal): implement
-    ar(pid_);
+    ar(pid_, signal_tbl_, shared_sig_q_);
   }
 
   template <class Archive>
@@ -452,7 +454,7 @@ class Process : public std::enable_shared_from_this<Process> {
                                  cereal::construct<Process> &construct) {
     pid_t pid;
     ar(pid);
-    construct(pid);
+    construct(pid, ar);
     // TODO(cereal): implement
   }
 
