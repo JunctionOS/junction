@@ -27,6 +27,7 @@ class Logger {
 
  private:
   int level_;
+  RuntimeLibcGuard guard_;
   std::ostringstream buf_;
 };
 

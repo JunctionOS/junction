@@ -124,7 +124,7 @@ std::map<uintptr_t, VMArea>::iterator MemoryMap::Find(uintptr_t addr) {
   assert(mu_.IsHeld());
   assert(MappingsValid(vmareas_));
   auto it = vmareas_.upper_bound(addr);
-  if (it == vmareas_.end() || it->second.start < addr) return vmareas_.end();
+  if (it == vmareas_.end() || it->second.start > addr) return vmareas_.end();
   return it;
 }
 
@@ -154,7 +154,9 @@ void MemoryMap::EndTracing() {
 bool MemoryMap::HandlePageFault(siginfo_t &si) {
   if (!tracer_) return false;
 
-  uintptr_t page = PageAlign(reinterpret_cast<uintptr_t>(si.si_addr));
+  uintptr_t page = PageAlignDown(reinterpret_cast<uintptr_t>(si.si_addr));
+
+  rt::RuntimeLibcGuard guard;
   if (!tracer_->RecordHit(page)) return false;
 
   // TODO(jf): we can't block in interrupt delivery context, find a better way
@@ -163,6 +165,7 @@ bool MemoryMap::HandlePageFault(siginfo_t &si) {
   auto it = Find(page);
   if (it == vmareas_.end()) {
     mu_.Unlock();
+    LOG(WARN) << "couldn't find VMA for page " << page;
     return false;
   }
 

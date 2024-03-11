@@ -13,6 +13,7 @@ namespace junction {
 
 template <typename... Args>
 void LogSyscall(long retval, std::string_view name, Args... args) {
+  rt::RuntimeLibcGuard g;
   std::stringstream ss;
   ss << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] ";
   ss << name << "(";
@@ -31,6 +32,7 @@ void LogSyscall(long retval, std::string_view name, Args... args) {
 
 template <typename... Args>
 void LogSyscall(std::string_view name, Args... args) {
+  rt::RuntimeLibcGuard g;
   std::stringstream ss;
 
   ss << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] ";

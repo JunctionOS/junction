@@ -2,9 +2,6 @@
 
 namespace junction::rt {
 
-Logger::~Logger() {
-  RuntimeLibcGuard guard;
-  logk(level_, "%s", buf_.str().c_str());
-}
+Logger::~Logger() { logk(level_, "%s", buf_.str().c_str()); }
 
 }  // namespace junction::rt
