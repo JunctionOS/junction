@@ -27,9 +27,9 @@ extern "C" {
 
 namespace junction {
 
-void SnapshotMetadata(Process &p, std::string_view metadata_path);
-
-std::pair<std::shared_ptr<Process>, thread_tf> RestoreProcess(
-    std::string_view metadata_path);
+Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
+                         std::string_view elf_path);
+std::shared_ptr<Process> RestoreProcess(std::string_view metadata_path,
+                                        std::string_view elf_path);
 
 }  // namespace junction

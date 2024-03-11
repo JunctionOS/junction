@@ -13,6 +13,7 @@ extern "C" {
 #include "junction/bindings/stack.h"
 #include "junction/kernel/sigframe.h"
 #include "junction/kernel/trapframe.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -91,6 +92,13 @@ struct k_sigaction {
     handler = kDefaultHandler;
     sa_flags = 0;
   }
+
+  friend class cereal::access;
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(cereal::binary_data(reinterpret_cast<uint8_t *>(this),
+                           sizeof(k_sigaction)));
+  }
 };
 class SignalQueue : public rt::Spin {
  public:
@@ -108,6 +116,11 @@ class SignalQueue : public rt::Spin {
   }
   [[nodiscard]] bool is_sig_pending(int signo) const {
     return SignalInMask(get_pending(), signo);
+  }
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(pending_q_, pending_);
   }
 
  private:
@@ -262,6 +275,11 @@ class ThreadSignalHandler {
   std::optional<siginfo_t> PopSigInfo(k_sigset_t blocked, bool reset_flag,
                                       bool *stopped);
 
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(sig_q_, blocked_, sigaltstack_, notified_);
+  }
+
  private:
   // Check if signal can be delivered, and returns the action if so.
   // May modifies the sigaction if it is set to SA_ONESHOT
@@ -307,11 +325,19 @@ class ThreadSignalHandler {
   bool notified_{false};
 };
 
+struct defer_init_t {
+  explicit defer_init_t() = default;
+};
+
+// Don't default initialize an object
+inline constexpr defer_init_t DeferInit{};
+
 // SignalTable is a table of the signal actions for a process.
 class alignas(kCacheLineSize) SignalTable {
  public:
-  SignalTable() = default;
+  SignalTable() noexcept : table_(){};
   ~SignalTable() = default;
+  SignalTable(defer_init_t t) noexcept {}
 
   // get_action gets an action for a signal (resetting if one shot).
   [[nodiscard]] k_sigaction get_action(int sig, bool reset = false) {
@@ -332,8 +358,13 @@ class alignas(kCacheLineSize) SignalTable {
   }
 
  private:
+  friend class cereal::access;
+  template <class Archive>
+  void serialize(Archive &ar) {
+    for (size_t idx = 0; idx < kNumSignals; idx++) ar(table_[idx]);
+  }
   rt::Spin lock_;  // protects @table_
-  k_sigaction table_[kNumSignals]{};
+  k_sigaction table_[kNumSignals];
 };
 
 Status<void> InitSignal();

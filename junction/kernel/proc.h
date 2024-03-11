@@ -392,6 +392,8 @@ class Process : public std::enable_shared_from_this<Process> {
   }
 
  private:
+  friend class cereal::access;
+
   void SignalAllThreads() {
     assert(child_thread_lock_.IsHeld());
     for (const auto &[pid, th] : thread_map_)
@@ -431,6 +433,27 @@ class Process : public std::enable_shared_from_this<Process> {
       SignalAllThreads();
     else if (needs_ipi)
       FindThreadForSignal(si.si_signo);
+  }
+
+  // Constructor for deserialization
+  // TODO(cereal): implement
+  Process(pid_t pid) : pid_(pid), signal_tbl_(DeferInit) {
+    RegisterProcess(*this);
+  }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    // TODO(cereal): implement
+    ar(pid_);
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<Process> &construct) {
+    pid_t pid;
+    ar(pid);
+    construct(pid);
+    // TODO(cereal): implement
   }
 
   const pid_t pid_;         // the process identifier

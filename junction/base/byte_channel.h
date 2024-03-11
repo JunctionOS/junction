@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "junction/base/error.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -34,11 +35,37 @@ class ByteChannel {
   [[nodiscard]] bool is_full() const;
   // Returns true if the byte channel is initialized and usable.
   [[nodiscard]] bool is_valid() const { return !buf_.empty(); }
+  // Returns the size of this ByteChannel
+  [[nodiscard]] size_t get_size() const { return size_; }
 
   // Reads bytes out of the channel. May return less than the bytes available.
   Status<size_t> Read(std::span<std::byte> buf);
   // Writes bytes in to the channel. May return less than the bytes available.
   Status<size_t> Write(std::span<const std::byte> buf);
+
+  template <class Archive>
+  void save(Archive& ar) const {
+    size_t sz = in_ - out_;
+
+    // Data may wrap around, so we might serialize two segments
+    size_t seg_1 = std::min(size_ - (out_ & mask_), sz);
+    size_t seg_2 = sz - seg_1;
+
+    // save size_ and actual data len
+    ar(seg_1, seg_2);
+    if (seg_1) ar(cereal::binary_data(buf_.data() + (out_ & mask_), seg_1));
+    if (seg_2) ar(cereal::binary_data(buf_.data(), seg_2));
+  }
+
+  template <class Archive>
+  void load(Archive& ar) {
+    // Assume we have already been constructed with the proper size.
+    size_t seg_1, seg_2;
+    ar(seg_1, seg_2);
+    if (seg_1) ar(cereal::binary_data(buf_.data(), seg_1));
+    if (seg_2) ar(cereal::binary_data(buf_.data() + seg_1, seg_2));
+    in_ = seg_1 + seg_2;
+  }
 
  private:
   std::atomic_size_t in_{0};

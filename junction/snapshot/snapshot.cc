@@ -1,18 +1,26 @@
 #include <cstdio>
+#include <fstream>
+#include <iostream>
+#include <utility>
 
 extern "C" {
 #include <fcntl.h>
+#include <signal.h>
 }
 
 #include "junction/base/error.h"
+#include "junction/kernel/elf.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/ksys.h"
+#include "junction/kernel/proc.h"
+#include "junction/kernel/usys.h"
+#include "junction/snapshot/cereal.h"
 #include "junction/snapshot/snapshot.h"
 
 namespace junction {
 
 namespace {
-std::vector<elf_phdr> GetPHDRs(std::vector<VMArea> &vmas) {
+std::vector<elf_phdr> GetPHDRs(const std::vector<VMArea> &vmas) {
   std::vector<elf_phdr> phdrs;
   phdrs.reserve(vmas.size());
   uint64_t offset = vmas.size() * sizeof(elf_phdr) + sizeof(elf_header);
@@ -39,23 +47,10 @@ std::vector<elf_phdr> GetPHDRs(std::vector<VMArea> &vmas) {
 
   return phdrs;
 }
-}  // namespace
 
-void SnapshotMetadata(Process &p, std::string_view metadata_path) {
-  // TODO(cereal): implement process snapshot
-}
-
-std::pair<std::shared_ptr<Process>, thread_tf> RestoreProcess(
-    std::string_view metadata_path) {
-  // TODO(cereal): actually implement code
-  std::shared_ptr<Process> p;
-  thread_tf trapframe;
-
-  return std::make_pair(p, trapframe);
-}
-
-Status<void> SnapshotElf(std::vector<VMArea> vmas, uint64_t entry_addr,
+Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
                          std::string_view elf_path) {
+  auto vmas = mm.get_vmas();
   auto pheaders = GetPHDRs(vmas);
   auto elf_file = KernelFile::Open(elf_path, O_CREAT | O_TRUNC | O_WRONLY,
                                    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
@@ -138,6 +133,70 @@ Status<void> SnapshotElf(std::vector<VMArea> vmas, uint64_t entry_addr,
     return MakeError(-1);
   }
   return {};
+}
+
+void SnapshotMetadata(Process &p, std::string_view metadata_path) {
+  rt::RuntimeLibcGuard guard;
+
+  Status<KernelFile> f =
+      KernelFile::Open(metadata_path, O_RDWR | O_CREAT, 0644);
+  BUG_ON(!f);
+  StreamBufferWriter<KernelFile> w(*f);
+  std::ostream outstream(&w);
+  cereal::BinaryOutputArchive ar(outstream);
+  ar(p.shared_from_this());
+}
+
+}  // namespace
+
+Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
+                         std::string_view elf_path) {
+  std::shared_ptr<Process> p = Process::Find(pid);
+  if (!p) {
+    LOG(WARN) << "couldn't find proc with pid " << pid;
+    return MakeError(ESRCH);
+  }
+
+  LOG(INFO) << "stopping proc with pid " << pid;
+
+  // TODO(snapshot): child procs, if any exist, should also be stopped + waited.
+  p->Signal(SIGSTOP);
+  p->WaitForFullStop();
+
+  LOG(INFO) << "snapshotting proc " << pid;
+  SnapshotMetadata(*p.get(), metadata_path);
+  auto ret = SnapshotElf(p->get_mem_map(), 0 /* entry_addr */, elf_path);
+  if (!ret) {
+    return ret;
+  }
+
+  return {};
+}
+
+std::shared_ptr<Process> RestoreProcess(std::string_view metadata_path,
+                                        std::string_view elf_path) {
+  rt::RuntimeLibcGuard guard;
+
+  Status<KernelFile> f = KernelFile::Open(metadata_path, O_RDONLY, 0644);
+  BUG_ON(!f);
+
+  StreamBufferReader<KernelFile> w(*f);
+  std::istream instream(&w);
+  cereal::BinaryInputArchive ar(instream);
+
+  std::shared_ptr<Process> p;
+  ar(p);
+
+  MemoryMap &mm = p->get_mem_map();
+  LoadELF(mm, elf_path);
+
+  // TODO(cereal): may need to send a SIGCONT to the main process
+
+  // mark threads as runnable
+  // (must be last things to run, this will get the snapshot running)
+  //
+  // p->RunThreads();
+  return p;
 }
 
 }  // namespace junction

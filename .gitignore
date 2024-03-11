@@ -14,3 +14,6 @@ Testing/**
 **/*.DS_Store
 lib/.caladan_installed_ver
 lib/.glibc_installed_ver
+*.snapshot
+*.elf
+*.metadata

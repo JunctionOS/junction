@@ -226,6 +226,11 @@ class dynamic_bitmap {
     return find_next<true>(pos);
   }
 
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(bits_, size_);
+  }
+
  private:
   template <bool Invert>
   std::optional<size_t> find_next(size_t pos) const;

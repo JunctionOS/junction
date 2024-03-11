@@ -55,29 +55,7 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
 
 Status<std::shared_ptr<Process>> RestoreFromSnapshot(
     std::string_view metadata_path, std::string_view elf_path) {
-  auto [proc, trapframe] = RestoreProcess(std::string(metadata_path));
-
-  // Create and insert STDIN, STDOUT, STDERR files
-  // TODO(bcwh) reopen these based on metadata in Process::Restore()
-  // TODO(cereal): this should happen automatically
-  std::shared_ptr<StdIOFile> fin =
-      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
-  std::shared_ptr<StdIOFile> fout =
-      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
-  std::shared_ptr<StdIOFile> ferr =
-      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
-  FileTable &ftbl = (*proc).get_file_table();
-  ftbl.Insert(std::move(fin));
-  ftbl.Insert(std::move(fout));
-  ftbl.Insert(std::move(ferr));
-
-  MemoryMap &mm = proc.get()->get_mem_map();
-
-  Status<Thread *> main = Exec(*proc, mm, trapframe, elf_path);
-
-  if (unlikely(!main)) return MakeError(main);
-
-  (*main)->ThreadReady();
+  auto proc = RestoreProcess(std::string(metadata_path), std::string(elf_path));
   return proc;
 }
 
