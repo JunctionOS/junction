@@ -35,9 +35,11 @@ std::unique_ptr<FileSystem> fs_;
 
 namespace detail {
 
-file_array::file_array(size_t cap)
-    : cap(cap), files(std::make_unique<std::shared_ptr<File>[]>(cap)) {}
-
+file_array::file_array(size_t cap) : cap(cap) {
+  if (unlikely(cap > ArrayMaxElements<std::shared_ptr<File>>()))
+    throw std::bad_alloc();
+  files.reset(new std::shared_ptr<File>[cap]());
+}
 file_array::~file_array() = default;
 
 std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap) {

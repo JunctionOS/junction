@@ -206,6 +206,8 @@ struct file_array : public rt::RCUObject {
                                  cereal::construct<file_array> &construct) {
     size_t len, cap;
     ar(len, cap);
+    if (unlikely(cap >= ArrayMaxElements<std::shared_ptr<File>>()))
+      throw std::bad_alloc();
     std::unique_ptr<std::shared_ptr<File>[]> arr =
         std::make_unique<std::shared_ptr<File>[]>(cap);
     for (size_t i = 0; i < len; i++) ar(arr[i]);

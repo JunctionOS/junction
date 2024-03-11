@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <limits>
 #include <type_traits>
 #include <typeinfo>
 
@@ -37,6 +38,12 @@ void write_once(T &p, const T &val)
   requires std::is_integral_v<T>
 {
   static_cast<T volatile &>(p) = val;
+}
+
+// Calculate the maximum number of elements that can be contained in an array.
+template <class T>
+constexpr size_t ArrayMaxElements() {
+  return std::numeric_limits<std::ptrdiff_t>::max() / sizeof(T);
 }
 
 template <typename NewT, typename T>
