@@ -7,6 +7,7 @@ extern "C" {
 #include "junction/kernel/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -38,6 +39,25 @@ class EventFDFile : public File {
 
  private:
   bool is_semaphore() const { return get_flags() & kEventFdSemaphore; }
+
+  friend class cereal::access;
+
+  // Constructor for cereal.
+  EventFDFile() : File(FileType::kNormal, 0, kModeReadWrite) {}
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(cereal::base_class<File>(this), val_);
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(cereal::base_class<File>(this), val_);
+
+    // assume no events are set before this point.
+    if (val_ < UINT64_MAX) get_poll_source().Set(kPollOut);
+    if (val_ > 0) get_poll_source().Set(kPollIn);
+  }
 
   rt::Spin lock_;
   rt::WaitQueue queue_;
@@ -110,3 +130,5 @@ long usys_eventfd(unsigned int initval) {
 }
 
 }  // namespace junction
+
+CEREAL_REGISTER_TYPE(junction::EventFDFile);

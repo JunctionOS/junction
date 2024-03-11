@@ -7,6 +7,7 @@
 
 #include "junction/base/error.h"
 #include "junction/kernel/file.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -27,7 +28,27 @@ class StdIOFile : public File {
   [[nodiscard]] int get_fd() const { return fd_; }
 
  private:
+  friend class cereal::access;
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(fd_, get_mode(), cereal::base_class<File>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<StdIOFile> &construct) {
+    int fd = 0;
+    unsigned int mode = 0;
+    ar(fd, mode);
+    construct(fd, mode);
+
+    ar(cereal::base_class<File>(construct.ptr()));
+  }
+
   int fd_;
 };
 
 }  // namespace junction
+
+CEREAL_REGISTER_TYPE(junction::StdIOFile);

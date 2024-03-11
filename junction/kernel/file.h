@@ -15,6 +15,7 @@ extern "C" {
 #include "junction/bindings/rcu.h"
 #include "junction/bindings/sync.h"
 #include "junction/kernel/poll.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -69,13 +70,19 @@ enum class SeekFrom : int {
 };
 
 // The base class for UNIX files.
-class File {
+class File : public std::enable_shared_from_this<File> {
  public:
   File(FileType type, unsigned int flags, unsigned int mode)
       : type_(type), flags_(flags), mode_(mode) {}
-  File(std::string filename, FileType type, unsigned int flags,
-       unsigned int mode)
+  File(FileType type, unsigned int flags, unsigned int mode,
+       std::string_view filename)
       : type_(type), flags_(flags), mode_(mode), filename_(filename) {}
+  File(FileType type, unsigned int flags, unsigned int mode,
+       std::string &&filename)
+      : type_(type),
+        flags_(flags),
+        mode_(mode),
+        filename_(std::move(filename)) {}
   virtual ~File() = default;
 
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
@@ -134,8 +141,28 @@ class File {
     return poll_;
   }
 
-  [[nodiscard]] bool HasFilename() const { return !filename_.empty(); }
-  [[nodiscard]] std::string const &GetFilename() const { return filename_; }
+  [[nodiscard]] bool has_filename() const { return !filename_.empty(); }
+  [[nodiscard]] const std::string &get_filename() const { return filename_; }
+
+  // There is some limitation in cereal's polymorphic type registration that
+  // seems to require base/derived classes to both use save/load or serialize.
+  // Use save/load here so that derived classes have more flexibility.
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(flags_, off_);
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(flags_, off_);
+  }
+
+  // Add so that Cereal doesn't require this class to be default constructible.
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<File> &construct) {
+    std::unreachable();
+  }
 
  protected:
   [[nodiscard]] bool IsPollSourceSetup() const { return poll_source_setup_; }
@@ -154,7 +181,7 @@ class File {
   bool poll_source_setup_{false};
   PollSource poll_;
 
-  std::string filename_;
+  const std::string filename_;
 };
 
 namespace detail {
@@ -162,6 +189,28 @@ namespace detail {
 struct file_array : public rt::RCUObject {
   explicit file_array(size_t cap);
   ~file_array();
+
+  // Constructor for cereal
+  file_array(size_t len, size_t cap,
+             std::unique_ptr<std::shared_ptr<File>[]> &&files)
+      : len(len), cap(cap), files(std::move(files)) {}
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(len, cap);
+    for (size_t i = 0; i < len; i++) ar(files[i]);
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<file_array> &construct) {
+    size_t len, cap;
+    ar(len, cap);
+    std::unique_ptr<std::shared_ptr<File>[]> arr =
+        std::make_unique<std::shared_ptr<File>[]>(cap);
+    for (size_t i = 0; i < len; i++) ar(arr[i]);
+    construct(len, cap, std::move(arr));
+  }
 
   size_t len = 0, cap;
   std::unique_ptr<std::shared_ptr<File>[]> files;
@@ -234,6 +283,17 @@ class FileTable {
 
   // Close all files marked close-on-exec.
   void DoCloseOnExec();
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(farr_, close_on_exec_);
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(farr_, close_on_exec_);
+    rcup_.set(farr_.get());
+  }
 
  private:
   using FArr = detail::file_array;

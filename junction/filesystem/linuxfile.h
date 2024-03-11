@@ -10,7 +10,10 @@ extern "C" {
 #include <string_view>
 
 #include "junction/base/error.h"
+#include "junction/bindings/log.h"
 #include "junction/kernel/file.h"
+#include "junction/kernel/ksys.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -23,11 +26,14 @@ class LinuxFile : public File {
   };
 
  public:
-  LinuxFile(Token, int fd, int flags, mode_t mode) noexcept;
+  LinuxFile(Token, int fd, int flags, mode_t mode,
+            std::string &&pathname) noexcept;
+  LinuxFile(Token, int fd, int flags, mode_t mode,
+            std::string_view pathname) noexcept;
   virtual ~LinuxFile();
 
-  static std::shared_ptr<LinuxFile> Open(const std::string_view &pathname,
-                                         int flags, mode_t mode);
+  static std::shared_ptr<LinuxFile> Open(std::string_view pathname, int flags,
+                                         mode_t mode);
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
   virtual Status<size_t> Write(std::span<const std::byte> buf,
                                off_t *off) override;
@@ -52,8 +58,34 @@ class LinuxFile : public File {
   }
 
  private:
+  friend class cereal::access;
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(get_filename(), get_flags(), get_mode(), cereal::base_class<File>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<LinuxFile> &construct) {
+    std::string filename;
+    int flags;
+    mode_t mode;
+    ar(filename, flags, mode);
+
+    int fd = ksys_open(filename.data(), flags, mode);
+    if (unlikely(fd < 0)) {
+      LOG(ERR) << "failed to re-open linux file " << filename;
+      BUG();
+    }
+    construct(Token{}, fd, flags, mode, std::move(filename));
+    ar(cereal::base_class<File>(construct.ptr()));
+  }
+
   int fd_{-1};
   ssize_t size_{-1};
 };
 
 }  // namespace junction
+
+CEREAL_REGISTER_TYPE(junction::LinuxFile);

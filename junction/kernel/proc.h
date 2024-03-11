@@ -440,13 +440,13 @@ class Process : public std::enable_shared_from_this<Process> {
   template <class Archive>
   Process(pid_t pid, Archive &ar) : pid_(pid), signal_tbl_(DeferInit) {
     RegisterProcess(*this);
-    ar(signal_tbl_, shared_sig_q_);
+    ar(signal_tbl_, shared_sig_q_, file_tbl_);
   }
 
   template <class Archive>
   void save(Archive &ar) const {
     // TODO(cereal): implement
-    ar(pid_, signal_tbl_, shared_sig_q_);
+    ar(pid_, signal_tbl_, shared_sig_q_, file_tbl_);
   }
 
   template <class Archive>

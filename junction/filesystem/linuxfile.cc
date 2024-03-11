@@ -9,22 +9,26 @@ extern "C" {
 #include <string>
 
 #include "junction/base/error.h"
-#include "junction/bindings/log.h"
 #include "junction/filesystem/linuxfile.h"
 #include "junction/kernel/ksys.h"
 
 namespace junction {
 
-LinuxFile::LinuxFile(Token, int fd, int flags, mode_t mode) noexcept
-    : File(FileType::kNormal, flags, mode), fd_(fd) {}
+LinuxFile::LinuxFile(Token, int fd, int flags, mode_t mode,
+                     std::string &&pathname) noexcept
+    : File(FileType::kNormal, flags, mode, std::move(pathname)), fd_(fd) {}
+
+LinuxFile::LinuxFile(Token, int fd, int flags, mode_t mode,
+                     std::string_view pathname) noexcept
+    : File(FileType::kNormal, flags, mode, pathname), fd_(fd) {}
 
 LinuxFile::~LinuxFile() { ksys_close(fd_); }
 
-std::shared_ptr<LinuxFile> LinuxFile::Open(const std::string_view &pathname,
-                                           int flags, mode_t mode) {
+std::shared_ptr<LinuxFile> LinuxFile::Open(std::string_view pathname, int flags,
+                                           mode_t mode) {
   int fd = ksys_open(pathname.data(), flags, mode);
   if (fd < 0) return nullptr;
-  return std::make_shared<LinuxFile>(Token{}, fd, flags, mode);
+  return std::make_shared<LinuxFile>(Token{}, fd, flags, mode, pathname);
 }
 
 Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {

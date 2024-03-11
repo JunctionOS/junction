@@ -10,6 +10,7 @@
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/limits.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -26,6 +27,22 @@ class Pipe {
   Status<size_t> Write(std::span<const std::byte> buf, bool nonblocking);
   void CloseReader();
   void CloseWriter();
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(chan_.get_size(), chan_, reader_closed_, writer_closed_);
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<Pipe> &construct) {
+    size_t sz;
+    ar(sz);
+    construct(sz);
+
+    Pipe &p = *construct.ptr();
+    ar(p.chan_, p.reader_closed_, p.writer_closed_);
+  }
 
  private:
   bool reader_is_closed() const {
@@ -154,6 +171,21 @@ class PipeReaderFile : public File {
   }
 
  private:
+  friend class cereal::access;
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(pipe_, cereal::base_class<File>(this));
+  }
+
+  // default constructor, only for cereal
+  PipeReaderFile() noexcept : File(FileType::kNormal, 0, kModeRead) {}
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(pipe_, cereal::base_class<File>(this));
+  }
+
   std::shared_ptr<Pipe> pipe_;
 };
 
@@ -170,6 +202,21 @@ class PipeWriterFile : public File {
   }
 
  private:
+  friend class cereal::access;
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(pipe_, cereal::base_class<File>(this));
+  }
+
+  // default constructor, only for cereal
+  PipeWriterFile() noexcept : File(FileType::kNormal, 0, kModeWrite) {}
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(pipe_, cereal::base_class<File>(this));
+  }
+
   std::shared_ptr<Pipe> pipe_;
 };
 
@@ -213,3 +260,6 @@ int usys_pipe2(int pipefd[2], int flags) {
 }
 
 }  // namespace junction
+
+CEREAL_REGISTER_TYPE(junction::PipeReaderFile);
+CEREAL_REGISTER_TYPE(junction::PipeWriterFile);
