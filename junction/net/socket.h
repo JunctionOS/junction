@@ -8,6 +8,7 @@
 #include "junction/base/error.h"
 #include "junction/bindings/net.h"
 #include "junction/kernel/file.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -41,8 +42,23 @@ class Socket : public File {
   }
   virtual Status<void> Listen(int backlog) { return MakeError(ENOTCONN); }
   virtual Status<void> Shutdown(int how) { return MakeError(ENOTCONN); }
-  virtual Status<netaddr> RemoteAddr() { return MakeError(ENOTCONN); }
-  virtual Status<netaddr> LocalAddr() { return MakeError(ENOTCONN); }
+  virtual Status<netaddr> RemoteAddr() const { return MakeError(ENOTCONN); }
+  virtual Status<netaddr> LocalAddr() const { return MakeError(ENOTCONN); }
+
+ private:
+  friend class cereal::access;
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(cereal::base_class<File>(this));
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(cereal::base_class<File>(this));
+  }
 };
 
 }  // namespace junction
+
+CEREAL_REGISTER_TYPE(junction::Socket);

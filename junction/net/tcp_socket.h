@@ -12,6 +12,7 @@ extern "C" {
 #include "junction/bindings/net.h"
 #include "junction/net/caladan_poll.h"
 #include "junction/net/socket.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -40,6 +41,7 @@ class TCPSocket : public Socket {
     if (is_nonblocking()) ret->SetNonBlocking(true);
     v_ = std::move(*ret);
     state_ = SocketState::kSockListening;
+    backlog_ = backlog;
     if (IsPollSourceSetup()) SetupPollSource();
     return {};
   }
@@ -104,13 +106,13 @@ class TCPSocket : public Socket {
     }
   }
 
-  Status<netaddr> RemoteAddr() override {
+  Status<netaddr> RemoteAddr() const override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(ENOTCONN);
     return TcpConn().RemoteAddr();
   }
 
-  Status<netaddr> LocalAddr() override {
+  Status<netaddr> LocalAddr() const override {
     switch (state_) {
       case SocketState::kSockUnbound:
       case SocketState::kSockBound:
@@ -206,11 +208,85 @@ class TCPSocket : public Socket {
 
   [[nodiscard]] rt::TCPConn &TcpConn() { return std::get<rt::TCPConn>(v_); }
   [[nodiscard]] rt::TCPQueue &TcpQueue() { return std::get<rt::TCPQueue>(v_); }
+  [[nodiscard]] const rt::TCPConn &TcpConn() const {
+    return std::get<rt::TCPConn>(v_);
+  }
+  [[nodiscard]] const rt::TCPQueue &TcpQueue() const {
+    return std::get<rt::TCPQueue>(v_);
+  }
+
+  friend class cereal::access;
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(cereal::base_class<Socket>(this), state_);
+
+    switch (state_) {
+      case SocketState::kSockBound:
+        ar(addr_);
+        break;
+      case SocketState::kSockConnected:
+        ar(TcpConn().LocalAddr(), TcpConn().RemoteAddr());
+        break;
+      case SocketState::kSockListening:
+        ar(TcpQueue().LocalAddr(), is_shut_, backlog_);
+        break;
+      default:
+        break;
+    }
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(cereal::base_class<Socket>(this), state_);
+
+    if (state_ == SocketState::kSockUnbound) return;
+    if (state_ == SocketState::kSockBound) {
+      ar(addr_);
+      return;
+    }
+
+    if (state_ == SocketState::kSockConnected) {
+      netaddr laddr, raddr;
+      ar(laddr, raddr);
+      Status<rt::TCPConn> c;
+      if (is_nonblocking()) {
+        c = rt::TCPConn::DialNonBlocking(laddr, raddr);
+      } else {
+        LOG(WARN) << "re-establishing TCP connection (may hang)";
+        c = rt::TCPConn::Dial(laddr, raddr);
+      }
+
+      if (unlikely(!c)) {
+        LOG(ERR) << "failed to restore TCP socket  " << laddr.ip << ":"
+                 << laddr.port << " <-> " << raddr.ip << ":" << raddr.port;
+        BUG();
+      }
+      v_ = std::move(*c);
+    } else {
+      assert(state_ == SocketState::kSockListening);
+      ar(addr_, is_shut_, backlog_);
+      Status<rt::TCPQueue> q = rt::TCPQueue::Listen(addr_, backlog_);
+      if (unlikely(!q)) {
+        LOG(ERR) << "failed to restore TCP listen socket @ " << addr_.ip << ":"
+                 << addr_.port;
+        BUG();
+      }
+      if (is_nonblocking()) q->SetNonBlocking(true);
+      if (is_shut_) q->Shutdown();
+      v_ = std::move(*q);
+    }
+
+    if (IsPollSourceSetup()) SetupPollSource();
+  }
 
   SocketState state_;
   netaddr addr_{0, 0};
+  int backlog_;
   std::atomic_bool is_shut_{false};
   std::variant<rt::TCPConn, rt::TCPQueue> v_;
 };
 
 }  // namespace junction
+
+CEREAL_REGISTER_TYPE(junction::TCPSocket);
