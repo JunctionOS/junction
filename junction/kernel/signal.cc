@@ -537,6 +537,16 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   preempt_disable();
   assert_on_runtime_stack();
 
+  if (signo == SIGSEGV) {
+    bool handled = myproc().get_mem_map().HandlePageFault(*info);
+    if (handled) {
+      thread_tf restore_tf;
+      MoveSigframeToJunctionThread(uc, restore_tf);
+      __switch_and_preempt_enable(&restore_tf);
+      std::unreachable();
+    }
+  }
+
   mythread().get_sighand().DeliverKernelSigToUser(signo, info,
                                                   KernelSignalTf(uc));
   std::unreachable();

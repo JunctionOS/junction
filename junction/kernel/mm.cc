@@ -120,6 +120,59 @@ std::map<uintptr_t, VMArea>::iterator MemoryMap::Clear(uintptr_t start,
   return it;
 }
 
+std::map<uintptr_t, VMArea>::iterator MemoryMap::Find(uintptr_t addr) {
+  assert(mu_.IsHeld());
+  assert(MappingsValid(vmareas_));
+  auto it = vmareas_.upper_bound(addr);
+  if (it == vmareas_.end() || it->second.start < addr) return vmareas_.end();
+  return it;
+}
+
+void MemoryMap::EnableTracing() {
+  rt::ScopedLock g(mu_);
+
+  tracer_.reset(new PageAccessTracer());
+  for (auto const &[end, vma] : vmareas_) {
+    if (vma.prot == PROT_NONE) continue;
+    Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), PROT_NONE);
+    if (unlikely(!ret)) LOG_ONCE(WARN) << "Could not enable trace for a VMArea";
+  }
+}
+
+void MemoryMap::EndTracing() {
+  rt::ScopedLock g(mu_);
+  tracer_->Dump();
+  tracer_.reset();
+  for (auto const &[end, vma] : vmareas_) {
+    if (vma.prot == PROT_NONE) continue;
+    Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), vma.prot);
+    if (unlikely(!ret))
+      LOG_ONCE(WARN) << "Could not restore VMArea permissions";
+  }
+}
+
+bool MemoryMap::HandlePageFault(siginfo_t &si) {
+  if (!tracer_) return false;
+
+  uintptr_t page = PageAlign(reinterpret_cast<uintptr_t>(si.si_addr));
+  if (!tracer_->RecordHit(page)) return false;
+
+  // TODO(jf): we can't block in interrupt delivery context, find a better way
+  // to acquire this mutex.
+  while (!mu_.TryLock()) CPURelax();
+  auto it = Find(page);
+  if (it == vmareas_.end()) {
+    mu_.Unlock();
+    return false;
+  }
+
+  int prot = it->second.prot;
+  bool done = prot != PROT_NONE &&
+              KernelMProtect(reinterpret_cast<void *>(page), kPageSize, prot);
+  mu_.Unlock();
+  return done;
+}
+
 void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
   assert(mu_.IsHeld());
   assert(MappingsValid(vmareas_));

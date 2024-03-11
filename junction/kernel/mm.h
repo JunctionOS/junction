@@ -8,6 +8,7 @@
 
 #include "junction/base/arch.h"
 #include "junction/base/error.h"
+#include "junction/bindings/log.h"
 #include "junction/bindings/sync.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/ksys.h"
@@ -56,6 +57,27 @@ struct VMArea {
   off_t offset;
 };
 
+class PageAccessTracer {
+ public:
+  PageAccessTracer() = default;
+
+  bool RecordHit(uintptr_t page) {
+    assert(IsPageAligned(page));
+    rt::SpinGuard g(lock_);
+    return access_at_.try_emplace(page, Time::Now()).second;
+  }
+
+  void Dump() {
+    rt::SpinGuard g(lock_);
+    for (auto const &[page, time] : access_at_)
+      LOG(ERR) << page << ": " << time.Microseconds();
+  }
+
+ private:
+  rt::Spin lock_;
+  std::map<uintptr_t, Time> access_at_;
+};
+
 // MemoryMap manages memory for a process
 class alignas(kCacheLineSize) MemoryMap {
  public:
@@ -98,12 +120,24 @@ class alignas(kCacheLineSize) MemoryMap {
   // LogMappings prints all the mappings to the log.
   void LogMappings();
 
+  // Start a tracer on this memory map. Sets all permissions in the kernel to
+  // PROT_NONE and updates permissions when page faults occur.
+  void EnableTracing();
+
+  void EndTracing();
+
+  // Returns true if this page fault is handled by the MM.
+  bool HandlePageFault(siginfo_t &si);
+
  private:
   // Clear removes existing VMAreas that overlap with the range [start, end)
   // Ex: ClearMappings(2, 6) when vmareas_ = [1, 3), [5, 7) results in vmareas_
   // = [1, 2), [6, 7). Returns an iterator to the first mapping after the
   // region that was cleared.
   std::map<uintptr_t, VMArea>::iterator Clear(uintptr_t start, uintptr_t end);
+
+  // Find a VMA that contains addr.
+  std::map<uintptr_t, VMArea>::iterator Find(uintptr_t addr);
 
   // Modify changes the access protections for memory in the range [start,
   // end).
@@ -117,6 +151,7 @@ class alignas(kCacheLineSize) MemoryMap {
   const uintptr_t brk_end_;
   uintptr_t brk_addr_;
   std::map<uintptr_t, VMArea> vmareas_;
+  std::unique_ptr<PageAccessTracer> tracer_;
 };
 
 // Reserve a region of virtual memory for a MemoryMap.
