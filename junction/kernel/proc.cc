@@ -372,12 +372,19 @@ void Process::DoExit(int status) {
     store_release(&exited_, true);
     stopped_threads_.WakeAll();
 
-    for (const auto &[pid, th] : thread_map_) th->Kill();
+    // Kill any threads besides this one.
+    for (const auto &[pid, th] : thread_map_)
+      if (pid != mythread().get_tid()) th->Kill();
+
+    // Wait for other threads to exit.
+    rt::Wait(child_thread_lock_, exec_waker_,
+             [this] { return thread_map_.size() == 1; });
   }
 
   if (status != 0)
     LOG(INFO) << "proc: pid " << get_pid() << " exiting with code " << status;
 
+  vfork_waker_.Wake();
   NotifyParentWait(kWaitableExited, status);
 }
 

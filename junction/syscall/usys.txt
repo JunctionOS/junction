@@ -127,3 +127,7 @@ time
 rt_sigtimedwait
 rt_sigsuspend
 pause
+getuid
+geteuid
+getgid
+getegid

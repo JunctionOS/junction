@@ -86,4 +86,12 @@ long usys_prlimit64([[maybe_unused]] pid_t pid, int resource,
   return 0;
 }
 
+uid_t usys_getuid() { return 0; }
+
+uid_t usys_geteuid() { return 0; }
+
+uid_t usys_getgid() { return 0; }
+
+uid_t usys_getegid() { return 0; }
+
 }  // namespace junction

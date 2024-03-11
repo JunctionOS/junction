@@ -740,9 +740,9 @@ junction_fncall_stackswitch_enter_preserve_regs:
 
 .macro RESTORETF_RET
 	RESTORETF_STACK
-	// correct rsp
-	subq    $8, %rsp;
-	ret
+	// in case of vfork(), the stack may no longer contain the return address.
+	// jump to the previously saved return address.
+	jmp     *%r11
 .endm
 
 	INTERRUPT_CHECK RESTORETF_RET

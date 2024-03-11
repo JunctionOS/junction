@@ -175,6 +175,10 @@ long usys_prlimit64(pid_t pid, int resource, const struct rlimit *new_limit,
                     struct rlimit *old_limit);
 long usys_ioctl(int fd, unsigned long request, char *argp);
 long usys_sysinfo(struct sysinfo *info);
+uid_t usys_getuid();
+uid_t usys_geteuid();
+uid_t usys_getgid();
+uid_t usys_getegid();
 
 // Signals
 long usys_rt_sigaction(int sig, const struct k_sigaction *action,
