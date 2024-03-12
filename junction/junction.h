@@ -75,6 +75,7 @@ pid_t GetLinuxPid();
 
 Status<void> init();
 Status<void> InitUnixTime();
+Status<void> InitControlServer();
 Status<std::unique_ptr<Process>> InitTestProc();
 void EnableMemoryAllocation();
 

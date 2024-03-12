@@ -37,5 +37,6 @@ add_library(kernel STATIC
 target_link_libraries(kernel PUBLIC
   base
   bindings
+  control
   snapshot
 )

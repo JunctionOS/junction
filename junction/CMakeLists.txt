@@ -95,6 +95,7 @@ endif()
 # Build all modules
 add_subdirectory(base)
 add_subdirectory(bindings)
+add_subdirectory(control)
 add_subdirectory(filesystem)
 add_subdirectory(fs)
 add_subdirectory(kernel)
