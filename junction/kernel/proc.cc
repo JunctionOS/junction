@@ -473,6 +473,7 @@ void Process::ThreadStopWait() {
 
   rt::Wait(child_thread_lock_, stopped_threads_,
            [&]() { return !stopped_ || exited_; });
+  stopped_count_--;
 }
 
 pid_t usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru) {

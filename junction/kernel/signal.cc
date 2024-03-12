@@ -540,6 +540,7 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   // Tracer page faults might be generated from inside the Junction kernel,
   // check and handle these faults before further error checking.
   if (signo == SIGSEGV && myproc().get_mem_map().HandlePageFault(*info)) {
+    if (!preempt_enabled()) return;
     thread_tf restore_tf;
     MoveSigframeToJunctionThread(uc, restore_tf);
     // preemption is implicitly disabled currently because we are on the runtime

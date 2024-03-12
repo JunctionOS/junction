@@ -141,14 +141,32 @@ void MemoryMap::EnableTracing() {
 
 void MemoryMap::EndTracing() {
   rt::ScopedLock g(mu_);
-  tracer_->Dump();
-  tracer_.reset();
+  if (!tracer_) return;
+
+  // Restore all VMAs
   for (auto const &[end, vma] : vmareas_) {
     if (vma.prot == PROT_NONE) continue;
     Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), vma.prot);
     if (unlikely(!ret))
       LOG_ONCE(WARN) << "Could not restore VMArea permissions";
   }
+
+  // Sort accesses by time
+  std::map<Time, uintptr_t> mp;
+  for (auto const &[page, time] : tracer_->access_at_) mp.emplace(time, page);
+
+  for (auto const &[time, page] : mp) {
+    auto it = Find(page);
+    if (it == vmareas_.end()) {
+      LOG(WARN) << "skipping unknown VMA";
+      continue;
+    }
+
+    LOG(INFO) << time.Microseconds() << ": " << (void *)page << " "
+              << it->second.TypeString();
+  }
+
+  tracer_.reset();
 }
 
 bool MemoryMap::HandlePageFault(siginfo_t &si) {
@@ -157,7 +175,7 @@ bool MemoryMap::HandlePageFault(siginfo_t &si) {
   uintptr_t page = PageAlignDown(reinterpret_cast<uintptr_t>(si.si_addr));
 
   rt::RuntimeLibcGuard guard;
-  if (!tracer_->RecordHit(page)) return false;
+  if (!tracer_->RecordHit(page)) return true;
 
   // TODO(jf): we can't block in interrupt delivery context, find a better way
   // to acquire this mutex.
@@ -400,27 +418,12 @@ void MemoryMap::LogMappings() {
     return tmp;
   };
 
-  auto type_str = [](const VMArea &vma) {
-    switch (vma.type) {
-      case VMType::kNormal:
-        return "";
-      case VMType::kHeap:
-        return "[heap]";
-      case VMType::kStack:
-        return "[stack]";
-      case VMType::kFile:
-        return "[file]";  // TODO(amb): print the file path, not this
-      default:
-        return "";
-    }
-  };
-
   rt::ScopedSharedLock g(mu_);
   for (auto const &[end, vma] : vmareas_) {
     uintptr_t offset = vma.type == VMType::kFile ? vma.offset : 0;
     LOG(INFO) << std::hex << "0x" << vma.start << "-0x" << vma.end << " "
               << prot_str(vma) << " " << std::setw(8) << offset << " "
-              << type_str(vma);
+              << vma.TypeString();
   }
 }
 

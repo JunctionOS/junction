@@ -49,6 +49,21 @@ struct VMArea {
   // Length returns the length of the VMA.
   size_t Length() const { return end - start; }
 
+  std::string TypeString() const {
+    switch (type) {
+      case VMType::kNormal:
+        return "";
+      case VMType::kHeap:
+        return "[heap]";
+      case VMType::kStack:
+        return "[stack]";
+      case VMType::kFile:
+        return file->get_filename();
+      default:
+        return "";
+    }
+  }
+
   uintptr_t start;
   uintptr_t end;
   int prot;
@@ -63,17 +78,13 @@ class PageAccessTracer {
 
   bool RecordHit(uintptr_t page) {
     assert(IsPageAligned(page));
+    Time now = Time::Now();
     rt::SpinGuard g(lock_);
-    return access_at_.try_emplace(page, Time::Now()).second;
-  }
-
-  void Dump() {
-    rt::SpinGuard g(lock_);
-    for (auto const &[page, time] : access_at_)
-      LOG(ERR) << page << ": " << time.Microseconds();
+    return access_at_.try_emplace(page, now).second;
   }
 
  private:
+  friend class MemoryMap;
   rt::Spin lock_;
   std::map<uintptr_t, Time> access_at_;
 };
