@@ -315,6 +315,14 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
     return;
   }
 
+  // preemption is implicitly disabled if we are on the runtime stack.
+  uint64_t ss = GetRuntimeStack();
+  if (unlikely(uintr_frame->rsp <= ss &&
+               uintr_frame->rsp > ss - RUNTIME_STACK_SIZE)) {
+    perthread_andi(preempt_cnt, 0x7fffffff);
+    return;
+  }
+
   // Take care here to avoid calling functions not marked as __nofp. (The
   // compiler will allow you to do this without complaining.)
 
@@ -519,6 +527,7 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
 extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
                                            void *context) {
   k_ucontext *uc = reinterpret_cast<k_ucontext *>(context);
+  if (unlikely(!uc)) print_msg_abort("signal delivered without context");
 
   if (unlikely(!thread_self()))
     print_msg_abort("Unexpected signal delivered to Caladan code");
@@ -526,26 +535,28 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   if (unlikely(!IsJunctionThread()))
     print_msg_abort("Unexpected signal delivered to Junction code");
 
+  assert_on_runtime_stack();
+
+  // Tracer page faults might be generated from inside the Junction kernel,
+  // check and handle these faults before further error checking.
+  if (signo == SIGSEGV && myproc().get_mem_map().HandlePageFault(*info)) {
+    thread_tf restore_tf;
+    MoveSigframeToJunctionThread(uc, restore_tf);
+    // preemption is implicitly disabled currently because we are on the runtime
+    // stack. explictly disable preemption so that our switch function can
+    // re-enable it and check for interrupts.
+    preempt_disable();
+    __switch_and_preempt_enable(&restore_tf);
+    std::unreachable();
+  }
+
   if (unlikely(!preempt_enabled()))
     print_msg_abort("signal delivered while preemption is disabled");
 
   if (unlikely(mythread().in_kernel()))
     print_msg_abort("signal delivered while in Junction syscall handler");
 
-  if (unlikely(!context)) print_msg_abort("signal delivered without context");
-
   preempt_disable();
-  assert_on_runtime_stack();
-
-  if (signo == SIGSEGV) {
-    bool handled = myproc().get_mem_map().HandlePageFault(*info);
-    if (handled) {
-      thread_tf restore_tf;
-      MoveSigframeToJunctionThread(uc, restore_tf);
-      __switch_and_preempt_enable(&restore_tf);
-      std::unreachable();
-    }
-  }
 
   mythread().get_sighand().DeliverKernelSigToUser(signo, info,
                                                   KernelSignalTf(uc));
