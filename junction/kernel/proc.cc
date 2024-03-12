@@ -462,6 +462,7 @@ void Process::ThreadStopWait() {
   assert(mythread().in_kernel());
 
   rt::SpinGuard g(child_thread_lock_);
+  if (!stopped_) return;
 
   if (++stopped_count_ == thread_map_.size()) {
     NotifyParentWait(kWaitableStopped);

@@ -411,6 +411,7 @@ class Process : public std::enable_shared_from_this<Process> {
     rt::ScopedLock g(child_thread_lock_);
     stopped_ = stop;
     if (!stop) {
+      stopped_count_ = 0;
       stopped_threads_.WakeAll();
       NotifyParentWait(kWaitableContinued);
     } else {

@@ -823,6 +823,10 @@ void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
     if (stop) {
       // Don't restart after stopping.
       if (wants_restart) this_thread().GetSyscallFrame().SetRax(-EINTR);
+      // This thread should already have a non-zero interrupt state, but this
+      // clears the prepared flag to allow the thread to block again on the
+      // stopped threads WaitQueue.
+      set_interrupt_state_interrupted();
       myproc().ThreadStopWait();
       // The interrupt flag is not cleared; this function will immediately run
       // again.
