@@ -1,6 +1,1 @@
 execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/hello.js ${CMAKE_CURRENT_BINARY_DIR})
-execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/snapshot.cpp ${CMAKE_CURRENT_BINARY_DIR})
-execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/binding.gyp ${CMAKE_CURRENT_BINARY_DIR})
-execute_process(COMMAND node-gyp clean -C ${CMAKE_CURRENT_BINARY_DIR})
-execute_process(COMMAND node-gyp configure -C ${CMAKE_CURRENT_BINARY_DIR})
-execute_process(COMMAND node-gyp build -C ${CMAKE_CURRENT_BINARY_DIR})

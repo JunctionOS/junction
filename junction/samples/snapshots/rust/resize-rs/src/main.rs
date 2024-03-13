@@ -22,18 +22,6 @@ struct Args {
     #[arg(short, long)]
     check: Option<std::path::PathBuf>,
 
-    /// Snapshot the program before generating the thumbnail
-    #[arg(short, long)]
-    snapshot: bool,
-
-    /// Path to snapshot ELF
-    #[arg(long, required_if_eq("snapshot", "true"))]
-    elf: Option<std::path::PathBuf>,
-
-    /// Path to snapshot metadata
-    #[arg(long, required_if_eq("snapshot", "true"))]
-    metadata: Option<std::path::PathBuf>,
-
     /// verbose logging
     #[arg(short, long)]
     verbose: bool,
@@ -87,13 +75,7 @@ fn main() -> anyhow::Result<()> {
             .init();
     }
 
-    if args.snapshot {
-        if snapshot::snapshot(&args.elf.unwrap(), &args.metadata.unwrap())? {
-            info!("OK: snapshot done");
-        } else {
-            info!("OK: restored from snapshot");
-        }
-    }
+    nix::sys::signal::raise(nix::sys::signal::Signal::SIGSTOP).unwrap();
 
     let thumbnail = resize(&args.image)?;
 
