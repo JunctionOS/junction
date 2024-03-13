@@ -64,6 +64,14 @@ struct VMArea {
     }
   }
 
+  std::string ProtString() const {
+    std::string tmp("---p");
+    if (prot & PROT_READ) tmp[0] = 'r';
+    if (prot & PROT_WRITE) tmp[1] = 'w';
+    if (prot & PROT_EXEC) tmp[2] = 'x';
+    return tmp;
+  }
+
   uintptr_t start;
   uintptr_t end;
   int prot;

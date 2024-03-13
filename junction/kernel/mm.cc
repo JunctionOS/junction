@@ -388,7 +388,7 @@ Status<void> MemoryMap::MUnmap(void *addr, size_t len) {
   Status<void> ret = KernelMUnmap(addr, len);
   if (!ret) return MakeError(ret);
   auto [start, end] = AddressToBounds(addr, len);
-  Clear(start, len);
+  Clear(start, end);
   return {};
 }
 
@@ -409,22 +409,16 @@ size_t MemoryMap::VirtualUsage() {
   return usage;
 }
 
-void MemoryMap::LogMappings() {
-  auto prot_str = [](const VMArea &vma) {
-    std::string tmp("---p");
-    if (vma.prot & PROT_READ) tmp[0] = 'r';
-    if (vma.prot & PROT_WRITE) tmp[1] = 'w';
-    if (vma.prot & PROT_EXEC) tmp[2] = 'x';
-    return tmp;
-  };
+std::ostream &operator<<(std::ostream &os, const VMArea &vma) {
+  uintptr_t offset = vma.type == VMType::kFile ? vma.offset : 0;
+  return os << std::hex << "0x" << vma.start << "-0x" << vma.end << " "
+            << vma.ProtString() << " " << std::setw(8) << offset << " "
+            << vma.TypeString();
+}
 
+void MemoryMap::LogMappings() {
   rt::ScopedSharedLock g(mu_);
-  for (auto const &[end, vma] : vmareas_) {
-    uintptr_t offset = vma.type == VMType::kFile ? vma.offset : 0;
-    LOG(INFO) << std::hex << "0x" << vma.start << "-0x" << vma.end << " "
-              << prot_str(vma) << " " << std::setw(8) << offset << " "
-              << vma.TypeString();
-  }
+  for (auto const &[end, vma] : vmareas_) LOG(INFO) << vma;
 }
 
 intptr_t usys_brk(uintptr_t addr) {
