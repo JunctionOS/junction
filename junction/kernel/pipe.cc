@@ -170,6 +170,12 @@ class PipeReaderFile : public File {
     return pipe_->Read(buf, (get_flags() & kFlagNonblock) != 0);
   }
 
+  Status<void> Stat(struct stat *statbuf, int flags) override {
+    // TODO(jf): do we need to fill in more fields?
+    statbuf->st_mode = S_IFIFO;
+    return {};
+  }
+
  private:
   friend class cereal::access;
 
@@ -199,6 +205,12 @@ class PipeWriterFile : public File {
   Status<size_t> Write(std::span<const std::byte> buf,
                        [[maybe_unused]] off_t *off) override {
     return pipe_->Write(buf, (get_flags() & kFlagNonblock) != 0);
+  }
+
+  Status<void> Stat(struct stat *statbuf, int flags) override {
+    // TODO(jf): do we need to fill in more fields?
+    statbuf->st_mode = S_IFIFO;
+    return {};
   }
 
  private:
