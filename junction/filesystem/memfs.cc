@@ -262,6 +262,7 @@ MemFS::MemFS(const std::string_view& pathname) noexcept
 
 MemFS::MemFS(std::vector<std::string> prefixes) noexcept
     : prefixes_(std::move(prefixes)) {
+  rt::RuntimeLibcGuard guard;
   root_ = std::make_shared<MemFSInode>(kTypeDirectory);
   root_->nlink_++;
   cwd_ = root_;
@@ -293,6 +294,7 @@ MemFS::MemFS(std::vector<std::string> prefixes) noexcept
 
 Status<std::shared_ptr<File>> MemFS::Open(const std::string_view& pathname,
                                           uint32_t mode, uint32_t flags) {
+  rt::RuntimeLibcGuard guard;
   const std::filesystem::path fp(pathname);
   const bool is_create = flags & kFlagCreate;
   const bool is_dir = flags & kFlagDirectory;
@@ -332,11 +334,13 @@ bool MemFS::is_supported(const std::string_view& pathname,
 
 Status<std::shared_ptr<Inode>> MemFS::GetInode(
     const std::string_view& pathname) {
+  rt::RuntimeLibcGuard guard;
   return GetInode(std::filesystem::path(pathname));
 }
 
 Status<std::shared_ptr<Inode>> MemFS::GetInode(
     const std::filesystem::path& pathname) {
+  rt::RuntimeLibcGuard guard;
   // TODO(girfan): Use a fixed-size LRU cache to avoid walking the tree?
   auto it = pathname.begin();
   if (unlikely(it == pathname.end())) return MakeError(ENOENT);
@@ -362,16 +366,19 @@ Status<std::shared_ptr<Inode>> MemFS::GetInode(
 
 Status<std::shared_ptr<Inode>> MemFS::GetParentInode(
     const std::string_view& pathname) {
+  rt::RuntimeLibcGuard guard;
   return GetParentInode(std::filesystem::path(pathname));
 }
 
 Status<std::shared_ptr<Inode>> MemFS::GetParentInode(
     const std::filesystem::path& pathname) {
+  rt::RuntimeLibcGuard guard;
   return GetInode(pathname.parent_path());
 }
 
 Status<void> MemFS::CreateDirectory(const std::string_view& pathname,
                                     uint32_t mode) {
+  rt::RuntimeLibcGuard guard;
   const std::filesystem::path fp(pathname);
 
   // Get the parent inode.
@@ -392,6 +399,7 @@ Status<void> MemFS::CreateDirectory(const std::string_view& pathname,
 }
 
 Status<void> MemFS::RemoveDirectory(const std::string_view& pathname) {
+  rt::RuntimeLibcGuard guard;
   const std::filesystem::path fp(pathname);
 
   auto ret = GetParentInode(fp);
@@ -428,6 +436,7 @@ Status<void> MemFS::StatFS(const std::string_view& pathname,
 }
 
 Status<void> MemFS::Stat(const std::string_view& pathname, struct stat* buf) {
+  rt::RuntimeLibcGuard guard;
   const std::filesystem::path fp(pathname);
   auto ret = GetInode(fp);
   if (unlikely(!ret)) return MakeError(ret);
@@ -436,6 +445,7 @@ Status<void> MemFS::Stat(const std::string_view& pathname, struct stat* buf) {
 
 Status<void> MemFS::Link(const std::string_view& oldpath,
                          const std::string_view& newpath) {
+  rt::RuntimeLibcGuard guard;
   const std::filesystem::path oldfp(oldpath);
   const std::filesystem::path newfp(newpath);
 
@@ -457,6 +467,7 @@ Status<void> MemFS::Link(const std::string_view& oldpath,
 }
 
 Status<void> MemFS::Unlink(const std::string_view& pathname) {
+  rt::RuntimeLibcGuard guard;
   const std::filesystem::path fp(pathname);
 
   auto ret = GetParentInode(fp);
