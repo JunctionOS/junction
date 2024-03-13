@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <cstddef>
 #include <limits>
 #include <type_traits>
 #include <typeinfo>

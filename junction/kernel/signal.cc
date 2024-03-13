@@ -535,8 +535,6 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   if (unlikely(!IsJunctionThread()))
     print_msg_abort("Unexpected signal delivered to Junction code");
 
-  assert_on_runtime_stack();
-
   // Tracer page faults might be generated from inside the Junction kernel,
   // check and handle these faults before further error checking.
   if (signo == SIGSEGV && myproc().get_mem_map().HandlePageFault(*info)) {
@@ -558,6 +556,7 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
     print_msg_abort("signal delivered while in Junction syscall handler");
 
   preempt_disable();
+  assert_on_runtime_stack();
 
   mythread().get_sighand().DeliverKernelSigToUser(signo, info,
                                                   KernelSignalTf(uc));
