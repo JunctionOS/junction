@@ -11,6 +11,7 @@ extern "C" {
 #include "junction/base/error.h"
 #include "junction/filesystem/linuxfile.h"
 #include "junction/kernel/ksys.h"
+#include "junction/syscall/strace.h"
 
 namespace junction {
 
@@ -31,9 +32,26 @@ std::shared_ptr<LinuxFile> LinuxFile::Open(std::string_view pathname, int flags,
   return std::make_shared<LinuxFile>(Token{}, fd, flags, mode, pathname);
 }
 
+void TouchPages(std::span<std::byte> buf) {
+  uintptr_t start = PageAlignDown(reinterpret_cast<uintptr_t>(buf.data()));
+  char *pg = reinterpret_cast<char *>(start);
+  char *end = reinterpret_cast<char *>(buf.data() + buf.size_bytes());
+  [[maybe_unused]] volatile char c;
+  for (; pg < end; pg += kPageSize) c = access_once(*pg);
+}
+
 Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {
+  // If we are tracing page accesses, we need to fault the pages in before
+  // passing them to the kernel since the page fault handler won't be invoked
+  // by the kernel in this case.
+  // TODO(jf): consider gating this with a compile flag.
+  if (IsJunctionThread() && unlikely(myproc().get_mem_map().TraceEnabled()))
+    TouchPages(buf);
   ssize_t ret = ksys_pread(fd_, buf.data(), buf.size_bytes(), *off);
-  if (ret < 0) return MakeError(-ret);
+  if (ret < 0) {
+    if (ret == -EINTR) return MakeError(ERESTARTSYS);
+    return MakeError(-ret);
+  }
   *off += ret;
   return ret;
 }

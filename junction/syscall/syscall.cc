@@ -8,8 +8,20 @@
 
 namespace junction {
 
+static sysfn_t *dst_tbl;
+
+void SyscallForceStackSwitch() {
+  dst_tbl[453] = sys_tbl[451];
+  dst_tbl[454] = sys_tbl[452];
+}
+
+void SyscallRestoreNoStackSwitch() {
+  dst_tbl[453] = sys_tbl[453];
+  dst_tbl[454] = sys_tbl[454];
+}
+
 Status<void> SyscallInit() {
-  sysfn_t *dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);
+  dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);
 
   if (uintr_enabled) {
     sys_tbl_strace[451] = sys_tbl[451] =

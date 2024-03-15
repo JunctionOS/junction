@@ -235,6 +235,7 @@ ssize_t usys_read(int fd, char *buf, size_t len) {
   File *f = ftbl.Get(fd);
   if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
   Status<size_t> ret = f->Read(readable_span(buf, len), &f->get_off_ref());
+  if (!ret && ret.error() == EINTR) return -ERESTARTSYS;
   if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }

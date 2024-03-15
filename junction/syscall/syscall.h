@@ -13,6 +13,8 @@ extern "C" {
 namespace junction {
 
 Status<void> SyscallInit();
+void SyscallForceStackSwitch();
+void SyscallRestoreNoStackSwitch();
 
 // Update in entry.S if changed.
 static_assert(offsetof(thread, stack) == JUNCTION_STACK_OFFSET);
