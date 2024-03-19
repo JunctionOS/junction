@@ -145,6 +145,8 @@ class alignas(kCacheLineSize) MemoryMap {
 
   void EndTracing();
 
+  [[nodiscard]] bool TraceEnabled() const { return !!tracer_; }
+
   // Returns true if this page fault is handled by the MM.
   bool HandlePageFault(siginfo_t &si);
 
