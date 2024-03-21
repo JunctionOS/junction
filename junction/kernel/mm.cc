@@ -204,7 +204,10 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
   auto it = vmareas_.lower_bound(start);
   auto prev_it = vmareas_.end();
   while (it != vmareas_.end() && it->second.start <= end) {
-    auto f = finally([&prev_it, it] { prev_it = it; });
+    auto f = finally([&prev_it, &it] {
+      prev_it = it;
+      it++;
+    });
     VMArea &vma = it->second;
 
     // skip if the VMA's end is at start (but try merging it next round)
@@ -374,7 +377,7 @@ Status<void> MemoryMap::MProtect(void *addr, size_t len, int prot) {
   Status<void> ret = KernelMProtect(addr, len, prot);
   if (!ret) return MakeError(ret);
   auto [start, end] = AddressToBounds(addr, len);
-  Modify(start, len, prot);
+  Modify(start, end, prot);
   return {};
 }
 
