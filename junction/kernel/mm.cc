@@ -200,10 +200,10 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
 
   // TODO(amb): Should this function fail if there are unmapped gaps?
 
-  // We want the first interval [a,b] where b >= start
-  auto it = vmareas_.lower_bound(start);
+  // We want the first interval [a,b] where b > start
+  auto it = vmareas_.upper_bound(start);
   auto prev_it = vmareas_.end();
-  while (it != vmareas_.end() && it->second.start <= end) {
+  while (it != vmareas_.end() && it->second.start < end) {
     auto f = finally([&prev_it, &it] {
       prev_it = it;
       it++;
