@@ -76,17 +76,6 @@ void ReleasePid(pid_t pid, std::optional<pid_t> pgid = std::nullopt) {
   }
 }
 
-void CloneTrapframe(thread_t *newth, const Thread &oldth) {
-  oldth.CopySyscallRegs(newth->tf);
-  newth->tf.r11 = newth->tf.rip;
-
-  // copy fsbase if present
-  if (oldth.GetCaladanThread()->has_fsbase) {
-    newth->has_fsbase = true;
-    newth->tf.fsbase = oldth.GetCaladanThread()->tf.fsbase;
-  }
-}
-
 long DoClone(clone_args *cl_args, uint64_t rsp) {
   bool do_vfork = false;
 
@@ -102,48 +91,55 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
 
   Status<Thread *> tptr;
 
+  Thread &oldth = mythread();
+
   if (do_vfork) {
     rt::ThreadWaker waker;
     waker.Arm();
     Status<std::shared_ptr<Process>> forkp =
-        myproc().CreateProcessVfork(std::move(waker));
+        oldth.get_process().CreateProcessVfork(std::move(waker));
     if (!forkp) return MakeCError(forkp);
     tptr = (*forkp)->CreateThreadMain();
   } else {
-    tptr = myproc().CreateThread();
+    tptr = oldth.get_process().CreateThread();
   }
 
   if (!tptr) return MakeCError(tptr);
 
-  Thread &tstate = **tptr;
-  thread_t *th = tstate.GetCaladanThread();
+  Thread &newth = **tptr;
+  thread_t &new_cth = *newth.GetCaladanThread();
+  thread_t &old_cth = *oldth.GetCaladanThread();
 
   // Clone the trap frame
-  CloneTrapframe(th, mythread());
+  uint64_t sys_rsp = newth.get_syscall_stack_rsp();
+  SyscallFrame &restore_tf = oldth.GetSyscallFrame().CloneTo(&sys_rsp);
+  restore_tf.SetRax(0, rsp);
+  newth.mark_enter_kernel();
+  restore_tf.MakeUnwinderSysret(newth, new_cth.tf);
 
-  th->tf.rsp = rsp;
-  th->tf.rip = reinterpret_cast<uint64_t>(clone_fast_start);
+  // Set FSBASE if requested.
+  if (cl_args->flags & CLONE_SETTLS) {
+    thread_set_fsbase(&new_cth, cl_args->tls);
+  } else {
+    new_cth.has_fsbase = old_cth.has_fsbase;
+    new_cth.tf.fsbase = old_cth.tf.fsbase;
+  }
 
-  // Set FSBASE if requested
-  if (cl_args->flags & CLONE_SETTLS) thread_set_fsbase(th, cl_args->tls);
-
-  // Write this thread's tid into
+  // Write this thread's tid into the requested location.
   if (cl_args->flags & CLONE_PARENT_SETTID)
-    *reinterpret_cast<uint32_t *>(cl_args->parent_tid) = tstate.get_tid();
+    *reinterpret_cast<uint32_t *>(cl_args->parent_tid) = newth.get_tid();
 
   // Save a pointer to the child_tid address if requested, so it can later
   // notify the parent of the child's exit via futex.
   if (cl_args->flags & CLONE_CHILD_CLEARTID)
-    tstate.set_child_tid(reinterpret_cast<uint32_t *>(cl_args->child_tid));
-  else
-    tstate.set_child_tid(nullptr);
+    newth.set_child_tid(reinterpret_cast<uint32_t *>(cl_args->child_tid));
 
-  thread_ready(th);
+  newth.ThreadReady();
 
-  // Wait for child thread to exit or exec
+  // Wait for child thread to exit or exec.
   if (do_vfork) rt::WaitForever();
 
-  return tstate.get_tid();
+  return newth.get_tid();
 }
 
 }  // namespace
@@ -455,11 +451,12 @@ std::pair<idtype_t, id_t> PidtoId(pid_t pid) {
   return {P_PID, pid};
 }
 
-void Process::ThreadStopWait() {
+void Process::ThreadStopWait(Thread &th) {
   // Flag should be set on entry.
-  assert(rt::GetInterruptibleStatus(thread_self()) !=
+  assert(rt::GetInterruptibleStatus(th.GetCaladanThread()) !=
          rt::InterruptibleStatus::kNone);
-  assert(mythread().in_kernel());
+  assert(!check_prepared(th.GetCaladanThread()));
+  assert(th.in_kernel());
 
   rt::SpinGuard g(child_thread_lock_);
   if (!stopped_) return;

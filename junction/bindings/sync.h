@@ -169,9 +169,7 @@ class UniqueLock {
     lock_->Lock();
   }
   [[nodiscard]] UniqueLock(L &lock, defer_lock_t t) noexcept
-      : lock_(&lock), owns_(false) {
-    assert(!lock_->IsHeld());
-  }
+      : lock_(&lock), owns_(false) {}
   [[nodiscard]] UniqueLock(L &lock, adopt_lock_t t) noexcept
       : lock_(&lock), owns_(true) {
     assert(lock_->IsHeld());

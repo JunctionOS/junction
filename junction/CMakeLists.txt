@@ -58,6 +58,45 @@ set(caladan_test_config_path
 )
 file(WRITE ${caladan_test_config_path} ${caladan_test_config})
 
+set(caladan_test_config_st
+"host_addr 192.168.127.7
+host_netmask 255.255.255.0
+host_gateway 192.168.127.1
+runtime_kthreads 1
+runtime_spinning_kthreads 0
+runtime_guaranteed_kthreads 0
+runtime_priority lc
+runtime_quantum_us 0"
+)
+file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_st.config ${caladan_test_config})
+
+set(caladan_test_config_ts
+"host_addr 192.168.127.7
+host_netmask 255.255.255.0
+host_gateway 192.168.127.1
+runtime_kthreads ${n_kthreads}
+runtime_spinning_kthreads 0
+runtime_guaranteed_kthreads 0
+runtime_priority lc
+runtime_quantum_us 10"
+)
+file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_ts.config ${caladan_test_config})
+
+set(caladan_test_config_ts_st
+"host_addr 192.168.127.7
+host_netmask 255.255.255.0
+host_gateway 192.168.127.1
+runtime_kthreads 1
+runtime_spinning_kthreads 0
+runtime_guaranteed_kthreads 0
+runtime_priority lc
+runtime_quantum_us 10"
+)
+file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_ts_st.config ${caladan_test_config})
+
+
+
+
 set(fs_test_config
 "/memfs
 /tmp

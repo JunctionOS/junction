@@ -265,15 +265,14 @@ class ThreadSignalHandler {
   void DeliverSignals(const Trapframe &entry, int rax);
 
   // Entry point for a kernel delivered signal.
-  [[noreturn]] void DeliverKernelSigToUser(int signo, siginfo_t *info,
-                                           const KernelSignalTf &sigframe);
+  void DeliverKernelSigToUser(int signo, const KernelSignalTf &sigframe,
+                              thread_tf &restore_tf);
 
   // Retrieve the next signal to be delivered to the user.
-  std::optional<DeliveredSignal> GetNextSignal(bool *stopped);
+  std::optional<DeliveredSignal> GetNextSignal();
 
   // Pop the next pending signal's information
-  std::optional<siginfo_t> PopSigInfo(k_sigset_t blocked, bool reset_flag,
-                                      bool *stopped);
+  std::optional<siginfo_t> PopSigInfo(k_sigset_t blocked, bool reset_flag);
 
   template <class Archive>
   void serialize(Archive &ar) {

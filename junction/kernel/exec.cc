@@ -133,36 +133,7 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
       filename, edata, random_ptr);
 }
 
-// Restore full trapframe to restore snapshot
-extern "C" void snapshot_exec_start(void *tf);
-
 }  // namespace
-
-// Load snapshot memory mappings and trapframe
-Status<Thread *> Exec(Process &p, MemoryMap &mm, thread_tf &tf,
-                      std::string_view pathname) {
-  LoadELF(mm, pathname);
-
-  Status<Thread *> main = p.GetThreadMain();
-  if (!main) return MakeError(main);
-
-  thread_t *th = (*main)->GetCaladanThread();
-  // Snapshot syscall returns 0 on snapshot and 1 on restore
-  tf.rax = 1;
-
-  // Make space for the trapframe and return adress
-  auto tf_loc = reinterpret_cast<void *>(reinterpret_cast<std::byte *>(tf.rsp) -
-                                         (sizeof(thread_tf) + 8));
-
-  // copy return address onto the stack
-  *(reinterpret_cast<uint64_t *>(tf.rsp - 8)) = tf.rip;
-  // copy trapframe onto the stack
-  memcpy(tf_loc, reinterpret_cast<void *>(&tf), sizeof(thread_tf));
-  th->tf.rip = reinterpret_cast<uintptr_t>(snapshot_exec_start);
-  th->tf.rdi = reinterpret_cast<uintptr_t>(tf_loc);
-
-  return reinterpret_cast<Thread *>(th->junction_tstate_buf);
-}
 
 Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                       const std::vector<std::string_view> &argv,
@@ -217,6 +188,8 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
     // Complete the exec
     myth.get_process().FinishExec(std::move(mm));
 
+    // We can allocate a thread_tf on the syscall stack but not the
+    // FunctionCallTf wrapper. Use the Thread instance's fcall_tf.
     thread_tf start_tf;
 
     // clear argument registers
@@ -230,19 +203,8 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
     start_tf.rsp = std::get<0>(regs);
     start_tf.rip = std::get<1>(regs);
 
-    while (true) {
-      preempt_disable();
-      myth.mark_leave_kernel();
-      if (!myth.needs_interrupt()) {
-        __restore_tf_full_and_preempt_enable(&start_tf);
-        std::unreachable();
-      }
-
-      myth.mark_enter_kernel();
-      preempt_enable();
-
-      myth.get_sighand().DeliverSignals(FunctionCallTf(start_tf), 0);
-    }
+    // Set entry_regs to start_tf and use fcall_tf to unwind.
+    myth.ReplaceEntryRegs(start_tf).JmpUnwindSysret(myth);
   });
 }
 

@@ -2,8 +2,8 @@
 
 #pragma once
 
-#include <map>
 #include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "junction/base/arch.h"
@@ -75,6 +75,7 @@ struct VMArea {
   uintptr_t start;
   uintptr_t end;
   int prot;
+  bool traced : 1 {false};
   VMType type;
   std::shared_ptr<File> file;
   off_t offset;
@@ -84,17 +85,16 @@ class PageAccessTracer {
  public:
   PageAccessTracer() = default;
 
-  bool RecordHit(uintptr_t page) {
+  bool RecordHit(uintptr_t page, Time t) {
     assert(IsPageAligned(page));
-    Time now = Time::Now();
-    rt::SpinGuard g(lock_);
-    return access_at_.try_emplace(page, now).second;
+    auto [it, inserted] = access_at_.try_emplace(page, t);
+    it->second = std::min(it->second, t);
+    return inserted;
   }
 
  private:
   friend class MemoryMap;
-  rt::Spin lock_;
-  std::map<uintptr_t, Time> access_at_;
+  std::unordered_map<uintptr_t, Time> access_at_;
 };
 
 // MemoryMap manages memory for a process
@@ -148,7 +148,7 @@ class alignas(kCacheLineSize) MemoryMap {
   [[nodiscard]] bool TraceEnabled() const { return !!tracer_; }
 
   // Returns true if this page fault is handled by the MM.
-  bool HandlePageFault(siginfo_t &si);
+  bool HandlePageFault(uintptr_t addr, Time time);
 
  private:
   // Clear removes existing VMAreas that overlap with the range [start, end)

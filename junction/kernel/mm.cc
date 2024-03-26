@@ -53,6 +53,7 @@ bool MergeRight(const VMArea &lhs, VMArea &rhs) {
   // check general merge criteria
   if (lhs.end != rhs.start || lhs.type != rhs.type || lhs.prot != rhs.prot)
     return false;
+  if (lhs.traced != rhs.traced) return false;
   // check file-specific merge criteria
   if (lhs.type == VMType::kFile) {
     assert(rhs.type == VMType::kFile);
@@ -129,26 +130,37 @@ std::map<uintptr_t, VMArea>::iterator MemoryMap::Find(uintptr_t addr) {
 }
 
 void MemoryMap::EnableTracing() {
+  SyscallForceStackSwitch();
   rt::ScopedLock g(mu_);
 
   tracer_.reset(new PageAccessTracer());
-  for (auto const &[end, vma] : vmareas_) {
+  for (auto &[end, vma] : vmareas_) {
+    vma.traced = true;
     if (vma.prot == PROT_NONE) continue;
     Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), PROT_NONE);
-    if (unlikely(!ret)) LOG_ONCE(WARN) << "Could not enable trace for a VMArea";
+    if (unlikely(!ret))
+      LOG(WARN) << "tracer could not mprotect " << ret.error() << " " << vma;
   }
 }
 
 void MemoryMap::EndTracing() {
+  SyscallRestoreNoStackSwitch();
   rt::ScopedLock g(mu_);
   if (!tracer_) return;
 
   // Restore all VMAs
-  for (auto const &[end, vma] : vmareas_) {
-    if (vma.prot == PROT_NONE) continue;
-    Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), vma.prot);
-    if (unlikely(!ret))
-      LOG_ONCE(WARN) << "Could not restore VMArea permissions";
+  auto prev_it = vmareas_.end();
+  for (auto it = vmareas_.begin(); it != vmareas_.end(); prev_it = it, it++) {
+    auto &[end, vma] = *it;
+    if (!vma.traced) continue;
+    vma.traced = false;
+    if (vma.prot != PROT_NONE) {
+      Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), vma.prot);
+      if (unlikely(!ret))
+        LOG(WARN) << "tracer could not mprotect " << ret.error() << " " << vma;
+    }
+    if (prev_it != vmareas_.end() && MergeRight(prev_it->second, vma))
+        vmareas_.erase(prev_it);
   }
 
   // Sort accesses by time
@@ -169,29 +181,41 @@ void MemoryMap::EndTracing() {
   tracer_.reset();
 }
 
-bool MemoryMap::HandlePageFault(siginfo_t &si) {
-  if (!tracer_) return false;
+bool MemoryMap::HandlePageFault(uintptr_t addr, Time time) {
+  if (unlikely(!tracer_)) return false;
 
-  uintptr_t page = PageAlignDown(reinterpret_cast<uintptr_t>(si.si_addr));
+  addr = PageAlignDown(addr);
 
+  rt::UniqueLock ul(mu_, rt::DeferLock);
+  if (likely(preempt_enabled())) {
+    ul.Lock();
+  } else {
+  // We can't block when preemption is disabled.
+    while (!ul.TryLock()) CPURelax();
+  }
+
+  // Return if we've already hit this page.
   rt::RuntimeLibcGuard guard;
-  if (!tracer_->RecordHit(page)) return true;
 
-  // TODO(jf): we can't block in interrupt delivery context, find a better way
-  // to acquire this mutex.
-  while (!mu_.TryLock()) CPURelax();
-  auto it = Find(page);
-  if (it == vmareas_.end()) {
-    mu_.Unlock();
-    LOG(WARN) << "couldn't find VMA for page " << page;
+  auto it = Find(addr);
+  if (unlikely(it == vmareas_.end())) {
+    LOG(WARN) << "couldn't find VMA for page " << addr;
     return false;
   }
 
-  int prot = it->second.prot;
-  bool done = prot != PROT_NONE &&
-              KernelMProtect(reinterpret_cast<void *>(page), kPageSize, prot);
-  mu_.Unlock();
-  return done;
+  VMArea &vma = it->second;
+  if (!vma.traced) return false;
+  if (!tracer_->RecordHit(addr, time)) return true;
+  if (unlikely(vma.prot == PROT_NONE)) return false;
+
+  Status<void> ret =
+      KernelMProtect(reinterpret_cast<void *>(addr), kPageSize, vma.prot);
+  if (unlikely(!ret)) {
+    LOG(ERR) << " failed to restore permission to page" << ret.error();
+    return false;
+  }
+
+  return true;
 }
 
 void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {

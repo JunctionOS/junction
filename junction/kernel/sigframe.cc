@@ -50,54 +50,11 @@ k_sigframe *k_sigframe::CopyToStack(uint64_t *dest_rsp, void *fx_buf) const {
 }
 
 // Immediately restore a UIPI sigframe.
-extern "C" [[noreturn]] __nofp void UintrFullRestore(u_sigframe *frame) {
+extern "C" [[noreturn]] __nofp void UintrFullRestore(const u_sigframe *frame) {
   frame->RestoreXstate();
   nosave_switch(reinterpret_cast<thread_fn_t>(uintr_asm_return),
                 reinterpret_cast<uint64_t>(frame), 0);
   std::unreachable();
-}
-
-extern "C" [[noreturn]] void UintrLoopReturn(u_sigframe *frame) {
-  Thread &myth = mythread();
-
-  while (true) {
-    ClearUIF();
-    myth.mark_leave_kernel();
-    if (!myth.needs_interrupt()) {
-      UintrFullRestore(frame);
-      std::unreachable();
-    }
-
-    // a signal slipped in, handle it and try again
-    myth.mark_enter_kernel();
-    SetUIF();
-
-    myth.get_sighand().DeliverSignals(UintrTf(frame), 0);
-  }
-}
-
-// Restore a kernel signal frame upon system call exit. When UINTR is enabled,
-// this can be done with no system calls.
-extern "C" [[noreturn]] void UintrKFrameLoopReturn(k_sigframe *frame,
-                                                   uint64_t rax) {
-  Thread &myth = mythread();
-
-  while (true) {
-    ClearUIF();
-    myth.mark_leave_kernel();
-    if (!myth.needs_interrupt()) {
-      nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_uiret),
-                    reinterpret_cast<uint64_t>(&frame->uc), 0);
-      std::unreachable();
-    }
-
-    // a signal slipped in, handle it and try again
-    myth.mark_enter_kernel();
-    SetUIF();
-
-    myth.get_sighand().DeliverSignals(KernelSignalTf(frame), rax);
-    rax = 0;
-  }
 }
 
 // Restores saved xstates. Must be called from uthread context.

@@ -8,6 +8,47 @@
 .text
 
 /**
+ * nosave_switch_preempt_enable - jumps to a function without saving the current stack
+ * frame, and re-enables preemption.
+ * @fn: the function pointer to call (%rdi)
+ * @stack: the stack to use (%rsi)
+ * @arg0: an argument to @fn (%rdx)
+ *
+ * No return value.
+ */
+.align 16
+.globl nosave_switch_preempt_enable
+.type nosave_switch_preempt_enable, @function
+nosave_switch_preempt_enable:
+	/* switch to new stack */
+	movq	%rsi, %rsp
+
+	/* move fn to temporary register */
+	movq	%rdi, %r11
+
+	/* setup args */
+	movq	%rdx, %rdi
+
+	/* re-enable preemption */
+	subl	$1, %gs:__perthread_preempt_cnt(%rip)
+	jz		1f
+
+	/* jump to fn */
+	jmpq	*%r11
+	nop
+
+1:
+	pushq	%r11
+	pushq	%rdi
+	movq	%rsp, %r15
+	andq	$-16, %rsp
+	call	preempt
+	movq	%r15, %rsp
+	popq	%rdi
+	popq	%r11
+	jmpq	*%r11
+
+/**
  * nosave_switch - jumps to a function without saving the current stack
  * frame.
  * @fn: the function pointer to call (%rdi)

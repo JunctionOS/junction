@@ -4,6 +4,8 @@ extern "C" {
 #include <base/syscall.h>
 }
 
+#include <optional>
+
 #include "junction/base/arch.h"
 #include "junction/bindings/stack.h"
 #include "junction/bindings/thread.h"
@@ -31,6 +33,8 @@ struct alignas(kJunctionFrameAlign) JunctionSigframe {
   void Unwind();
 };
 
+class Thread;
+
 class Trapframe {
  public:
   // Get the RSP from this trapframe.
@@ -44,13 +48,19 @@ class Trapframe {
   // it.
   virtual JunctionSigframe &CloneSigframe(uint64_t *rsp) const = 0;
 
-  // Immediately restores this trapframe.
-  [[noreturn]] virtual void JmpUnwind() = 0;
+  // Immediately restores this trapframe. Expects preemption to be disabled.
+  [[noreturn]] virtual void JmpUnwindPreemptEnable() = 0;
+
+  // Immediately restores this trapframe, exiting the Junction kernel and
+  // checking for signals. Expects preemption to be enabled.
+  [[noreturn]] virtual void JmpUnwindSysret(Thread &th) = 0;
 
   // Set up @unwind_tf to unwind this trapframe after performing a final check
   // for pending signals. Unwinders here cannot assume that the frame is a
   // system call and therefore must not pass a non-zero argument to RunSignals.
-  virtual void MakeUnwinderSysret(thread_tf &unwind_tf) const = 0;
+  // This trapframe instance is attached to @th and must reside on the syscall
+  // stack.
+  virtual void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) = 0;
 };
 
 // Trapframes that are created via system call entry to the Junction kernel.
@@ -63,18 +73,13 @@ class SyscallFrame : virtual public Trapframe {
   virtual void ResetToSyscallStart() = 0;
 
   // Set the value for RAX in this trapframe.
-  virtual void SetRax(uint64_t rax) = 0;
+  virtual void SetRax(uint64_t rax,
+                      std::optional<uint64_t> rsp = std::nullopt) = 0;
 
   // Copies registers to @dest_tf.
   virtual void CopyRegs(thread_tf &dest_tf) const = 0;
-};
 
-template <typename T>
-concept InterruptFrame = requires(T t, thread_tf &tf) {
-  { &t } -> std::convertible_to<Trapframe *>;
-  { t.MakeUnwinder(tf) } -> std::same_as<void>;
-  { T::HasStackSwitchRace() } -> std::same_as<bool>;
-  { T::SwitchFromInterruptContext(tf) } -> std::same_as<void>;
+  virtual SyscallFrame &CloneTo(uint64_t *rsp) const override = 0;
 };
 
 // Kernel signals are used both for interrupts and to trap syscall instructions.
@@ -110,40 +115,23 @@ class KernelSignalTf : public SyscallFrame {
     return *stack_wrapper;
   }
 
-  inline void MakeUnwinder(thread_tf &unwind_tf) const {
-    unwind_tf.rsp = reinterpret_cast<uintptr_t>(&sigframe.uc);
-    if (!uintr_enabled)
-      unwind_tf.rip = reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
-    else
-      unwind_tf.rip = reinterpret_cast<uintptr_t>(__kframe_unwind_uiret);
-  }
-
   // Push this instance to the stack in such a way that it can be directly
   // exposed to the user (JunctionFrame placed between the k_sigframe and
   // xstate).
   k_sigframe *PushUserVisibleFrame(uint64_t *rsp) const;
 
-  void SetRax(uint64_t rax) override { sigframe.uc.uc_mcontext.rax = rax; }
+  void SetRax(uint64_t rax, std::optional<uint64_t> rsp) override {
+    sigframe.uc.uc_mcontext.rax = rax;
+    if (rsp) sigframe.uc.uc_mcontext.rsp = *rsp;
+  }
 
   [[nodiscard]] inline uint64_t GetRsp() const override {
     return sigframe.GetRsp();
   }
 
-  inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
-    if (uintr_enabled) {
-      // Ensure syscall return value is 0.
-      unwind_tf.rsi = 0;
-      // align stack and set to to beginning of sigframe
-      unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe);
-      unwind_tf.rdi = unwind_tf.rsp;
-      unwind_tf.rip = reinterpret_cast<uint64_t>(UintrKFrameLoopReturn);
-      assert(unwind_tf.rsp % 16 == 8);
-    } else {
-      // __kframe_unwind_loop will provide a zero argument to RunSignals.
-      unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop);
-      unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
-    }
-  }
+  [[noreturn]] void JmpUnwindSysret(Thread &th) override;
+
+  void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) override;
 
   [[noreturn]] void JmpRestartSyscall() override;
   void ResetToSyscallStart() override {
@@ -151,22 +139,35 @@ class KernelSignalTf : public SyscallFrame {
     sigframe.uc.uc_mcontext.rax = sigframe.uc.uc_mcontext.trapno;
   }
 
-  // Routine used to switch from a signal delivery context.
-  [[noreturn]] static inline void SwitchFromInterruptContext(thread_tf &tf) {
-    assert_preempt_disabled();
-    __switch_and_preempt_enable(&tf);
-  }
-
-  [[noreturn]] void JmpUnwind() override {
+  [[noreturn]] void JmpUnwindPreemptEnable() override {
     assert_preempt_disabled();
     sigframe.InvalidateAltStack();
     sigframe.uc.mask = 0;
-    thread_tf tf;
-    MakeUnwinder(tf);
-    __switch_and_preempt_enable(&tf);
+    nosave_switch_preempt_enable(
+        reinterpret_cast<thread_fn_t>(GetUnwinderFunction()),
+        reinterpret_cast<uintptr_t>(&sigframe.uc), 0);
+  }
+
+  [[noreturn]] void JmpUnwind() {
+    sigframe.InvalidateAltStack();
+    sigframe.uc.mask = 0;
+    nosave_switch(reinterpret_cast<thread_fn_t>(GetUnwinderFunction()),
+                  reinterpret_cast<uintptr_t>(&sigframe.uc), 0);
+  }
+
+  inline void MakeUnwinder(thread_tf &unwind_tf) const {
+    unwind_tf.rsp = reinterpret_cast<uintptr_t>(&sigframe.uc);
+    unwind_tf.rip = GetUnwinderFunction();
   }
 
  private:
+  inline uint64_t GetUnwinderFunction() const {
+    if (!uintr_enabled)
+      return reinterpret_cast<uintptr_t>(syscall_rt_sigreturn);
+
+    return reinterpret_cast<uintptr_t>(__kframe_unwind_uiret);
+  }
+
   k_sigframe &sigframe;
 };
 
@@ -178,29 +179,36 @@ class FunctionCallTf : public SyscallFrame {
   FunctionCallTf(thread_tf &tf) : tf(&tf) {}
   FunctionCallTf() = default;
 
+  // Allocate a new function call frame on the syscall stack. The caller must
+  // ensure that the syscall stack was not already in use.
+  static FunctionCallTf &CreateOnSyscallStack(Thread &th);
+
+  void ReplaceTf(thread_tf *new_tf) { tf = new_tf; }
+
   void CopyRegs(thread_tf &dest_tf) const override;
+
+  [[nodiscard]] inline thread_tf &GetFrame() { return *tf; }
 
   [[nodiscard]] inline uint64_t GetRsp() const override { return tf->rsp; }
 
-  inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
-    unwind_tf.rsp = reinterpret_cast<uint64_t>(tf);
-    if (uintr_enabled) {
-      unwind_tf.rip =
-          reinterpret_cast<uint64_t>(__fncall_return_exit_loop_uintr);
-    } else {
-      unwind_tf.rip = reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
-    }
-  }
+  void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) override;
+
+  [[noreturn]] void JmpUnwindSysret(Thread &th) override;
 
   [[noreturn]] void JmpRestartSyscall() override;
   void ResetToSyscallStart() override;
-  void SetRax(uint64_t rax) override { tf->rax = rax; }
+  void SetRax(uint64_t rax, std::optional<uint64_t> rsp) override {
+    tf->rax = rax;
+    if (rsp) tf->rsp = *rsp;
+  }
 
-  [[noreturn]] void JmpUnwind() override {
+  [[noreturn]] void JmpUnwindPreemptEnable() override {
     assert_preempt_disabled();
     __restore_tf_full_and_preempt_enable(tf);
     std::unreachable();
   }
+
+  [[noreturn]] void JmpUnwindSysretPreemptEnable(Thread &th);
 
   FunctionCallTf &CloneTo(uint64_t *rsp) const override {
     FunctionCallTf *stack_wrapper = AllocateOnStack<FunctionCallTf>(rsp);
@@ -219,6 +227,13 @@ class FunctionCallTf : public SyscallFrame {
   }
 
  private:
+  inline uint64_t GetSysretUnwinderFunction() const {
+    if (uintr_enabled)
+      return reinterpret_cast<uint64_t>(__fncall_return_exit_loop_uintr);
+
+    return reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
+  }
+
   thread_tf *tf;
 };
 
@@ -237,12 +252,15 @@ class UintrTf : public Trapframe {
   // Returns a reference to the underlying sigframe.
   [[nodiscard]] inline u_sigframe &GetFrame() { return sigframe; }
 
-  [[noreturn]] void JmpUnwind() override {
+  [[noreturn]] void JmpUnwindPreemptEnable() override {
     assert_preempt_disabled();
-    thread_tf tf;
-    MakeUnwinder(tf);
-    __switch_and_preempt_enable(&tf);
+    uint64_t rdi = reinterpret_cast<uint64_t>(&sigframe);
+    uint64_t rsp = AlignDown(rdi, 16) - 8;
+    nosave_switch_preempt_enable(
+        reinterpret_cast<thread_fn_t>(UintrFullRestore), rsp, rdi);
   }
+
+  [[noreturn]] void JmpUnwindSysret(Thread &th) override;
 
   inline void MakeUnwinder(thread_tf &unwind_tf) const {
     unwind_tf.rdi = reinterpret_cast<uint64_t>(&sigframe);
@@ -250,19 +268,10 @@ class UintrTf : public Trapframe {
     unwind_tf.rip = reinterpret_cast<uint64_t>(UintrFullRestore);
   }
 
-  inline void MakeUnwinderSysret(thread_tf &unwind_tf) const override {
-    unwind_tf.rdi = reinterpret_cast<uint64_t>(&sigframe);
-    unwind_tf.rsp = AlignDown(unwind_tf.rdi, 16) - 8;
-    unwind_tf.rip = reinterpret_cast<uint64_t>(UintrLoopReturn);
-  }
+  void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) override;
 
   [[nodiscard]] inline uint64_t GetRsp() const override {
     return sigframe.GetRsp();
-  }
-
-  [[noreturn]] static inline void SwitchFromInterruptContext(thread_tf &tf) {
-    assert(!TestUIF());
-    __switch_and_interrupt_enable(&tf);
   }
 
   UintrTf &CloneTo(uint64_t *rsp) const override {
@@ -288,11 +297,13 @@ class UintrTf : public Trapframe {
 inline void JunctionSigframe::Unwind() {
   switch (type) {
     case SigframeType::kKernelSignal:
-      KernelSignalTf(reinterpret_cast<k_sigframe *>(tf)).JmpUnwind();
+      KernelSignalTf(reinterpret_cast<k_sigframe *>(tf))
+          .JmpUnwindPreemptEnable();
     case SigframeType::kJunctionUIPI:
-      UintrTf(reinterpret_cast<u_sigframe *>(tf)).JmpUnwind();
+      UintrTf(reinterpret_cast<u_sigframe *>(tf)).JmpUnwindPreemptEnable();
     case SigframeType::kJunctionTf:
-      FunctionCallTf(reinterpret_cast<thread_tf *>(tf)).JmpUnwind();
+      FunctionCallTf(reinterpret_cast<thread_tf *>(tf))
+          .JmpUnwindPreemptEnable();
     default:
       BUG();
   }

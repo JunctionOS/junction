@@ -53,6 +53,47 @@ k_sigframe *KernelSignalTf::PushUserVisibleFrame(uint64_t *rsp) const {
   return new_frame;
 }
 
+// Restore a kernel signal frame upon system call exit. When UINTR is enabled,
+// this can be done with no system calls.
+extern "C" [[noreturn]] void UintrKFrameLoopReturn(KernelSignalTf *frame,
+                                                   uint64_t rax) {
+  Thread &myth = mythread();
+
+  while (true) {
+    ClearUIF();
+    myth.mark_leave_kernel();
+    if (!myth.needs_interrupt()) {
+      nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_uiret),
+                    reinterpret_cast<uint64_t>(&frame->GetFrame()), 0);
+      std::unreachable();
+    }
+
+    // a signal slipped in, handle it and try again
+    myth.mark_enter_kernel();
+    SetUIF();
+
+    myth.get_sighand().DeliverSignals(*frame, rax);
+    rax = 0;
+  }
+}
+
+void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
+  th.SetTrapframe(*this);
+  if (uintr_enabled) {
+    // Ensure syscall return value is 0.
+    unwind_tf.rsi = 0;
+    // align stack and set to to beginning of sigframe
+    unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe);
+    unwind_tf.rdi = unwind_tf.rsp;
+    unwind_tf.rip = reinterpret_cast<uint64_t>(UintrKFrameLoopReturn);
+    assert(unwind_tf.rsp % 16 == 8);
+  } else {
+    // __kframe_unwind_loop will provide a zero argument to RunSignals.
+    unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop);
+    unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
+  }
+}
+
 [[noreturn]] void KernelSignalTf::JmpRestartSyscall() {
   thread_tf tf;
   sigcontext &ctx = sigframe.uc.uc_mcontext;
@@ -74,6 +115,37 @@ k_sigframe *KernelSignalTf::PushUserVisibleFrame(uint64_t *rsp) const {
   assert(tf.rax < SYS_NR);
   tf.rip = reinterpret_cast<uint64_t>(sys_tbl[tf.rax]);
   __jmp_syscall_restart_nosave(&tf);
+}
+
+[[noreturn]] void KernelSignalTf::JmpUnwindSysret(Thread &th) {
+  assert(&th == &mythread());
+  assert(th.in_kernel());
+  th.SetTrapframe(*this);
+
+  sigframe.InvalidateAltStack();
+  sigframe.uc.mask = 0;
+
+  if (uintr_enabled) {
+    uint64_t sp = reinterpret_cast<uint64_t>(&sigframe);
+    assert(sp % 16 == 8);
+    nosave_switch(reinterpret_cast<thread_fn_t>(UintrKFrameLoopReturn), sp, sp);
+  } else {
+    uint64_t sp = reinterpret_cast<uint64_t>(&sigframe.uc);
+    // __kframe_unwind_loop will provide a zero argument to RunSignals.
+    nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_loop), sp, 0);
+  }
+}
+
+FunctionCallTf &FunctionCallTf::CreateOnSyscallStack(Thread &th) {
+  // It is only safe to place data on the syscall stack (without also running on
+  // it) if preemption is disabled.
+  assert(!th.GetCaladanThread()->thread_running || !preempt_enabled() ||
+         (uintr_enabled && !TestUIF()));
+  uint64_t rsp = th.get_syscall_stack_rsp();
+  thread_tf *stack_tf = AllocateOnStack<thread_tf>(&rsp);
+  FunctionCallTf *stack_wrapper = AllocateOnStack<FunctionCallTf>(&rsp);
+  new (stack_wrapper) FunctionCallTf(stack_tf);
+  return *stack_wrapper;
 }
 
 uint64_t RewindIndirectSystemCall(uint64_t rip) {
@@ -107,6 +179,65 @@ void FunctionCallTf::ResetToSyscallStart() {
 [[noreturn]] void FunctionCallTf::JmpRestartSyscall() {
   ResetToSyscallStart();
   __jmp_syscall_restart_nosave(tf);
+}
+
+[[noreturn]] void FunctionCallTf::JmpUnwindSysret(Thread &th) {
+  assert(&th == &mythread());
+  assert(th.in_kernel());
+  th.SetTrapframe(*this);
+  nosave_switch(reinterpret_cast<thread_fn_t>(GetSysretUnwinderFunction()),
+                reinterpret_cast<uint64_t>(tf), 0);
+}
+
+[[noreturn]] void FunctionCallTf::JmpUnwindSysretPreemptEnable(Thread &th) {
+  assert_preempt_disabled();
+  assert(&th == &mythread());
+  assert(th.in_kernel());
+  th.SetTrapframe(*this);
+  nosave_switch_preempt_enable(
+      reinterpret_cast<thread_fn_t>(GetSysretUnwinderFunction()),
+      reinterpret_cast<uint64_t>(tf), 0);
+}
+
+extern "C" [[noreturn]] void UintrLoopReturn(UintrTf *frame) {
+  Thread &myth = mythread();
+
+  while (true) {
+    ClearUIF();
+    myth.mark_leave_kernel();
+    if (!myth.needs_interrupt()) {
+      UintrFullRestore(&frame->GetFrame());
+      std::unreachable();
+    }
+
+    // a signal slipped in, handle it and try again
+    myth.mark_enter_kernel();
+    SetUIF();
+
+    myth.get_sighand().DeliverSignals(*frame, 0);
+  }
+}
+
+void FunctionCallTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
+  th.SetTrapframe(*this);
+  unwind_tf.rsp = reinterpret_cast<uint64_t>(tf);
+  unwind_tf.rip = GetSysretUnwinderFunction();
+}
+
+[[noreturn]] void UintrTf::JmpUnwindSysret(Thread &th) {
+  assert(&th == &mythread());
+  assert(th.in_kernel());
+  th.SetTrapframe(*this);
+  uint64_t rdi = reinterpret_cast<uint64_t>(this);
+  uint64_t rsp = AlignDown(rdi, 16) - 8;
+  nosave_switch(reinterpret_cast<thread_fn_t>(UintrLoopReturn), rsp, rdi);
+}
+
+void UintrTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
+  th.SetTrapframe(*this);
+  unwind_tf.rdi = reinterpret_cast<uint64_t>(this);
+  unwind_tf.rsp = AlignDown(unwind_tf.rdi, 16) - 8;
+  unwind_tf.rip = reinterpret_cast<uint64_t>(UintrLoopReturn);
 }
 
 }  // namespace junction

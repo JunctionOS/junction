@@ -154,7 +154,7 @@ class Thread {
     // entering the Junction kernel.
     thread_tf *fncall_regs = GetCaladanThread()->entry_regs;
     if (fncall_regs) {
-      new (&fcall_tf) FunctionCallTf(fncall_regs);
+      fcall_tf.ReplaceTf(fncall_regs);
       return fcall_tf;
     }
 
@@ -169,11 +169,18 @@ class Thread {
 
     thread_tf *fncall_regs = GetCaladanThread()->entry_regs;
     if (fncall_regs) {
-      new (&fcall_tf) FunctionCallTf(fncall_regs);
+      fcall_tf.ReplaceTf(fncall_regs);
       return fcall_tf;
     }
 
     return CastTfToKernelSig();
+  }
+
+  FunctionCallTf &ReplaceEntryRegs(thread_tf &tf) {
+    assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)));
+    GetCaladanThread()->entry_regs = &tf;
+    fcall_tf.ReplaceTf(&tf);
+    return fcall_tf;
   }
 
   void CopySyscallRegs(thread_tf &dest) const {
@@ -187,9 +194,10 @@ class Thread {
   // Set @tf as the current trapframe generated when entering the Junction
   // kernel. This trapframe must not be a FunctionCallTf.
   void SetTrapframe(Trapframe &tf) {
-    assert(GetCaladanThread() == thread_self());
-    assert(in_kernel());
-    assert(IsOnStack(reinterpret_cast<uint64_t>(&tf), GetSyscallStack()));
+    DebugSafetyCheck();
+    assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)) ||
+           &tf == &fcall_tf);
+    assert(!rsp_on_syscall_stack(tf.GetRsp()));
 
     GetCaladanThread()->entry_regs = nullptr;
     cur_trapframe_ = &tf;
@@ -197,6 +205,19 @@ class Thread {
 
   [[nodiscard]] bool in_kernel() const {
     return access_once(GetCaladanThread()->in_syscall);
+  }
+
+  [[nodiscard]] bool rsp_on_syscall_stack(uint64_t rsp = GetRsp()) const {
+    return IsOnStack(rsp, GetSyscallStack(GetCaladanThread()));
+  }
+
+  [[nodiscard]] uint64_t get_syscall_stack_rsp() const {
+    return GetSyscallStackBottom(GetCaladanThread());
+  }
+
+  [[nodiscard]] uint64_t correct_to_syscall_stack(uint64_t rsp) const {
+    if (rsp_on_syscall_stack(rsp)) return rsp;
+    return get_syscall_stack_rsp();
   }
 
   inline void mark_enter_kernel() {
@@ -210,14 +231,18 @@ class Thread {
   }
 
  private:
+  friend class Process;
+
   // Safety check for functions that can only be called by the owning thread
   // when in interrupt or syscall context.
   inline void DebugSafetyCheck() const {
+    // Newly created thread doesn't require safety check.
+    if (GetCaladanThread()->ready_tsc == 0) return;
     // The function should only be called by the owning thread.
     assert(GetCaladanThread() == thread_self());
     // The returned trapframe is only valid during a syscall (or until the code
     // has switched off of the syscall stack).
-    assert(in_kernel() || IsOnStack(GetSyscallStack()));
+    assert(in_kernel() || rsp_on_syscall_stack());
   }
 
   inline KernelSignalTf &CastTfToKernelSig() const {
@@ -381,7 +406,7 @@ class Process : public std::enable_shared_from_this<Process> {
   // Called by threads to wait for SIGCONT. This call must occur inside of a
   // system call, and GetSyscallFrame() must be contain a trapframe that is
   // ready to be restored.
-  void ThreadStopWait();
+  void ThreadStopWait(Thread &th);
 
   Status<void> WaitForFullStop() {
     rt::SpinGuard g(child_thread_lock_);

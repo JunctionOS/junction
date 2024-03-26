@@ -41,15 +41,24 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
     return MakeError(ret);
   }
 
-  Status<Thread *> th = (*proc)->CreateThreadMain();
-  if (!th) return MakeError(th);
+  Status<Thread *> tmp = (*proc)->CreateThreadMain();
+  if (!tmp) return MakeError(tmp);
+  Thread &th = **tmp;
 
-  thread_tf &tf = (*th)->GetCaladanThread()->tf;
+  FunctionCallTf &entry = FunctionCallTf::CreateOnSyscallStack(th);
+  thread_tf &tf = entry.GetFrame();
+  tf.rdi = 0;
+  tf.rsi = 0;
+  tf.rdx = 0;
+  tf.rcx = 0;
+  tf.r8 = 0;
+  tf.r9 = 0;
   tf.rsp = std::get<0>(*ret);
-  tf.rdi = std::get<1>(*ret);
-  tf.rip = reinterpret_cast<uint64_t>(junction_exec_start);
+  tf.rip = std::get<1>(*ret);
 
-  (*th)->ThreadReady();
+  th.mark_enter_kernel();
+  entry.MakeUnwinderSysret(th, th.GetCaladanThread()->tf);
+  th.ThreadReady();
   return *proc;
 }
 

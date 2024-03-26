@@ -110,10 +110,7 @@ struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
 
 static_assert(sizeof(u_sigframe) == sizeof(uintr_frame));
 
-extern "C" [[noreturn]] __nofp void UintrFullRestore(u_sigframe *frame);
-extern "C" [[noreturn]] void UintrLoopReturn(u_sigframe *frame);
-extern "C" [[noreturn]] void UintrKFrameLoopReturn(k_sigframe *frame,
-                                                   uint64_t rax);
+extern "C" [[noreturn]] __nofp void UintrFullRestore(const u_sigframe *frame);
 
 Status<void> InitXsave();
 extern uint64_t xsave_enabled_bitmap;
