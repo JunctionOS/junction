@@ -64,7 +64,9 @@ po::options_description GetOptions() {
                                  po::value<int>()->default_value(LOG_DEBUG),
                                  "the maximum log level to print")(
       "stackswitch", po::bool_switch()->default_value(false),
-      "use stack switching syscalls");
+      "use stack switching syscalls")(
+      "madv_remap", po::bool_switch()->default_value(false),
+      "zero memory when MADV_DONTNEED is used (intended for profiling)");
   return desc;
 }
 
@@ -102,7 +104,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   strace = vm["strace"].as<bool>();
   stack_switching = vm["stackswitch"].as<bool>();
   max_loglevel = vm["loglevel"].as<int>();
-
+  madv_remap = vm["madv_remap"].as<bool>();
   restore = vm["restore"].as<bool>();
 
   return {};

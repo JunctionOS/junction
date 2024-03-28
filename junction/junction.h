@@ -21,7 +21,7 @@ namespace junction {
 
 class Process;
 
-class JunctionCfg {
+class alignas(kCacheLineSize) JunctionCfg {
  public:
   [[nodiscard]] const std::string_view get_chroot_path() const {
     return chroot_path;
@@ -48,6 +48,7 @@ class JunctionCfg {
   [[nodiscard]] bool strace_enabled() const { return strace; }
   [[nodiscard]] bool restoring() const { return restore; }
   [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
+  [[nodiscard]] bool madv_dontneed_remap() const { return madv_remap; }
 
   static void PrintOptions();
   Status<void> FillFromArgs(int argc, char *argv[]);
@@ -56,15 +57,19 @@ class JunctionCfg {
   static JunctionCfg &get() { return singleton_; };
 
  private:
+  // Hot state
+  bool strace;
+  bool madv_remap;
+
+  // Cold state
   std::string chroot_path{"/"};
   std::string fs_config_path;
   std::string interp_path{CUSTOM_GLIBC_INTERPRETER_PATH};
   std::string ld_path{CUSTOM_GLIBC_DIR};
   std::string preload_path{CUSTOM_GLIBC_PRELOAD};
   std::vector<std::string> binary_envp;
-  bool strace{false};
-  bool restore{false};
-  bool stack_switching{false};
+  bool restore;
+  bool stack_switching;
   static JunctionCfg singleton_;
 };
 

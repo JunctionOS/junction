@@ -92,9 +92,14 @@ class PageAccessTracer {
     return inserted;
   }
 
+  void RecordBytes(uintptr_t page, size_t bytes) {
+    non_zero_bytes_[page] = bytes;
+  }
+
  private:
   friend class MemoryMap;
   std::unordered_map<uintptr_t, Time> access_at_;
+  std::unordered_map<uintptr_t, uint64_t> non_zero_bytes_;
 };
 
 // MemoryMap manages memory for a process
