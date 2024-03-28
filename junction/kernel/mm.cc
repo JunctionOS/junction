@@ -52,14 +52,6 @@ constexpr bool MappingsMergeable(const VMArea &lhs, const VMArea &rhs) {
   return true;
 }
 
-bool MergeRight(const VMArea &lhs, VMArea &rhs) {
-  if (!MappingsMergeable(lhs, rhs)) return false;
-  // do the merge
-  rhs.start = lhs.start;
-  rhs.offset = lhs.offset;
-  return true;
-}
-
 bool MappingsValid(const std::map<uintptr_t, VMArea> &vmareas) {
   uintptr_t last_end = 0;
 
@@ -99,6 +91,17 @@ MemoryMap::~MemoryMap() {
     Status<void> ret = KernelMUnmap(vma.Addr(), vma.Length());
     if (!ret) LOG(ERR) << "mm: munmap failed with error " << ret.error();
   }
+}
+
+bool MemoryMap::TryMergeRight(std::map<uintptr_t, VMArea>::iterator prev,
+                              VMArea &rhs) {
+  if (prev == vmareas_.end()) return false;
+  const VMArea &lhs = prev->second;
+  if (!MappingsMergeable(lhs, rhs)) return false;
+  rhs.start = lhs.start;
+  rhs.offset = lhs.offset;
+  vmareas_.erase(prev);
+  return true;
 }
 
 std::map<uintptr_t, VMArea>::iterator MemoryMap::Clear(uintptr_t start,
@@ -163,7 +166,7 @@ void MemoryMap::EndTracing() {
   // Restore all VMAs
   auto prev_it = vmareas_.begin();
   for (auto it = vmareas_.begin(); it != vmareas_.end(); prev_it = it++) {
-    auto &[end, vma] = *it;
+    VMArea &vma = it->second;
     if (vma.traced) {
       vma.traced = false;
       if (vma.prot != PROT_NONE) {
@@ -173,7 +176,7 @@ void MemoryMap::EndTracing() {
                     << vma;
       }
     }
-    if (MergeRight(prev_it->second, vma)) vmareas_.erase(prev_it);
+    TryMergeRight(prev_it, vma);
   }
 
   assert(MappingsValid(vmareas_));
@@ -277,8 +280,7 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
       VMArea left = vma;
       TrimTail(left, end);
       left.prot = prot;
-      if (prev_it != vmareas_.end() && MergeRight(prev_it->second, left))
-        vmareas_.erase(prev_it);
+      TryMergeRight(prev_it, left);
       vmareas_.insert(it, std::pair(end, std::move(left)));
       TrimHead(vma, end);
       continue;
@@ -286,14 +288,11 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
 
     // If we're here we know [start, end) surrounds [vma.start, vma.end)
     vma.prot = prot;
-    if (prev_it != vmareas_.end() && MergeRight(prev_it->second, vma))
-      vmareas_.erase(prev_it);
+    TryMergeRight(prev_it, vma);
   }
 
   // Try merging the next VMA after our stopping point.
-  if (prev_it != vmareas_.end() && it != vmareas_.end() &&
-      MergeRight(prev_it->second, it->second))
-    vmareas_.erase(prev_it);
+  if (it != vmareas_.end()) TryMergeRight(prev_it, it->second);
 
   assert(MappingsValid(vmareas_));
 }
@@ -310,10 +309,11 @@ void MemoryMap::Insert(VMArea &&vma) {
   // finally, try to merge with adjacent mappings
   if (it != vmareas_.begin()) {
     auto prev_it = std::prev(it);
-    if (MergeRight(prev_it->second, it->second)) vmareas_.erase(prev_it);
+    TryMergeRight(prev_it, it->second);
   }
+
   if (auto next_it = std::next(it); next_it != vmareas_.end()) {
-    if (MergeRight(it->second, next_it->second)) vmareas_.erase(it);
+    TryMergeRight(it, next_it->second);
   }
 
   assert(MappingsValid(vmareas_));

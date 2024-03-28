@@ -172,6 +172,9 @@ class alignas(kCacheLineSize) MemoryMap {
   // Insert inserts a VMA, removing any overlapping mappings.
   void Insert(VMArea &&vma);
 
+  // Tries to merge two adjacent VMAs, erasing @prev if merge succeeds.
+  bool TryMergeRight(std::map<uintptr_t, VMArea>::iterator prev, VMArea &rhs);
+
   rt::SharedMutex mu_;
   const uintptr_t brk_start_;
   const uintptr_t brk_end_;
