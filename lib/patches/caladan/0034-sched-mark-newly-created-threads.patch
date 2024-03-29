@@ -1,0 +1,25 @@
+From 29c413667597fc1ea8c1f6e47d58a4ffe317b09d Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Fri, 29 Mar 2024 14:19:53 -0400
+Subject: [PATCH 34/34] sched: mark newly created threads
+
+---
+ runtime/sched.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 6c2d3590..854ebc1f 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -854,6 +854,8 @@ static __always_inline thread_t *__thread_create(void)
+ 	th->junction_thread = false;
+ 	th->link_armed = false;
+ 	th->cur_kthread = NCPU;
++	// Can be used to detect newly created thread.
++	th->ready_tsc = 0;
+ 	th->xsave_area_in_use = false;
+ 	atomic8_write(&th->interrupt_state, 0);
+ 
+-- 
+2.39.2
+

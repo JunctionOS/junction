@@ -465,8 +465,7 @@ Status<void> MemoryMap::MAdvise(void *addr, size_t len, int hint) {
 
     auto [start, end] = AddressToBounds(addr, len);
     auto it = vmareas_.upper_bound(start);
-    while (it != vmareas_.end() && it->second.start < end) {
-      auto f = finally([&it] { it++; });
+    for (; it != vmareas_.end() && it->second.start < end; it++) {
       VMArea &vma = it->second;
 
       // The contents of file-backed mappings are unchanged by MADV_DONTNEED.
