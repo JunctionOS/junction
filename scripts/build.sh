@@ -8,6 +8,7 @@ function usage() {
 SNAP_SAMPLES="OFF"
 PERMISSIVE_SECCOMP="OFF"
 DEBUG="OFF"
+WRITEABLE_LINUX_FS="OFF"
 
 for arg in "$@"; do
     shift
@@ -15,6 +16,7 @@ for arg in "$@"; do
         '--help'|'-h') usage ;;
         '--snap-samples'|'-s') SNAP_SAMPLES="ON" ;;
         '--permissive-seccomp'|'-p') PERMISSIVE_SECCOMP="ON";;
+        '--writeable-linux-fs'|'-w') WRITEABLE_LINUX_FS="ON";;
         '--debug'|'-d') DEBUG="ON";;
     esac
 done
@@ -40,5 +42,5 @@ CMAKE=${BIN_DIR}/bin/cmake
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 
-$CMAKE -DPERMISSIVE_SECCOMP="${PERMISSIVE_SECCOMP}" -DSNAPSHOT_SAMPLES="${SNAP_SAMPLES}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" ..
+$CMAKE -DWRITEABLE_LINUX_FS="${WRITEABLE_LINUX_FS}" -DPERMISSIVE_SECCOMP="${PERMISSIVE_SECCOMP}" -DSNAPSHOT_SAMPLES="${SNAP_SAMPLES}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" ..
 make -j "$(nproc)"

@@ -45,13 +45,20 @@ Status<void> _install_seccomp_filter() {
 #ifdef PERMISSIVE_SECCOMP
       ALLOW_ANY_JUNCTION_SYSCALL,
 #else
+
+#ifdef WRITEABLE_LINUX_FS
+      ALLOW_JUNCTION_SYSCALL(mkdir),
+      ALLOW_JUNCTION_SYSCALL(rmdir),
+      ALLOW_JUNCTION_SYSCALL(link),
+      ALLOW_JUNCTION_SYSCALL(unlink),
+#endif
+
       // TODO: remove these
       ALLOW_JUNCTION_SYSCALL(tgkill),
       ALLOW_JUNCTION_SYSCALL(access),
       ALLOW_JUNCTION_SYSCALL(getdents),
       ALLOW_JUNCTION_SYSCALL(getdents64),
       ALLOW_JUNCTION_SYSCALL(newfstatat),
-      ALLOW_JUNCTION_SYSCALL(chdir),
 
       ALLOW_JUNCTION_SYSCALL(mmap),
       ALLOW_JUNCTION_SYSCALL(munmap),

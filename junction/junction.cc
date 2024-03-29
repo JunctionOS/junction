@@ -19,7 +19,7 @@
 namespace junction {
 
 std::string cwd;
-std::string_view GetCwd() { return cwd; }
+std::string_view GetLinuxCwd() { return cwd; }
 pid_t linux_pid;
 
 pid_t GetLinuxPid() { return linux_pid; }
@@ -174,7 +174,7 @@ Status<void> init() {
   ret = InitControlServer();
   if (unlikely(!ret)) return ret;
 
-  cwd = std::filesystem::current_path();
+  cwd = std::string(std::filesystem::current_path()) + std::string("/");
 
   return init_seccomp();
 }

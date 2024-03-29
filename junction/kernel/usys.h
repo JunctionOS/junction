@@ -28,6 +28,8 @@ long usys_open(const char *pathname, int flags, mode_t mode);
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode);
 long usys_ftruncate(int fd, off_t length);
 long usys_fallocate(int fd, int mode, off_t offset, off_t len);
+long usys_access(const char *pathname, int mode);
+long usys_chdir(const char *pathname);
 ssize_t usys_read(int fd, char *buf, size_t len);
 ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt);
 ssize_t usys_write(int fd, const char *buf, size_t len);

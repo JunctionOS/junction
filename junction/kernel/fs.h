@@ -82,6 +82,11 @@ class FileSystem {
                                              uint32_t mode, uint32_t flags) {
     return MakeError(EINVAL);
   }
+
+  virtual Status<void> Access(const std::string_view &pathname, uint32_t mode) {
+    return MakeError(EINVAL);
+  }
+
   virtual Status<void> CreateDirectory(const std::string_view &pathname,
                                        uint32_t mode) {
     return MakeError(EINVAL);

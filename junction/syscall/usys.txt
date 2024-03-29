@@ -1,6 +1,6 @@
 # add syscalls that are implemented by junction to this file
-access:::passthrough
-chdir:::passthrough
+access
+chdir
 getpid
 gettid
 arch_prctl

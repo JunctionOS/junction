@@ -131,6 +131,10 @@ if(PERMISSIVE_SECCOMP)
   add_compile_definitions(PERMISSIVE_SECCOMP="1")
 endif()
 
+if (WRITEABLE_LINUX_FS)
+  add_compile_definitions(WRITEABLE_LINUX_FS="1")
+endif()
+
 # Build all modules
 add_subdirectory(base)
 add_subdirectory(bindings)

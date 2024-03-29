@@ -75,7 +75,7 @@ class alignas(kCacheLineSize) JunctionCfg {
 
 inline JunctionCfg &GetCfg() { return JunctionCfg::get(); }
 
-std::string_view GetCwd();
+std::string_view GetLinuxCwd();
 pid_t GetLinuxPid();
 
 Status<void> init();

@@ -21,8 +21,12 @@ VFS::VFS(const std::string_view& config_file_path) noexcept
     : fs_{std::make_shared<MemFS>(config_file_path),
           std::make_shared<LinuxFS>()} {}
 
+#ifndef WRITEABLE_LINUX_FS
 VFS::VFS() noexcept
     : fs_{std::make_shared<MemFS>(), std::make_shared<LinuxFS>()} {}
+#else
+VFS::VFS() noexcept : fs_{std::make_shared<LinuxFS>()} {}
+#endif
 
 FileSystem* VFS::get_fs(const std::string_view& pathname, uint32_t mode = 0,
                         uint32_t flags = 0) {

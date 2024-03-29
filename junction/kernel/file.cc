@@ -52,6 +52,19 @@ std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap) {
 
 }  // namespace detail
 
+inline std::string_view PrependCwd(const char *pathname,
+                                   std::span<std::byte> dst) {
+  // Don't prepend if previous pathname was absoulte.
+  if (pathname[0] == '/') return pathname;
+
+  // Fill dst with this proc's cwd, leaving 1 byte for a null terminator.
+  size_t bytes = myproc().GetCwd(dst.first(dst.size() - 1));
+  size_t tocopy = std::min(strlen(pathname), dst.size() - 1 - bytes);
+  std::memcpy(dst.data() + bytes, pathname, tocopy);
+  dst[bytes + tocopy] = std::byte{'\0'};
+  return {reinterpret_cast<char *>(dst.data()), bytes + tocopy};
+}
+
 FileTable::FileTable()
     : farr_(std::make_unique<FArr>(kInitialCap)),
       rcup_(farr_.get()),
@@ -199,8 +212,11 @@ void init_fs(FileSystem *fs) {
 }
 
 long usys_open(const char *pathname, int flags, mode_t mode) {
-  const std::string_view path(pathname);
   FileSystem *fs = get_fs();
+
+  std::byte real_path[PATH_MAX + 1];
+  std::string_view path = PrependCwd(pathname, real_path);
+
   Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
   if (unlikely(!f)) return -ENOENT;
   FileTable &ftbl = myproc().get_file_table();
@@ -433,7 +449,8 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
     return 0;
   } else {
     FileSystem *fs = get_fs();
-    Status<void> ret = fs->Stat(pathname, statbuf);
+    std::byte real_path[PATH_MAX + 1];
+    Status<void> ret = fs->Stat(PrependCwd(pathname, real_path), statbuf);
     if (!ret) return MakeCError(ret);
     return 0;
   }
@@ -441,14 +458,16 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
 
 long usys_statfs(const char *path, struct statfs *buf) {
   FileSystem *fs = get_fs();
-  Status<void> ret = fs->StatFS(path, buf);
+  std::byte real_path[PATH_MAX + 1];
+  Status<void> ret = fs->StatFS(PrependCwd(path, real_path), buf);
   if (!ret) return MakeCError(ret);
   return 0;
 }
 
 long usys_stat(const char *path, struct stat *statbuf) {
   FileSystem *fs = get_fs();
-  Status<void> ret = fs->Stat(path, statbuf);
+  std::byte real_path[PATH_MAX + 1];
+  Status<void> ret = fs->Stat(PrependCwd(path, real_path), statbuf);
   if (!ret) return MakeCError(ret);
   return 0;
 }
@@ -508,7 +527,8 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
 
 long usys_mkdir(const char *pathname, mode_t mode) {
   FileSystem *fs = get_fs();
-  Status<void> ret = fs->CreateDirectory(pathname, mode);
+  std::byte real_path[PATH_MAX + 1];
+  Status<void> ret = fs->CreateDirectory(PrependCwd(pathname, real_path), mode);
   if (!ret) return MakeCError(ret);
   return 0;
 }
@@ -520,21 +540,26 @@ long usys_mkdirat(int fd, const char *pathname, mode_t mode) {
 
 long usys_rmdir(const char *pathname) {
   FileSystem *fs = get_fs();
-  Status<void> ret = fs->RemoveDirectory(pathname);
+  std::byte real_path[PATH_MAX + 1];
+  Status<void> ret = fs->RemoveDirectory(PrependCwd(pathname, real_path));
   if (!ret) return MakeCError(ret);
   return 0;
 }
 
 long usys_link(const char *oldpath, const char *newpath) {
   FileSystem *fs = get_fs();
-  Status<void> ret = fs->Link(oldpath, newpath);
+  std::byte real_old[PATH_MAX + 1];
+  std::byte real_new[PATH_MAX + 1];
+  Status<void> ret =
+      fs->Link(PrependCwd(oldpath, real_old), PrependCwd(newpath, real_new));
   if (!ret) return MakeCError(ret);
   return 0;
 }
 
 long usys_unlink(const char *pathname) {
   FileSystem *fs = get_fs();
-  Status<void> ret = fs->Unlink(pathname);
+  std::byte real_path[PATH_MAX + 1];
+  Status<void> ret = fs->Unlink(PrependCwd(pathname, real_path));
   if (!ret) return MakeCError(ret);
   return 0;
 }
@@ -551,22 +576,38 @@ long usys_chmod(const char *pathname, mode_t mode) {
 
 long usys_getcwd(char *buf, size_t size) {
   // TODO(amb): Remove this once the filesystem is more there
-
-  std::string_view cwd = GetCwd();
-  size_t outsz = cwd.size() + 1;
-  if (outsz > size) return -ERANGE;
-  std::memcpy(buf, cwd.data(), cwd.size());
-  buf[cwd.size()] = '\0';
-  return outsz;
+  size_t copied = myproc().GetCwd(readable_span(buf, size));
+  if (unlikely(copied >= size)) return -ERANGE;
+  buf[copied] = '\0';
+  return copied + 1;
 }
 
-#if 0
-long usys_chdir(const char *path) {
-  // TODO(girfan): Remove this once the filesystem is more there
-  return ksys_default(reinterpret_cast<unsigned long>(path), 0, 0, 0, 0, 0,
-                      __NR_chdir);
+long usys_chdir(const char *pathname) {
+  size_t prefix_bytes = 0;
+
+  std::byte real_path[PATH_MAX + 1];
+  if (pathname[0] != '/') prefix_bytes = myproc().GetCwd(real_path);
+
+  size_t slen = strlen(pathname);
+  if (pathname[slen - 1] == '/') slen--;
+
+  if (slen + prefix_bytes + 1 > PATH_MAX) return -ENAMETOOLONG;
+  std::memcpy(&real_path[prefix_bytes], pathname, slen);
+  real_path[prefix_bytes + slen] = std::byte{'/'};
+  real_path[prefix_bytes + slen + 1] = std::byte{'\0'};
+  std::string_view s(reinterpret_cast<char *>(real_path),
+                     prefix_bytes + slen + 1);
+  myproc().SetCwd(s);
+  return 0;
 }
-#endif
+
+long usys_access(const char *pathname, int mode) {
+  FileSystem *fs = get_fs();
+  std::byte real_path[PATH_MAX + 1];
+  auto ret = fs->Access(PrependCwd(pathname, real_path), mode);
+  if (!ret) return MakeCError(ret);
+  return 0;
+}
 
 long usys_ioctl(int fd, unsigned long request, char *argp) {
   FileTable &ftbl = myproc().get_file_table();
@@ -578,8 +619,14 @@ long usys_ioctl(int fd, unsigned long request, char *argp) {
 }
 
 // TODO: fix this implementation
-ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz) {
-  if (std::string_view(pathname) == "/proc/self/exe") {
+ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
+                        size_t bufsiz) {
+  if (dirfd != AT_FDCWD) return -EINVAL;
+
+  std::byte real_path[PATH_MAX + 1];
+  std::string_view path = PrependCwd(pathname, real_path);
+
+  if (path == "/proc/self/exe") {
     auto str = myproc().get_bin_path();
     size_t copy = std::min(bufsiz, str.size());
     std::memcpy(buf, str.data(), copy);
@@ -591,18 +638,11 @@ ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz) {
 }
 
 // TODO: fix this implementation
-ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
-                        size_t bufsiz) {
-  if (std::string_view(pathname) == "/proc/self/exe") {
-    auto str = myproc().get_bin_path();
-    size_t copy = std::min(bufsiz, str.size());
-    std::memcpy(buf, str.data(), copy);
-  }
-
-  // otherwise just say this path is not a link, good enough for Java
-  return -EINVAL;
+ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz) {
+  return usys_readlinkat(AT_FDCWD, pathname, buf, bufsiz);
 }
 
+// TODO(jf): seems like this should be per-Process.
 mode_t usys_umask(mode_t mask) {
   FileSystem *fs = get_fs();
   mode_t old = fs->get_umask();
