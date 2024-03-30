@@ -7,8 +7,39 @@
 .section        .note.GNU-stack,"",@progbits
 .text
 
+#define SYSCALL_123(name) \
+.align 16 \
+.globl ksys_#name \
+.type ksys_#name, @function \
+ksys_##name: \
+	movl	$__NR_#name, %eax; \
+	syscall; \
+	ret
+
+.macro SYSCALL_123 name number
+.align 16
+.globl ksys_\name
+.type ksys_\name, @function
+ksys_\name:
+	movl	$\number, %eax
+	syscall
+	ret
+.endm
+
+.macro SYSCALL_456 name number
+.align 16
+.globl ksys_\name
+.type ksys_\name, @function
+ksys_\name:
+	movl	$\number, %eax
+	movq	%rcx, %r10
+	syscall
+	ret
+.endm
+
 .globl ksys_start
 ksys_start:
+
 
 .align 16
 .globl ksys_default
@@ -19,132 +50,31 @@ ksys_default:
 	syscall
 	ret
 
-.align 16
-.globl ksys_mmap
-.type ksys_mmap, @function
-ksys_mmap:
-	movl	$__NR_mmap, %eax
-	movq	%rcx, %r10
-	syscall
-	ret
 
-.align 16
-.globl ksys_munmap
-.type ksys_munmap, @function
-ksys_munmap:
-	movl	$__NR_munmap, %eax
-	syscall
-	ret
+SYSCALL_456 mmap __NR_mmap
 
-.align 16
-.globl ksys_tgkill
-.type ksys_tgkill, @function
-ksys_tgkill:
-	movl	$__NR_tgkill, %eax
-	syscall
-	ret
+SYSCALL_123 munmap __NR_munmap
 
-.align 16
-.globl ksys_mprotect
-.type ksys_mprotect, @function
-ksys_mprotect:
-	movl	$__NR_mprotect, %eax
-	syscall
-	ret
+SYSCALL_123 tgkill __NR_tgkill
+SYSCALL_123 mprotect __NR_mprotect
+SYSCALL_123 madvise __NR_madvise
 
-.align 16
-.globl ksys_madvise
-.type ksys_madvise, @function
-ksys_madvise:
-	movl	$__NR_madvise, %eax
-	syscall
-	ret
+SYSCALL_123 open __NR_open
+SYSCALL_456 openat __NR_openat
+SYSCALL_123 close __NR_close
 
-.align 16
-.globl ksys_open
-.type ksys_open, @function
-ksys_open:
-	movl	$__NR_open, %eax
-	syscall
-	ret
+SYSCALL_123 readv __NR_readv
+SYSCALL_456 pread __NR_pread64
 
-.align 16
-.globl ksys_close
-.type ksys_close, @function
-ksys_close:
-	movl	$__NR_close, %eax
-	syscall
-	ret
+SYSCALL_456 newfstatat __NR_newfstatat
+SYSCALL_123 stat __NR_stat
 
-.align 16
-.globl ksys_readv
-.type ksys_readv, @function
-ksys_readv:
-	movl	$__NR_readv, %eax
-	syscall
-	ret
+SYSCALL_123 getdents __NR_getdents
+SYSCALL_123 getdents64 __NR_getdents64
 
-.align 16
-.globl ksys_pread
-.type ksys_pread, @function
-ksys_pread:
-	movl	$__NR_pread64, %eax
-	movq	%rcx, %r10
-	syscall
-	ret
+SYSCALL_456 readlinkat __NR_readlinkat
 
-
-
-.align 16
-.globl ksys_newfstatat
-.type ksys_newfstatat, @function
-ksys_newfstatat:
-	movl	$__NR_newfstatat, %eax
-	movq	%rcx, %r10
-	syscall
-	ret
-
-.align 16
-.globl ksys_stat
-.type ksys_stat, @function
-ksys_stat:
-	movl	$__NR_stat, %eax
-	syscall
-	ret
-
-.align 16
-.globl ksys_statfs
-.type ksys_statfs, @function
-ksys_statfs:
-	movl	$__NR_statfs, %eax
-	syscall
-	ret
-
-.align 16
-.globl ksys_getdents
-.type ksys_getdents, @function
-ksys_getdents:
-	movl	$__NR_getdents, %eax
-	syscall
-	ret
-
-.align 16
-.globl ksys_getdents64
-.type ksys_getdents64, @function
-ksys_getdents64:
-	movl	$__NR_getdents64, %eax
-	syscall
-	ret
-
-.align 16
-.globl ksys_exit
-.type ksys_exit, @function
-ksys_exit:
-	movl	$__NR_exit_group, %eax
-	syscall
-	# doesn't return
-	hlt
-	ret
+SYSCALL_123 exit __NR_exit_group
 
 .globl ksys_end
 ksys_end:

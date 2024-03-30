@@ -53,23 +53,28 @@ Status<void> _install_seccomp_filter() {
       ALLOW_JUNCTION_SYSCALL(unlink),
 #endif
 
+      ALLOW_JUNCTION_SYSCALL(statfs),
+
       // TODO: remove these
       ALLOW_JUNCTION_SYSCALL(tgkill),
       ALLOW_JUNCTION_SYSCALL(access),
       ALLOW_JUNCTION_SYSCALL(getdents),
       ALLOW_JUNCTION_SYSCALL(getdents64),
       ALLOW_JUNCTION_SYSCALL(newfstatat),
+      ALLOW_JUNCTION_SYSCALL(stat),
+
+      ALLOW_JUNCTION_SYSCALL(readlinkat),
 
       ALLOW_JUNCTION_SYSCALL(mmap),
       ALLOW_JUNCTION_SYSCALL(munmap),
       ALLOW_JUNCTION_SYSCALL(mprotect),
       ALLOW_JUNCTION_SYSCALL(madvise),
       ALLOW_JUNCTION_SYSCALL(open),
+      ALLOW_JUNCTION_SYSCALL(openat),
       ALLOW_JUNCTION_SYSCALL(close),
       ALLOW_JUNCTION_SYSCALL(preadv2),
       ALLOW_JUNCTION_SYSCALL(pread64),
       ALLOW_JUNCTION_SYSCALL(exit_group),
-      ALLOW_JUNCTION_SYSCALL(stat),
 #endif
       TRAP,
   };
@@ -136,6 +141,13 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
       ctx->uc_mcontext.rax = -ENOSYS;
       log_syscall_msg("blocked syscall (likely from inside Junction's libc): ",
                       sysn);
+      return;
+    }
+
+    // We don't allow the brk system call, set the return value to 0 so
+    // Junction's libc to uses mmap instead.
+    if (sysn == __NR_brk) {
+      ctx->uc_mcontext.rax = 0;
       return;
     }
 

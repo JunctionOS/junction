@@ -6,6 +6,7 @@
 #include <string_view>
 
 #include "junction/base/error.h"
+#include "junction/fs/fs.h"
 #include "junction/kernel/mm.h"
 
 namespace junction {
@@ -103,6 +104,6 @@ enum {
 };
 
 // Load an ELF object file into memory. Returns metadata if successful.
-Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path);
+Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path, FSRoot &fs);
 
 }  // namespace junction

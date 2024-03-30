@@ -12,8 +12,10 @@ namespace {
 
 class MemIDir : public IDir {
  public:
-  MemIDir(mode_t mode, std::shared_ptr<IDir> parent)
-      : IDir(mode, AllocateInodeNumber(), parent) {}
+  MemIDir(mode_t mode, std::string_view name, std::shared_ptr<IDir> parent)
+      : IDir(mode, AllocateInodeNumber(), name, parent) {}
+  MemIDir(mode_t mode, std::string &&name, std::shared_ptr<IDir> parent)
+      : IDir(mode, AllocateInodeNumber(), std::move(name), parent) {}
 
   // Directory ops
   Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override;
@@ -30,7 +32,7 @@ class MemIDir : public IDir {
   std::vector<dir_entry> GetDents() override;
 
   // Inode ops
-  Status<struct stat> GetStats() override;
+  Status<void> GetStats(struct stat *buf) const override;
 
  private:
   // Helper routine for inserting an inode.
@@ -39,7 +41,6 @@ class MemIDir : public IDir {
   Status<void> DoRename(MemIDir &src, std::string_view src_name,
                         std::string_view dst_name);
 
-  rt::Mutex lock_;
   std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 };
 
@@ -48,7 +49,7 @@ Status<void> MemIDir::Insert(std::string name, std::shared_ptr<Inode> ino) {
   if (is_stale()) return MakeError(ESTALE);
   auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
   if (!okay) return MakeError(EEXIST);
-  ino->inc_nlink();
+  it->second->inc_nlink();
   return {};
 }
 
@@ -65,7 +66,7 @@ Status<void> MemIDir::MkNod(std::string_view name, mode_t mode, dev_t dev) {
 }
 
 Status<void> MemIDir::MkDir(std::string_view name, mode_t mode) {
-  auto ino = std::make_shared<MemIDir>(mode, get_this());
+  auto ino = std::make_shared<MemIDir>(mode, name, get_this());
   return Insert(std::string(name), std::move(ino));
 }
 
@@ -120,6 +121,12 @@ Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
   std::shared_ptr<Inode> ino = std::move(src_it->second);
   src.entries_.erase(src_it);
   entries_[std::string(dst_name)] = std::move(ino);
+
+  if (ino->is_dir()) {
+    IDir &tdir = static_cast<IDir &>(*ino);
+    tdir.DoRename(get_this(), dst_name);
+  }
+
   return {};
 }
 
@@ -134,7 +141,7 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
     return DoRename(*src_dir, src_name, dst_name);
   }
 
-  // otherwise rename is across different directories (so avoid deadlock)
+  // otherwise rename is across different directories (to avoid deadlock)
   auto fin = finally([this, &src_dir] {
     src_dir->lock_.Unlock();
     lock_.Unlock();
@@ -168,7 +175,10 @@ std::vector<dir_entry> MemIDir::GetDents() {
   return result;
 }
 
-Status<struct stat> MemIDir::GetStats() { return MemInodeToStats(*this); }
+Status<void> MemIDir::GetStats(struct stat *buf) const {
+  MemInodeToStats(*this, buf);
+  return {};
+}
 
 }  // namespace
 

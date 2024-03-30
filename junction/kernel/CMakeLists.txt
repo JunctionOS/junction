@@ -4,7 +4,6 @@ set(SOURCES_C_CPP
   elf.cc
   eventfd.cc
   exec.cc
-  file.cc
   futex.cc
   itimer.cc
   misc.cc

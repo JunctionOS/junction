@@ -8,7 +8,7 @@
 
 #include "junction/base/compiler.h"
 #include "junction/base/intrusive_list.h"
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/snapshot/cereal.h"

@@ -137,7 +137,6 @@ endif()
 add_subdirectory(base)
 add_subdirectory(bindings)
 add_subdirectory(control)
-add_subdirectory(filesystem)
 add_subdirectory(fs)
 add_subdirectory(kernel)
 add_subdirectory(net)
@@ -155,7 +154,7 @@ add_library(junction
 target_link_libraries(junction INTERFACE
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,syscall>"
   base
-  filesystem
+  fs
   net
   kernel
   glibc_shim_backend

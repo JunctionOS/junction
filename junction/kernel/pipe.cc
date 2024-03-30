@@ -6,7 +6,7 @@
 #include <memory>
 
 #include "junction/base/byte_channel.h"
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/limits.h"
@@ -172,9 +172,10 @@ class PipeReaderFile : public File {
     return pipe_->Read(buf, (get_flags() & kFlagNonblock) != 0);
   }
 
-  Status<void> Stat(struct stat *statbuf, int flags) override {
+  Status<void> Stat(struct stat *statbuf) const override {
     // TODO(jf): do we need to fill in more fields?
-    statbuf->st_mode = S_IFIFO;
+    memset(statbuf, 0, sizeof(*statbuf));
+    statbuf->st_mode = S_IFIFO | S_IRUSR;
     return {};
   }
 
@@ -211,9 +212,9 @@ class PipeWriterFile : public File {
     return pipe_->Write(buf, (get_flags() & kFlagNonblock) != 0);
   }
 
-  Status<void> Stat(struct stat *statbuf, int flags) override {
-    // TODO(jf): do we need to fill in more fields?
-    statbuf->st_mode = S_IFIFO;
+  Status<void> Stat(struct stat *statbuf) const override {
+    memset(statbuf, 0, sizeof(*statbuf));
+    statbuf->st_mode = S_IFIFO | S_IWUSR;
     return {};
   }
 

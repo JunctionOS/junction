@@ -82,8 +82,7 @@ std::shared_ptr<File> MakeFile(unsigned int flags, unsigned int mode) {
   return std::make_shared<T>(flags, mode);
 }
 
-using FactoryPtr = std::shared_ptr<File> (*)(unsigned int flags,
-                                             unsigned int mode);
+using FactoryPtr = std::shared_ptr<File> (*)(unsigned int flags, mode_t mode);
 
 // Table of supported character devices
 const std::map<dev_t, FactoryPtr> CharacterDevices{
@@ -96,8 +95,7 @@ const std::map<dev_t, FactoryPtr> CharacterDevices{
 }  // namespace
 
 Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, dev_t dev,
-                                         unsigned int flags,
-                                         unsigned int mode) {
+                                         unsigned int flags, mode_t mode) {
   // Only character devices supported so far.
   if (ino.get_type() != kTypeCharacter) return MakeError(ENODEV);
 

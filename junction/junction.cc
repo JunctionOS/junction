@@ -7,9 +7,8 @@
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
-#include "junction/filesystem/vfs.h"
+#include "junction/fs/fs.h"
 #include "junction/junction.h"
-#include "junction/kernel/fs.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/signal.h"
 #include "junction/shim/backend/init.h"
@@ -18,8 +17,6 @@
 
 namespace junction {
 
-std::string cwd;
-std::string_view GetLinuxCwd() { return cwd; }
 pid_t linux_pid;
 
 pid_t GetLinuxPid() { return linux_pid; }
@@ -143,18 +140,6 @@ Status<void> InitChroot() {
   return {};
 }
 
-Status<void> InitFS() {
-  const std::string_view &fs_config_path = GetCfg().get_fs_config_path();
-  FileSystem *fs;
-  if (fs_config_path.empty()) {
-    fs = new VFS();
-  } else {
-    fs = new VFS(fs_config_path);
-  }
-  init_fs(fs);
-  return {};
-}
-
 Status<void> init() {
   // Make sure any one-time routines in the logger get run now.
   LOG(INFO) << "Initializing junction";
@@ -162,16 +147,16 @@ Status<void> init() {
 
   linux_pid = getpid();
 
-  Status<void> ret = InitFS();
-  if (unlikely(!ret)) return ret;
-
-  ret = InitSignal();
+  Status<void> ret = InitSignal();
   if (unlikely(!ret)) return ret;
 
   ret = SyscallInit();
   if (unlikely(!ret)) return ret;
 
   ret = InitChroot();
+  if (unlikely(!ret)) return ret;
+
+  ret = InitFs();
   if (unlikely(!ret)) return ret;
 
   ret = ShimJmpInit();
@@ -182,8 +167,6 @@ Status<void> init() {
 
   ret = InitControlServer();
   if (unlikely(!ret)) return ret;
-
-  cwd = std::string(std::filesystem::current_path()) + std::string("/");
 
   return init_seccomp();
 }

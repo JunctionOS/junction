@@ -10,9 +10,9 @@
 #include "junction/base/error.h"
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
+#include "junction/fs/file.h"
+#include "junction/fs/fs.h"
 #include "junction/junction.h"
-#include "junction/kernel/file.h"
-#include "junction/kernel/fs.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 
@@ -23,10 +23,11 @@ namespace {
 class JunctionFile {
  public:
   // Open creates a new file descriptor attached to a file path.
-  static Status<JunctionFile> Open(std::string_view path, int flags,
+  static Status<JunctionFile> Open(FSRoot &fs, std::string_view path, int flags,
                                    mode_t mode) {
-    FileSystem *fs = get_fs();
-    Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
+    Status<std::shared_ptr<Inode>> in = FSLookup(fs, path);
+    if (!in) return MakeError(in);
+    Status<std::shared_ptr<File>> f = (*in)->Open(mode, flags);
     if (!f) return MakeError(f);
     return JunctionFile(std::move(*f));
   }
@@ -211,14 +212,16 @@ Status<std::pair<uintptr_t, size_t>> LoadSegments(
 }
 
 // LoadInterp loads an interpreter binary (usually ld.so).
-Status<elf_data::interp_data> LoadInterp(MemoryMap &mm, std::string_view path) {
+Status<elf_data::interp_data> LoadInterp(MemoryMap &mm, FSRoot &fs,
+                                         std::string_view path) {
   if (junction::GetCfg().get_interp_path().size())
     path = junction::GetCfg().get_interp_path();
 
   DLOG(INFO) << "elf: loading interpreter ELF object file '" << path << "'";
 
   // Open the file.
-  Status<JunctionFile> file = JunctionFile::Open(path, 0, S_IRUSR | S_IXUSR);
+  Status<JunctionFile> file =
+      JunctionFile::Open(fs, path, 0, S_IRUSR | S_IXUSR);
   if (!file) return MakeError(file);
 
   // Load the ELF header.
@@ -257,11 +260,12 @@ std::optional<elf_phdr> FindPHDRByType(const std::vector<elf_phdr> &v,
 
 }  // namespace
 
-Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path) {
+Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path, FSRoot &fs) {
   DLOG(INFO) << "elf: loading ELF object file '" << path << "'";
 
   // Open the file.
-  Status<JunctionFile> file = JunctionFile::Open(path, 0, S_IRUSR | S_IXUSR);
+  Status<JunctionFile> file =
+      JunctionFile::Open(fs, path, 0, S_IRUSR | S_IXUSR);
   if (!file) return MakeError(file);
 
   // Load the ELF header.
@@ -281,7 +285,7 @@ Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path) {
   if (phdr) {
     Status<std::string> path = ReadInterp(*file, *phdr);
     if (!path) return MakeError(path);
-    Status<elf_data::interp_data> data = LoadInterp(mm, *path);
+    Status<elf_data::interp_data> data = LoadInterp(mm, fs, *path);
     if (!data) return MakeError(data);
     interp_data = *data;
   }

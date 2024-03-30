@@ -7,7 +7,7 @@
 
 #include "junction/base/error.h"
 #include "junction/bindings/net.h"
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 #include "junction/snapshot/cereal.h"
 
 namespace junction {

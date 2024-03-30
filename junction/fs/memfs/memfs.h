@@ -7,11 +7,10 @@
 namespace junction::memfs {
 
 // Generate file attributes. Does not set st_size.
-struct stat MemInodeToStats(const Inode &ino) {
-  struct stat s = InodeToStats(ino);
-  s.st_blksize = kPageSize;
-  s.st_dev = MakeDevice(8, 0);  // fake SCSI device
-  return s;
+void MemInodeToStats(const Inode &ino, struct stat *buf) {
+  InodeToStats(ino, buf);
+  buf->st_blksize = kPageSize;
+  buf->st_dev = MakeDevice(8, 0);  // fake SCSI device
 }
 
 // Create a soft link inode.

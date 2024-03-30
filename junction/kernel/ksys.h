@@ -4,7 +4,6 @@ extern "C" {
 #include <base/syscall.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
-#include <sys/statfs.h>
 }
 
 #include <cstddef>
@@ -33,10 +32,13 @@ int ksys_munmap(void *addr, size_t length);
 int ksys_mprotect(void *addr, size_t len, int prot);
 long ksys_madvise(void *addr, size_t length, int advice);
 int ksys_open(const char *pathname, int flags, mode_t mode);
+int ksys_openat(int fd, const char *pathname, int flags, mode_t mode);
 int ksys_close(int fd);
 ssize_t ksys_readv(int fd, const struct iovec *iov, int iovcnt);
 ssize_t ksys_pread(int fd, void *buf, size_t count, off_t offset);
 int ksys_tgkill(pid_t tgid, pid_t tid, int sig);
+ssize_t ksys_readlinkat(int dirfd, const char *pathname, char *buf,
+                        size_t bufsz);
 
 static inline ssize_t ksys_write(int fd, const void *buf, size_t count) {
   return syscall_write(fd, buf, count);
@@ -58,7 +60,6 @@ static inline ssize_t ksys_pwrite(int fd, const void *buf, size_t count,
 }
 int ksys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                     int flags);
-int ksys_statfs(const char *path, struct statfs *buf);
 int ksys_stat(const char *path, struct stat *buf);
 int ksys_getdents(unsigned int fd, void *dirp, unsigned int count);
 int ksys_getdents64(unsigned int fd, void *dirp, unsigned int count);
@@ -72,6 +73,13 @@ class KernelFile : public VectoredWriter {
   static Status<KernelFile> Open(std::string_view path, int flags,
                                  mode_t mode) {
     int ret = ksys_open(path.data(), flags, mode);
+    if (ret < 0) return MakeError(-ret);
+    return KernelFile(ret);
+  }
+
+  static Status<KernelFile> OpenAt(int fd, std::string_view path, int flags,
+                                   mode_t mode) {
+    int ret = ksys_openat(fd, path.data(), flags, mode);
     if (ret < 0) return MakeError(-ret);
     return KernelFile(ret);
   }
@@ -142,6 +150,8 @@ class KernelFile : public VectoredWriter {
 
   // Seek to a different position in the file.
   void Seek(off_t offset) { off_ = offset; }
+
+  [[nodiscard]] int GetFd() const { return fd_; }
 
  private:
   int fd_{-1};

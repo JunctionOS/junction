@@ -18,7 +18,7 @@ extern "C" {
 
 #include "junction/base/finally.h"
 #include "junction/bindings/log.h"
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 #include "junction/kernel/mm.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"

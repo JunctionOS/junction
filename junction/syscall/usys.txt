@@ -1,6 +1,9 @@
 # add syscalls that are implemented by junction to this file
 access
+faccessat
+faccessat2
 chdir
+fchdir
 getpid
 gettid
 arch_prctl
@@ -38,13 +41,17 @@ munmap
 madvise
 newfstatat
 statfs
+fstatfs
 stat
+lstat
+fstat
 getdents
 getdents64
 mkdir
 mkdirat
 rmdir
 link
+linkat
 unlink
 chown
 chmod

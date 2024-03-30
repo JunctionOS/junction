@@ -234,8 +234,7 @@ Status<std::shared_ptr<Process>> CreateInitProcess() {
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
 
-  detail::init_proc =
-      std::make_shared<Process>(*pid, std::move(*mm), *pid, GetLinuxCwd());
+  detail::init_proc = std::make_shared<Process>(*pid, std::move(*mm), *pid);
   return detail::init_proc;
 }
 
@@ -245,7 +244,8 @@ Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
   if (!pid) return MakeError(pid);
 
   auto p = std::make_shared<Process>(*pid, mem_map_, file_tbl_, std::move(w),
-                                     shared_from_this(), get_pgid(), GetCwd());
+                                     shared_from_this(), get_pgid(),
+                                     get_filesystem());
   rt::SpinGuard g(shared_sig_q_);
   child_procs_.push_back(p);
   return p;

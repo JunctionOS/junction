@@ -12,6 +12,7 @@ extern "C" {
 #include <string_view>
 #include <vector>
 
+#include "junction/bindings/rcu.h"
 #include "junction/fs/file.h"
 
 namespace junction {
@@ -37,23 +38,33 @@ inline constexpr mode_t kTypeFIFO = S_IFIFO;
 inline constexpr mode_t kTypeMask =
     (S_IFREG | S_IFDIR | S_IFCHR | S_IFBLK | S_IFLNK | S_IFIFO);
 
+// Shift required to convert type bits to file types (eg DT_REG, etc.)
+inline constexpr uint32_t kTypeShift = 12;
+
 // Inode is the base class for all inodes
-class Inode : std::enable_shared_from_this<Inode> {
+class Inode : public std::enable_shared_from_this<Inode> {
  public:
   Inode(mode_t mode, ino_t inum) : mode_(mode), inum_(inum) {}
+
   virtual ~Inode() = default;
 
   // Open a file for this inode.
-  virtual Status<std::shared_ptr<File>> Open(mode_t mode, uint32_t flags) = 0;
+  virtual Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) = 0;
   // Get attributes.
-  virtual Status<struct stat> GetStats() = 0;
+  virtual Status<void> GetStats(struct stat *buf) const = 0;
+  // Get attributes about this Inode's filesystem.
+  virtual Status<void> GetStatFS(struct statfs *buf) const {
+    return MakeError(ENOSYS);
+  }
 
   // permissions and other mode bits
   [[nodiscard]] mode_t get_mode() const { return mode_; }
   // the type of file
-  [[nodiscard]] mode_t get_type() const { return mode_ & kTypeMask; }
+  [[nodiscard]] mode_t get_type() const { return get_mode() & kTypeMask; }
   // Is this inode a directory?
-  [[nodiscard]] bool is_dir() const { return (mode_ & kTypeDirectory) > 0; }
+  [[nodiscard]] bool is_dir() const { return get_type() == kTypeDirectory; }
+  // Is this inode a symlink?
+  [[nodiscard]] bool is_symlink() const { return get_type() == kTypeSymLink; }
   // the inode number
   [[nodiscard]] ino_t get_inum() const { return inum_; }
   // the number of hard links to the file
@@ -71,19 +82,18 @@ class Inode : std::enable_shared_from_this<Inode> {
   };
 
  private:
-  const mode_t mode_;              // the rype and mode
+  const mode_t mode_;              // the type and mode
   const ino_t inum_;               // inode number
   std::atomic<nlink_t> nlink_{0};  // number of hard links to this inode
 };
 
 // InodeToStats returns a partial set of attributes based on what's availabe in
 // a generic inode. The caller must fill in the rest manually.
-struct stat InodeToStats(const Inode &ino) {
-  struct stat s {};
-  s.st_ino = ino.get_inum();
-  s.st_mode = ino.get_mode();
-  s.st_nlink = ino.get_nlink();
-  return s;
+inline void InodeToStats(const Inode &ino, struct stat *buf) {
+  memset(buf, 0, sizeof(*buf));
+  buf->st_ino = ino.get_inum();
+  buf->st_mode = ino.get_mode();
+  buf->st_nlink = ino.get_nlink();
 }
 
 // ISoftLink is an inode type for soft links
@@ -93,10 +103,17 @@ class ISoftLink : public Inode {
   ~ISoftLink() override = default;
 
   // Opens a file that does nothing.
-  Status<std::shared_ptr<File>> Open(uint32_t mode, uint32_t flags) override;
+  Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) override {
+    return std::make_shared<SoftLinkFile>(flags, mode, get_this());
+  }
 
   // ReadLink reads the path of the link.
   virtual Status<std::string> ReadLink() = 0;
+
+  // Gets a shared pointer to this softlink.
+  [[nodiscard]] std::shared_ptr<ISoftLink> get_this() {
+    return std::static_pointer_cast<ISoftLink>(Inode::get_this());
+  };
 };
 
 struct dir_entry {
@@ -105,15 +122,40 @@ struct dir_entry {
   unsigned int type;
 };
 
+// Backwards link for an IDir; contains a pointer to the parent and the name
+// of this IDir.
+struct ParentPointer : public rt::RCUObject {
+  ParentPointer(std::shared_ptr<IDir> parent, std::string &&name)
+      : parent(std::move(parent)), name_in_parent(std::move(name)) {}
+  ParentPointer(std::shared_ptr<IDir> parent, std::string_view name)
+      : parent(std::move(parent)), name_in_parent(name) {}
+  std::shared_ptr<IDir> parent;
+  std::string name_in_parent;
+};
+
+// Forward declaration.
+class FSRoot;
+
 // IDir is an inode type for directories
 class IDir : public Inode {
  public:
-  IDir(mode_t mode, ino_t inum, std::shared_ptr<IDir> parent = {})
-      : Inode(kTypeDirectory | mode, inum), parent_(std::move(parent)) {}
+  IDir(mode_t mode, ino_t inum, std::string_view name,
+       std::shared_ptr<IDir> parent = {})
+      : Inode(kTypeDirectory | mode, inum),
+        pptr_(std::make_unique<ParentPointer>(std::move(parent), name)),
+        rcup_(pptr_.get()) {}
+  IDir(struct stat &buf, std::string_view name,
+       std::shared_ptr<IDir> parent = {})
+      : Inode(kTypeDirectory | buf.st_mode, buf.st_ino),
+        pptr_(std::make_unique<ParentPointer>(std::move(parent), name)),
+        rcup_(pptr_.get()) {}
+
   ~IDir() override = default;
 
   // Opens a file that supports getdents() and getdents64().
-  Status<std::shared_ptr<File>> Open(mode_t mode, uint32_t flags) override;
+  Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) override {
+    return std::make_shared<DirectoryFile>(flags, mode, get_this());
+  }
 
   // Lookup finds a directory entry by name.
   virtual Status<std::shared_ptr<Inode>> Lookup(std::string_view name) = 0;
@@ -140,16 +182,54 @@ class IDir : public Inode {
   // GetDents returns a vector of the current entries.
   virtual std::vector<dir_entry> GetDents() = 0;
 
+  virtual Status<void> GetStats(struct stat *buf) const override = 0;
+
   // Gets a shared pointer to the parent of this directory.
-  [[nodiscard]] std::shared_ptr<IDir> get_parent() const { return parent_; }
+  [[nodiscard]] std::shared_ptr<IDir> get_parent() const {
+    rt::RCURead l;
+    rt::RCUReadGuard g(l);
+    return rcup_.get()->parent;
+  }
+
+  [[nodiscard]] std::string get_name() const {
+    rt::RCURead l;
+    rt::RCUReadGuard g(l);
+    return rcup_.get()->name_in_parent;
+  }
+
+  [[nodiscard]] ParentPointer get_parent_info() const {
+    rt::RCURead l;
+    rt::RCUReadGuard g(l);
+    return *rcup_.get();
+  }
+
   // Gets a shared pointer to this directory.
   [[nodiscard]] std::shared_ptr<IDir> get_this() {
     return std::static_pointer_cast<IDir>(Inode::get_this());
   };
 
+  // Fills @dst with the full path of this IDir.
+  Status<std::span<char>> GetFullPath(const FSRoot &fs, std::span<char> dst);
+
+  // Must be called during a rename.
+  void DoRename(std::shared_ptr<IDir> new_parent, std::string_view new_name) {
+    assert(!lock_.IsHeld());
+    rt::MutexGuard g(lock_);
+    rt::RCURead l;
+    rt::RCUReadGuard rg(l);
+    auto newp =
+        std::make_unique<ParentPointer>(std::move(new_parent), new_name);
+    rcup_.set(newp.get());
+    rt::RCUFree(std::move(pptr_));
+    pptr_ = std::move(newp);
+  }
+
+ protected:
+  rt::Mutex lock_;
+
  private:
-  // Parent directory.
-  std::shared_ptr<IDir> parent_;
+  std::unique_ptr<ParentPointer> pptr_;
+  rt::RCUPtr<ParentPointer> rcup_;
 };
 
 // FSRoot manages the root directory and namespace for a process
@@ -161,14 +241,43 @@ class FSRoot {
 
   [[nodiscard]] std::shared_ptr<IDir> get_root() const { return root_; }
   [[nodiscard]] std::shared_ptr<IDir> get_cwd() const { return cwd_; }
+  [[nodiscard]] static FSRoot &GetGlobalRoot() { return *global_root_; }
+  [[nodiscard]] mode_t get_umask() const { return umask_; }
+
+  // TODO(jfried): need to protect current modifications.
+  void SetCwd(std::shared_ptr<IDir> new_cwd) { cwd_ = std::move(new_cwd); }
+
+  mode_t SetUmask(mode_t umask) {
+    mode_t prev = umask_;
+    umask_ = umask & 0777;
+    return prev;
+  }
+
+  static void InitFsRoot(std::shared_ptr<IDir> root) {
+    assert(!global_root_);
+    global_root_ = new FSRoot(root, root);
+  }
 
  private:
   std::shared_ptr<IDir> root_;
   std::shared_ptr<IDir> cwd_;
+  mode_t umask_{0};
+  static FSRoot *global_root_;
 };
+
+namespace linuxfs {
+Status<std::shared_ptr<IDir>> InitLinuxFs();
+}
+
+Status<void> InitFs();
 
 // FSLookup finds and returns a reference to the inode for a path.
 Status<std::shared_ptr<Inode>> FSLookup(const FSRoot &root,
-                                        std::string_view path);
-
+                                        std::string_view path,
+                                        bool chase_link = true);
+// FSLookupAt finds and returns a reference to the inode for a path using a
+// dirfd.
+Status<std::shared_ptr<Inode>> FSLookupAt(const FSRoot &fs, int dirfd,
+                                          std::string_view path,
+                                          bool chase_link = true);
 }  // namespace junction

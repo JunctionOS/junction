@@ -6,7 +6,7 @@
 #include <string_view>
 
 #include "junction/base/error.h"
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 #include "junction/snapshot/cereal.h"
 
 namespace junction {
@@ -22,7 +22,7 @@ class StdIOFile : public File {
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
   virtual Status<size_t> Write(std::span<const std::byte> buf,
                                off_t *off) override;
-  virtual Status<void> Stat(struct stat *statbuf, int flags) override;
+  virtual Status<void> Stat(struct stat *statbuf) const override;
   virtual Status<void> Sync() override;
 
   [[nodiscard]] int get_fd() const { return fd_; }

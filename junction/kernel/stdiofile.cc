@@ -32,11 +32,11 @@ Status<size_t> StdIOFile::Write(std::span<const std::byte> buf, off_t *off) {
   return ret;
 }
 
-Status<void> StdIOFile::Stat(struct stat *statbuf, int flags) {
-  char empty_path[1] = {'\0'};
-  assert(flags & AT_EMPTY_PATH);
-  int ret = ksys_newfstatat(fd_, empty_path /* pathname */, statbuf, flags);
-  if (ret) return MakeError(-ret);
+Status<void> StdIOFile::Stat(struct stat *statbuf) const {
+  memset(statbuf, 0, sizeof(*statbuf));
+  statbuf->st_mode = S_IFCHR;
+  if (get_mode() & kModeRead) statbuf->st_mode |= S_IRUSR;
+  if (get_mode() & kModeWrite) statbuf->st_mode |= S_IWUSR;
   return {};
 }
 

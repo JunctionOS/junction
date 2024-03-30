@@ -31,8 +31,6 @@ constexpr size_t kOversizeRatio = 2;
 
 namespace junction {
 
-std::unique_ptr<FileSystem> fs_;
-
 namespace detail {
 
 file_array::file_array(size_t cap)
@@ -130,15 +128,46 @@ bool FileTable::Remove(int fd) {
   return true;
 }
 
+void FileTable::RemoveRange(int low, int high) {
+  assert(low >= 0 && high >= 0);
+  std::vector<std::shared_ptr<File>> tmp;
+  {
+    rt::SpinGuard g(lock_);
+    int max = farr_->len - 1;
+    low = std::min(low, max);
+    high = std::min(high, max);
+
+    tmp.reserve(high - low + 1);
+    for (int fd = low; fd <= high; fd++) {
+      if (!farr_->files[fd]) continue;
+      tmp.emplace_back(std::move(farr_->files[fd]));
+      close_on_exec_.clear(fd);
+    }
+  }
+}
+
+void FileTable::SetCloseOnExecRange(int low, int high) {
+  assert(low >= 0 && high >= 0);
+  rt::SpinGuard g(lock_);
+
+  int max = farr_->len;
+  low = std::min(low, max);
+  high = std::min(high, max);
+
+  for (int fd = low; fd <= high; fd++) {
+    if (farr_->files[fd]) close_on_exec_.set(fd);
+  }
+}
+
 void FileTable::SetCloseOnExec(int fd) {
   rt::SpinGuard g(lock_);
-  assert(fd < farr_->len && farr_->files[fd]);
+  assert(static_cast<size_t>(fd) < farr_->len && farr_->files[fd]);
   close_on_exec_.set(fd);
 }
 
 bool FileTable::TestCloseOnExec(int fd) {
   rt::SpinGuard g(lock_);
-  assert(fd < farr_->len && farr_->files[fd]);
+  assert(static_cast<size_t>(fd) < farr_->len && farr_->files[fd]);
   return close_on_exec_.test(fd);
 }
 
@@ -152,25 +181,6 @@ void FileTable::DoCloseOnExec() {
 //
 // System call implementations
 //
-
-void init_fs(FileSystem *fs) {
-  // Set the filesystem.
-  fs_.reset(fs);
-}
-
-long usys_open(const char *pathname, int flags, mode_t mode) {
-  const std::string_view path(pathname);
-  FileSystem *fs = get_fs();
-  Status<std::shared_ptr<File>> f = fs->Open(path, mode, flags);
-  if (unlikely(!f)) return -ENOENT;
-  FileTable &ftbl = myproc().get_file_table();
-  return ftbl.Insert(std::move(*f), (flags & kFlagCloseExec) > 0);
-}
-
-long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
-  if (unlikely(dirfd != AT_FDCWD)) return -EINVAL;
-  return usys_open(pathname, flags, mode);
-}
 
 long usys_ftruncate(int fd, off_t length) {
   FileTable &ftbl = myproc().get_file_table();
@@ -256,6 +266,107 @@ Status<size_t> File::Readv(std::span<iovec> vec, off_t *off) {
   }
   if (total_bytes) return total_bytes;
   return ret;
+}
+
+Status<void> File::Stat(struct stat *statbuf) const {
+  assert(ino_);
+  Status<void> ret = ino_->GetStats(statbuf);
+  if (!ret) return MakeError(ret);
+  return {};
+}
+
+Status<void> File::StatFS(struct statfs *buf) const {
+  if (!ino_) return MakeError(ENOSYS);
+  Status<void> stat = ino_->GetStatFS(buf);
+  if (!stat) return MakeError(stat);
+  return {};
+}
+
+struct linux_dirent64 {
+  ino64_t d_ino;           /* 64-bit inode number */
+  off64_t d_off;           /* 64-bit offset to next structure */
+  unsigned short d_reclen; /* Size of this dirent */
+  unsigned char d_type;    /* File type */
+  char d_name[];           /* Filename (null-terminated) */
+};
+
+struct linux_dirent {
+  unsigned long d_ino;     /* inode number */
+  unsigned long d_off;     /* offset to next structure */
+  unsigned short d_reclen; /* Size of this dirent */
+  char d_name[1];          /* Filename (null-terminated) plus 1 byte d_type */
+};
+
+size_t DirentToDent64(dir_entry &ent, std::span<std::byte> dirp, off_t off) {
+  size_t ent_size = sizeof(linux_dirent64) + ent.name.size() + 1;
+  ent_size = AlignUp(ent_size, alignof(linux_dirent64));
+  if (ent_size > dirp.size()) return 0;
+  linux_dirent64 &dent = *reinterpret_cast<linux_dirent64 *>(dirp.data());
+  dent.d_ino = ent.inum;
+  dent.d_reclen = ent_size;
+  dent.d_off = off;
+  dent.d_type = ent.type >> kTypeShift;
+  std::memcpy(dent.d_name, ent.name.data(), ent.name.size());
+  dent.d_name[ent.name.size()] = '\0';
+  return ent_size;
+}
+
+size_t DirentToDent(dir_entry &ent, std::span<std::byte> dirp, off_t off) {
+  size_t ent_size = sizeof(linux_dirent) + ent.name.size() + 1;
+  ent_size = AlignUp(ent_size, alignof(linux_dirent));
+  if (ent_size > dirp.size()) return 0;
+  linux_dirent &dent = *reinterpret_cast<linux_dirent *>(dirp.data());
+  dent.d_ino = ent.inum;
+  dent.d_reclen = ent_size;
+  dent.d_off = off;
+  std::memcpy(dent.d_name, ent.name.data(), ent.name.size());
+  dent.d_name[ent.name.size()] = '\0';
+  dirp[ent_size - 1] = static_cast<std::byte>(ent.type >> kTypeShift);
+  return ent_size;
+}
+
+template <typename ConvertFn>
+Status<long> DoDirent(IDir &dir, std::span<std::byte> dirp, off_t &off,
+                      ConvertFn func) {
+  std::vector<dir_entry> ents = dir.GetDents();
+  std::span<std::byte> out = dirp;
+  while (static_cast<size_t>(off) < ents.size()) {
+    size_t sz = func(ents[off], out, off);
+    if (!sz) {
+      if (out.size() == dirp.size()) return MakeError(EINVAL);
+      break;
+    }
+    out = out.subspan(sz);
+    off++;
+  }
+  return dirp.size() - out.size();
+}
+
+DirectoryFile::DirectoryFile(unsigned int flags, mode_t mode,
+                             std::shared_ptr<IDir> ino)
+    : File(FileType::kDirectory, flags, mode, std::move(ino)) {}
+
+Status<long> DirectoryFile::GetDents(std::span<std::byte> dirp, off_t *off) {
+  IDir &dir = static_cast<IDir &>(get_inode_ref());
+  return DoDirent(dir, dirp, *off, DirentToDent);
+}
+
+Status<long> DirectoryFile::GetDents64(std::span<std::byte> dirp, off_t *off) {
+  IDir &dir = static_cast<IDir &>(get_inode_ref());
+  return DoDirent(dir, dirp, *off, DirentToDent64);
+}
+
+SoftLinkFile::SoftLinkFile(unsigned int flags, mode_t mode,
+                           std::shared_ptr<ISoftLink> ino)
+    : File(FileType::kSymlink, flags, mode, std::move(ino)) {}
+
+Status<long> SoftLinkFile::ReadLink(std::span<std::byte> buf) {
+  ISoftLink &ino = static_cast<ISoftLink &>(get_inode_ref());
+  Status<std::string> link = ino.ReadLink();
+  if (!link) return MakeCError(link);
+  size_t copy = std::min(buf.size(), link->size());
+  std::memcpy(buf.data(), link->data(), copy);
+  return copy;
 }
 
 ssize_t usys_writev(int fd, const iovec *iov, int iovcnt) {
@@ -370,35 +481,35 @@ long usys_close(int fd) {
   return 0;
 }
 
-long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
-                     int flags) {
-  if (unlikely(!pathname)) return -EINVAL;
-  if (flags & AT_EMPTY_PATH) {
-    FileTable &ftbl = myproc().get_file_table();
-    File *f = ftbl.Get(dirfd);
-    if (unlikely(!f)) return -EBADF;
-    Status<void> ret = f->Stat(statbuf, flags);
-    if (!ret) return MakeCError(ret);
-    return 0;
-  } else {
-    FileSystem *fs = get_fs();
-    Status<void> ret = fs->Stat(pathname, statbuf);
-    if (!ret) return MakeCError(ret);
-    return 0;
-  }
-}
-
-long usys_statfs(const char *path, struct statfs *buf) {
-  FileSystem *fs = get_fs();
-  Status<void> ret = fs->StatFS(path, buf);
+long usys_fstat(int fd, struct stat *statbuf) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+  Status<void> ret = f->Stat(statbuf);
   if (!ret) return MakeCError(ret);
   return 0;
 }
 
-long usys_stat(const char *path, struct stat *statbuf) {
-  FileSystem *fs = get_fs();
-  Status<void> ret = fs->Stat(path, statbuf);
-  if (!ret) return MakeCError(ret);
+long usys_newfstatat(int dirfd, const char *c_path, struct stat *statbuf,
+                     int flags) {
+  const std::string_view path(c_path);
+
+  std::shared_ptr<Inode> inode;
+
+  if ((flags & kAtEmptyPath) && path.size() == 0) {
+    if (dirfd != kAtFdCwd) return usys_fstat(dirfd, statbuf);
+    inode = myproc().get_filesystem().get_cwd();
+  } else {
+    bool chase_link = !(flags & kAtNoFollowLink);
+    FSRoot &fs = myproc().get_filesystem();
+    Status<std::shared_ptr<Inode>> tmp =
+        FSLookupAt(fs, dirfd, path, chase_link);
+    if (!tmp) return MakeCError(tmp);
+    inode = std::move(*tmp);
+  }
+
+  Status<void> stat = inode->GetStats(statbuf);
+  if (!stat) return MakeCError(stat);
   return 0;
 }
 
@@ -406,18 +517,29 @@ long usys_getdents(unsigned int fd, void *dirp, unsigned int count) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
-  Status<int> ret = f->GetDents(dirp, count);
+  Status<long> ret = f->GetDents({reinterpret_cast<std::byte *>(dirp), count},
+                                 &f->get_off_ref());
   if (!ret) return MakeCError(ret);
-  return static_cast<long>(*ret);
+  return *ret;
 }
 
 long usys_getdents64(unsigned int fd, void *dirp, unsigned int count) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
-  Status<int> ret = f->GetDents64(dirp, count);
+  Status<long> ret = f->GetDents64({reinterpret_cast<std::byte *>(dirp), count},
+                                   &f->get_off_ref());
   if (!ret) return MakeCError(ret);
-  return static_cast<long>(*ret);
+  return *ret;
+}
+
+long usys_fstatfs(int fd, struct statfs *buf) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f)) return -EBADF;
+  Status<void> stat = f->StatFS(buf);
+  if (!stat) return MakeCError(stat);
+  return 0;
 }
 
 long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
@@ -455,39 +577,6 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
   }
 }
 
-long usys_mkdir(const char *pathname, mode_t mode) {
-  FileSystem *fs = get_fs();
-  Status<void> ret = fs->CreateDirectory(pathname, mode);
-  if (!ret) return MakeCError(ret);
-  return 0;
-}
-
-long usys_mkdirat(int fd, const char *pathname, mode_t mode) {
-  if (unlikely(fd != AT_FDCWD)) return -EINVAL;
-  return usys_mkdir(pathname, mode);
-}
-
-long usys_rmdir(const char *pathname) {
-  FileSystem *fs = get_fs();
-  Status<void> ret = fs->RemoveDirectory(pathname);
-  if (!ret) return MakeCError(ret);
-  return 0;
-}
-
-long usys_link(const char *oldpath, const char *newpath) {
-  FileSystem *fs = get_fs();
-  Status<void> ret = fs->Link(oldpath, newpath);
-  if (!ret) return MakeCError(ret);
-  return 0;
-}
-
-long usys_unlink(const char *pathname) {
-  FileSystem *fs = get_fs();
-  Status<void> ret = fs->Unlink(pathname);
-  if (!ret) return MakeCError(ret);
-  return 0;
-}
-
 long usys_chown(const char *pathname, uid_t owner, gid_t group) {
   LOG(WARN) << "chown: no-op";
   return 0;
@@ -498,24 +587,15 @@ long usys_chmod(const char *pathname, mode_t mode) {
   return 0;
 }
 
-long usys_getcwd(char *buf, size_t size) {
-  // TODO(amb): Remove this once the filesystem is more there
-
-  std::string_view cwd = GetCwd();
-  size_t outsz = cwd.size() + 1;
-  if (outsz > size) return -ERANGE;
-  std::memcpy(buf, cwd.data(), cwd.size());
-  buf[cwd.size()] = '\0';
-  return outsz;
+long usys_close_range(int first, int last, unsigned int flags) {
+  if (unlikely(flags & ~CLOSE_RANGE_CLOEXEC)) return -EINVAL;
+  FileTable &ftbl = myproc().get_file_table();
+  if (flags & CLOSE_RANGE_CLOEXEC)
+    ftbl.SetCloseOnExecRange(first, last);
+  else
+    ftbl.RemoveRange(first, last);
+  return 0;
 }
-
-#if 0
-long usys_chdir(const char *path) {
-  // TODO(girfan): Remove this once the filesystem is more there
-  return ksys_default(reinterpret_cast<unsigned long>(path), 0, 0, 0, 0, 0,
-                      __NR_chdir);
-}
-#endif
 
 long usys_ioctl(int fd, unsigned long request, char *argp) {
   FileTable &ftbl = myproc().get_file_table();
@@ -527,10 +607,7 @@ long usys_ioctl(int fd, unsigned long request, char *argp) {
 }
 
 mode_t usys_umask(mode_t mask) {
-  FileSystem *fs = get_fs();
-  mode_t old = fs->get_umask();
-  fs->set_umask(mask);
-  return old;
+  return myproc().get_filesystem().SetUmask(mask);
 }
 
 }  // namespace junction

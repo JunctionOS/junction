@@ -10,7 +10,7 @@
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/sync.h"
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 #include "junction/kernel/ksys.h"
 #include "junction/snapshot/cereal.h"
 

@@ -4,7 +4,7 @@ extern "C" {
 #include <sys/eventfd.h>
 }
 
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/snapshot/cereal.h"

@@ -16,8 +16,9 @@ extern "C" {
 
 #include "junction/base/arch.h"
 #include "junction/base/uid.h"
+#include "junction/fs/file.h"
+#include "junction/fs/fs.h"
 #include "junction/junction.h"
-#include "junction/kernel/file.h"
 #include "junction/kernel/itimer.h"
 #include "junction/kernel/mm.h"
 #include "junction/kernel/signal.h"
@@ -307,12 +308,10 @@ static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 class Process : public std::enable_shared_from_this<Process> {
  public:
   // Constructor for init process
-  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm, pid_t pgid,
-          const std::string_view &cwd)
+  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm, pid_t pgid)
       : pid_(pid),
         pgid_(pgid),
-        cwd_(std::make_unique<std::string>(cwd)),
-        rcu_cwd_(cwd_.get()),
+        fs_(FSRoot::GetGlobalRoot()),
         mem_map_(std::move(mm)),
         parent_(nullptr) {
     RegisterProcess(*this);
@@ -320,13 +319,12 @@ class Process : public std::enable_shared_from_this<Process> {
   // Constructor for all other processes
   Process(pid_t pid, std::shared_ptr<MemoryMap> mm, FileTable &ftbl,
           rt::ThreadWaker &&w, std::shared_ptr<Process> parent, pid_t pgid,
-          const std::string_view &cwd)
+          const FSRoot &fs)
       : pid_(pid),
         pgid_(pgid),
         vfork_waker_(std::move(w)),
         file_tbl_(ftbl),
-        cwd_(std::make_unique<std::string>(cwd)),
-        rcu_cwd_(cwd_.get()),
+        fs_(fs),
         mem_map_(std::move(mm)),
         parent_(std::move(parent)) {
     RegisterProcess(*this);
@@ -354,6 +352,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] bool exited() const { return access_once(exited_); }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
   [[nodiscard]] bool is_stopped() const { return stopped_; }
+  [[nodiscard]] FSRoot &get_filesystem() { return fs_; }
 
   [[nodiscard]] const std::string_view get_bin_path() const {
     return binary_path_;
@@ -459,32 +458,6 @@ class Process : public std::enable_shared_from_this<Process> {
     return {};
   }
 
-  // Copies the current working directory to @dst, returns the number of bytes.
-  size_t GetCwd(std::span<std::byte> dst) const {
-    rt::RCURead l;
-    rt::RCUReadGuard g(l);
-    const std::string &cwd = *rcu_cwd_.get();
-    size_t to_copy = std::min(cwd.size(), dst.size());
-    std::memcpy(dst.data(), cwd.data(), to_copy);
-    return to_copy;
-  }
-
-  std::string GetCwd() const {
-    rt::RCURead l;
-    rt::RCUReadGuard g(l);
-    return *rcu_cwd_.get();
-  }
-
-  void SetCwd(std::string_view cwd) {
-    std::unique_ptr<std::string> s = std::make_unique<std::string>(cwd);
-    {
-      rt::SpinGuard g(cwd_lock_);
-      rcu_cwd_.set(s.get());
-      s = std::exchange(cwd_, std::move(s));
-    }
-    rt::RCUFree(std::move(cwd_));
-  }
-
   // mark all threads as ready to run
   void RunThreads() {
     rt::ScopedLock g(child_thread_lock_);
@@ -539,9 +512,13 @@ class Process : public std::enable_shared_from_this<Process> {
   }
 
   // Constructor for deserialization
+  // TODO(cereal): FIX fsroot
   template <class Archive>
   Process(pid_t pid, Archive &ar)
-      : pid_(pid), signal_tbl_(DeferInit), stopped_(true) {
+      : pid_(pid),
+        fs_(FSRoot::GetGlobalRoot()),
+        signal_tbl_(DeferInit),
+        stopped_(true) {
     RegisterProcess(*this);
 
     // TODO(cereal): add cwd
@@ -644,10 +621,7 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // File descriptor table
   FileTable file_tbl_;
-
-  rt::Spin cwd_lock_;
-  std::unique_ptr<std::string> cwd_{nullptr};
-  rt::RCUPtr<std::string> rcu_cwd_{nullptr};
+  FSRoot fs_;
 
   // Memory mappings
   std::shared_ptr<MemoryMap> mem_map_;

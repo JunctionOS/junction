@@ -9,8 +9,8 @@ extern "C" {
 }
 
 #include "junction/base/error.h"
+#include "junction/fs/file.h"
 #include "junction/kernel/elf.h"
-#include "junction/kernel/file.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
@@ -191,7 +191,7 @@ std::shared_ptr<Process> RestoreProcess(std::string_view metadata_path,
   ar(p);
 
   MemoryMap &mm = p->get_mem_map();
-  auto ret = LoadELF(mm, elf_path);
+  auto ret = LoadELF(mm, elf_path, p->get_filesystem());
   if (!ret) {
     LOG(ERR) << "Elf load failed: " << ret.error();
     return {};

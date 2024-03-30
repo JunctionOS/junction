@@ -1,18 +1,17 @@
 message(STATUS "Building junction filesystem")
 
-set(SOURCES_C_CPP
+add_library(fs
+  core.cc
   dev.cc
+  file.cc
+  linuxfs/dir.cc
+  linuxfs/linuxfile.cc
+  linuxfs/linuxfs.cc
   memfs/memfs.cc
   memfs/dir.cc
 )
 
-add_library(fs_c_cpp OBJECT ${SOURCES_C_CPP})
-
-add_library(fs STATIC
-  $<TARGET_OBJECTS:fs_c_cpp>
-)
-
-target_link_libraries(fs PUBLIC
+target_link_libraries(fs
   base
   bindings
   kernel

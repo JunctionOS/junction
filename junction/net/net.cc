@@ -8,7 +8,7 @@ extern "C" {
 #include "junction/base/io.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/net.h"
-#include "junction/kernel/file.h"
+#include "junction/fs/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/net/socket.h"

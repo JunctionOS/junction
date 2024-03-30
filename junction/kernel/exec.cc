@@ -139,7 +139,7 @@ Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                       const std::vector<std::string_view> &argv,
                       const std::vector<std::string_view> &envp) {
   // load the ELF program image file
-  auto edata = LoadELF(mm, pathname);
+  auto edata = LoadELF(mm, pathname, p.get_filesystem());
   if (!edata) return MakeError(edata);
 
   // Record pathname in proc
