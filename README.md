@@ -43,7 +43,7 @@ In order to run Junction, the core scheduler must be running. Run the following 
 lib/caladan/scripts/setup_machine.sh
 sudo lib/caladan/iokerneld ias
 ```
-Note that the arguments that you provide to the core scheduler will vary depending on your network configuration (see [networking](#Networking)).
+Note that the arguments that you provide to the core scheduler will vary depending on your network configuration (see [networking](#Networking-Options)).
 
 You can start a Junction container using `junction_run`. Each Junction container is started with a configuration file that specifies the maximum number of cores to use and a unique IP address. A sample configuration file is provided at `build/junction/caladan_test.config`. To run a program, simply pass that program and its arguments to `junction_run` as follows:
 
