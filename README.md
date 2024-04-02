@@ -19,7 +19,9 @@ For any questions about Junction, please email <junction@csail.mit.edu> or open 
 ## Hardware Requirements
 
 Junction runs on modern x86 Intel and AMD CPUs. For optimal networking performance, Junction requires
-a modern NVIDIA NIC (ConnectX-5 and later). Junction can also support other NICs using a DPDK SoftNIC with reduced performance, security, and density guarantees.
+a modern NVIDIA NIC (ConnectX-5 and later). Junction can also support other NICs using a DPDK SoftNIC with reduced performance, security, and density guarantees. 
+
+Junction supports User IPIs (UIPIs) for increased security and better interrupt performance. UIPI is available on Intel server processors starting with 4th Generation Xeon Scalable CPUs (codenamed Sapphire Rapids). For other CPUs, Junction automatically uses Linux signals.
 
 ## Software Requirements
 
@@ -86,6 +88,9 @@ When a high performance networking is not needed, the DPDK SoftNIC can be config
 ```
 sudo lib/caladan/iokerneld ias no_hw_qdel -- --allow 00:00.0 --vdev=net_tap0
 ```
+
+## Configuring Preemption
+The scheduler time slice quantum can be set on a per-container basis by appending `runtime_quantum_us <us>` to the configuration file used to launch the container. If User IPIs are available on your [machine](#Hardware-Requirements), they will be enabled automatically. To force the use of Linux signals instead, add `nouintr` as an argument when running the `setup_machine.sh` script (see [Running Junction](#Running-Junction)). Note that all Junction containers and the scheduler must be closed when running this script.
 
 ## Testing
 You can run a suite of unit and end-to-end tests using the following script:
