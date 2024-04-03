@@ -111,6 +111,26 @@ void JunctionMain(int argc, char *argv[]) {
     // Create the first process
     proc = CreateFirstProcess(args[0], args, envp);
   }
+
+  // setup automatic snapshot
+  if (unlikely(GetCfg().snapshot_timeout())) {
+    rt::Spawn([] {
+      // Wait x seconds
+      rt::Sleep(Duration(*GetCfg().snapshot_timeout() * 1000000));
+      LOG(INFO) << "done sleeping, snapshot time!";
+      auto ret = SnapshotPid(1, GetCfg().get_snapshot_metadata_path(),
+                             GetCfg().get_snapshot_elf_path());
+      if (!ret) {
+        LOG(ERR) << "Failed to snapshot: " << ret.error();
+      } else {
+        LOG(INFO) << "snapshot successful!";
+      }
+
+      std::shared_ptr<Process> proc = Process::Find(1);
+      proc->Signal(SIGKILL);
+    });
+  }
+
   BUG_ON(!proc);
 
   // Drop reference so the process can properly destruct itself when done

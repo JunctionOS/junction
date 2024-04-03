@@ -1,4 +1,3 @@
-
 #include <charconv>
 
 #include "junction/base/string.h"
@@ -151,6 +150,7 @@ Status<void> InitControlServer() {
   if (!q) return MakeError(q);
 
   rt::Spawn([q = std::move(*q)] mutable { ControlServer(q); });
+
   return {};
 }
 
