@@ -45,7 +45,7 @@ inline constexpr uint64_t kVforkRequiredFlags = (CLONE_VM | CLONE_VFORK);
 inline constexpr uint64_t kCheckFlags =
     (kThreadRequiredFlags | kVforkRequiredFlags);
 
-namespace {
+namespace detail {
 
 // Global allocation of PIDs
 rt::Spin process_lock;
@@ -73,6 +73,26 @@ void ReleasePid(pid_t pid, std::optional<pid_t> pgid = std::nullopt) {
   if (pgid && --pid_ref_count[*pgid] == 0) {
     pid_generator.Release(*pgid);
     pid_ref_count.erase(*pgid);
+  }
+}
+
+// should only be called on restore path, no multithreading
+void AcquirePid(pid_t pid) {
+  pid_generator.Acquire(pid);
+  pid_ref_count[pid] += 1;
+}
+
+// should only be called on restore path
+void SetInitProc(std::shared_ptr<Process> proc) { detail::init_proc = proc; }
+
+void CloneTrapframe(thread_t *newth, const Thread &oldth) {
+  oldth.CopySyscallRegs(newth->tf);
+  newth->tf.r11 = newth->tf.rip;
+
+  // copy fsbase if present
+  if (oldth.GetCaladanThread()->has_fsbase) {
+    newth->has_fsbase = true;
+    newth->tf.fsbase = oldth.GetCaladanThread()->tf.fsbase;
   }
 }
 
@@ -142,7 +162,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   return newth.get_tid();
 }
 
-}  // namespace
+}  // namespace detail
 
 Thread::~Thread() {
   uint32_t *child_tid = get_child_tid();
@@ -151,9 +171,11 @@ Thread::~Thread() {
     FutexTable::GetFutexTable().Wake(child_tid);
   }
   bool proc_done = proc_->ThreadFinish(this);
-  if (tid_ != proc_->get_pid()) ReleasePid(tid_);
+  if (tid_ != proc_->get_pid()) detail::ReleasePid(tid_);
   if (proc_done) proc_->ProcessFinish();
 }
+
+bool Thread::IsStopped() const { return proc_->is_stopped(); }
 
 void Process::ProcessFinish() {
   // Check if init has died
@@ -172,11 +194,11 @@ void Process::ProcessFinish() {
   if (!child_procs_.size()) return;
 
   // reparent
-  rt::SpinGuard g(init_proc->shared_sig_q_);
+  rt::SpinGuard g(detail::init_proc->shared_sig_q_);
   for (auto &child : child_procs_) {
     rt::SpinGuard g(child->shared_sig_q_);
-    child->parent_ = init_proc;
-    init_proc->child_procs_.push_back(std::move(child));
+    child->parent_ = detail::init_proc;
+    detail::init_proc->child_procs_.push_back(std::move(child));
   }
 }
 
@@ -184,7 +206,7 @@ rt::Spin Process::pid_map_lock_;
 std::map<pid_t, Process *> Process::pid_to_proc_;
 Process::~Process() {
   DeregisterProcess(*this);
-  ReleasePid(pid_, pgid_);
+  detail::ReleasePid(pid_, pgid_);
 }
 
 void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
@@ -216,21 +238,21 @@ bool Process::ThreadFinish(Thread *th) {
 }
 
 Status<std::shared_ptr<Process>> CreateInitProcess() {
-  Status<pid_t> pid = AllocPid(1);
+  Status<pid_t> pid = detail::AllocPid(1);
   if (!pid) return MakeError(pid);
   BUG_ON(*pid != 1);
 
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
 
-  init_proc =
+  detail::init_proc =
       std::make_shared<Process>(*pid, std::move(*mm), *pid, GetLinuxCwd());
-  return init_proc;
+  return detail::init_proc;
 }
 
 Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
     rt::ThreadWaker &&w) {
-  Status<pid_t> pid = AllocPid(get_pgid());
+  Status<pid_t> pid = detail::AllocPid(get_pgid());
   if (!pid) return MakeError(pid);
 
   auto p = std::make_shared<Process>(*pid, mem_map_, file_tbl_, std::move(w),
@@ -273,7 +295,7 @@ Status<Thread *> Process::CreateThread() {
   thread_t *th = thread_create(nullptr, 0);
   if (unlikely(!th)) return MakeError(ENOMEM);
 
-  Status<pid_t> tid = AllocPid();
+  Status<pid_t> tid = detail::AllocPid();
   if (!tid) {
     thread_free(th);
     return MakeError(tid);
@@ -285,7 +307,7 @@ Status<Thread *> Process::CreateThread() {
     rt::UniqueLock g(child_thread_lock_);
     if (unlikely(exited())) {
       g.Unlock();
-      ReleasePid(*tid);
+      detail::ReleasePid(*tid);
       thread_free(th);
       return MakeError(1);
     }
@@ -512,7 +534,7 @@ long usys_vfork() {
 
   cl_args.flags = kVforkRequiredFlags;
 
-  long ret = DoClone(&cl_args, mythread().GetSyscallFrame().GetRsp());
+  long ret = detail::DoClone(&cl_args, mythread().GetSyscallFrame().GetRsp());
   if (unlikely(GetCfg().strace_enabled())) LogSyscall(ret, "vfork");
 
   return ret;
@@ -523,7 +545,7 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
   if (unlikely(!cl_args->stack))
     ret = -EINVAL;
   else
-    ret = DoClone(cl_args, cl_args->stack + cl_args->stack_size);
+    ret = detail::DoClone(cl_args, cl_args->stack + cl_args->stack_size);
 
   if (unlikely(GetCfg().strace_enabled()))
     LogSyscall(ret, "clone3", cl_args->flags,
@@ -547,7 +569,7 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   cl_args.parent_tid = parent_tidptr;
   cl_args.tls = tls;
 
-  long ret = DoClone(&cl_args, newsp);
+  long ret = detail::DoClone(&cl_args, newsp);
   if (unlikely(GetCfg().strace_enabled()))
     LogSyscall(ret, "clone", clone_flags, reinterpret_cast<void *>(newsp),
                reinterpret_cast<void *>(parent_tidptr),

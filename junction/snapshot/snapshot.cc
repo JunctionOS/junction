@@ -20,10 +20,11 @@ extern "C" {
 namespace junction {
 
 namespace {
-std::vector<elf_phdr> GetPHDRs(const std::vector<VMArea> &vmas) {
+std::pair<std::vector<elf_phdr>, std::vector<VMArea>> GetPHDRs(MemoryMap &mm) {
+  auto vmas = mm.get_vmas();
   std::vector<elf_phdr> phdrs;
-  phdrs.reserve(vmas.size());
-  uint64_t offset = vmas.size() * sizeof(elf_phdr) + sizeof(elf_header);
+  phdrs.reserve(vmas.size() + 1);  // vmas + unused heap
+  uint64_t offset = (1 + vmas.size()) * sizeof(elf_phdr) + sizeof(elf_header);
   offset = AlignUp(offset, kPageSize);
 
   for (const VMArea &vma : vmas) {
@@ -45,13 +46,24 @@ std::vector<elf_phdr> GetPHDRs(const std::vector<VMArea> &vmas) {
     offset += vma.Length();
   }
 
-  return phdrs;
+  elf_phdr heap_phdr = {
+      .type = kPTypeLoad,
+      .flags = 0,  // PROT_NONE
+      .offset = offset,
+      .vaddr = mm.get_brk_addr(),
+      .paddr = 0,                // don't care
+      .filesz = 0,               // memory region size
+      .memsz = mm.UnusedHeap(),  // memory region size
+      .align = kPageSize,        // align to page size
+  };
+  phdrs.push_back(heap_phdr);
+
+  return std::make_pair(phdrs, vmas);
 }
 
 Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
                          std::string_view elf_path) {
-  auto vmas = mm.get_vmas();
-  auto pheaders = GetPHDRs(vmas);
+  auto [pheaders, vmas] = GetPHDRs(mm);
   auto elf_file = KernelFile::Open(elf_path, O_CREAT | O_TRUNC | O_WRONLY,
                                    S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
@@ -113,8 +125,8 @@ Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
     // some regions are not readable so we need to remap them as readable
     // before they get written to the elf
     if (!(vma.prot & PROT_READ)) {
-      auto ret = KernelMMapFixed(reinterpret_cast<void *>(vma.start),
-                                 mem_region_len, vma.prot | PROT_READ, 0);
+      auto ret = KernelMProtect(reinterpret_cast<void *>(vma.start),
+                                mem_region_len, vma.prot | PROT_READ);
       if (!ret) return MakeError(ret);
     }
     iovec v = {.iov_base = reinterpret_cast<std::byte *>(vma.start),
@@ -122,26 +134,17 @@ Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
     elf_iovecs.push_back(v);
   }
 
-  size_t expected_write_size = 0;
-  for (auto const &vec : elf_iovecs) {
-    expected_write_size += vec.iov_len;
-  }
-  auto const &ret = elf_file->Writev(elf_iovecs);
-  if (unlikely(!ret)) {
-    return MakeError(ret);
-  } else if (*ret != expected_write_size) {
-    return MakeError(-1);
-  }
-  return {};
+  return WritevFull(*elf_file, elf_iovecs);
 }
 
 void SnapshotMetadata(Process &p, std::string_view metadata_path) {
   rt::RuntimeLibcGuard guard;
 
-  Status<KernelFile> f =
-      KernelFile::Open(metadata_path, O_RDWR | O_CREAT, 0644);
-  BUG_ON(!f);
-  StreamBufferWriter<KernelFile> w(*f);
+  Status<KernelFile> metadata_file =
+      KernelFile::Open(metadata_path, O_CREAT | O_TRUNC | O_WRONLY,
+                       S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  BUG_ON(!metadata_file);
+  StreamBufferWriter<KernelFile> w(*metadata_file);
   std::ostream outstream(&w);
   cereal::BinaryOutputArchive ar(outstream);
   ar(p.shared_from_this());
@@ -163,14 +166,12 @@ Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
   p->Signal(SIGSTOP);
   p->WaitForFullStop();
 
-  LOG(INFO) << "snapshotting proc " << pid;
+  LOG(INFO) << "snapshotting proc " << pid << " into " << metadata_path
+            << " and " << elf_path;
   SnapshotMetadata(*p.get(), metadata_path);
-  auto ret = SnapshotElf(p->get_mem_map(), 0 /* entry_addr */, elf_path);
-  if (!ret) {
-    return ret;
-  }
-
-  return {};
+  Status<void> ret =
+      SnapshotElf(p->get_mem_map(), 0 /* entry_addr */, elf_path);
+  return ret;
 }
 
 std::shared_ptr<Process> RestoreProcess(std::string_view metadata_path,
@@ -188,14 +189,15 @@ std::shared_ptr<Process> RestoreProcess(std::string_view metadata_path,
   ar(p);
 
   MemoryMap &mm = p->get_mem_map();
-  LoadELF(mm, elf_path);
-
-  // TODO(cereal): may need to send a SIGCONT to the main process
+  auto ret = LoadELF(mm, elf_path);
+  if (!ret) {
+    LOG(ERR) << "Elf load failed: " << ret.error();
+    return {};
+  };
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)
-  //
-  // p->RunThreads();
+  p->RunThreads();
   return p;
 }
 

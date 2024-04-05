@@ -240,4 +240,40 @@ void UintrTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   unwind_tf.rip = reinterpret_cast<uint64_t>(UintrLoopReturn);
 }
 
+void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th) {
+  uint64_t stack_bottom = GetSyscallStackBottom(th->GetCaladanThread());
+  SigframeType trapframe_type;
+  ar(trapframe_type);
+
+  switch (trapframe_type) {
+    case SigframeType::kKernelSignal: {
+      k_sigframe *frame = LoadKSigframe(ar, &stack_bottom);
+      KernelSignalTf *tf = AllocateOnStack<KernelSignalTf>(&stack_bottom);
+      new (tf) KernelSignalTf(frame);
+      tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
+      break;
+    }
+    case SigframeType::kJunctionUIPI: {
+      u_sigframe *frame = LoadUSigframe(ar, &stack_bottom);
+      UintrTf *tf = AllocateOnStack<UintrTf>(&stack_bottom);
+      new (tf) UintrTf(frame);
+      tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
+      break;
+    }
+    case SigframeType::kJunctionTf: {
+      thread_tf *trapframe = AllocateOnStack<thread_tf>(&stack_bottom);
+      ar(*trapframe);
+      FunctionCallTf *fncall_tf =
+          AllocateOnStack<FunctionCallTf>(&stack_bottom);
+      new (fncall_tf) FunctionCallTf(trapframe);
+      fncall_tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
+      break;
+    }
+    default: {
+      BUG();
+      break;
+    }
+  }
+}
+
 }  // namespace junction

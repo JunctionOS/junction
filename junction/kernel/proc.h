@@ -23,10 +23,16 @@ extern "C" {
 #include "junction/kernel/signal.h"
 #include "junction/kernel/trapframe.h"
 #include "junction/limits.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
 class Process;
+
+namespace detail {
+void AcquirePid(pid_t pid);
+void SetInitProc(std::shared_ptr<Process> proc);
+}  // namespace detail
 
 inline constexpr unsigned int kNotWaitable = 0;
 inline constexpr unsigned int kWaitableExited = WEXITED;
@@ -195,10 +201,12 @@ class Thread {
   // Set @tf as the current trapframe generated when entering the Junction
   // kernel. This trapframe must not be a FunctionCallTf.
   void SetTrapframe(Trapframe &tf) {
-    DebugSafetyCheck();
-    assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)) ||
-           &tf == &fcall_tf);
-    assert(!rsp_on_syscall_stack(tf.GetRsp()));
+    if (!IsStopped()) {
+      DebugSafetyCheck();
+      assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)) ||
+             &tf == &fcall_tf);
+      assert(!rsp_on_syscall_stack(tf.GetRsp()));
+    }
 
     GetCaladanThread()->entry_regs = nullptr;
     cur_trapframe_ = &tf;
@@ -231,19 +239,47 @@ class Thread {
     access_once(GetCaladanThread()->in_syscall) = false;
   }
 
+  template <class Archive>
+  void DoSave(Archive &ar) {
+    uintptr_t child_tid_ptr = reinterpret_cast<uintptr_t>(child_tid_);
+    ar(child_tid_ptr, xstate_, sighand_);
+    GetTrapframe().DoSave(ar);
+
+    bool has_fsbase = GetCaladanThread()->has_fsbase;
+    ar(has_fsbase);
+    if (has_fsbase) ar(GetCaladanThread()->tf.fsbase);
+  }
+
+  Thread(std::shared_ptr<Process> &&proc, pid_t tid,
+         cereal::BinaryInputArchive &ar)
+      : proc_(proc), tid_(tid), sighand_(*this) {
+    uintptr_t child_tid_ptr;
+    ar(child_tid_ptr, xstate_, sighand_);
+    child_tid_ = reinterpret_cast<uint32_t *>(child_tid_ptr);
+
+    LoadTrapframe(ar, this);
+    bool has_fsbase = false;
+    ar(has_fsbase);
+    GetCaladanThread()->has_fsbase = has_fsbase;
+    if (GetCaladanThread()->has_fsbase) ar(GetCaladanThread()->tf.fsbase);
+  }
+
  private:
   friend class Process;
+  bool IsStopped() const;
 
   // Safety check for functions that can only be called by the owning thread
   // when in interrupt or syscall context.
   inline void DebugSafetyCheck() const {
-    // Newly created thread doesn't require safety check.
-    if (GetCaladanThread()->ready_tsc == 0) return;
-    // The function should only be called by the owning thread.
-    assert(GetCaladanThread() == thread_self());
-    // The returned trapframe is only valid during a syscall (or until the code
-    // has switched off of the syscall stack).
-    assert(in_kernel() || rsp_on_syscall_stack());
+    if (!IsStopped()) {
+      // Newly created thread doesn't require safety check.
+      if (GetCaladanThread()->ready_tsc == 0) return;
+      // The function should only be called by the owning thread.
+      assert(GetCaladanThread() == thread_self());
+      // The returned trapframe is only valid during a syscall (or until the
+      // code has switched off of the syscall stack).
+      assert(in_kernel() || rsp_on_syscall_stack());
+    }
   }
 
   inline KernelSignalTf &CastTfToKernelSig() const {
@@ -452,6 +488,15 @@ class Process : public std::enable_shared_from_this<Process> {
     rt::RCUFree(std::move(cwd_));
   }
 
+  // mark all threads as ready to run
+  void RunThreads() {
+    rt::ScopedLock g(child_thread_lock_);
+    stopped_ = false;
+    for (const auto &[_pid, th] : thread_map_) {
+      th->ThreadReady();
+    }
+  }
+
  private:
   friend class cereal::access;
 
@@ -490,25 +535,44 @@ class Process : public std::enable_shared_from_this<Process> {
     lock.Unlock();
 
     rt::ScopedLock g(child_thread_lock_);
-    if (si.si_signo == SIGKILL)
+    if (si.si_signo == SIGKILL) {
+      stopped_ = false;
+      stopped_threads_.WakeAll();
       SignalAllThreads();
-    else if (needs_ipi)
+    } else if (needs_ipi)
       FindThreadForSignal(si.si_signo);
   }
 
   // Constructor for deserialization
-  // TODO(cereal): implement
   template <class Archive>
-  Process(pid_t pid, Archive &ar) : pid_(pid), signal_tbl_(DeferInit) {
+  Process(pid_t pid, Archive &ar)
+      : pid_(pid), signal_tbl_(DeferInit), stopped_(true) {
     RegisterProcess(*this);
+
     // TODO(cereal): add cwd
-    ar(signal_tbl_, shared_sig_q_, file_tbl_);
+    ar(pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, binary_path_,
+       signal_tbl_, shared_sig_q_, child_procs_, wait_state_, wait_status_,
+       it_real_.get());
+
+    detail::AcquirePid(pid_);
+    detail::AcquirePid(pgid_);
   }
 
   template <class Archive>
   void save(Archive &ar) const {
-    // TODO(cereal): implement
-    ar(pid_, signal_tbl_, shared_sig_q_, file_tbl_);
+    BUG_ON(!stopped_ || stopped_count_ != thread_map_.size());
+    BUG_ON(exited_ || doing_exec_ || exec_waker_ || vfork_waker_ ||
+           child_waiters_);
+
+    ar(pid_, pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, binary_path_,
+       signal_tbl_, shared_sig_q_, child_procs_, wait_state_, wait_status_,
+       it_real_.get());
+
+    ar(thread_map_.size());
+    for (const auto &[pid, th] : thread_map_) {
+      ar(pid);
+      th->DoSave(ar);
+    }
   }
 
   template <class Archive>
@@ -517,7 +581,30 @@ class Process : public std::enable_shared_from_this<Process> {
     pid_t pid;
     ar(pid);
     construct(pid, ar);
-    // TODO(cereal): implement
+
+    size_t n_threads;
+    ar(n_threads);
+    for (size_t idx = 0; idx < n_threads; idx++) {
+      thread_t *th = thread_create(nullptr, 0);
+      if (unlikely(!th)) {
+        LOG(ERR) << "failed to allocate caladan thread";
+        return;
+      }
+
+      pid_t tid;
+      ar(tid);
+
+      detail::AcquirePid(tid);
+
+      Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+      new (tstate) Thread(construct->shared_from_this(), tid, ar);
+      tstate->mark_enter_kernel();
+
+      th->junction_thread = true;
+      construct->thread_map_[tstate->get_tid()] = tstate;
+    }
+
+    if (!construct->parent_) detail::SetInitProc(construct->shared_from_this());
   }
 
   const pid_t pid_;         // the process identifier

@@ -12,6 +12,7 @@
 #include "junction/bindings/sync.h"
 #include "junction/kernel/file.h"
 #include "junction/kernel/ksys.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -79,6 +80,13 @@ struct VMArea {
   VMType type;
   std::shared_ptr<File> file;
   off_t offset;
+
+ private:
+  friend class cereal::access;
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(start, end, prot, type, file, offset);
+  }
 };
 
 class PageAccessTracer {
@@ -141,6 +149,12 @@ class alignas(kCacheLineSize) MemoryMap {
   // HeapUsage returns the size (in bytes) of the heap.
   [[nodiscard]] size_t HeapUsage() const { return brk_addr_ - brk_start_; }
 
+  // unused heap size
+  [[nodiscard]] size_t UnusedHeap() const { return brk_end_ - brk_addr_; }
+
+  // break_addr
+  [[nodiscard]] size_t get_brk_addr() const { return brk_addr_; }
+
   // LogMappings prints all the mappings to the log.
   void LogMappings();
 
@@ -156,6 +170,23 @@ class alignas(kCacheLineSize) MemoryMap {
   bool HandlePageFault(uintptr_t addr, Time time);
 
  private:
+  friend class cereal::access;
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(brk_start_, brk_end_, brk_addr_ /*, vmareas_ */);
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<MemoryMap> &construct) {
+    uintptr_t brk_start;
+    uintptr_t brk_end;
+    ar(brk_start, brk_end);
+
+    construct(reinterpret_cast<void *>(brk_start), brk_end - brk_start);
+    ar(construct->brk_addr_ /*, construct->vmareas_ */);
+  }
+
   // Clear removes existing VMAreas that overlap with the range [start, end)
   // Ex: ClearMappings(2, 6) when vmareas_ = [1, 3), [5, 7) results in vmareas_
   // = [1, 2), [6, 7). Returns an iterator to the first mapping after the

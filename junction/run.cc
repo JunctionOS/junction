@@ -62,12 +62,6 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   return *proc;
 }
 
-Status<std::shared_ptr<Process>> RestoreFromSnapshot(
-    std::string_view metadata_path, std::string_view elf_path) {
-  auto proc = RestoreProcess(std::string(metadata_path), std::string(elf_path));
-  return proc;
-}
-
 }  // namespace
 
 void JunctionMain(int argc, char *argv[]) {
@@ -104,7 +98,11 @@ void JunctionMain(int argc, char *argv[]) {
     BUG_ON(args.size() < 2);
     LOG(INFO) << "snapshot: restoring from snapshot (elf=" << args[1]
               << ", metadata=" << args[0] << ")";
-    proc = RestoreFromSnapshot(args[0], args[1]);
+    proc = RestoreProcess(args[0], args[1]);
+    if (!proc) {
+      LOG(ERR) << "Failed to restore proc";
+      return;
+    }
     LOG(INFO) << "snapshot: restored process with pid="
               << (*proc).get()->get_pid();
   } else {

@@ -19,6 +19,8 @@ namespace {
 class Pipe {
  public:
   friend std::pair<int, int> CreatePipe(int flags);
+  friend class PipeReaderFile;
+  friend class PipeWriterFile;
 
   explicit Pipe(size_t size) noexcept : chan_(size) {}
   ~Pipe() = default;
@@ -190,6 +192,8 @@ class PipeReaderFile : public File {
   template <class Archive>
   void load(Archive &ar) {
     ar(pipe_, cereal::base_class<File>(this));
+    pipe_->read_poll_ = &get_poll_source();
+    if (!pipe_->chan_.is_empty()) pipe_->read_poll_->Set(kPollIn);
   }
 
   std::shared_ptr<Pipe> pipe_;
@@ -227,6 +231,8 @@ class PipeWriterFile : public File {
   template <class Archive>
   void load(Archive &ar) {
     ar(pipe_, cereal::base_class<File>(this));
+    pipe_->write_poll_ = &get_poll_source();
+    if (!pipe_->chan_.is_full()) pipe_->write_poll_->Set(kPollOut);
   }
 
   std::shared_ptr<Pipe> pipe_;

@@ -10,12 +10,15 @@ extern "C" {
 #include "junction/bindings/stack.h"
 #include "junction/bindings/thread.h"
 #include "junction/kernel/sigframe.h"
+#include "junction/snapshot/cereal.h"
 #include "junction/syscall/syscall.h"
 
 inline constexpr uint64_t kJunctionFrameMagic = 0x696e63656e64696fUL;
 inline constexpr size_t kJunctionFrameAlign = 16;
 
 namespace junction {
+
+class Thread;
 
 enum class SigframeType : unsigned long {
   kKernelSignal = 0,
@@ -61,6 +64,8 @@ class Trapframe {
   // This trapframe instance is attached to @th and must reside on the syscall
   // stack.
   virtual void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) = 0;
+
+  virtual void DoSave(cereal::BinaryOutputArchive &ar) const = 0;
 };
 
 // Trapframes that are created via system call entry to the Junction kernel.
@@ -160,6 +165,11 @@ class KernelSignalTf : public SyscallFrame {
     unwind_tf.rip = GetUnwinderFunction();
   }
 
+  void DoSave(cereal::BinaryOutputArchive &ar) const override {
+    ar(SigframeType::kKernelSignal);
+    SaveKSigframe(ar, sigframe);
+  }
+
  private:
   inline uint64_t GetUnwinderFunction() const {
     if (!uintr_enabled)
@@ -226,6 +236,11 @@ class FunctionCallTf : public SyscallFrame {
     return *jframe;
   }
 
+  void DoSave(cereal::BinaryOutputArchive &ar) const override {
+    ar(SigframeType::kJunctionTf);
+    ar(*tf);
+  }
+
  private:
   inline uint64_t GetSysretUnwinderFunction() const {
     if (uintr_enabled)
@@ -290,6 +305,11 @@ class UintrTf : public Trapframe {
     return *jframe;
   }
 
+  void DoSave(cereal::BinaryOutputArchive &ar) const override {
+    ar(SigframeType::kJunctionUIPI);
+    SaveUSigframe(ar, sigframe);
+  }
+
  private:
   u_sigframe &sigframe;
 };
@@ -308,6 +328,8 @@ inline void JunctionSigframe::Unwind() {
       BUG();
   }
 }
+
+void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th);
 
 static_assert(sizeof(JunctionSigframe) % 16 == 0);
 

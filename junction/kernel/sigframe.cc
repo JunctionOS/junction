@@ -49,6 +49,42 @@ k_sigframe *k_sigframe::CopyToStack(uint64_t *dest_rsp, void *fx_buf) const {
   return dst_sigframe;
 }
 
+void SaveKSigframe(cereal::BinaryOutputArchive &archive,
+                   const k_sigframe &sig) {
+  xstate *xs = reinterpret_cast<xstate *>(sig.uc.uc_mcontext.fpstate);
+  k_fpx_sw_bytes *fpxs =
+      reinterpret_cast<k_fpx_sw_bytes *>(xs->fpstate.sw_reserved);
+
+  // validate magic numbers
+  BUG_ON(fpxs->magic1 != kFpXstateMagic1);
+  auto *magic2 = reinterpret_cast<unsigned char *>(xs) + fpxs->xstate_size;
+  BUG_ON(*reinterpret_cast<uint32_t *>(magic2) != kFpXstateMagic2);
+
+  archive(fpxs->extended_size);
+  archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(xs),
+                              fpxs->extended_size));
+
+  archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(&sig),
+                              sizeof(k_sigframe)));
+}
+
+k_sigframe *LoadKSigframe(cereal::BinaryInputArchive &archive,
+                          uint64_t *dest_rsp) {
+  uint32_t extended_size = 0;
+  archive(extended_size);
+  *dest_rsp = AlignDown(*dest_rsp - extended_size, kXsaveAlignment);
+  void *dst_fx_buf = reinterpret_cast<void *>(*dest_rsp);
+  archive(cereal::binary_data(reinterpret_cast<uint8_t *>(dst_fx_buf),
+                              extended_size));
+
+  k_sigframe *frame = AllocateOnStack<k_sigframe>(dest_rsp);
+  archive(cereal::binary_data(reinterpret_cast<uint8_t *>(frame),
+                              sizeof(k_sigframe)));
+
+  frame->uc.uc_mcontext.fpstate = reinterpret_cast<_fpstate *>(dst_fx_buf);
+  return frame;
+}
+
 // Immediately restore a UIPI sigframe.
 extern "C" [[noreturn]] __nofp void UintrFullRestore(const u_sigframe *frame) {
   frame->RestoreXstate();
@@ -100,6 +136,42 @@ u_sigframe *u_sigframe::CopyToStack(uint64_t *dest_rsp) const {
   u_sigframe *dst_sigframe = PushToStack(dest_rsp, *this);
 
   // fix fpstate pointer
+  dst_sigframe->xsave_area = new_xarea;
+
+  return dst_sigframe;
+}
+
+void SaveUSigframe(cereal::BinaryOutputArchive &archive,
+                   const u_sigframe &sig) {
+  uint64_t len = 0;
+  if (!sig.xsave_area) {
+    archive(len);  // xsave_area len is 0
+  } else {
+    xstate const *x = reinterpret_cast<xstate *>(sig.xsave_area);
+    len = x->fpstate.sw_reserved[0];
+    archive(len);
+    archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(x), len));
+  }
+
+  archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(&sig),
+                              sizeof(u_sigframe)));
+}
+
+u_sigframe *LoadUSigframe(cereal::BinaryInputArchive &archive,
+                          uint64_t *dest_rsp) {
+  unsigned char *new_xarea = nullptr;
+  uint64_t len = 0;
+  archive(len);
+
+  if (len != 0) {
+    *dest_rsp = AlignDown(*dest_rsp - len, kXsaveAlignment);
+    new_xarea = reinterpret_cast<unsigned char *>(*dest_rsp);
+    archive(cereal::binary_data(reinterpret_cast<uint8_t *>(new_xarea), len));
+  }
+
+  u_sigframe *dst_sigframe = AllocateOnStack<u_sigframe>(dest_rsp);
+  archive(cereal::binary_data(reinterpret_cast<uint8_t *>(dst_sigframe),
+                              sizeof(u_sigframe)));
   dst_sigframe->xsave_area = new_xarea;
 
   return dst_sigframe;

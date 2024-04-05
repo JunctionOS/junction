@@ -26,6 +26,10 @@ class UIDGenerator {
   // Relinquish a unique ID, allowing it to be used again.
   void Release(size_t pos) { bits_.clear(pos - 1); }
 
+  // Set a unique ID (indicating external allocation)
+  // Used to fix the UIDGenerator on restore
+  void Acquire(size_t pos) { bits_.set(pos - 1); }
+
  private:
   std::optional<size_t> get_next() {
     std::optional<size_t> next = bits_.find_next_clear(pos_);

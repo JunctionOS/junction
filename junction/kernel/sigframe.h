@@ -13,6 +13,8 @@ extern "C" {
 
 #include "junction/base/arch.h"
 #include "junction/base/bits.h"
+#include "junction/bindings/stack.h"
+#include "junction/snapshot/cereal.h"
 
 inline constexpr uint64_t kUCFpXstate = 0x1;
 inline constexpr uint32_t kFpXstateMagic1 = 0x46505853U;
@@ -89,6 +91,10 @@ struct k_sigframe {
   k_sigframe *CopyToStack(uint64_t *dest_rsp) const;
 };
 
+void SaveKSigframe(cereal::BinaryOutputArchive &archive, const k_sigframe &sig);
+k_sigframe *LoadKSigframe(cereal::BinaryInputArchive &archive,
+                          uint64_t *dest_rsp);
+
 static_assert(sizeof(k_sigframe) % 16 == 8);
 
 struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
@@ -108,6 +114,10 @@ struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
   [[nodiscard]] inline uint64_t GetRsp() const { return rsp; }
 };
 
+void SaveUSigframe(cereal::BinaryOutputArchive &archive, const u_sigframe &sig);
+u_sigframe *LoadUSigframe(cereal::BinaryInputArchive &archive,
+                          uint64_t *dest_rsp);
+
 static_assert(sizeof(u_sigframe) == sizeof(uintr_frame));
 
 extern "C" [[noreturn]] __nofp void UintrFullRestore(const u_sigframe *frame);
@@ -120,5 +130,4 @@ inline __nofp size_t GetXsaveAreaSize(uint64_t features) {
   if (unlikely(!features)) return xsave_max_sizes[0];
   return xsave_max_sizes[63 - __builtin_clzl(features)];
 }
-
 }  // namespace junction
