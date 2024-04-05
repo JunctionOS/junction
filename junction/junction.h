@@ -1,6 +1,7 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 #include "junction/base/error.h"
@@ -50,6 +51,18 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
   [[nodiscard]] bool madv_dontneed_remap() const { return madv_remap; }
 
+  [[nodiscard]] std::optional<int> snapshot_timeout() const {
+    return (snapshot_timeout_s > 0) ? std::optional(snapshot_timeout_s)
+                                    : std::nullopt;
+  }
+
+  [[nodiscard]] const std::string_view get_snapshot_metadata_path() const {
+    return snapshot_metadata_path_;
+  }
+  [[nodiscard]] const std::string_view get_snapshot_elf_path() const {
+    return snapshot_elf_path_;
+  }
+
   static void PrintOptions();
   Status<void> FillFromArgs(int argc, char *argv[]);
   void Print();
@@ -58,7 +71,7 @@ class alignas(kCacheLineSize) JunctionCfg {
 
  private:
   // Hot state
-  bool strace;
+  bool strace{false};
   bool madv_remap;
 
   // Cold state
@@ -68,8 +81,12 @@ class alignas(kCacheLineSize) JunctionCfg {
   std::string ld_path{CUSTOM_GLIBC_DIR};
   std::string preload_path{CUSTOM_GLIBC_PRELOAD};
   std::vector<std::string> binary_envp;
-  bool restore;
-  bool stack_switching;
+
+  bool restore{false};
+  bool stack_switching{false};
+  int snapshot_timeout_s{0};
+  std::string snapshot_metadata_path_;
+  std::string snapshot_elf_path_;
   static JunctionCfg singleton_;
 };
 

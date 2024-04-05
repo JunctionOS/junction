@@ -63,6 +63,10 @@ po::options_description GetOptions() {
       "restore from a snapshot")("loglevel,l",
                                  po::value<int>()->default_value(LOG_DEBUG),
                                  "the maximum log level to print")(
+      "snapshot-timeout,S", po::value<int>()->default_value(0),
+      "snapshot timeout (in s) [0 means no automatic snapshot]")(
+      "snapshot-prefix", po::value<std::string>()->implicit_value(""),
+      "snapshot prefix path (will generate <prefix>.metadata and <prefix>.elf")(
       "stackswitch", po::bool_switch()->default_value(false),
       "use stack switching syscalls")(
       "madv_remap", po::bool_switch()->default_value(false),
@@ -106,6 +110,18 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   max_loglevel = vm["loglevel"].as<int>();
   madv_remap = vm["madv_remap"].as<bool>();
   restore = vm["restore"].as<bool>();
+  if (vm.count("snapshot-timeout")) {
+    snapshot_timeout_s = vm["snapshot-timeout"].as<int>();
+    if (snapshot_timeout_s != 0 && !vm.count("snapshot-prefix")) {
+      std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;
+      return MakeError(-1);
+    }
+  }
+  if (vm.count("snapshot-prefix")) {
+    snapshot_metadata_path_ =
+        vm["snapshot-prefix"].as<std::string>() + ".metadata";
+    snapshot_elf_path_ = vm["snapshot-prefix"].as<std::string>() + ".elf";
+  }
 
   return {};
 }
