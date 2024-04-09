@@ -84,7 +84,6 @@ enum : uint32_t {
   kPTypeSharedLib = 5,  // not used
   kPTypeSelf = 6,       // entry for the PHDR header table itself
   kPTypeTLS = 7,        // thread local storage segment
-  kPTypeSnapshot = 8,   // snapshot metadata
 
   // values between LowOS and HighOS (inclusive) are reserved for OS specific
   // semantics
