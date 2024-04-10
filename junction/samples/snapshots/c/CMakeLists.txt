@@ -51,14 +51,14 @@ add_test(
 # st_epoll
 add_test(
   NAME c_st_epoll_snapshot
-  COMMAND sh -c "rm -f /tmp/st_epoll.metadata /tmp/st_empty.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/st_empty --\
+  COMMAND sh -c "rm -f /tmp/st_epoll.metadata /tmp/st_epoll.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/st_epoll --\
   $<TARGET_FILE:st_epoll> & (sleep 4 && pkill junction_run)"
 )
 
 add_test(
   NAME c_st_epoll_restore
   COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
-  /tmp/st_epoll.metadata /tmp/st_empty.elf"
+  /tmp/st_epoll.metadata /tmp/st_epoll.elf"
 )
 
 # st_linux_file
@@ -98,4 +98,17 @@ add_test(
   NAME c_st_stdio_file_restore
   COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
   /tmp/st_stdio_file.metadata /tmp/st_stdio_file.elf"
+)
+
+# mt_simple
+add_test(
+  NAME mt_simple_snapshot
+  COMMAND sh -c "rm -f /tmp/mt_simple.metadata /tmp/mt_simple.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/mt_simple --\
+  $<TARGET_FILE:mt_simple> & (sleep 4 && pkill junction_run)"
+)
+
+add_test(
+  NAME mt_simple_restore
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
+  /tmp/mt_simple.metadata /tmp/mt_simple.elf"
 )

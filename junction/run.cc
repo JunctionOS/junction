@@ -123,9 +123,6 @@ void JunctionMain(int argc, char *argv[]) {
       } else {
         LOG(INFO) << "snapshot successful!";
       }
-
-      std::shared_ptr<Process> proc = Process::Find(1);
-      proc->Signal(SIGKILL);
     });
   }
 
