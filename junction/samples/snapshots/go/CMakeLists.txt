@@ -10,40 +10,32 @@ set(go_resizer "${CMAKE_CURRENT_BINARY_DIR}/resizer")
 
 add_custom_command(
   OUTPUT hello
-  COMMAND go build -o ${go_hello} ${CMAKE_CURRENT_BINARY_DIR}/hello.go
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hello.go
+  COMMAND go build -o ${go_hello} ${CMAKE_CURRENT_SOURCE_DIR}/hello.go
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hello.go
 )
 
 add_custom_command(
   OUTPUT resizer
-  COMMAND go build -o ${go_resizer} ${CMAKE_CURRENT_BINARY_DIR}/resizer.go
-  DEPENDS ${CMAKE_CURRENT_BINARY_DIR}/hello.go
+  COMMAND go build -o ${go_resizer} ${CMAKE_CURRENT_SOURCE_DIR}/resizer.go
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hello.go
 )
 
-add_custom_target(go_sample ALL
+add_custom_target(go_hello_world ALL
   DEPENDS ${go_hello})
 
 add_custom_target(go_resizer_bin ALL
   DEPENDS ${go_resizer}
 )
 
-# add_test(
-#   NAME go_hello_world_snapshot_test
-#   COMMAND sh -c "rm -f ${metadata} ${elf} && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --\
-# 	  ${go_hello} snap ${elf} ${metadata}"
-# )
+# go_hello_world
+add_test(
+  NAME go_hello_world_snapshot
+  COMMAND sh -c "rm -f /tmp/go_hello_world.metadata /tmp/go_hello_world.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/go_hello_world --\
+  ${go_hello} & (sleep 4 && pkill junction_run)"
+)
 
-# set_tests_properties(go_hello_world_snapshot_test PROPERTIES
-#   PASS_REGULAR_EXPRESSION "Snapshotted"
-#   FAIL_REGULAR_EXPRESSION "FAILED;Restored!;Abort"
-# )
-
-# add_test(
-# NAME go_hello_world_restore_test
-#  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r --\
-# 	 ${metadata} ${elf}"
-# )
-
-# set_tests_properties(go_hello_world_restore_test PROPERTIES
-#  PASS_REGULAR_EXPRESSION "Restored!"
-# )
+add_test(
+  NAME go_hello_world_restore
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
+  /tmp/go_hello_world.metadata /tmp/go_hello_world.elf"
+)
