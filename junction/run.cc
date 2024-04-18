@@ -65,10 +65,7 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
 }  // namespace
 
 void JunctionMain(int argc, char *argv[]) {
-  // Initialize core junction services
   EnableMemoryAllocation();
-  Status<void> ret = init();
-  BUG_ON(!ret);
 
   // Initialize environment and arguments
   std::stringstream ld_path_s;
@@ -76,7 +73,8 @@ void JunctionMain(int argc, char *argv[]) {
             << ":/lib/x86_64-linux-gnu"
             << ":/usr/lib/x86_64-linux-gnu"
             << ":/usr/lib/jvm/java-18-openjdk-amd64/lib"
-            << ":/usr/lib/jvm/java-19-openjdk-amd64/lib";
+            << ":/usr/lib/jvm/java-19-openjdk-amd64/lib"
+            << ":/usr/lib/jvm/java-21-openjdk-amd64/lib";
   std::string ld_path = ld_path_s.str();
   std::stringstream preload_path_s;
   preload_path_s << "LD_PRELOAD=" << GetCfg().get_preload_path();
@@ -91,6 +89,10 @@ void JunctionMain(int argc, char *argv[]) {
   for (const std::string &s : GetCfg().get_binary_envp()) envp.emplace_back(s);
   std::vector<std::string_view> args = {};
   for (int i = 0; i < argc; i++) args.emplace_back(argv[i]);
+
+  // Initialize core junction services
+  Status<void> ret = init();
+  BUG_ON(!ret);
 
   Status<std::shared_ptr<Process>> proc;
 

@@ -68,7 +68,7 @@ runtime_guaranteed_kthreads 0
 runtime_priority lc
 runtime_quantum_us 0"
 )
-file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_st.config ${caladan_test_config})
+file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_st.config ${caladan_test_config_st})
 
 set(caladan_test_config_ts
 "host_addr 192.168.127.7
@@ -80,7 +80,7 @@ runtime_guaranteed_kthreads 0
 runtime_priority lc
 runtime_quantum_us 10"
 )
-file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_ts.config ${caladan_test_config})
+file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_ts.config ${caladan_test_config_ts})
 
 set(caladan_test_config_ts_st
 "host_addr 192.168.127.7
@@ -92,9 +92,7 @@ runtime_guaranteed_kthreads 0
 runtime_priority lc
 runtime_quantum_us 10"
 )
-file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_ts_st.config ${caladan_test_config})
-
-
+file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_ts_st.config ${caladan_test_config_ts_st})
 
 
 set(fs_test_config
