@@ -116,10 +116,13 @@ void JunctionMain(int argc, char *argv[]) {
   if (unlikely(GetCfg().snapshot_timeout())) {
     rt::Spawn([] {
       // Wait x seconds
-      rt::Sleep(Duration(*GetCfg().snapshot_timeout() * 1000000));
+      rt::Sleep(Duration(GetCfg().snapshot_timeout() * kSeconds));
       LOG(INFO) << "done sleeping, snapshot time!";
-      auto ret = SnapshotPid(1, GetCfg().get_snapshot_metadata_path(),
-                             GetCfg().get_snapshot_elf_path());
+      std::string mtpath =
+          std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
+      std::string epath = std::string(GetCfg().get_snapshot_prefix()) + ".elf";
+
+      auto ret = SnapshotPid(1, mtpath, epath);
       if (!ret) {
         LOG(ERR) << "Failed to snapshot: " << ret.error();
       } else {

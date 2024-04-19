@@ -46,15 +46,21 @@ namespace po = boost::program_options;
 po::options_description GetOptions() {
   po::options_description desc("Junction options");
   desc.add_options()("help", "produce help message")(
-      "chroot_path", po::value<std::string>()->implicit_value(""),
+      "chroot_path", po::value<std::string>()->default_value("/"),
       "chroot path to execute the binary from")(
-      "fs_config_path", po::value<std::string>()->implicit_value(""),
+      "fs_config_path", po::value<std::string>()->default_value(""),
       "file system configuration path")(
-      "interpreter_path", po::value<std::string>()->implicit_value(""),
+      "interpreter_path",
+      po::value<std::string>()->implicit_value("")->default_value(
+          CUSTOM_GLIBC_INTERPRETER_PATH),
       "use this custom interpreter for binaries")(
-      "ld_path", po::value<std::string>()->implicit_value(""),
+      "ld_path",
+      po::value<std::string>()->implicit_value("")->default_value(
+          CUSTOM_GLIBC_DIR),
       "a path to include in LD_LIBRARY_PATH, use to inject a custom libc")(
-      "ld_preload", po::value<std::string>()->implicit_value(""),
+      "ld_preload",
+      po::value<std::string>()->implicit_value("")->default_value(
+          CUSTOM_GLIBC_PRELOAD),
       "location of ld preload library")(
       "env,E", po::value<std::vector<std::string>>()->multitoken(),
       "environment flags for binary")(
@@ -65,7 +71,7 @@ po::options_description GetOptions() {
                                  "the maximum log level to print")(
       "snapshot-timeout,S", po::value<int>()->default_value(0),
       "snapshot timeout (in s) [0 means no automatic snapshot]")(
-      "snapshot-prefix", po::value<std::string>()->implicit_value(""),
+      "snapshot-prefix", po::value<std::string>()->default_value(""),
       "snapshot prefix path (will generate <prefix>.metadata and <prefix>.elf")(
       "stackswitch", po::bool_switch()->default_value(false),
       "use stack switching syscalls")(
@@ -90,18 +96,11 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 
   if (vm.count("help")) return MakeError(0);
 
-  if (vm.count("chroot_path"))
-    chroot_path = vm["chroot_path"].as<std::string>();
-
-  if (vm.count("fs_config_path"))
-    fs_config_path = vm["fs_config_path"].as<std::string>();
-
-  if (vm.count("interpreter_path"))
-    interp_path = vm["interpreter_path"].as<std::string>();
-
-  if (vm.count("ld_path")) ld_path = vm["ld_path"].as<std::string>();
-
-  if (vm.count("ld_preload")) preload_path = vm["ld_preload"].as<std::string>();
+  chroot_path = vm["chroot_path"].as<std::string>();
+  fs_config_path = vm["fs_config_path"].as<std::string>();
+  interp_path = vm["interpreter_path"].as<std::string>();
+  ld_path = vm["ld_path"].as<std::string>();
+  preload_path = vm["ld_preload"].as<std::string>();
 
   if (vm.count("env")) binary_envp = vm["env"].as<std::vector<std::string>>();
 
@@ -110,17 +109,11 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   max_loglevel = vm["loglevel"].as<int>();
   madv_remap = vm["madv_remap"].as<bool>();
   restore = vm["restore"].as<bool>();
-  if (vm.count("snapshot-timeout")) {
-    snapshot_timeout_s = vm["snapshot-timeout"].as<int>();
-    if (snapshot_timeout_s != 0 && !vm.count("snapshot-prefix")) {
-      std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;
-      return MakeError(-1);
-    }
-  }
-  if (vm.count("snapshot-prefix")) {
-    snapshot_metadata_path_ =
-        vm["snapshot-prefix"].as<std::string>() + ".metadata";
-    snapshot_elf_path_ = vm["snapshot-prefix"].as<std::string>() + ".elf";
+  snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
+  snapshot_timeout_s_ = vm["snapshot-timeout"].as<int>();
+  if (snapshot_timeout_s_ && snapshot_prefix_.empty()) {
+    std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;
+    return MakeError(-1);
   }
 
   return {};

@@ -242,39 +242,28 @@ void UintrTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
 }
 
 void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th) {
-  uint64_t stack_bottom = GetSyscallStackBottom(th->GetCaladanThread());
+  uint64_t stack_bottom = th->get_syscall_stack_rsp();
   SigframeType trapframe_type;
   ar(trapframe_type);
 
+  Trapframe *tf;
+
   switch (trapframe_type) {
-    case SigframeType::kKernelSignal: {
-      k_sigframe *frame = LoadKSigframe(ar, &stack_bottom);
-      KernelSignalTf *tf = AllocateOnStack<KernelSignalTf>(&stack_bottom);
-      new (tf) KernelSignalTf(frame);
-      tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
+    case SigframeType::kKernelSignal:
+      tf = KernelSignalTf::DoLoad(ar, &stack_bottom);
       break;
-    }
-    case SigframeType::kJunctionUIPI: {
-      u_sigframe *frame = LoadUSigframe(ar, &stack_bottom);
-      UintrTf *tf = AllocateOnStack<UintrTf>(&stack_bottom);
-      new (tf) UintrTf(frame);
-      tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
+    case SigframeType::kJunctionUIPI:
+      tf = UintrTf::DoLoad(ar, &stack_bottom);
       break;
-    }
-    case SigframeType::kJunctionTf: {
-      thread_tf *trapframe = AllocateOnStack<thread_tf>(&stack_bottom);
-      ar(*trapframe);
-      FunctionCallTf *fncall_tf =
-          AllocateOnStack<FunctionCallTf>(&stack_bottom);
-      new (fncall_tf) FunctionCallTf(trapframe);
-      fncall_tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
+    case SigframeType::kJunctionTf:
+      tf = FunctionCallTf::DoLoad(ar, &stack_bottom);
       break;
-    }
-    default: {
+    default:
       BUG();
       break;
-    }
   }
+
+  tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
 }
 
 }  // namespace junction

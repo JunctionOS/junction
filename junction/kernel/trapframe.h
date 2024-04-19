@@ -167,7 +167,14 @@ class KernelSignalTf : public SyscallFrame {
 
   void DoSave(cereal::BinaryOutputArchive &ar) const override {
     ar(SigframeType::kKernelSignal);
-    SaveKSigframe(ar, sigframe);
+    sigframe.DoSave(ar);
+  }
+
+  static KernelSignalTf *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *rsp) {
+    KernelSignalTf *tf = AllocateOnStack<KernelSignalTf>(rsp);
+    k_sigframe *frame = k_sigframe::DoLoad(ar, rsp);
+    new (tf) KernelSignalTf(frame);
+    return tf;
   }
 
  private:
@@ -241,6 +248,14 @@ class FunctionCallTf : public SyscallFrame {
     ar(*tf);
   }
 
+  static FunctionCallTf *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *rsp) {
+    FunctionCallTf *fncall_tf = AllocateOnStack<FunctionCallTf>(rsp);
+    thread_tf *tf = AllocateOnStack<thread_tf>(rsp);
+    ar(*tf);
+    new (fncall_tf) FunctionCallTf(tf);
+    return fncall_tf;
+  }
+
  private:
   inline uint64_t GetSysretUnwinderFunction() const {
     if (uintr_enabled)
@@ -307,7 +322,14 @@ class UintrTf : public Trapframe {
 
   void DoSave(cereal::BinaryOutputArchive &ar) const override {
     ar(SigframeType::kJunctionUIPI);
-    SaveUSigframe(ar, sigframe);
+    sigframe.DoSave(ar);
+  }
+
+  static UintrTf *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *rsp) {
+    UintrTf *tf = AllocateOnStack<UintrTf>(rsp);
+    u_sigframe *frame = u_sigframe::DoLoad(ar, rsp);
+    new (tf) UintrTf(frame);
+    return tf;
   }
 
  private:

@@ -201,12 +201,10 @@ class Thread {
   // Set @tf as the current trapframe generated when entering the Junction
   // kernel. This trapframe must not be a FunctionCallTf.
   void SetTrapframe(Trapframe &tf) {
-    if (!IsStopped()) {
-      DebugSafetyCheck();
-      assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)) ||
-             &tf == &fcall_tf);
-      assert(!rsp_on_syscall_stack(tf.GetRsp()));
-    }
+    DebugSafetyCheck();
+    assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)) ||
+           &tf == &fcall_tf);
+    assert(!rsp_on_syscall_stack(tf.GetRsp()));
 
     GetCaladanThread()->entry_regs = nullptr;
     cur_trapframe_ = &tf;
@@ -271,15 +269,14 @@ class Thread {
   // Safety check for functions that can only be called by the owning thread
   // when in interrupt or syscall context.
   inline void DebugSafetyCheck() const {
-    if (!IsStopped()) {
-      // Newly created thread doesn't require safety check.
-      if (GetCaladanThread()->ready_tsc == 0) return;
-      // The function should only be called by the owning thread.
-      assert(GetCaladanThread() == thread_self());
-      // The returned trapframe is only valid during a syscall (or until the
-      // code has switched off of the syscall stack).
-      assert(in_kernel() || rsp_on_syscall_stack());
-    }
+    if (IsStopped()) return;
+    // Newly created thread doesn't require safety check.
+    if (GetCaladanThread()->ready_tsc == 0) return;
+    // The function should only be called by the owning thread.
+    assert(GetCaladanThread() == thread_self());
+    // The returned trapframe is only valid during a syscall (or until the
+    // code has switched off of the syscall stack).
+    assert(in_kernel() || rsp_on_syscall_stack());
   }
 
   inline KernelSignalTf &CastTfToKernelSig() const {
@@ -492,9 +489,7 @@ class Process : public std::enable_shared_from_this<Process> {
   void RunThreads() {
     rt::ScopedLock g(child_thread_lock_);
     stopped_ = false;
-    for (const auto &[_pid, th] : thread_map_) {
-      th->ThreadReady();
-    }
+    for (const auto &[_pid, th] : thread_map_) th->ThreadReady();
   }
 
  private:

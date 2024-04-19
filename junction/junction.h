@@ -51,16 +51,10 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
   [[nodiscard]] bool madv_dontneed_remap() const { return madv_remap; }
 
-  [[nodiscard]] std::optional<int> snapshot_timeout() const {
-    return (snapshot_timeout_s > 0) ? std::optional(snapshot_timeout_s)
-                                    : std::nullopt;
-  }
+  [[nodiscard]] int snapshot_timeout() const { return snapshot_timeout_s_; }
 
-  [[nodiscard]] const std::string_view get_snapshot_metadata_path() const {
-    return snapshot_metadata_path_;
-  }
-  [[nodiscard]] const std::string_view get_snapshot_elf_path() const {
-    return snapshot_elf_path_;
+  [[nodiscard]] const std::string_view get_snapshot_prefix() const {
+    return snapshot_prefix_;
   }
 
   static void PrintOptions();
@@ -71,22 +65,21 @@ class alignas(kCacheLineSize) JunctionCfg {
 
  private:
   // Hot state
-  bool strace{false};
+  bool strace;
   bool madv_remap;
 
   // Cold state
-  std::string chroot_path{"/"};
+  std::string chroot_path;
   std::string fs_config_path;
-  std::string interp_path{CUSTOM_GLIBC_INTERPRETER_PATH};
-  std::string ld_path{CUSTOM_GLIBC_DIR};
-  std::string preload_path{CUSTOM_GLIBC_PRELOAD};
+  std::string interp_path;
+  std::string ld_path;
+  std::string preload_path;
   std::vector<std::string> binary_envp;
 
-  bool restore{false};
-  bool stack_switching{false};
-  int snapshot_timeout_s{0};
-  std::string snapshot_metadata_path_;
-  std::string snapshot_elf_path_;
+  bool restore;
+  bool stack_switching;
+  int snapshot_timeout_s_;
+  std::string snapshot_prefix_;
   static JunctionCfg singleton_;
 };
 

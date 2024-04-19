@@ -89,11 +89,11 @@ struct k_sigframe {
 
   // Copy the full signal frame (xstate included) to @dest_rsp
   k_sigframe *CopyToStack(uint64_t *dest_rsp) const;
-};
 
-void SaveKSigframe(cereal::BinaryOutputArchive &archive, const k_sigframe &sig);
-k_sigframe *LoadKSigframe(cereal::BinaryInputArchive &archive,
-                          uint64_t *dest_rsp);
+  void DoSave(cereal::BinaryOutputArchive &ar) const;
+
+  static k_sigframe *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *dest_rsp);
+};
 
 static_assert(sizeof(k_sigframe) % 16 == 8);
 
@@ -112,11 +112,11 @@ struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
   u_sigframe *CopyToStack(uint64_t *dest_rsp) const;
 
   [[nodiscard]] inline uint64_t GetRsp() const { return rsp; }
-};
 
-void SaveUSigframe(cereal::BinaryOutputArchive &archive, const u_sigframe &sig);
-u_sigframe *LoadUSigframe(cereal::BinaryInputArchive &archive,
-                          uint64_t *dest_rsp);
+  void DoSave(cereal::BinaryOutputArchive &ar) const;
+
+  static u_sigframe *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *dest_rsp);
+};
 
 static_assert(sizeof(u_sigframe) == sizeof(uintr_frame));
 

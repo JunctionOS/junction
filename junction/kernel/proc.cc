@@ -85,17 +85,6 @@ void AcquirePid(pid_t pid) {
 // should only be called on restore path
 void SetInitProc(std::shared_ptr<Process> proc) { detail::init_proc = proc; }
 
-void CloneTrapframe(thread_t *newth, const Thread &oldth) {
-  oldth.CopySyscallRegs(newth->tf);
-  newth->tf.r11 = newth->tf.rip;
-
-  // copy fsbase if present
-  if (oldth.GetCaladanThread()->has_fsbase) {
-    newth->has_fsbase = true;
-    newth->tf.fsbase = oldth.GetCaladanThread()->tf.fsbase;
-  }
-}
-
 long DoClone(clone_args *cl_args, uint64_t rsp) {
   bool do_vfork = false;
 

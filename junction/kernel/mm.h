@@ -80,13 +80,6 @@ struct VMArea {
   VMType type;
   std::shared_ptr<File> file;
   off_t offset;
-
- private:
-  friend class cereal::access;
-  template <class Archive>
-  void serialize(Archive &ar) {
-    ar(start, end, prot, type, file, offset);
-  }
 };
 
 class PageAccessTracer {

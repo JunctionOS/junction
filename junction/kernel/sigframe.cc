@@ -49,9 +49,8 @@ k_sigframe *k_sigframe::CopyToStack(uint64_t *dest_rsp, void *fx_buf) const {
   return dst_sigframe;
 }
 
-void SaveKSigframe(cereal::BinaryOutputArchive &archive,
-                   const k_sigframe &sig) {
-  xstate *xs = reinterpret_cast<xstate *>(sig.uc.uc_mcontext.fpstate);
+void k_sigframe::DoSave(cereal::BinaryOutputArchive &archive) const {
+  xstate *xs = reinterpret_cast<xstate *>(uc.uc_mcontext.fpstate);
   k_fpx_sw_bytes *fpxs =
       reinterpret_cast<k_fpx_sw_bytes *>(xs->fpstate.sw_reserved);
 
@@ -64,12 +63,12 @@ void SaveKSigframe(cereal::BinaryOutputArchive &archive,
   archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(xs),
                               fpxs->extended_size));
 
-  archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(&sig),
+  archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(this),
                               sizeof(k_sigframe)));
 }
 
-k_sigframe *LoadKSigframe(cereal::BinaryInputArchive &archive,
-                          uint64_t *dest_rsp) {
+k_sigframe *k_sigframe::DoLoad(cereal::BinaryInputArchive &archive,
+                               uint64_t *dest_rsp) {
   uint32_t extended_size = 0;
   archive(extended_size);
   *dest_rsp = AlignDown(*dest_rsp - extended_size, kXsaveAlignment);
@@ -141,24 +140,23 @@ u_sigframe *u_sigframe::CopyToStack(uint64_t *dest_rsp) const {
   return dst_sigframe;
 }
 
-void SaveUSigframe(cereal::BinaryOutputArchive &archive,
-                   const u_sigframe &sig) {
+void u_sigframe::DoSave(cereal::BinaryOutputArchive &archive) const {
   uint64_t len = 0;
-  if (!sig.xsave_area) {
+  if (!xsave_area) {
     archive(len);  // xsave_area len is 0
   } else {
-    xstate const *x = reinterpret_cast<xstate *>(sig.xsave_area);
+    const xstate *x = reinterpret_cast<const xstate *>(xsave_area);
     len = x->fpstate.sw_reserved[0];
     archive(len);
-    archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(x), len));
+    archive(cereal::binary_data(reinterpret_cast<const uint8_t *>(x), len));
   }
 
-  archive(cereal::binary_data(reinterpret_cast<uint8_t const *>(&sig),
+  archive(cereal::binary_data(reinterpret_cast<const uint8_t *>(this),
                               sizeof(u_sigframe)));
 }
 
-u_sigframe *LoadUSigframe(cereal::BinaryInputArchive &archive,
-                          uint64_t *dest_rsp) {
+u_sigframe *u_sigframe::DoLoad(cereal::BinaryInputArchive &archive,
+                               uint64_t *dest_rsp) {
   unsigned char *new_xarea = nullptr;
   uint64_t len = 0;
   archive(len);
