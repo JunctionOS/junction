@@ -60,8 +60,10 @@ if [ "${REGEX}" = "" ]; then
 else
   sudo "${CTEST}" --output-on-failure --verbose --timeout 120 --tests-regex "${REGEX}"
 fi
+ec=$?
+
 
 # Stop Caladan
 sudo pkill iokerneld
 wait
-exit 0
+exit $ec

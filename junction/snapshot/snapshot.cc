@@ -171,6 +171,8 @@ Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
   SnapshotMetadata(*p.get(), metadata_path);
   Status<void> ret =
       SnapshotElf(p->get_mem_map(), 0 /* entry_addr */, elf_path);
+
+  p->Signal(SIGCONT);
   return ret;
 }
 

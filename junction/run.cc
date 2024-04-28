@@ -125,6 +125,7 @@ void JunctionMain(int argc, char *argv[]) {
       auto ret = SnapshotPid(1, mtpath, epath);
       if (!ret) {
         LOG(ERR) << "Failed to snapshot: " << ret.error();
+        syscall_exit(-1);
       } else {
         LOG(INFO) << "snapshot successful!";
       }

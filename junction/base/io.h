@@ -373,7 +373,7 @@ class StreamBufferWriter final : public std::streambuf {
   }
 
   int_type overflow(int_type ch) override {
-    if (sync() == -1) return traits_type::eof();
+    if (sync() == -1 || ch == traits_type::eof()) return traits_type::eof();
     *pptr() = std::char_traits<char>::to_char_type(ch);
     inc_pos(1);
     return traits_type::not_eof(ch);

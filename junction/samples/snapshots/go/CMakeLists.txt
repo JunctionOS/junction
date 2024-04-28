@@ -32,7 +32,7 @@ add_custom_target(go_resizer_bin ALL
 add_test(
   NAME go_hello_world_snapshot
   COMMAND sh -c "rm -f /tmp/go_hello_world.metadata /tmp/go_hello_world.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/go_hello_world --\
-  ${go_hello} & (sleep 4 && pkill junction_run)"
+  ${go_hello}"
 )
 
 add_test(

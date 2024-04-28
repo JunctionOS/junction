@@ -94,7 +94,7 @@ static_assert(offsetof(xstate, xstate_hdr) == 512);
 // XSaveCompact saves the set of extended CPU states specified in @features into
 // @buf using the compacted format. It uses the init optimization to avoid
 // saving states that are not in use.
-inline __nofp void XSaveCompact(void *buf, uint64_t features, size_t size = 0) {
+inline __nofp void XSaveCompact(void *buf, uint64_t features, size_t size) {
   assert((uintptr_t)buf % kXsaveAlignment == 0);
   xstate *x = reinterpret_cast<xstate *>(buf);
   // Zero the xsave header.
@@ -102,6 +102,12 @@ inline __nofp void XSaveCompact(void *buf, uint64_t features, size_t size = 0) {
   __builtin_ia32_xsavec64(buf, features);
   // Stash the size.
   x->fpstate.sw_reserved[0] = size;
+}
+
+[[nodiscard]] __nofp __always_inline size_t GetXSaveSize(void *buf) {
+  assert(buf);
+  xstate *x = reinterpret_cast<xstate *>(buf);
+  return x->fpstate.sw_reserved[0];
 }
 
 // XSave saves the set of extended CPU states specified in @features into

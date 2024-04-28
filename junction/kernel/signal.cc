@@ -234,7 +234,7 @@ inline bool __nofp InterruptNeeded(thread_t *th) {
 
 extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   void *xsave_buf = nullptr;
-  size_t buf_sz = 0;
+  size_t buf_sz;
 
   assert_on_uintr_stack();
 
@@ -267,6 +267,8 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
     th->xsave_area_in_use = true;
   }
 
+  buf_sz = GetXsaveAreaSize(in_use_xfeatures);
+
   if (th->junction_thread && uintr_frame->uirrv == SIGURG - 1) {
     if (th->in_syscall) {
       th->xsave_area_in_use = was_xsave_area_used;
@@ -276,7 +278,6 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
     if (!xsave_buf) {
       // Temporarily save xstate on the UINTR stack. HandleKick will copy it if
       // a signal is delivered.
-      buf_sz = GetXsaveAreaSize(in_use_xfeatures);
       uint64_t this_rsp =
           reinterpret_cast<uint64_t>(alloca(buf_sz + kXsaveAlignment - 1));
       // AlignUp
@@ -306,7 +307,6 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   if (!xsave_buf) {
     // Allocate space on the target stack for the xsave.
     // AlignDown:
-    buf_sz = GetXsaveAreaSize(in_use_xfeatures);
     rsp = AlignDown(rsp, kXsaveAlignment);
     xsave_buf = reinterpret_cast<void *>(rsp);
   }

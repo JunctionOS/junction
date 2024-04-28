@@ -27,7 +27,7 @@ set(thumbnails "${CMAKE_CURRENT_SOURCE_DIR}/thumbnails")
 add_test(
   NAME python_hello_world_snapshot
   COMMAND sh -c "rm -f /tmp/python_hello_world.metadata /tmp/python_hello_world.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/python_hello_world --\
-  ${Python3_EXECUTABLE} ${python_hello_world} & (sleep 4 && pkill junction_run)"
+  ${Python3_EXECUTABLE} ${python_hello_world}"
 )
 
 add_test(
@@ -40,7 +40,7 @@ add_test(
 add_test(
   NAME python_numpy_snapshot
   COMMAND sh -c "rm -f /tmp/python_numpy.metadata /tmp/python_numpy.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/python_numpy --\
-  ${Python3_EXECUTABLE} ${python_numpy} & (sleep 4 && pkill junction_run)"
+  ${Python3_EXECUTABLE} ${python_numpy}"
 )
 
 add_test(
