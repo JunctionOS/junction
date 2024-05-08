@@ -145,7 +145,7 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
     }
 
     // We don't allow the brk system call, set the return value to 0 so
-    // Junction's libc to uses mmap instead.
+    // Junction's libc uses mmap instead.
     if (sysn == __NR_brk) {
       ctx->uc_mcontext.rax = 0;
       return;

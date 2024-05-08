@@ -56,6 +56,8 @@ inline constexpr unsigned int kFlagCloseExec = O_CLOEXEC;
 inline constexpr unsigned int kFlagExclusive = O_EXCL;
 // Basename cannot point to a symlink.
 inline constexpr unsigned int kFlagNoFollow = O_NOFOLLOW;
+// File descriptor is purely a reference to this path.
+inline constexpr unsigned int kFlagPath = O_PATH;
 
 //
 // AT flags used with *at system calls (openat, newfstatat, etc).

@@ -185,7 +185,7 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, Path path, int flags,
   auto [idir, name] = std::move(path);
 
   if (name.size() == 0) {
-    if (flags & kFlagCreate) return MakeError(EINVAL);
+    if (flags & kFlagExclusive) return MakeError(EINVAL);
     return idir->Open(mode, flags);
   }
 
@@ -197,7 +197,8 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, Path path, int flags,
 
   if (flags & kFlagExclusive) return MakeError(EEXIST);
   if ((*in)->is_symlink()) {
-    if (flags & kFlagNoFollow) return MakeError(ELOOP);
+    if ((flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
+      return MakeError(ELOOP);
     in = ResolvePath(fs, std::move(idir), name, true);
     if (!in) return MakeError(in);
   }
