@@ -191,7 +191,7 @@ std::shared_ptr<Process> RestoreProcess(std::string_view metadata_path,
   ar(p);
 
   MemoryMap &mm = p->get_mem_map();
-  auto ret = LoadELF(mm, elf_path, p->get_filesystem());
+  auto ret = LoadELF(mm, elf_path, p->get_fs());
   if (!ret) {
     LOG(ERR) << "Elf load failed: " << ret.error();
     return {};

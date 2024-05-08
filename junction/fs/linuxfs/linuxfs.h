@@ -57,7 +57,7 @@ class LinuxISoftLink : public ISoftLink {
   }
 
   // ReadLink reads the path of the link.
-  Status<std::string> ReadLink() override { return target_; };
+  std::string ReadLink() override { return target_; };
   Status<void> GetStats(struct stat *buf) const override {
     InodeToStats(*this, buf);
     return {};

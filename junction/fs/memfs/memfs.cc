@@ -13,14 +13,14 @@ class MemISoftLink : public ISoftLink {
       : ISoftLink(0, AllocateInodeNumber()), path_(path) {}
   ~MemISoftLink() override = default;
 
-  Status<std::string> ReadLink() override;
+  std::string ReadLink() override;
   Status<void> GetStats(struct stat *buf) const override;
 
  private:
   const std::string path_;
 };
 
-Status<std::string> MemISoftLink::ReadLink() { return path_; }
+std::string MemISoftLink::ReadLink() { return path_; }
 
 Status<void> MemISoftLink::GetStats(struct stat *buf) const {
   MemInodeToStats(*this, buf);

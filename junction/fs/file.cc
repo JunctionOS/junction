@@ -362,10 +362,9 @@ SoftLinkFile::SoftLinkFile(unsigned int flags, mode_t mode,
 
 Status<long> SoftLinkFile::ReadLink(std::span<std::byte> buf) {
   ISoftLink &ino = static_cast<ISoftLink &>(get_inode_ref());
-  Status<std::string> link = ino.ReadLink();
-  if (!link) return MakeCError(link);
-  size_t copy = std::min(buf.size(), link->size());
-  std::memcpy(buf.data(), link->data(), copy);
+  std::string lpath = ino.ReadLink();
+  size_t copy = std::min(buf.size(), lpath.size());
+  std::memcpy(buf.data(), lpath.data(), copy);
   return copy;
 }
 
@@ -498,12 +497,11 @@ long usys_newfstatat(int dirfd, const char *c_path, struct stat *statbuf,
 
   if ((flags & kAtEmptyPath) && path.size() == 0) {
     if (dirfd != kAtFdCwd) return usys_fstat(dirfd, statbuf);
-    inode = myproc().get_filesystem().get_cwd();
+    inode = myproc().get_fs().get_cwd();
   } else {
     bool chase_link = !(flags & kAtNoFollowLink);
-    FSRoot &fs = myproc().get_filesystem();
     Status<std::shared_ptr<Inode>> tmp =
-        FSLookupAt(fs, dirfd, path, chase_link);
+        LookupInode(myproc(), dirfd, path, chase_link);
     if (!tmp) return MakeCError(tmp);
     inode = std::move(*tmp);
   }
@@ -606,8 +604,6 @@ long usys_ioctl(int fd, unsigned long request, char *argp) {
   return 0;
 }
 
-mode_t usys_umask(mode_t mask) {
-  return myproc().get_filesystem().SetUmask(mask);
-}
+mode_t usys_umask(mode_t mask) { return myproc().get_fs().SetUmask(mask); }
 
 }  // namespace junction

@@ -352,7 +352,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] bool exited() const { return access_once(exited_); }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
   [[nodiscard]] bool is_stopped() const { return stopped_; }
-  [[nodiscard]] FSRoot &get_filesystem() { return fs_; }
+  [[nodiscard]] FSRoot &get_fs() { return fs_; }
 
   [[nodiscard]] const std::string_view get_bin_path() const {
     return binary_path_;

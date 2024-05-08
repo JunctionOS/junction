@@ -25,7 +25,7 @@ class JunctionFile {
   // Open creates a new file descriptor attached to a file path.
   static Status<JunctionFile> Open(FSRoot &fs, std::string_view path, int flags,
                                    mode_t mode) {
-    Status<std::shared_ptr<Inode>> in = FSLookup(fs, path);
+    Status<std::shared_ptr<Inode>> in = LookupInode(fs, path);
     if (!in) return MakeError(in);
     Status<std::shared_ptr<File>> f = (*in)->Open(mode, flags);
     if (!f) return MakeError(f);

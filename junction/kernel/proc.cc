@@ -244,8 +244,7 @@ Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
   if (!pid) return MakeError(pid);
 
   auto p = std::make_shared<Process>(*pid, mem_map_, file_tbl_, std::move(w),
-                                     shared_from_this(), get_pgid(),
-                                     get_filesystem());
+                                     shared_from_this(), get_pgid(), get_fs());
   rt::SpinGuard g(shared_sig_q_);
   child_procs_.push_back(p);
   return p;

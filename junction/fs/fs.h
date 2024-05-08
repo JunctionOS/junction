@@ -108,7 +108,7 @@ class ISoftLink : public Inode {
   }
 
   // ReadLink reads the path of the link.
-  virtual Status<std::string> ReadLink() = 0;
+  virtual std::string ReadLink() = 0;
 
   // Gets a shared pointer to this softlink.
   [[nodiscard]] std::shared_ptr<ISoftLink> get_this() {
@@ -271,13 +271,16 @@ Status<std::shared_ptr<IDir>> InitLinuxFs();
 
 Status<void> InitFs();
 
-// FSLookup finds and returns a reference to the inode for a path.
-Status<std::shared_ptr<Inode>> FSLookup(const FSRoot &root,
-                                        std::string_view path,
-                                        bool chase_link = true);
-// FSLookupAt finds and returns a reference to the inode for a path using a
-// dirfd.
-Status<std::shared_ptr<Inode>> FSLookupAt(const FSRoot &fs, int dirfd,
-                                          std::string_view path,
-                                          bool chase_link = true);
+class Process;
+
+// LookupInode finds an inode for a path
+Status<std::shared_ptr<Inode>> LookupInode(const FSRoot &fs,
+                                           std::string_view path,
+                                           bool chase_link = true);
+
+// LookupInode finds an inode for a path
+Status<std::shared_ptr<Inode>> LookupInode(Process &p, int dirfd,
+                                           std::string_view path,
+                                           bool chase_link = true);
+
 }  // namespace junction
