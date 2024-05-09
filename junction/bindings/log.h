@@ -6,17 +6,24 @@ extern "C" {
 #include "base/log.h"
 }
 
-#include <sstream>
-#include <string>
+#include <iomanip>
+#include <spanstream>
 
 #include "junction/bindings/runtime.h"
 
 namespace junction::rt {
 
-// TODO(amb): This allocates memory each use. Use std::ospanstream (C++23)?
+inline constexpr size_t kMaxLogBuf = 2048;
+
 class Logger {
  public:
-  explicit Logger(int level) noexcept : level_(level) {}
+  explicit Logger(int level) noexcept {
+    uint64_t us = microtime();
+    buf_ << "[" << std::setw(3) << (int)(us / ONE_SECOND) << "." << std::setw(6)
+         << std::setfill('0') << (int)(us % ONE_SECOND) << "] CPU "
+         << std::setw(2) << std::setfill('0') << sched_getcpu() << "| <"
+         << level << "> ";
+  }
   ~Logger();
 
   template <typename T>
@@ -26,9 +33,9 @@ class Logger {
   }
 
  private:
-  int level_;
   RuntimeLibcGuard guard_;
-  std::ostringstream buf_;
+  std::array<char, kMaxLogBuf> storage_;
+  std::ospanstream buf_{storage_};
 };
 
 // LOG appends a line to the log at the specified log level.

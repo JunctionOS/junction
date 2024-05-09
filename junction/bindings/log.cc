@@ -1,7 +1,16 @@
+// log.cc - support for printing to a log
+
 #include "junction/bindings/log.h"
+
+extern "C" {
+#include <base/syscall.h>
+}
 
 namespace junction::rt {
 
-Logger::~Logger() { logk(level_, "%s", buf_.str().c_str()); }
+Logger::~Logger() {
+  buf_ << '\n';
+  syscall_write(1, buf_.span().data(), buf_.span().size());
+}
 
 }  // namespace junction::rt
