@@ -28,59 +28,90 @@ extern "C" {
 
 namespace junction {
 
+// Filter for syscalls from the caladan runtime.
+static struct sock_filter caladan_filter[] = {
+    ALLOW_CALADAN_SYSCALL(ioctl),    ALLOW_CALADAN_SYSCALL(rt_sigreturn),
+    ALLOW_CALADAN_SYSCALL(mmap),     ALLOW_CALADAN_SYSCALL(madvise),
+    ALLOW_CALADAN_SYSCALL(mprotect), ALLOW_CALADAN_SYSCALL(exit_group),
+    ALLOW_CALADAN_SYSCALL(pwritev2), ALLOW_CALADAN_SYSCALL(writev)};
+
+// Syscalls needed to manipulate the host fs.
+static struct sock_filter writeable_linux_fs[] = {
+    ALLOW_JUNCTION_SYSCALL(mkdirat), ALLOW_JUNCTION_SYSCALL(linkat),
+    ALLOW_JUNCTION_SYSCALL(unlinkat)};
+
+// Syscalls needed to query dents/inodes in the host fs at runtime.
+static struct sock_filter uncached_linux_fs[] = {
+    ALLOW_JUNCTION_SYSCALL(getdents64), ALLOW_JUNCTION_SYSCALL(newfstatat),
+    ALLOW_JUNCTION_SYSCALL(readlinkat)};
+
+// Filter that allows all Junction syscalls to passthrough (for debugging).
+static struct sock_filter allow_all_junction[] = {ALLOW_ANY_JUNCTION_SYSCALL};
+
+// Filter to enable tgkill().
+static struct sock_filter linux_tgkill[] = {ALLOW_JUNCTION_SYSCALL(tgkill)};
+
+// Final filter that forwards all other system calls to our signal handler.
+static struct sock_filter trap[] = {TRAP};
+
+// Filter for core junction functionality.
+static struct sock_filter junction_core[] = {
+    ALLOW_JUNCTION_SYSCALL(mmap),       ALLOW_JUNCTION_SYSCALL(munmap),
+    ALLOW_JUNCTION_SYSCALL(mprotect),   ALLOW_JUNCTION_SYSCALL(madvise),
+    ALLOW_JUNCTION_SYSCALL(openat),     ALLOW_JUNCTION_SYSCALL(close),
+    ALLOW_JUNCTION_SYSCALL(preadv2),    ALLOW_JUNCTION_SYSCALL(pread64),
+    ALLOW_JUNCTION_SYSCALL(exit_group),
+};
+
+constexpr size_t filterMax =
+    sizeof(caladan_filter) + sizeof(writeable_linux_fs) +
+    sizeof(uncached_linux_fs) + sizeof(allow_all_junction) +
+    sizeof(linux_tgkill) + sizeof(trap) + sizeof(junction_core);
+
 /* Source: https://outflux.net/teach-seccomp/step-3/example.c
  */
 Status<void> _install_seccomp_filter() {
-  struct sock_filter filter[] = {
-      /* List allowed syscalls. */
-      ALLOW_CALADAN_SYSCALL(ioctl),
-      ALLOW_CALADAN_SYSCALL(rt_sigreturn),
-      ALLOW_CALADAN_SYSCALL(mmap),
-      ALLOW_CALADAN_SYSCALL(madvise),
-      ALLOW_CALADAN_SYSCALL(mprotect),
-      ALLOW_CALADAN_SYSCALL(exit_group),
-      ALLOW_CALADAN_SYSCALL(pwritev2),
-      ALLOW_CALADAN_SYSCALL(writev),
+  unsigned char filter[filterMax];
+  size_t pos = 0;
+
+  auto addFilter = [&pos, &filter](void *newf, size_t size) {
+    if (pos + size > filterMax)
+      throw std::runtime_error("seccomp: not enough space in filter");
+    memcpy(&filter[pos], newf, size);
+    pos += size;
+  };
+
+  // Add caladan filters.
+  addFilter(caladan_filter, sizeof(caladan_filter));
 
 #ifdef PERMISSIVE_SECCOMP
-      ALLOW_ANY_JUNCTION_SYSCALL,
+  // Allow any Junction system call.
+  addFilter(allow_all_junction, sizeof(allow_all_junction));
 #else
 
+  // Add Junction core filters.
+  addFilter(junction_core, sizeof(junction_core));
+
 #ifdef WRITEABLE_LINUX_FS
-      ALLOW_JUNCTION_SYSCALL(mkdir),
-      ALLOW_JUNCTION_SYSCALL(rmdir),
-      ALLOW_JUNCTION_SYSCALL(link),
-      ALLOW_JUNCTION_SYSCALL(unlink),
+  // Allow system calls to modify host fs.
+  addFilter(writeable_linux_fs, sizeof(writeable_linux_fs));
 #endif
 
-      ALLOW_JUNCTION_SYSCALL(statfs),
+  // Add system calls needed to query dirents/inode stats.
+  if (!GetCfg().cache_linux_fs())
+    addFilter(uncached_linux_fs, sizeof(uncached_linux_fs));
 
-      // TODO: remove these
-      ALLOW_JUNCTION_SYSCALL(tgkill),
-      ALLOW_JUNCTION_SYSCALL(access),
-      ALLOW_JUNCTION_SYSCALL(getdents),
-      ALLOW_JUNCTION_SYSCALL(getdents64),
-      ALLOW_JUNCTION_SYSCALL(newfstatat),
-      ALLOW_JUNCTION_SYSCALL(stat),
+  // Allow tgkill if uintr is not available.
+  if (!uintr_enabled) addFilter(linux_tgkill, sizeof(linux_tgkill));
 
-      ALLOW_JUNCTION_SYSCALL(readlinkat),
-
-      ALLOW_JUNCTION_SYSCALL(mmap),
-      ALLOW_JUNCTION_SYSCALL(munmap),
-      ALLOW_JUNCTION_SYSCALL(mprotect),
-      ALLOW_JUNCTION_SYSCALL(madvise),
-      ALLOW_JUNCTION_SYSCALL(open),
-      ALLOW_JUNCTION_SYSCALL(openat),
-      ALLOW_JUNCTION_SYSCALL(close),
-      ALLOW_JUNCTION_SYSCALL(preadv2),
-      ALLOW_JUNCTION_SYSCALL(pread64),
-      ALLOW_JUNCTION_SYSCALL(exit_group),
 #endif
-      TRAP,
-  };
+
+  // Finally, trap remaining calls.
+  addFilter(trap, sizeof(trap));
+
   struct sock_fprog prog = {
-      .len = (unsigned short)(sizeof(filter) / sizeof(filter[0])),
-      .filter = filter,
+      .len = (unsigned short)(pos / sizeof(struct sock_filter)),
+      .filter = (struct sock_filter *)filter,
   };
 
   if (prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0)) {

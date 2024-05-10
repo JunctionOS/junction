@@ -2,6 +2,7 @@
 
 extern "C" {
 #include <base/syscall.h>
+#include <fcntl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
 }
@@ -31,7 +32,6 @@ intptr_t ksys_mmap(void *addr, size_t length, int prot, int flags, int fd,
 int ksys_munmap(void *addr, size_t length);
 int ksys_mprotect(void *addr, size_t len, int prot);
 long ksys_madvise(void *addr, size_t length, int advice);
-int ksys_open(const char *pathname, int flags, mode_t mode);
 int ksys_openat(int fd, const char *pathname, int flags, mode_t mode);
 int ksys_close(int fd);
 ssize_t ksys_readv(int fd, const struct iovec *iov, int iovcnt);
@@ -39,6 +39,10 @@ ssize_t ksys_pread(int fd, void *buf, size_t count, off_t offset);
 int ksys_tgkill(pid_t tgid, pid_t tid, int sig);
 ssize_t ksys_readlinkat(int dirfd, const char *pathname, char *buf,
                         size_t bufsz);
+
+static inline int ksys_open(const char *pathname, int flags, mode_t mode) {
+  return ksys_openat(AT_FDCWD, pathname, flags, mode);
+}
 
 static inline ssize_t ksys_write(int fd, const void *buf, size_t count) {
   return syscall_write(fd, buf, count);
@@ -60,8 +64,6 @@ static inline ssize_t ksys_pwrite(int fd, const void *buf, size_t count,
 }
 int ksys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                     int flags);
-int ksys_stat(const char *path, struct stat *buf);
-int ksys_getdents(unsigned int fd, void *dirp, unsigned int count);
 int ksys_getdents64(unsigned int fd, void *dirp, unsigned int count);
 void ksys_exit(int status) __attribute__((noreturn));
 }
@@ -200,7 +202,7 @@ inline Status<void> KernelMAdvise(void *addr, size_t length, int hint) {
 
 // Get file status.
 inline Status<void> KernelStat(const char *path, struct stat *buf) {
-  int ret = ksys_stat(path, buf);
+  int ret = ksys_newfstatat(AT_FDCWD, path, buf, 0);
   if (ret < 0) return MakeError(-ret);
   return {};
 }

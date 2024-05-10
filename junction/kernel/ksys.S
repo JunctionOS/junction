@@ -59,7 +59,6 @@ SYSCALL_123 tgkill __NR_tgkill
 SYSCALL_123 mprotect __NR_mprotect
 SYSCALL_123 madvise __NR_madvise
 
-SYSCALL_123 open __NR_open
 SYSCALL_456 openat __NR_openat
 SYSCALL_123 close __NR_close
 
@@ -67,9 +66,7 @@ SYSCALL_123 readv __NR_readv
 SYSCALL_456 pread __NR_pread64
 
 SYSCALL_456 newfstatat __NR_newfstatat
-SYSCALL_123 stat __NR_stat
 
-SYSCALL_123 getdents __NR_getdents
 SYSCALL_123 getdents64 __NR_getdents64
 
 SYSCALL_456 readlinkat __NR_readlinkat
