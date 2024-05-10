@@ -16,24 +16,20 @@ extern "C" {
 
 namespace junction::linuxfs {
 
-LinuxFile::LinuxFile(Token, int fd, int flags, mode_t mode,
-                     std::string &&pathname,
-                     std::shared_ptr<Inode> ino) noexcept
+LinuxFile::LinuxFile(int fd, int flags, mode_t mode, std::string &&pathname,
+                     std::shared_ptr<LinuxInode> ino) noexcept
     : File(FileType::kNormal, flags, mode, std::move(pathname), std::move(ino)),
       fd_(fd) {}
 
-LinuxFile::LinuxFile(Token, int fd, int flags, mode_t mode,
-                     std::string_view pathname,
-                     std::shared_ptr<Inode> ino) noexcept
+LinuxFile::LinuxFile(int fd, int flags, mode_t mode, std::string_view pathname,
+                     std::shared_ptr<LinuxInode> ino) noexcept
     : File(FileType::kNormal, flags, mode, pathname, std::move(ino)), fd_(fd) {}
 
 LinuxFile::~LinuxFile() { ksys_close(fd_); }
 
 [[nodiscard]] size_t LinuxFile::get_size() const {
-  const Inode &in = get_inode_ref();
-  if (in.is_dir() || in.is_symlink()) return 0;
-  const LinuxInode &lin = static_cast<const LinuxInode &>(in);
-  return lin.get_size();
+  const LinuxInode &in = static_cast<const LinuxInode &>(get_inode_ref());
+  return in.get_size();
 }
 
 void TouchPages(std::span<std::byte> buf) {
@@ -65,19 +61,6 @@ Status<size_t> LinuxFile::Write(std::span<const std::byte> buf, off_t *off) {
   if (ret < 0) return MakeError(-ret);
   *off += ret;
   return ret;
-}
-
-Status<off_t> LinuxFile::Seek(off_t off, SeekFrom origin) {
-  switch (origin) {
-    case SeekFrom::kStart:
-      return off;
-    case SeekFrom::kCurrent:
-      return get_off_ref() + off;
-    case SeekFrom::kEnd:
-      return get_size() + off;
-    default:
-      return MakeError(EINVAL);
-  }
 }
 
 Status<void *> LinuxFile::MMap(void *addr, size_t length, int prot, int flags,

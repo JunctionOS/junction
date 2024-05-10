@@ -77,7 +77,7 @@ def genLogSyscallCall(pretty_name, with_ret):
     return fn
 
 def emit_strace_target(pretty_name, function_name, output):
-    fn = f"\nextern \"C\" uint64_t {function_name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
+    fn = f"\nextern \"C\" __attribute__((cold)) uint64_t {function_name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
     runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 
     is_exec_or_exit = "execve" in name or "exit" in name
@@ -99,13 +99,21 @@ def emit_strace_target(pretty_name, function_name, output):
 def emit_enosys_target(syscall_name, sysnr, output):
     wrapper_name = f"{syscall_name}_enosys"
     fn = f"""
-    extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+    extern "C" __attribute__((cold)) long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
         LOG_ONCE(ERR) << "Unsupported system call {sysnr}:{syscall_name}";
         return -ENOSYS;
     {'}'}"""
     output.append(fn)
     return wrapper_name
 
+def emit_errno_target(syscall_name, output, errno):
+    wrapper_name = f"{syscall_name}_{errno.lower()}"
+    fn = f"""
+    extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+        return -{errno.upper()};
+    {'}'}"""
+    output.append(fn)
+    return wrapper_name
 
 def emit_passthrough_target(syscall_name, sysnr, output):
     wrapper_name = f"{syscall_name}_forward"
@@ -116,6 +124,14 @@ def emit_passthrough_target(syscall_name, sysnr, output):
     output.append(fn)
     return wrapper_name
 
+def emit_stub_target(syscall_name, output):
+    wrapper_name = f"{syscall_name}_stub"
+    fn = f"""
+    extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+        return 0;
+    {'}'}"""
+    output.append(fn)
+    return wrapper_name
 
 def gen_syscall_dict():
     syscall_defs_file = None
@@ -178,6 +194,12 @@ with open(USYS_LIST) as f:
 
         if len(ns) > 1 and ns[1] == "passthrough":
             target = emit_passthrough_target(name, sysnr, dispatch_file)
+        elif len(ns) > 1 and ns[1] == "enotsup":
+            target = emit_errno_target(name, dispatch_file, "ENOTSUP")
+        elif len(ns) > 1 and ns[1] == "eopnotsup":
+            target = emit_errno_target(name, dispatch_file, "EOPNOTSUPP")
+        elif len(ns) > 1 and ns[1] == "stub":
+            target = emit_stub_target(name, dispatch_file)
         elif len(ns) > 1 and ns[1] == "custom":
             target = f"junction_entry_{name}"
         else:

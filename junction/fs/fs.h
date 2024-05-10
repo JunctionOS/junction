@@ -8,6 +8,7 @@ extern "C" {
 }
 
 #include <atomic>
+#include <map>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -56,6 +57,8 @@ class Inode : public std::enable_shared_from_this<Inode> {
   virtual Status<void> GetStatFS(struct statfs *buf) const {
     return MakeError(ENOSYS);
   }
+  // Sets the size of this inode.
+  virtual Status<void> SetSize(size_t sz) { return MakeError(EINVAL); }
 
   // permissions and other mode bits
   [[nodiscard]] mode_t get_mode() const { return mode_; }
@@ -65,6 +68,10 @@ class Inode : public std::enable_shared_from_this<Inode> {
   [[nodiscard]] bool is_dir() const { return get_type() == kTypeDirectory; }
   // Is this inode a symlink?
   [[nodiscard]] bool is_symlink() const { return get_type() == kTypeSymLink; }
+  // Is this inode a regular file?
+  [[nodiscard]] bool is_regular() const {
+    return get_type() == kTypeRegularFile;
+  }
   // the inode number
   [[nodiscard]] ino_t get_inum() const { return inum_; }
   // the number of hard links to the file
@@ -80,6 +87,12 @@ class Inode : public std::enable_shared_from_this<Inode> {
   [[nodiscard]] std::shared_ptr<Inode> get_this() {
     return shared_from_this();
   };
+
+ protected:
+  template <class Derived>
+  [[nodiscard]] std::shared_ptr<Derived> shared_from_base() {
+    return std::static_pointer_cast<Derived>(shared_from_this());
+  }
 
  private:
   const mode_t mode_;              // the type and mode
@@ -177,7 +190,7 @@ class IDir : public Inode {
   virtual Status<void> Link(std::string_view name,
                             std::shared_ptr<Inode> ino) = 0;
   // Create makes a new normal file.
-  virtual Status<std::shared_ptr<File>> Create(std::string_view name,
+  virtual Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                                mode_t mode) = 0;
   // GetDents returns a vector of the current entries.
   virtual std::vector<dir_entry> GetDents() = 0;
@@ -212,7 +225,7 @@ class IDir : public Inode {
   Status<std::span<char>> GetFullPath(const FSRoot &fs, std::span<char> dst);
 
   // Must be called during a rename.
-  void DoRename(std::shared_ptr<IDir> new_parent, std::string_view new_name) {
+  void SetParent(std::shared_ptr<IDir> new_parent, std::string_view new_name) {
     assert(!lock_.IsHeld());
     rt::MutexGuard g(lock_);
     rt::RCURead l;
@@ -224,8 +237,31 @@ class IDir : public Inode {
     pptr_ = std::move(newp);
   }
 
+  // Directly inserts this ino into the entries list.
+  Status<void> Mount(std::string name, std::shared_ptr<IDir> ino) {
+    Status<void> ret = Insert(name, ino);
+    if (!ret) return ret;
+    ino->SetParent(get_this(), name);
+    return {};
+  }
+
  protected:
   rt::Mutex lock_;
+  std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
+
+  Status<void> InsertLocked(std::string name, std::shared_ptr<Inode> ino) {
+    assert(lock_.IsHeld());
+    if (is_stale()) return MakeError(ESTALE);
+    auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
+    if (!okay) return MakeError(EEXIST);
+    it->second->inc_nlink();
+    return {};
+  }
+
+  Status<void> Insert(std::string name, std::shared_ptr<Inode> ino) {
+    rt::MutexGuard g(lock_);
+    return InsertLocked(std::move(name), std::move(ino));
+  }
 
  private:
   std::unique_ptr<ParentPointer> pptr_;
@@ -269,7 +305,11 @@ namespace linuxfs {
 Status<std::shared_ptr<IDir>> InitLinuxFs();
 }
 
-Status<void> InitFs();
+namespace memfs {
+std::shared_ptr<IDir> MkFolder();
+}
+
+Status<void> InitFs(std::vector<std::string> mem_mount_points = {});
 
 class Process;
 

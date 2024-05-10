@@ -126,9 +126,6 @@ class File : public std::enable_shared_from_this<File> {
     return MakeError(EINVAL);
   }
   virtual Status<void> Truncate(off_t newlen) { return MakeError(EINVAL); }
-  virtual Status<void> Allocate(int mode, off_t offset, off_t len) {
-    return MakeError(EINVAL);
-  }
   virtual Status<off_t> Seek(off_t off, SeekFrom origin) {
     return MakeError(EINVAL);
   }
@@ -224,6 +221,23 @@ class File : public std::enable_shared_from_this<File> {
   PollSource poll_;
   const std::shared_ptr<Inode> ino_;
   const std::string filename_;
+};
+
+class SeekableFile : virtual public File {
+ public:
+  Status<off_t> Seek(off_t off, SeekFrom origin) final override {
+    switch (origin) {
+      case SeekFrom::kStart:
+        return off;
+      case SeekFrom::kCurrent:
+        return get_off_ref() + off;
+      case SeekFrom::kEnd:
+        return get_size() + off;
+      default:
+        return MakeError(EINVAL);
+    }
+  }
+  [[nodiscard]] virtual size_t get_size() const = 0;
 };
 
 // Class for a directory file, supports getdents and getdents64.

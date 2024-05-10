@@ -33,8 +33,11 @@ namespace junction {
 
 namespace detail {
 
-file_array::file_array(size_t cap)
-    : cap(cap), files(std::make_unique<std::shared_ptr<File>[]>(cap)) {}
+file_array::file_array(size_t cap) : cap(cap) {
+  if (unlikely(cap > ArrayMaxElements<std::shared_ptr<File>>()))
+    throw std::bad_alloc();
+  files.reset(new std::shared_ptr<File>[cap]());
+}
 
 file_array::~file_array() = default;
 
@@ -187,15 +190,6 @@ long usys_ftruncate(int fd, off_t length) {
   File *f = ftbl.Get(fd);
   if (!f) return -EBADF;
   auto ret = f->Truncate(length);
-  if (!ret) return MakeCError(ret);
-  return 0;
-}
-
-long usys_fallocate(int fd, int mode, off_t offset, off_t len) {
-  FileTable &ftbl = myproc().get_file_table();
-  File *f = ftbl.Get(fd);
-  if (!f) return -EBADF;
-  auto ret = f->Allocate(mode, offset, len);
   if (!ret) return MakeCError(ret);
   return 0;
 }
@@ -491,8 +485,10 @@ long usys_fstat(int fd, struct stat *statbuf) {
 
 long usys_newfstatat(int dirfd, const char *c_path, struct stat *statbuf,
                      int flags) {
-  const std::string_view path(c_path);
+  // Needed for compatibility with fish-shell.
+  if (unlikely(!c_path)) return -EFAULT;
 
+  const std::string_view path(c_path);
   std::shared_ptr<Inode> inode;
 
   if ((flags & kAtEmptyPath) && path.size() == 0) {

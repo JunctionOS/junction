@@ -26,6 +26,7 @@ extern "C" {
 // File
 long usys_open(const char *pathname, int flags, mode_t mode);
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode);
+int usys_truncate(const char *path, off_t length);
 long usys_ftruncate(int fd, off_t length);
 long usys_fallocate(int fd, int mode, off_t offset, off_t len);
 long usys_access(const char *pathname, int mode);

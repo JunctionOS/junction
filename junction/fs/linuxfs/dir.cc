@@ -53,7 +53,6 @@ class DirectoryIterator {
 // Get the list of entries for this directory from the Linux file system.
 Status<void> LinuxIDir::FillEntries() {
   assert(lock_.IsHeld());
-  assert(!initialized_);
   Status<KernelFile> f =
       KernelFile::OpenAt(linux_root_fd, path_, O_DIRECTORY | O_RDONLY, S_IRUSR);
   if (!f) return MakeError(f);
@@ -66,10 +65,14 @@ Status<void> LinuxIDir::FillEntries() {
       return MakeError(ent);
     }
 
+    if (*ent == ".." || *ent == ".") continue;
+
     struct stat stat;
     int ret =
         ksys_newfstatat(f->GetFd(), ent->data(), &stat, AT_SYMLINK_NOFOLLOW);
     if (ret != 0) return MakeError(-ret);
+
+    if (stat.st_dev != root_dev) continue;
 
     std::string filename(*ent);
     std::string abspath(path_ + "/" + filename);
@@ -90,24 +93,23 @@ Status<void> LinuxIDir::FillEntries() {
     } else {
       continue;
     }
-    ino->inc_nlink();
-    entries_.emplace(std::move(filename), std::move(ino));
+    InsertLocked(std::move(filename), std::move(ino));
   }
 
-  initialized_ = true;
   return {};
+}
+
+bool LinuxIDir::Initialize() {
+  assert(lock_.IsHeld());
+  assert(!initialized_);
+  Status<void> ret = FillEntries();
+  initialized_ = true;
+  return (ret || ret.error() == EACCES);
 }
 
 Status<std::shared_ptr<Inode>> LinuxIDir::Lookup(std::string_view name) {
   rt::MutexGuard g(lock_);
-  if (unlikely(!initialized_)) {
-    Status<void> ret = FillEntries();
-    if (!ret) {
-      LOG(ERR) << "failed to fill entries for folder " << path_ << " ec "
-               << ret.error();
-      return MakeError(ret);
-    }
-  }
+  if (unlikely(!initialized_)) Initialize();
   if (auto it = entries_.find(name); it != entries_.end()) return it->second;
   return MakeError(ENOENT);
 }
@@ -115,14 +117,7 @@ Status<std::shared_ptr<Inode>> LinuxIDir::Lookup(std::string_view name) {
 std::vector<dir_entry> LinuxIDir::GetDents() {
   std::vector<dir_entry> result;
   rt::MutexGuard g(lock_);
-  if (unlikely(!initialized_)) {
-    Status<void> ret = FillEntries();
-    if (!ret) {
-      LOG(ERR) << "failed to fill entries for folder " << path_ << " ec "
-               << ret.error();
-      return result;
-    }
-  }
+  if (unlikely(!initialized_)) Initialize();
   for (const auto &[name, ino] : entries_)
     result.emplace_back(name, ino->get_inum(), ino->get_type());
   return result;

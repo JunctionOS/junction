@@ -80,8 +80,9 @@ Status<std::shared_ptr<Inode>> WalkPath(
 std::vector<std::string_view> SplitPath(std::string_view path,
                                         bool *must_be_dir) {
   std::vector<std::string_view> spath = split(path, '/');
-  auto it = std::find_if(spath.rbegin(), spath.rend(),
-                         [](std::string_view str) { return !str.empty(); });
+  auto it = std::find_if(
+      spath.rbegin(), spath.rend(),
+      [](std::string_view str) { return !str.empty() && str != "."; });
   if (must_be_dir) *must_be_dir = it != spath.rbegin();
   spath.erase(it.base(), std::end(spath));
   return spath;
@@ -133,7 +134,7 @@ Status<Entry> LookupEntry(const FSRoot &fs, std::shared_ptr<IDir> pos,
   bool must_be_dir;
   std::vector<std::string_view> spath = SplitPath(path, &must_be_dir);
 
-  // special case for '/'
+  // special case for '/' or '.'
   if (spath.size() == 0) return Entry{std::move(pos), {}, true};
 
   std::string_view name = spath.back();
@@ -141,6 +142,13 @@ Status<Entry> LookupEntry(const FSRoot &fs, std::shared_ptr<IDir> pos,
   Status<std::shared_ptr<Inode>> ret = WalkPath(fs, std::move(pos), spath);
   if (!ret) return MakeError(ret);
   if (!(*ret)->is_dir()) return MakeError(ENOTDIR);
+
+  if (name == "..") {
+    IDir &dir = static_cast<IDir &>(*ret->get());
+    return Entry{dir.get_parent(), {}, true};
+  }
+
+  if (name == ".") name = {};
   return Entry{std::static_pointer_cast<IDir>(std::move(*ret)), name,
                must_be_dir};
 }
@@ -205,7 +213,7 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
   Status<std::shared_ptr<Inode>> in = idir->Lookup(name);
   if (!in) {
     if (!(flags & kFlagCreate)) return MakeError(ENOENT);
-    return idir->Create(name, mode);
+    return idir->Create(name, flags, mode);
   }
 
   if (flags & kFlagExclusive) return MakeError(EEXIST);
@@ -392,6 +400,11 @@ long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   if (!entry) return MakeCError(entry);
   Status<std::shared_ptr<File>> f = Open(p.get_fs(), *entry, flags, mode);
   if (!f) return MakeCError(f);
+  if (flags & kFlagAppend) {
+    Status<off_t> ret = (*f)->Seek(0, SeekFrom::kEnd);
+    if (!ret) return MakeCError(ret);
+    (*f)->get_off_ref() = *ret;
+  }
   FileTable &ftbl = p.get_file_table();
   return ftbl.Insert(std::move(*f), (flags & kFlagCloseExec) > 0);
 }
@@ -403,6 +416,11 @@ long usys_open(const char *pathname, int flags, mode_t mode) {
   if (!entry) return MakeCError(entry);
   Status<std::shared_ptr<File>> f = Open(fs, *entry, flags, mode);
   if (!f) return MakeCError(f);
+  if (flags & kFlagAppend) {
+    Status<off_t> ret = (*f)->Seek(0, SeekFrom::kEnd);
+    if (!ret) return MakeCError(ret);
+    (*f)->get_off_ref() = *ret;
+  }
   FileTable &ftbl = p.get_file_table();
   return ftbl.Insert(std::move(*f), (flags & kFlagCloseExec) > 0);
 }
@@ -573,14 +591,83 @@ long usys_statfs(const char *path, struct statfs *buf) {
   return 0;
 }
 
-Status<void> InitFs() {
-  // For now set the root to the linux FS mount point.
-  Status<std::shared_ptr<IDir>> linuxfs = linuxfs::InitLinuxFs();
-  if (!linuxfs) return MakeError(linuxfs);
-  (*linuxfs)->inc_nlink();
+int usys_truncate(const char *path, off_t length) {
+  FSRoot &fs = myproc().get_fs();
+  Status<std::shared_ptr<Inode>> tmp = LookupInode(fs, path, true);
+  if (!tmp) return MakeCError(tmp);
+  Inode &ino = *tmp->get();
+  if (!ino.is_regular()) return -EINVAL;
+  Status<void> ret = ino.SetSize(static_cast<size_t>(length));
+  if (!ret) return MakeCError(ret);
+  return 0;
+}
+
+// Recursively visit all directories under root.
+void Recurse(std::shared_ptr<IDir> root) {
+  std::vector<std::shared_ptr<IDir>> queue;
+  queue.emplace_back(std::move(root));
+
+  while (queue.size()) {
+    std::shared_ptr<IDir> id = std::move(queue.back());
+    queue.pop_back();
+    for (auto &entry : id->GetDents()) {
+      Status<std::shared_ptr<Inode>> in = id->Lookup(entry.name);
+      if (!in || !(*in)->is_dir()) continue;
+      queue.emplace_back(std::static_pointer_cast<IDir>(std::move(*in)));
+    }
+  }
+}
+
+// Mounts a memfs filesystem rooted at @pos specified by @pathname.
+Status<void> MemFSMount(std::shared_ptr<IDir> pos, std::string_view pathname) {
+  std::vector<std::string_view> s = SplitPath(pathname, nullptr);
+  if (!s.size()) return {};
+
+  // Find the directory in which the first memfs folder will be placed.
+  auto it = s.begin();
+  for (; it != s.end() - 1; it++) {
+    const std::string_view &v = *it;
+    if (v == "." || v == "..") {
+      LOG(ERR) << "mount point path must be normal: " << pathname;
+      return MakeError(EINVAL);
+    }
+    if (v.empty()) continue;
+    Status<std::shared_ptr<Inode>> next = pos->Lookup(v);
+    if (!next || !(*next)->is_dir()) break;
+    pos = std::static_pointer_cast<IDir>(std::move(*next));
+  }
+
+  // Insert memfs directories.
+  for (; it != s.end(); it++) {
+    std::shared_ptr<IDir> memfs = memfs::MkFolder();
+    pos->Mount(std::string(*it), memfs);
+    pos = std::move(memfs);
+  }
+
+  return {};
+}
+
+Status<void> InitFs(std::vector<std::string> mem_mount_points) {
+  // Set the root to the linux FS mount point.
+  Status<std::shared_ptr<IDir>> tmp = linuxfs::InitLinuxFs();
+  if (!tmp) return MakeError(tmp);
+  IDir &linux_root = *tmp->get();
+  linux_root.inc_nlink();
   // root's parent is itself.
-  (*linuxfs)->DoRename(*linuxfs, ".");
-  FSRoot::InitFsRoot(std::move(*linuxfs));
+  linux_root.SetParent(*tmp, ".");
+
+  // Enumerate all Linux folders to cache dents.
+  if (GetCfg().cache_linux_fs()) Recurse(*tmp);
+
+  // Mount the default memfs directory.
+  if (Status<void> ret = MemFSMount(*tmp, "/memfs"); !ret) return ret;
+
+  // Mount user requested memfs paths.
+  for (const std::string &p : mem_mount_points) {
+    if (Status<void> ret = MemFSMount(*tmp, p); !ret) return ret;
+  }
+
+  FSRoot::InitFsRoot(std::move(*tmp));
   return {};
 }
 

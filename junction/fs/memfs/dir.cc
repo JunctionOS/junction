@@ -27,31 +27,22 @@ class MemIDir : public IDir {
   Status<void> Rename(IDir &src, std::string_view src_name,
                       std::string_view dst_name) override;
   Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino) override;
-  Status<std::shared_ptr<File>> Create(std::string_view name,
+  Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                        mode_t mode) override;
   std::vector<dir_entry> GetDents() override;
 
   // Inode ops
   Status<void> GetStats(struct stat *buf) const override;
+  Status<void> GetStatFS(struct statfs *buf) const override {
+    StatFs(buf);
+    return {};
+  }
 
  private:
-  // Helper routine for inserting an inode.
-  Status<void> Insert(std::string name, std::shared_ptr<Inode> ino);
   // Helper routine for renaming.
   Status<void> DoRename(MemIDir &src, std::string_view src_name,
                         std::string_view dst_name);
-
-  std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 };
-
-Status<void> MemIDir::Insert(std::string name, std::shared_ptr<Inode> ino) {
-  rt::MutexGuard g(lock_);
-  if (is_stale()) return MakeError(ESTALE);
-  auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
-  if (!okay) return MakeError(EEXIST);
-  it->second->inc_nlink();
-  return {};
-}
 
 Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
   rt::MutexGuard g(lock_);
@@ -124,7 +115,7 @@ Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
 
   if (ino->is_dir()) {
     IDir &tdir = static_cast<IDir &>(*ino);
-    tdir.DoRename(get_this(), dst_name);
+    tdir.SetParent(get_this(), dst_name);
   }
 
   return {};
@@ -162,9 +153,12 @@ Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
   return {};
 }
 
-Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name,
+Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
                                               mode_t mode) {
-  return {};
+  auto ino = std::make_shared<MemInode>(mode);
+  if (Status<void> ret = Insert(std::string(name), ino); !ret)
+    return MakeError(ret);
+  return ino->Open(flags, mode);
 }
 
 std::vector<dir_entry> MemIDir::GetDents() {
@@ -181,5 +175,12 @@ Status<void> MemIDir::GetStats(struct stat *buf) const {
 }
 
 }  // namespace
+
+// Created a new unattached MemFS folder.
+std::shared_ptr<IDir> MkFolder() {
+  auto ino = std::make_shared<MemIDir>(S_IRWXU, std::string{"."},
+                                       std::shared_ptr<IDir>{});
+  return ino;
+}
 
 }  // namespace junction::memfs

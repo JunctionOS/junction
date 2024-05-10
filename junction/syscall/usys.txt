@@ -14,7 +14,8 @@ set_tid_address
 open
 openat
 ftruncate
-fallocate
+truncate
+fallocate:::eopnotsup
 exit_group
 exit
 readlinkat
@@ -138,3 +139,9 @@ getuid
 geteuid
 getgid
 getegid
+getxattr:::enotsup
+lgetxattr:::enotsup
+fgetxattr:::enotsup
+fadvise64:::stub
+utimensat:::stub
+futimens:::stub

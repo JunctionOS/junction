@@ -2,6 +2,8 @@
 
 #include "junction/fs/memfs/memfs.h"
 
+#include "junction/fs/memfs/memfsfile.h"
+
 namespace junction::memfs {
 
 namespace {
@@ -13,19 +15,20 @@ class MemISoftLink : public ISoftLink {
       : ISoftLink(0, AllocateInodeNumber()), path_(path) {}
   ~MemISoftLink() override = default;
 
-  std::string ReadLink() override;
-  Status<void> GetStats(struct stat *buf) const override;
+  std::string ReadLink() override { return path_; }
+  Status<void> GetStats(struct stat *buf) const override {
+    MemInodeToStats(*this, buf);
+    return {};
+  }
+
+  Status<void> GetStatFS(struct statfs *buf) const override {
+    StatFs(buf);
+    return {};
+  }
 
  private:
   const std::string path_;
 };
-
-std::string MemISoftLink::ReadLink() { return path_; }
-
-Status<void> MemISoftLink::GetStats(struct stat *buf) const {
-  MemInodeToStats(*this, buf);
-  return {};
-}
 
 // MemIDevice is an inode type for character and block devices
 class MemIDevice : public Inode {
@@ -33,24 +36,41 @@ class MemIDevice : public Inode {
   MemIDevice(dev_t dev, mode_t mode)
       : Inode(mode, AllocateInodeNumber()), dev_(dev) {}
 
-  Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) override;
-  Status<void> GetStats(struct stat *buf) const override;
+  Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) override {
+    return DeviceOpen(*this, dev_, mode, flags);
+  }
+  Status<void> GetStats(struct stat *buf) const override {
+    MemInodeToStats(*this, buf);
+    buf->st_rdev = dev_;
+    return {};
+  }
+  Status<void> GetStatFS(struct statfs *buf) const override {
+    StatFs(buf);
+    return {};
+  }
 
  private:
   dev_t dev_;
 };
 
-Status<std::shared_ptr<File>> MemIDevice::Open(uint32_t flags, mode_t mode) {
-  return DeviceOpen(*this, dev_, mode, flags);
-}
+}  // namespace
 
-Status<void> MemIDevice::GetStats(struct stat *buf) const {
-  MemInodeToStats(*this, buf);
-  buf->st_rdev = dev_;
+Status<void> MemInode::SetSize(size_t newlen) {
+  if (unlikely(newlen > kMaxSizeBytes)) return MakeError(EINVAL);
+  buf_.Resize(newlen);
   return {};
 }
 
-}  // namespace
+Status<void> MemInode::GetStats(struct stat *buf) const {
+  MemInodeToStats(*this, buf);
+  buf->st_size = buf_.size();
+  buf->st_blocks = 0;
+  return {};
+}
+
+Status<std::shared_ptr<File>> MemInode::Open(uint32_t flags, mode_t mode) {
+  return std::make_shared<MemFSFile>(flags, mode, shared_from_base<MemInode>());
+}
 
 std::shared_ptr<ISoftLink> CreateISoftLink(std::string_view path) {
   return std::make_shared<MemISoftLink>(path);
@@ -58,6 +78,11 @@ std::shared_ptr<ISoftLink> CreateISoftLink(std::string_view path) {
 
 std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode) {
   return std::make_shared<MemIDevice>(dev, mode);
+}
+
+ino_t AllocateInodeNumber() {
+  static std::atomic_size_t inos;
+  return inos.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
 }  // namespace junction::memfs

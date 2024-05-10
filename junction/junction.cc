@@ -1,7 +1,7 @@
 #include <boost/program_options.hpp>
 #undef assert
 
-#include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <memory>
 
@@ -73,7 +73,10 @@ po::options_description GetOptions() {
       "stackswitch", po::bool_switch()->default_value(false),
       "use stack switching syscalls")(
       "madv_remap", po::bool_switch()->default_value(false),
-      "zero memory when MADV_DONTNEED is used (intended for profiling)");
+      "zero memory when MADV_DONTNEED is used (intended for profiling)")(
+      "cache_linux_fs", po::bool_switch()->default_value(false),
+      "cache directory structure of the linux filesystem");
+  ;
   return desc;
 }
 
@@ -107,6 +110,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   madv_remap = vm["madv_remap"].as<bool>();
   restore = vm["restore"].as<bool>();
   snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
+  cache_linux_fs_ = vm["cache_linux_fs"].as<bool>();
   snapshot_timeout_s_ = vm["snapshot-timeout"].as<int>();
   if (snapshot_timeout_s_ && snapshot_prefix_.empty()) {
     std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;
@@ -140,6 +144,16 @@ Status<void> InitChroot() {
   return {};
 }
 
+std::vector<std::string> GetFsMounts() {
+  std::string_view path = GetCfg().get_fs_config_path();
+  if (path.empty()) return {};
+  std::vector<std::string> paths;
+  std::ifstream f(path.data());
+  std::string line;
+  while (std::getline(f, line)) paths.emplace_back(line);
+  return paths;
+}
+
 Status<void> init() {
   // Make sure any one-time routines in the logger get run now.
   LOG(INFO) << "Initializing junction";
@@ -156,7 +170,7 @@ Status<void> init() {
   ret = InitChroot();
   if (unlikely(!ret)) return ret;
 
-  ret = InitFs();
+  ret = InitFs(GetFsMounts());
   if (unlikely(!ret)) return ret;
 
   ret = ShimJmpInit();

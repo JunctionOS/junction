@@ -14,6 +14,7 @@ constexpr bool linux_fs_writeable() { return false; }
 
 extern int linux_root_fd;
 extern struct statfs linux_statfs;
+extern dev_t root_dev;
 
 class LinuxInode : public Inode {
  public:
@@ -107,7 +108,7 @@ class LinuxIDir : public IDir {
     return MakeError(EACCES);
   }
 
-  Status<std::shared_ptr<File>> Create(std::string_view name,
+  Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                        mode_t mode) override {
     return MakeError(EACCES);
   }
@@ -128,11 +129,10 @@ class LinuxIDir : public IDir {
  private:
   // Helper routine to intialize entries_
   Status<void> FillEntries();
+  bool Initialize();
 
   std::string path_;
-  rt::Mutex lock_;
   bool initialized_{false};
-  std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 };
 
 }  // namespace junction::linuxfs

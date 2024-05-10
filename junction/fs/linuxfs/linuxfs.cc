@@ -11,12 +11,13 @@ int linux_root_fd = -1;
 // The absolute path for the root mount of the linux filesystem.
 const char *linux_root = "/";
 struct statfs linux_statfs;
+dev_t root_dev;
 
 Status<std::shared_ptr<File>> LinuxInode::Open(uint32_t flags, mode_t mode) {
   int fd = ksys_openat(linux_root_fd, path_.data(), flags, mode);
   if (fd < 0) return nullptr;
-  return std::make_shared<LinuxFile>(LinuxFile::Token{}, fd, flags, mode, path_,
-                                     get_this());
+  return std::make_shared<LinuxFile>(fd, flags, mode, path_,
+                                     shared_from_base<LinuxInode>());
 }
 
 // Setup the linuxfs. Must be called before privileges are dropped.
@@ -26,6 +27,7 @@ Status<std::shared_ptr<IDir>> InitLinuxFs() {
   struct stat buf;
   int ret = ksys_newfstatat(linux_root_fd, ".", &buf, AT_EMPTY_PATH);
   if (ret) return MakeError(-ret);
+  root_dev = buf.st_dev;
   ret = statfs(linux_root, &linux_statfs);
   if (ret) return MakeError(-ret);
   auto ino = std::make_shared<LinuxIDir>(buf, ".", std::string{},
