@@ -36,6 +36,12 @@ FileSystem* VFS::get_fs(const std::string_view& pathname, uint32_t mode = 0,
   return nullptr;
 }
 
+Status<void> VFS::Access(const std::string_view& pathname, uint32_t mode) {
+  FileSystem* fs = get_fs(pathname);
+  if (unlikely(!fs)) return MakeError(EINVAL);
+  return fs->Access(pathname, mode);
+}
+
 Status<std::shared_ptr<File>> VFS::Open(const std::string_view& pathname,
                                         uint32_t mode, uint32_t flags) {
   FileSystem* fs = get_fs(pathname, mode, flags);

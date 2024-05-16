@@ -37,7 +37,8 @@ class VFS : public FileSystem {
   virtual Status<void> Link(const std::string_view &oldpath,
                             const std::string_view &newpath) override;
   virtual Status<void> Unlink(const std::string_view &pathname) override;
-
+  virtual Status<void> Access(const std::string_view &pathname,
+                              uint32_t mode) override;
   mode_t get_umask() override { return umask_; }
   void set_umask(mode_t umask) override { umask_ = umask; }
 

@@ -62,8 +62,6 @@ Status<void> LinuxFS::CreateDirectory(const std::string_view &pathname,
 }
 
 Status<void> LinuxFS::Access(const std::string_view &pathname, uint32_t mode) {
-  if constexpr (!linux_fs_writeable()) return MakeError(EINVAL);
-
   // TODO: ensure that pathname has null terminator.
   long ret = ksys_default(reinterpret_cast<long>(pathname.data()), mode, 0, 0,
                           0, 0, __NR_access);
