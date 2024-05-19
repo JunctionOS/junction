@@ -9,9 +9,12 @@ namespace junction::linuxfs {
 int linux_root_fd = -1;
 // TODO(jfried): integrate with chroot.
 // The absolute path for the root mount of the linux filesystem.
-const char *linux_root = "/";
+std::string linux_root = "/";
+std::vector<std::string> allowed_mounts = {
+    "/tmp",
+};
 struct statfs linux_statfs;
-dev_t root_dev;
+std::set<dev_t> allowed_devs;
 
 Status<std::shared_ptr<File>> LinuxInode::Open(uint32_t flags, mode_t mode) {
   int fd = ksys_openat(linux_root_fd, path_.data(), flags, mode);
@@ -22,13 +25,19 @@ Status<std::shared_ptr<File>> LinuxInode::Open(uint32_t flags, mode_t mode) {
 
 // Setup the linuxfs. Must be called before privileges are dropped.
 Status<std::shared_ptr<IDir>> InitLinuxFs() {
-  linux_root_fd = open(linux_root, O_RDONLY | O_PATH);
+  linux_root_fd = open(linux_root.data(), O_RDONLY | O_PATH);
   if (linux_root_fd < 0) return MakeError(-errno);
   struct stat buf;
-  int ret = ksys_newfstatat(linux_root_fd, ".", &buf, AT_EMPTY_PATH);
+  for (const auto &mount : allowed_mounts) {
+    int ret = ksys_newfstatat(AT_FDCWD, mount.data(), &buf, AT_EMPTY_PATH);
+    if (ret) return MakeError(-ret);
+    allowed_devs.insert(buf.st_dev);
+  }
+  int ret =
+      ksys_newfstatat(linux_root_fd, linux_root.data(), &buf, AT_EMPTY_PATH);
   if (ret) return MakeError(-ret);
-  root_dev = buf.st_dev;
-  ret = statfs(linux_root, &linux_statfs);
+  allowed_devs.insert(buf.st_dev);
+  ret = statfs(linux_root.data(), &linux_statfs);
   if (ret) return MakeError(-ret);
   auto ino = std::make_shared<LinuxIDir>(buf, ".", std::string{},
                                          std::shared_ptr<IDir>{});

@@ -499,6 +499,7 @@ ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
   if (p == "/proc/self/exe") {
     auto str = myproc().get_bin_path();
     size_t copy = std::min(bufsiz, str.size());
+    std::memcpy(buf, str.data(), copy);
     return copy;
   }
 
@@ -526,6 +527,7 @@ ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz) {
   if (p == "/proc/self/exe") {
     auto str = myproc().get_bin_path();
     size_t copy = std::min(bufsiz, str.size());
+    std::memcpy(buf, str.data(), copy);
     return copy;
   }
 

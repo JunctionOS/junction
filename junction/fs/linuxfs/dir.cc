@@ -57,6 +57,8 @@ Status<void> LinuxIDir::FillEntries() {
       KernelFile::OpenAt(linux_root_fd, path_, O_DIRECTORY | O_RDONLY, S_IRUSR);
   if (!f) return MakeError(f);
 
+  dev_t last_dev = -1;
+
   DirectoryIterator it(*f);
   while (true) {
     Status<std::string_view> ent = it.GetNext();
@@ -72,7 +74,10 @@ Status<void> LinuxIDir::FillEntries() {
         ksys_newfstatat(f->GetFd(), ent->data(), &stat, AT_SYMLINK_NOFOLLOW);
     if (ret != 0) return MakeError(-ret);
 
-    if (stat.st_dev != root_dev) continue;
+    if (stat.st_dev != last_dev) {
+      if (!allowed_devs.count(stat.st_dev)) continue;
+      last_dev = stat.st_dev;
+    }
 
     std::string filename(*ent);
     std::string abspath(path_ + "/" + filename);
@@ -103,21 +108,25 @@ bool LinuxIDir::Initialize() {
   assert(lock_.IsHeld());
   assert(!initialized_);
   Status<void> ret = FillEntries();
-  initialized_ = true;
+  store_release(&initialized_, true);
   return (ret || ret.error() == EACCES);
 }
 
 Status<std::shared_ptr<Inode>> LinuxIDir::Lookup(std::string_view name) {
-  rt::MutexGuard g(lock_);
-  if (unlikely(!initialized_)) Initialize();
+  if (unlikely(!load_acquire(&initialized_))) {
+    rt::MutexGuard g(lock_);
+    if (!initialized_) Initialize();
+  }
   if (auto it = entries_.find(name); it != entries_.end()) return it->second;
   return MakeError(ENOENT);
 }
 
 std::vector<dir_entry> LinuxIDir::GetDents() {
   std::vector<dir_entry> result;
-  rt::MutexGuard g(lock_);
-  if (unlikely(!initialized_)) Initialize();
+  if (unlikely(!load_acquire(&initialized_))) {
+    rt::MutexGuard g(lock_);
+    if (!initialized_) Initialize();
+  }
   for (const auto &[name, ino] : entries_)
     result.emplace_back(name, ino->get_inum(), ino->get_type());
   return result;

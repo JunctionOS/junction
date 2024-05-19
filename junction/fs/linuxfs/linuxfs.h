@@ -2,19 +2,15 @@
 
 #include <sys/stat.h>
 
+#include <set>
+
 #include "junction/fs/fs.h"
 
 namespace junction::linuxfs {
 
-#ifdef WRITEABLE_LINUX_FS
-constexpr bool linux_fs_writeable() { return true; }
-#else
-constexpr bool linux_fs_writeable() { return false; }
-#endif
-
 extern int linux_root_fd;
 extern struct statfs linux_statfs;
-extern dev_t root_dev;
+extern std::set<dev_t> allowed_devs;
 
 class LinuxInode : public Inode {
  public:
