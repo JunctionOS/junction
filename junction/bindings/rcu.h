@@ -146,4 +146,13 @@ struct RCUDeleter {
   void operator()(T *p) { RCUFree<T>(p); }
 };
 
+// Decrement the counter for this shared pointer after a quiescant period.
+template <typename T>
+void RCUFree(std::shared_ptr<T> &&ptr) {
+  rt::Spawn([p = std::move(ptr)]() mutable {
+    RCUSynchronize();
+    p.reset();
+  });
+}
+
 }  // namespace junction::rt

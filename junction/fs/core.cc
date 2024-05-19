@@ -213,7 +213,7 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
   Status<std::shared_ptr<Inode>> in = idir->Lookup(name);
   if (!in) {
     if (!(flags & kFlagCreate)) return MakeError(ENOENT);
-    return idir->Create(name, flags, mode);
+    return idir->Create(name, flags, mode & ~fs.get_umask());
   }
 
   if (flags & kFlagExclusive) return MakeError(EEXIST);
@@ -549,11 +549,11 @@ long usys_getcwd(char *buf, size_t size) {
 }
 
 long usys_chdir(const char *pathname) {
-  FSRoot &fs = myproc().get_fs();
-  Status<std::shared_ptr<Inode>> ino = LookupInode(fs, pathname, true);
+  Process &p = myproc();
+  Status<std::shared_ptr<Inode>> ino = LookupInode(p.get_fs(), pathname, true);
   if (!ino) return MakeCError(ino);
   if (!(*ino)->is_dir()) return -ENOTDIR;
-  fs.SetCwd(std::static_pointer_cast<IDir>(std::move(*ino)));
+  p.SetCwd(std::static_pointer_cast<IDir>(std::move(*ino)));
   return 0;
 }
 
@@ -562,7 +562,7 @@ long usys_fchdir(int fd) {
   Status<std::shared_ptr<Inode>> ino = GetFileInode(fd, p);
   if (!ino) return MakeCError(ino);
   if (!(*ino)->is_dir()) return -ENOTDIR;
-  p.get_fs().SetCwd(std::static_pointer_cast<IDir>(std::move(*ino)));
+  p.SetCwd(std::static_pointer_cast<IDir>(std::move(*ino)));
   return 0;
 }
 

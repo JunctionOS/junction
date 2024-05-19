@@ -465,6 +465,11 @@ class Process : public std::enable_shared_from_this<Process> {
     for (const auto &[_pid, th] : thread_map_) th->ThreadReady();
   }
 
+  void SetCwd(std::shared_ptr<IDir> new_cwd) {
+    rt::SpinGuard g(fs_lock_);
+    fs_.SetCwd(std::move(new_cwd));
+  }
+
  private:
   friend class cereal::access;
 
@@ -622,6 +627,7 @@ class Process : public std::enable_shared_from_this<Process> {
   // File descriptor table
   FileTable file_tbl_;
   FSRoot fs_;
+  rt::Spin fs_lock_;
 
   // Memory mappings
   std::shared_ptr<MemoryMap> mem_map_;

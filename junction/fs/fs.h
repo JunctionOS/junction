@@ -272,16 +272,31 @@ class IDir : public Inode {
 class FSRoot {
  public:
   FSRoot(std::shared_ptr<IDir> root, std::shared_ptr<IDir> cwd)
-      : root_(std::move(root)), cwd_(std::move(cwd)) {}
+      : root_(std::move(root)), cwd_(std::move(cwd)), cwd_rcup_(cwd_.get()) {}
   ~FSRoot() = default;
 
+  FSRoot(const FSRoot &other)
+      : root_(other.root_),
+        cwd_(other.get_cwd()),
+        cwd_rcup_(cwd_.get()),
+        umask_(other.umask_) {}
+
   [[nodiscard]] std::shared_ptr<IDir> get_root() const { return root_; }
-  [[nodiscard]] std::shared_ptr<IDir> get_cwd() const { return cwd_; }
+  [[nodiscard]] std::shared_ptr<IDir> get_cwd() const {
+    rt::RCURead l;
+    rt::RCUReadGuard g(l);
+    const IDir *dir = cwd_rcup_.get();
+    return const_cast<IDir *>(dir)->get_this();
+  }
   [[nodiscard]] static FSRoot &GetGlobalRoot() { return *global_root_; }
   [[nodiscard]] mode_t get_umask() const { return umask_; }
 
-  // TODO(jfried): need to protect current modifications.
-  void SetCwd(std::shared_ptr<IDir> new_cwd) { cwd_ = std::move(new_cwd); }
+  // Caller must synchronize this call with a lock.
+  void SetCwd(std::shared_ptr<IDir> new_cwd) {
+    cwd_rcup_.set(new_cwd.get());
+    rt::RCUFree(std::move(cwd_));
+    cwd_ = std::move(new_cwd);
+  }
 
   mode_t SetUmask(mode_t umask) {
     mode_t prev = umask_;
@@ -297,6 +312,7 @@ class FSRoot {
  private:
   std::shared_ptr<IDir> root_;
   std::shared_ptr<IDir> cwd_;
+  rt::RCUPtr<IDir> cwd_rcup_;
   mode_t umask_{0};
   static FSRoot *global_root_;
 };
