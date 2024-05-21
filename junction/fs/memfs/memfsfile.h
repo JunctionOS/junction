@@ -9,7 +9,7 @@ namespace junction::memfs {
 class MemFSFile : public SeekableFile {
  public:
   MemFSFile(unsigned int flags, mode_t mode, std::shared_ptr<MemInode> ino)
-      : File(FileType::kNormal, flags, mode, std::move(ino)) {}
+      : SeekableFile(FileType::kNormal, flags, mode, std::move(ino)) {}
 
   Status<void> Truncate(off_t newlen) override {
     MemInode &ino = static_cast<MemInode &>(get_inode_ref());

@@ -42,7 +42,8 @@ class LinuxFile : public SeekableFile {
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(get_filename(), get_flags(), get_mode(), cereal::base_class<File>(this));
+    ar(get_filename(), get_flags(), get_mode());
+    ar(cereal::base_class<SeekableFile>(this));
   }
 
   template <class Archive>
@@ -53,19 +54,31 @@ class LinuxFile : public SeekableFile {
     mode_t mode;
     ar(filename, flags, mode);
 
-    int fd = ksys_open(filename.data(), flags, mode);
-    if (unlikely(fd < 0)) {
+    Status<std::shared_ptr<Inode>> tmp =
+        LookupInode(FSRoot::GetGlobalRoot(), filename, false);
+    if (unlikely(!tmp)) {
       LOG(ERR) << "failed to re-open linux file " << filename;
       BUG();
     }
-    construct(fd, flags, mode, std::move(filename));
-    ar(cereal::base_class<File>(construct.ptr()));
+
+    LinuxInode *ino;
+    if constexpr (is_debug_build())
+      ino = dynamic_cast<LinuxInode *>(tmp->get());
+    else
+      ino = reinterpret_cast<LinuxInode *>(tmp->get());
+
+    int fd = ksys_openat(linux_root_fd, filename.data(), flags, mode);
+    if (fd < 0) {
+      LOG(ERR) << "failed to open file " << filename << " ret: " << fd;
+      BUG();
+    }
+
+    construct(fd, flags, mode, std::move(filename),
+              std::static_pointer_cast<LinuxInode>(std::move(*tmp)));
+    ar(cereal::base_class<SeekableFile>(construct.ptr()));
   }
 
-  int fd_{-1};
-  ssize_t size_{-1};
+  int fd_;
 };
 
 }  // namespace junction::linuxfs
-
-// CEREAL_REGISTER_TYPE(junction::LinuxFile);

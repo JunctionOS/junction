@@ -12,18 +12,21 @@ extern "C" {
 #include "junction/fs/linuxfs/linuxfile.h"
 #include "junction/fs/linuxfs/linuxfs.h"
 #include "junction/kernel/ksys.h"
+#include "junction/snapshot/cereal.h"
 #include "junction/syscall/strace.h"
 
 namespace junction::linuxfs {
 
 LinuxFile::LinuxFile(int fd, int flags, mode_t mode, std::string &&pathname,
                      std::shared_ptr<LinuxInode> ino) noexcept
-    : File(FileType::kNormal, flags, mode, std::move(pathname), std::move(ino)),
+    : SeekableFile(FileType::kNormal, flags, mode, std::move(pathname),
+                   std::move(ino)),
       fd_(fd) {}
 
 LinuxFile::LinuxFile(int fd, int flags, mode_t mode, std::string_view pathname,
                      std::shared_ptr<LinuxInode> ino) noexcept
-    : File(FileType::kNormal, flags, mode, pathname, std::move(ino)), fd_(fd) {}
+    : SeekableFile(FileType::kNormal, flags, mode, pathname, std::move(ino)),
+      fd_(fd) {}
 
 LinuxFile::~LinuxFile() { ksys_close(fd_); }
 
@@ -82,3 +85,5 @@ Status<void> LinuxFile::Ioctl(unsigned long request,
 }
 
 }  // namespace junction::linuxfs
+
+CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxFile);

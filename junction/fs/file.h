@@ -223,8 +223,9 @@ class File : public std::enable_shared_from_this<File> {
   const std::string filename_;
 };
 
-class SeekableFile : virtual public File {
+class SeekableFile : public File {
  public:
+  using File::File;
   Status<off_t> Seek(off_t off, SeekFrom origin) final override {
     switch (origin) {
       case SeekFrom::kStart:
@@ -238,6 +239,16 @@ class SeekableFile : virtual public File {
     }
   }
   [[nodiscard]] virtual size_t get_size() const = 0;
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(cereal::base_class<File>(this));
+  }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(cereal::base_class<File>(this));
+  }
 };
 
 // Class for a directory file, supports getdents and getdents64.
