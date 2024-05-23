@@ -1,8 +1,5 @@
 # Keep in sync with the order of enums in shim.h
 # Ret type, name, [argN type]...
-int, allocate_stack, void **, size_t *, size_t *
-void, free_stack, void *
-void, free_stack_on_exit, void *
 int, pthread_rwlock_destroy, pthread_rwlock_t *
 int, pthread_rwlock_init, pthread_rwlock_t *, const pthread_rwlockattr_t *
 int, pthread_rwlock_rdlock, pthread_rwlock_t *
