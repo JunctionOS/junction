@@ -37,7 +37,7 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   // Exec program image
   Status<ExecInfo> ret = Exec(**proc, (*proc)->get_mem_map(), path, argv, envp);
   if (!ret) {
-    LOG(ERR) << "Failed to exec binary: " << ret.error();
+    LOG(ERR) << "Failed to exec binary " << path << ": " << ret.error();
     return MakeError(ret);
   }
 
