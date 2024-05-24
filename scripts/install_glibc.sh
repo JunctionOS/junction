@@ -24,7 +24,7 @@ git am $GLIBC_PATCHES_DIR/*
 mkdir -p build
 cd build
 ../configure --prefix $GLIBC_INSTALL_DIR
-make -j "$(nproc)"
+make -j "$(nproc)" CFLAGS="-U_FORTIFY_SOURCE -O3"
 make install -j "$(nproc)"
 
 # record the set of patches used for this build
