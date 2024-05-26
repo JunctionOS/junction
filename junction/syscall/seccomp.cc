@@ -166,6 +166,13 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
 
   if (unlikely(!preempt_enabled())) {  // call probably from junction libc
     // avoid infinitely looping when Junction's glibc makes a blocked syscall
+
+    static bool once;
+    if (!once) {
+      once = true;
+      log_syscall_msg("Trapped a Junction libc internal syscall ", sysn);
+    }
+
     if (unlikely(
             ctx->uc_mcontext.rip >= reinterpret_cast<uint64_t>(&ksys_start) &&
             ctx->uc_mcontext.rip < reinterpret_cast<uint64_t>(&ksys_end))) {
@@ -203,6 +210,11 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
 
   if (unlikely(!IsJunctionThread())) {
     log_syscall_msg("Intercepted syscall originating in junction", sysn);
+    syscall_exit(-1);
+  }
+
+  if (unlikely(mythread().in_kernel())) {
+    log_syscall_msg("Unexpected syscall while in_kernel", sysn);
     syscall_exit(-1);
   }
 

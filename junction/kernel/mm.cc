@@ -25,6 +25,11 @@ extern "C" {
 
 namespace junction {
 
+// Lock protecting allocation of memory maps.
+rt::Spin MemoryMap::mm_lock_;
+// Next address used for memory map.
+uintptr_t MemoryMap::mm_base_addr_{0x300000000000};
+
 namespace {
 
 constexpr std::pair<uintptr_t, uintptr_t> AddressToBounds(void *addr,
@@ -338,11 +343,17 @@ Status<uintptr_t> MemoryMap::SetBreak(uintptr_t brk_addr) {
   uintptr_t newbrk = brk_addr;
 
   // Return the current brk address if out of range.
-  if (newbrk < brk_start_ || newbrk >= brk_end_) return brk_addr_;
+  if (newbrk < mm_start_ || newbrk >= mm_end_) return brk_addr_;
 
   // Otherwise, try to adjust the brk address.
   rt::UniqueLock ul(mu_, rt::InterruptOrLock);
   if (!ul) return MakeError(EINTR);
+
+  // Make sure we don't overlap with an mmapped region.
+  auto it = vmareas_.upper_bound(brk_addr_);
+  if (it != vmareas_.end() && it->second.start < PageAlign(newbrk))
+    return brk_addr_;
+
   uintptr_t oldbrk = brk_addr_;
 
   // Stop here if the mapping has not changed after alignment.
@@ -403,6 +414,14 @@ Status<void *> MemoryMap::MMap(void *addr, size_t len, int prot, int flags,
   {
     rt::UniqueLock ul(mu_, rt::InterruptOrLock);
     if (!ul) return MakeError(EINTR);
+
+    if (!(flags & MAP_FIXED)) {
+      Status<uintptr_t> tmp = FindFreeRange(addr, len);
+      if (!tmp) return MakeError(tmp);
+      addr = reinterpret_cast<void *>(*tmp);
+      flags |= MAP_FIXED;
+    }
+
     VMArea vma;
     if (flags & MAP_ANONYMOUS) {
       // anonymous memory
@@ -450,6 +469,8 @@ Status<void> MemoryMap::MUnmap(void *addr, size_t len) {
   // clear mappings
   rt::UniqueLock ul(mu_, rt::InterruptOrLock);
   if (!ul) return MakeError(EINTR);
+  // Note: we may need to map a PROT_NONE region to prevent Linux from placing
+  // other VMAs here.
   Status<void> ret = KernelMUnmap(addr, len);
   if (!ret) return MakeError(ret);
   auto [start, end] = AddressToBounds(addr, len);
@@ -499,6 +520,47 @@ size_t MemoryMap::VirtualUsage() {
   rt::ScopedSharedLock g(mu_);
   for (auto const &[end, vma] : vmareas_) usage += vma.Length();
   return usage;
+}
+
+Status<uintptr_t> MemoryMap::FindFreeRange(void *hint, size_t len) {
+  assert(mu_.IsHeld());
+  assert(IsPageAligned(len));
+
+  // Try to accomodate a hint.
+  if (hint != nullptr && reinterpret_cast<uintptr_t>(hint) + len <= mm_end_) {
+    auto [start, end] = AddressToBounds(hint, len);
+
+    // Find the first region that ends after the start of the requested one.
+    auto it = vmareas_.upper_bound(start);
+    // If no such region exists or the next region starts after the requested
+    // end, the hinted address can be used.
+    if (it == vmareas_.end() || it->second.start >= end) return start;
+
+    // Try to place the request just before @it.
+    auto prev = std::prev(it);
+    uintptr_t new_start = it->second.start - len;
+    uintptr_t prev_end = prev == vmareas_.begin() ? brk_addr_ : prev->first;
+    if (new_start >= prev_end) return new_start;
+
+    // Try to place the request just after @it.
+    auto next = std::next(it);
+    uintptr_t new_end = it->first + len;
+    uintptr_t next_start =
+        next == vmareas_.end() ? mm_end_ : next->second.start;
+    if (new_end <= next_start) return it->second.end;
+  }
+
+  // Iterate from mm_end_ backwards looking for free slots.
+  uintptr_t prev_start = mm_end_;
+  auto it = vmareas_.rbegin();
+  while (it != vmareas_.rend() && prev_start - it->first < len) {
+    prev_start = it->second.start;
+    it++;
+  }
+
+  uintptr_t addr = prev_start - len;
+  if (addr < brk_addr_) return MakeError(ENOMEM);
+  return addr;
 }
 
 std::ostream &operator<<(std::ostream &os, const VMArea &vma) {

@@ -23,8 +23,8 @@ namespace {
 std::pair<std::vector<elf_phdr>, std::vector<VMArea>> GetPHDRs(MemoryMap &mm) {
   auto vmas = mm.get_vmas();
   std::vector<elf_phdr> phdrs;
-  phdrs.reserve(vmas.size() + 1);  // vmas + unused heap
-  uint64_t offset = (1 + vmas.size()) * sizeof(elf_phdr) + sizeof(elf_header);
+  phdrs.reserve(vmas.size());  // vmas
+  uint64_t offset = (vmas.size()) * sizeof(elf_phdr) + sizeof(elf_header);
   offset = AlignUp(offset, kPageSize);
 
   for (const VMArea &vma : vmas) {
@@ -45,18 +45,6 @@ std::pair<std::vector<elf_phdr>, std::vector<VMArea>> GetPHDRs(MemoryMap &mm) {
     phdrs.push_back(phdr);
     offset += vma.Length();
   }
-
-  elf_phdr heap_phdr = {
-      .type = kPTypeLoad,
-      .flags = 0,  // PROT_NONE
-      .offset = offset,
-      .vaddr = mm.get_brk_addr(),
-      .paddr = 0,                // don't care
-      .filesz = 0,               // memory region size
-      .memsz = mm.UnusedHeap(),  // memory region size
-      .align = kPageSize,        // align to page size
-  };
-  phdrs.push_back(heap_phdr);
 
   return std::make_pair(phdrs, vmas);
 }

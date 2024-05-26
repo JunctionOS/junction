@@ -125,9 +125,9 @@ class PageAccessTracer {
 class alignas(kCacheLineSize) MemoryMap {
  public:
   MemoryMap(void *base, size_t len)
-      : brk_start_(reinterpret_cast<uintptr_t>(base)),
-        brk_end_(brk_start_ + len),
-        brk_addr_(brk_start_) {}
+      : mm_start_(reinterpret_cast<uintptr_t>(base)),
+        mm_end_(mm_start_ + len),
+        brk_addr_(mm_start_) {}
   ~MemoryMap();
 
   [[nodiscard]] std::vector<VMArea> get_vmas();
@@ -158,10 +158,7 @@ class alignas(kCacheLineSize) MemoryMap {
   [[nodiscard]] size_t VirtualUsage();
 
   // HeapUsage returns the size (in bytes) of the heap.
-  [[nodiscard]] size_t HeapUsage() const { return brk_addr_ - brk_start_; }
-
-  // unused heap size
-  [[nodiscard]] size_t UnusedHeap() const { return brk_end_ - brk_addr_; }
+  [[nodiscard]] size_t HeapUsage() const { return brk_addr_ - mm_start_; }
 
   // break_addr
   [[nodiscard]] size_t get_brk_addr() const { return brk_addr_; }
@@ -180,24 +177,45 @@ class alignas(kCacheLineSize) MemoryMap {
   // Returns true if this page fault is handled by the MM.
   bool HandlePageFault(uintptr_t addr, Time time);
 
+  static uintptr_t AllocateMMRegion(size_t len) {
+    rt::SpinGuard g(mm_lock_);
+    uintptr_t base = mm_base_addr_;
+    mm_base_addr_ += PageAlign(len);
+    return base;
+  }
+
+  static void RegisterMMRegion(uintptr_t base, size_t len) {
+    rt::SpinGuard g(mm_lock_);
+    mm_base_addr_ = std::max(mm_base_addr_, base + PageAlign(len));
+  }
+
  private:
   friend class cereal::access;
   friend class PageAccessTracer;
   template <class Archive>
   void save(Archive &ar) const {
-    ar(brk_start_, brk_end_, brk_addr_ /*, vmareas_ */);
+    ar(mm_start_, mm_end_ - mm_start_, brk_addr_);
   }
 
   template <class Archive>
   static void load_and_construct(Archive &ar,
                                  cereal::construct<MemoryMap> &construct) {
-    uintptr_t brk_start;
-    uintptr_t brk_end;
-    ar(brk_start, brk_end);
+    uintptr_t mm_start, len;
+    ar(mm_start, len);
 
-    construct(reinterpret_cast<void *>(brk_start), brk_end - brk_start);
-    ar(construct->brk_addr_ /*, construct->vmareas_ */);
+    RegisterMMRegion(mm_start, len);
+
+    Status<void *> ret =
+        KernelMMap(reinterpret_cast<void *>(mm_start), len, PROT_NONE, 0);
+    if (!ret) throw std::bad_alloc();
+
+    construct(*ret, len);
+    ar(construct->brk_addr_);
   }
+
+  // Find a free range of memory of size @len, returns the start address of that
+  // range.
+  Status<uintptr_t> FindFreeRange(void *hint, size_t len);
 
   // Clear removes existing VMAreas that overlap with the range [start, end)
   // Ex: ClearMappings(2, 6) when vmareas_ = [1, 3), [5, 7) results in vmareas_
@@ -219,16 +237,21 @@ class alignas(kCacheLineSize) MemoryMap {
   bool TryMergeRight(std::map<uintptr_t, VMArea>::iterator prev, VMArea &rhs);
 
   rt::SharedMutex mu_;
-  const uintptr_t brk_start_;
-  const uintptr_t brk_end_;
+  const uintptr_t mm_start_;
+  const size_t mm_end_;
   uintptr_t brk_addr_;
   std::map<uintptr_t, VMArea> vmareas_;
   std::unique_ptr<PageAccessTracer> tracer_;
+
+  static rt::Spin mm_lock_;
+  static uintptr_t mm_base_addr_;
 };
 
 // Reserve a region of virtual memory for a MemoryMap.
 inline Status<std::shared_ptr<MemoryMap>> CreateMemoryMap(size_t len) {
-  Status<void *> ret = KernelMMap(nullptr, len, PROT_NONE, 0);
+  uintptr_t base = MemoryMap::AllocateMMRegion(len);
+  Status<void *> ret =
+      KernelMMap(reinterpret_cast<void *>(base), len, PROT_NONE, 0);
   if (!ret) return MakeError(ret);
   return std::make_shared<MemoryMap>(*ret, len);
 }
