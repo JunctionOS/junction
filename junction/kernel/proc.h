@@ -256,6 +256,8 @@ class Thread {
     ar(child_tid_ptr, xstate_, sighand_);
     child_tid_ = reinterpret_cast<uint32_t *>(child_tid_ptr);
 
+    mark_enter_kernel();
+
     LoadTrapframe(ar, this);
     bool has_fsbase = false;
     ar(has_fsbase);

@@ -276,7 +276,7 @@ class ThreadSignalHandler {
 
   template <class Archive>
   void serialize(Archive &ar) {
-    ar(sig_q_, blocked_, sigaltstack_, notified_);
+    ar(sig_q_, blocked_, sigaltstack_);
   }
 
  private:

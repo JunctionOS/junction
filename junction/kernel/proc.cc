@@ -538,7 +538,6 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
   if (unlikely(GetCfg().strace_enabled()))
     LogSyscall(ret, "clone3", cl_args->flags,
                reinterpret_cast<void *>(cl_args->stack),
-               reinterpret_cast<void *>(cl_args->stack),
                reinterpret_cast<void *>(cl_args->parent_tid),
                reinterpret_cast<void *>(cl_args->child_tid),
                reinterpret_cast<void *>(cl_args->tls));
