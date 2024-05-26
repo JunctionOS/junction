@@ -12,6 +12,7 @@ int linux_root_fd = -1;
 std::string linux_root = "/";
 std::vector<std::string> allowed_mounts = {
     "/tmp",
+    "/home",
 };
 struct statfs linux_statfs;
 std::set<dev_t> allowed_devs;
