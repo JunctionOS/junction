@@ -33,6 +33,10 @@ add_executable(mt_simple
 	mt_simple.cc
 )
 
+add_executable(yes
+	yes.cc
+)
+
 # tests
 
 # st_empty

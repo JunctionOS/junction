@@ -168,4 +168,5 @@ add_executable(junction_run
 
 target_link_libraries(junction_run
   junction
+  flatbuffers
 )

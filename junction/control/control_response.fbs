@@ -1,0 +1,36 @@
+namespace junction.ctl_schema;
+
+table SuccessResponse {}
+
+table ErrorResponse {
+    message: string;
+}
+
+table GetStatsResponse {
+    // TODO(control): figure out response format
+}
+
+table TracePoint {
+    timestamp_us: uint64;
+    accessed_location: uint64;
+    type_str: string;
+}
+
+table TraceReport {
+    total_pages: uint64;
+    non_zero_pages: uint64;
+    accessed_us: [TracePoint];
+}
+
+union InnerResponse {
+    error: ErrorResponse,
+    genericSuccess: SuccessResponse,
+    getStats: GetStatsResponse,
+    traceReport: TraceReport
+}
+
+table Response {
+    inner: InnerResponse;
+}
+
+root_type Response;

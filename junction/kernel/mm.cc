@@ -159,9 +159,9 @@ void MemoryMap::EnableTracing() {
   }
 }
 
-void MemoryMap::EndTracing() {
+Status<TracerReport> MemoryMap::EndTracing() {
   rt::ScopedLock g(mu_);
-  if (!tracer_) return;
+  if (!tracer_) return MakeError(ENODATA);
 
   // Restore all VMAs
   auto prev_it = vmareas_.begin();
@@ -181,27 +181,32 @@ void MemoryMap::EndTracing() {
 
   assert(MappingsValid(vmareas_));
 
-  // Sort accesses by time
-  std::map<Time, uintptr_t> mp;
-  for (auto const &[page, time] : tracer_->access_at_) mp.emplace(time, page);
+  auto report = tracer_->GenerateReport(*this);
 
-  uint64_t page_cnt = 0, nz_page_cnt = 0;
-  for (auto const &[time, page] : mp) {
-    auto it = Find(page);
-    if (it == vmareas_.end()) {
+  tracer_.reset();
+  return report;
+}
+
+TracerReport PageAccessTracer::GenerateReport(MemoryMap &mm) const {
+  std::vector<std::tuple<uint64_t, uintptr_t, std::string>> accesses;
+  uint64_t page_cnt = 0;
+  uint64_t nz_page_cnt = 0;
+  accesses.reserve(access_at_.size());
+  for (auto const &[page, time] : access_at_) {
+    auto it = mm.Find(page);
+    if (it == mm.vmareas_.end()) {
       LOG(WARN) << "skipping unknown VMA";
       continue;
     }
+    accesses.emplace_back(time.Microseconds(),
+                          reinterpret_cast<uintptr_t>(page),
+                          it->second.TypeString());
 
-    LOG(INFO) << time.Microseconds() << ": " << (void *)page << " "
-              << it->second.TypeString();
     page_cnt++;
-    if (tracer_->non_zero_bytes_.at(page) > 0) nz_page_cnt++;
+    if (non_zero_bytes_.at(page) > 0) nz_page_cnt++;
   }
 
-  LOG(INFO) << "Total pages: " << page_cnt
-            << " Non-zero pages: " << nz_page_cnt;
-  tracer_.reset();
+  return TracerReport(std::move(accesses), page_cnt, nz_page_cnt);
 }
 
 bool MemoryMap::HandlePageFault(uintptr_t addr, Time time) {

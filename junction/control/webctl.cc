@@ -4,136 +4,262 @@
 #include "junction/bindings/log.h"
 #include "junction/bindings/net.h"
 #include "junction/bindings/thread.h"
+#include "junction/control/ctl_conn.h"
 #include "junction/kernel/proc.h"
+#include "junction/run.h"
 #include "junction/snapshot/snapshot.h"
 
 namespace junction {
 
+namespace {
 constexpr uint64_t kControlPort = 42;
-constexpr size_t kBufSize = 1024;
-
-const std::map<std::string, int, std::less<void>> SigNames = {
-    {"SIGHUP", 1},     {"SIGINT", 2},   {"SIGQUIT", 3},    {"SIGILL", 4},
-    {"SIGTRAP", 5},    {"SIGABRT", 6},  {"SIGIOT", 6},     {"SIGBUS", 7},
-    {"SIGFPE", 8},     {"SIGKILL", 9},  {"SIGUSR1", 10},   {"SIGSEGV", 11},
-    {"SIGUSR2", 12},   {"SIGPIPE", 13}, {"SIGALRM", 14},   {"SIGTERM", 15},
-    {"SIGSTKFLT", 16}, {"SIGCHLD", 17}, {"SIGCONT", 18},   {"SIGSTOP", 19},
-    {"SIGTSTP", 20},   {"SIGTTIN", 21}, {"SIGTTOU", 22},   {"SIGURG", 23},
-    {"SIGXCPU", 24},   {"SIGXFSZ", 25}, {"SIGVTALRM", 26}, {"SIGPROF", 27},
-    {"SIGWINCH", 28},  {"SIGIO", 29},
-};
-
-template <class T>
-std::optional<T> StringToNum(const std::string_view &s) {
-  const char *last = s.data() + s.length();
-  T value;
-  std::from_chars_result res = std::from_chars(s.data(), last, value);
-  if (res.ec == std::errc() && res.ptr == last) return value;
-  LOG(WARN) << "parse error";
-  return std::nullopt;
 }
 
-std::shared_ptr<Process> ProcFromToken(const std::string_view &t) {
-  std::optional<pid_t> p = StringToNum<pid_t>(t);
-  if (!p) return {};
+bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
+  LOG(INFO) << "handling run request";
 
-  std::shared_ptr<Process> proc = Process::Find(*p);
-  if (!proc) LOG(WARN) << "ctl: failed to find proc with pid " << *p;
-  return proc;
-}
-
-// Read one byte at a time from @c into @buf until a newline is encountered.
-Status<void> ReadLine(rt::TCPConn &c, std::span<std::byte> buf) {
-  while (buf.size()) {
-    Status<size_t> ret = c.Read(buf.subspan(0, 1));
-    if (!ret || *ret != 1) return MakeError(EPIPE);
-    if (buf.front() == std::byte('\n')) {
-      buf.front() = std::byte(0);
-      return {};
+  const auto argc = req->argv()->size();
+  if (argc == 0) {
+    std::ostringstream error_msg;
+    error_msg << "failed to run: empty argv";
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
     }
-    buf = buf.subspan(1);
+    return false;
   }
-  return MakeError(ENOSPC);
+
+  const auto fb_argv = req->argv();
+
+  std::vector<std::string_view> argv;
+  argv.reserve(argc);
+
+  for (size_t idx = 0; idx < argc; idx += 1) {
+    argv.push_back(fb_argv->Get(idx)->string_view());
+  }
+
+  // Initialize environment and arguments
+  auto envp = BuildEnvp();
+  std::vector<std::string_view> envp_view;
+  envp_view.reserve(envp.size());
+  for (auto const &s : envp) envp_view.emplace_back(s);
+  auto proc = CreateFirstProcess(argv[0], argv, envp_view);
+  if (!proc) {
+    std::ostringstream error_msg;
+    error_msg << "failed to run(";
+
+    size_t idx = 0;
+    for (; idx < argc - 1; idx++) {
+      error_msg << argv[idx] << ", ";
+    }
+    error_msg << argv[idx] << "): " << proc.error();
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  }
+
+  if (!c.SendSuccess()) {
+    LOG(WARN) << "ctl: failed to send success";
+    return true;
+  }
+
+  return false;
+}
+bool HandleSnapshot(ControlConn &c, const ctl_schema::SnapshotRequest *req) {
+  LOG(INFO) << "handling snapshot request";
+  auto ret = SnapshotPid(req->pid(), req->snapshot_path()->string_view(),
+                         req->elf_path()->string_view());
+  if (!ret) {
+    std::ostringstream error_msg;
+    error_msg << "failed to snapshot(pid=" << req->pid()
+              << ", snapshot_path=" << req->snapshot_path()->string_view()
+              << ", elf_path=" << req->elf_path()->string_view()
+              << "): " << ret.error();
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  }
+
+  if (!c.SendSuccess()) {
+    LOG(WARN) << "ctl: failed to send success";
+    return true;
+  }
+
+  return false;
+}
+bool HandleRestore(ControlConn &c, const ctl_schema::RestoreRequest *req) {
+  LOG(INFO) << "handling restore request";
+  auto proc = RestoreProcess(req->snapshot_path()->string_view(),
+                             req->elf_path()->string_view());
+
+  if (!proc) {
+    std::ostringstream error_msg;
+    error_msg << "failed to restore(snapshot_path="
+              << req->snapshot_path()->string_view()
+              << ", elf_path=" << req->elf_path()->string_view() << ")";
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  }
+
+  if (!c.SendSuccess()) {
+    LOG(WARN) << "ctl: failed to send success";
+    return true;
+  }
+
+  return false;
+}
+bool HandleStartTrace(ControlConn &c,
+                      const ctl_schema::StartTraceRequest *req) {
+  LOG(INFO) << "handling start trace request";
+  std::shared_ptr<Process> proc = Process::Find(req->pid());
+  if (!proc) {
+    std::ostringstream error_msg;
+    error_msg << "failed to start_trace(pid=" << req->pid()
+              << "): process not found";
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  } else if (!proc->is_stopped()) {
+    std::ostringstream error_msg;
+    error_msg << "failed to stop_trace(pid=" << req->pid()
+              << "): process is not stopped";
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  }
+
+  proc->get_mem_map().EnableTracing();
+
+  if (!c.SendSuccess()) {
+    LOG(WARN) << "ctl: failed to send success";
+    return true;
+  }
+  return false;
+}
+bool HandleStopTrace(ControlConn &c, const ctl_schema::StopTraceRequest *req) {
+  LOG(INFO) << "handling stop trace request";
+  std::shared_ptr<Process> proc = Process::Find(req->pid());
+  if (!proc) {
+    std::ostringstream error_msg;
+    error_msg << "failed to stop_trace(pid=" << req->pid()
+              << "): process not found";
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  } else if (!proc->is_stopped()) {
+    std::ostringstream error_msg;
+    error_msg << "failed to stop_trace(pid=" << req->pid()
+              << "): process is not stopped";
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  }
+
+  auto report = proc->get_mem_map().EndTracing();
+  if (!report) {
+    std::ostringstream error_msg;
+    error_msg << "failed to stop_trace(pid=" << req->pid()
+              << "): " << report.error();
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  }
+
+  if (!c.SendReport(std::move(*report))) {
+    LOG(WARN) << "ctl: failed to send success";
+    return true;
+  }
+  return false;
+}
+bool HandleSignal(ControlConn &c, const ctl_schema::SignalRequest *req) {
+  LOG(INFO) << "handling signal request";
+  std::shared_ptr<Process> proc = Process::Find(req->pid());
+  if (!proc) {
+    std::ostringstream error_msg;
+    error_msg << "failed to signal(pid=" << req->pid()
+              << ", signo=" << req->signo() << "): process not found";
+    if (!c.SendError(error_msg.str())) {
+      LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  }
+
+  proc->Signal(req->signo());
+
+  if (!c.SendSuccess()) {
+    LOG(WARN) << "ctl: failed to send success";
+    return true;
+  }
+  return false;
+}
+bool HandleGetStats(ControlConn &c, const ctl_schema::GetStatsRequest *req) {
+  LOG(INFO) << "handling get stats";
+  // TODO(control): implement get stats
+
+  if (!c.SendStats()) {
+    LOG(WARN) << "ctl: failed to send stats";
+    return true;
+  }
+  LOG(INFO) << "finished get stats";
+  return false;
 }
 
-void SnapshotCmd(std::vector<std::string_view> &tokens) {
-  if (tokens.size() != 4) {
-    LOG(WARN) << "usage: snapshot <pid> <metadata file> <elf file>";
-    return;
+bool HandleRequest(ControlConn &c, const ctl_schema::Request *req) {
+  switch (req->inner_type()) {
+    case ctl_schema::InnerRequest_run:
+      return HandleRun(c, req->inner_as_run());
+    case ctl_schema::InnerRequest_snapshot:
+      return HandleSnapshot(c, req->inner_as_snapshot());
+    case ctl_schema::InnerRequest_restore:
+      return HandleRestore(c, req->inner_as_restore());
+    case ctl_schema::InnerRequest_startTrace:
+      return HandleStartTrace(c, req->inner_as_startTrace());
+    case ctl_schema::InnerRequest_stopTrace:
+      return HandleStopTrace(c, req->inner_as_stopTrace());
+    case ctl_schema::InnerRequest_signal:
+      return HandleSignal(c, req->inner_as_signal());
+    case ctl_schema::InnerRequest_getStats:
+      return HandleGetStats(c, req->inner_as_getStats());
+    default:
+      // TODO(control): send error back
+      return true;
   }
-
-  std::optional<pid_t> p = StringToNum<pid_t>(tokens[1]);
-  if (!p) return;
-  SnapshotPid(*p, tokens[2], tokens[3]);
 }
 
-void SignalCmd(std::vector<std::string_view> &tokens) {
-  if (tokens.size() != 3) {
-    LOG(WARN) << "usage: signal <pid> <signum>";
-    return;
-  }
-
-  std::shared_ptr<Process> proc = ProcFromToken(tokens[1]);
-  if (!proc) return;
-
-  int signal;
-
-  auto it = SigNames.find(tokens[2]);
-  if (it != SigNames.end()) {
-    signal = it->second;
-  } else {
-    std::optional<int> sig = StringToNum<int>(tokens[2]);
-    if (!sig) return;
-    signal = *sig;
-  }
-
-  proc->Signal(signal);
-}
-
-void TraceCmd(std::vector<std::string_view> &tokens) {
-  auto usage = [] { LOG(WARN) << "usage: trace <pid> <true | false>"; };
-
-  if (tokens.size() != 3) {
-    usage();
-    return;
-  }
-
-  bool do_trace = tokens[2] == "true";
-  if (!do_trace && tokens[2] != "false") {
-    usage();
-    return;
-  }
-
-  std::shared_ptr<Process> proc = ProcFromToken(tokens[1]);
-  if (!proc) return;
-
-  if (do_trace)
-    proc->get_mem_map().EnableTracing();
-  else
-    proc->get_mem_map().EndTracing();
-}
-
-void ControlWorker(rt::TCPConn &c) {
-  char b[kBufSize];
-
-  auto usage = [] { LOG(WARN) << "usage: <snapshot|signal|trace> ..."; };
-
+void ControlWorker(ControlConn c) {
   while (true) {
-    Status<void> ret = ReadLine(c, readable_span(b, sizeof(b)));
-    if (!ret) return;
+    auto ret = c.Recv();
+    if (!ret) {
+      if (ret.error().code() != EPIPE) {
+        LOG(WARN) << "failed to receive from control connection: "
+                  << ret.error();
+      }
+      return;
+    }
 
-    std::string cmd(b);
-    LOG(INFO) << "Read cmd: " << cmd;
+    auto request = c.Get();
+    if (!request) break;  // connection ended by remote
 
-    std::vector<std::string_view> tokens = split(cmd, ' ');
-    if (tokens[0] == "snapshot")
-      SnapshotCmd(tokens);
-    else if (tokens[0] == "signal")
-      SignalCmd(tokens);
-    else if (tokens[0] == "trace")
-      TraceCmd(tokens);
-    else
-      usage();
+    bool close = HandleRequest(c, request);
+    if (close) break;  // we break the connection
   }
 }
 
@@ -141,13 +267,16 @@ void ControlServer(rt::TCPQueue &q) {
   while (true) {
     Status<rt::TCPConn> c = q.Accept();
     if (!c) panic("couldn't accept a connection");
-    rt::Spawn([c = std::move(*c)] mutable { ControlWorker(c); });
+    rt::Spawn([c = ControlConn(std::move(*c))] mutable {
+      ControlWorker(std::move(c));
+    });
   }
 }
 
 Status<void> InitControlServer() {
   Status<rt::TCPQueue> q = rt::TCPQueue::Listen({0, kControlPort}, 4096);
   if (!q) return MakeError(q);
+  LOG(INFO) << "started control server on port " << kControlPort;
 
   rt::Spawn([q = std::move(*q)] mutable { ControlServer(q); });
 

@@ -13,3 +13,6 @@
 [submodule "lib/cereal"]
 	path = lib/cereal
 	url = https://github.com/USCiLab/cereal.git
+[submodule "lib/flatbuffers"]
+	path = lib/flatbuffers
+	url = https://github.com/google/flatbuffers

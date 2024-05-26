@@ -16,6 +16,8 @@
 
 namespace junction {
 
+class MemoryMap;
+
 constexpr bool AddressValid(void *addr, size_t len) {
   // TODO(amb): maybe check if address is not in the Linux Kernel (negative)?
   return len > 0 && IsPageAligned(reinterpret_cast<uintptr_t>(addr));
@@ -82,6 +84,20 @@ struct VMArea {
   off_t offset;
 };
 
+struct TracerReport {
+  TracerReport() = default;
+  explicit TracerReport(
+      std::vector<std::tuple<uint64_t, uintptr_t, std::string>> &&accesses,
+      uint64_t total, uint64_t non_zero)
+      : accesses_us(std::move(accesses)),
+        total_pages(total),
+        non_zero_pages(non_zero) {}
+
+  std::vector<std::tuple<uint64_t, uintptr_t, std::string>> accesses_us;
+  uint64_t total_pages{0};
+  uint64_t non_zero_pages{0};
+};
+
 class PageAccessTracer {
  public:
   PageAccessTracer() = default;
@@ -96,6 +112,8 @@ class PageAccessTracer {
   void RecordBytes(uintptr_t page, size_t bytes) {
     non_zero_bytes_[page] = bytes;
   }
+
+  TracerReport GenerateReport(MemoryMap &mm) const;
 
  private:
   friend class MemoryMap;
@@ -155,7 +173,7 @@ class alignas(kCacheLineSize) MemoryMap {
   // PROT_NONE and updates permissions when page faults occur.
   void EnableTracing();
 
-  void EndTracing();
+  Status<TracerReport> EndTracing();
 
   [[nodiscard]] bool TraceEnabled() const { return !!tracer_; }
 
@@ -164,6 +182,7 @@ class alignas(kCacheLineSize) MemoryMap {
 
  private:
   friend class cereal::access;
+  friend class PageAccessTracer;
   template <class Archive>
   void save(Archive &ar) const {
     ar(brk_start_, brk_end_, brk_addr_ /*, vmareas_ */);

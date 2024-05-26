@@ -1,0 +1,49 @@
+namespace junction.ctl_schema;
+
+table RunRequest {
+    argv: [string];
+}
+
+table SnapshotRequest {
+    pid: uint64;
+    snapshot_path: string;
+    elf_path: string;
+}
+
+table RestoreRequest {
+    snapshot_path: string;
+    elf_path: string;
+}
+
+table StartTraceRequest {
+    pid: uint64;
+}
+
+table StopTraceRequest {
+    pid: uint64;
+}
+
+table SignalRequest {
+    pid: uint64;
+    signo: uint64;
+}
+
+table GetStatsRequest {
+    // # TODO(control): figure out how to ask for stats
+}
+
+union InnerRequest {
+    run: RunRequest,
+    snapshot: SnapshotRequest,
+    restore: RestoreRequest,
+    startTrace: StartTraceRequest,
+    stopTrace: StopTraceRequest,
+    signal: SignalRequest,
+    getStats: GetStatsRequest
+}
+
+table Request {
+    inner: InnerRequest;
+}
+
+root_type Request;

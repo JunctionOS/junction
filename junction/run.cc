@@ -1,3 +1,5 @@
+#include "junction/run.h"
+
 #include <iostream>
 
 #include "junction/base/error.h"
@@ -5,7 +7,6 @@
 #include "junction/bindings/runtime.h"
 #include "junction/junction.h"
 #include "junction/kernel/exec.h"
-#include "junction/kernel/stdiofile.h"
 #include "junction/snapshot/snapshot.h"
 
 namespace junction {
@@ -15,78 +16,11 @@ namespace {
 // Start trampoline with zero arg registers; some binaries need this
 extern "C" void junction_exec_start(void *entry_arg);
 
-Status<std::shared_ptr<Process>> CreateFirstProcess(
-    std::string_view path, const std::vector<std::string_view> &argv,
-    const std::vector<std::string_view> &envp) {
-  // Create the process object
-  Status<std::shared_ptr<Process>> proc = CreateInitProcess();
-  if (!proc) return MakeError(proc);
-
-  // Create and insert STDIN, STDOUT, STDERR files
-  std::shared_ptr<StdIOFile> fin =
-      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
-  std::shared_ptr<StdIOFile> fout =
-      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
-  std::shared_ptr<StdIOFile> ferr =
-      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
-  FileTable &ftbl = (**proc).get_file_table();
-  ftbl.Insert(std::move(fin));
-  ftbl.Insert(std::move(fout));
-  ftbl.Insert(std::move(ferr));
-
-  // Exec program image
-  Status<ExecInfo> ret = Exec(**proc, (*proc)->get_mem_map(), path, argv, envp);
-  if (!ret) {
-    LOG(ERR) << "Failed to exec binary " << path << ": " << ret.error();
-    return MakeError(ret);
-  }
-
-  Status<Thread *> tmp = (*proc)->CreateThreadMain();
-  if (!tmp) return MakeError(tmp);
-  Thread &th = **tmp;
-
-  FunctionCallTf &entry = FunctionCallTf::CreateOnSyscallStack(th);
-  thread_tf &tf = entry.GetFrame();
-  tf.rdi = 0;
-  tf.rsi = 0;
-  tf.rdx = 0;
-  tf.rcx = 0;
-  tf.r8 = 0;
-  tf.r9 = 0;
-  tf.rsp = std::get<0>(*ret);
-  tf.rip = std::get<1>(*ret);
-
-  th.mark_enter_kernel();
-  entry.MakeUnwinderSysret(th, th.GetCaladanThread()->tf);
-  th.ThreadReady();
-  return *proc;
-}
-
 }  // namespace
 
 void JunctionMain(int argc, char *argv[]) {
   EnableMemoryAllocation();
 
-  // Initialize environment and arguments
-  std::stringstream ld_path_s;
-  ld_path_s << "LD_LIBRARY_PATH=" << GetCfg().get_ld_path()
-            << ":/lib/x86_64-linux-gnu"
-            << ":/usr/lib/x86_64-linux-gnu"
-            << ":/usr/lib/jvm/java-18-openjdk-amd64/lib"
-            << ":/usr/lib/jvm/java-19-openjdk-amd64/lib"
-            << ":/usr/lib/jvm/java-21-openjdk-amd64/lib";
-  std::string ld_path = ld_path_s.str();
-  std::stringstream preload_path_s;
-  preload_path_s << "LD_PRELOAD=" << GetCfg().get_preload_path();
-  std::string preload_path = preload_path_s.str();
-  std::vector<std::string_view> envp = {
-    ld_path,
-    preload_path,
-#if 0
-                                        "LD_DEBUG=all"
-#endif  // DEBUG
-  };
-  for (const std::string &s : GetCfg().get_binary_envp()) envp.emplace_back(s);
   std::vector<std::string_view> args = {};
   for (int i = 0; i < argc; i++) args.emplace_back(argv[i]);
 
@@ -107,13 +41,21 @@ void JunctionMain(int argc, char *argv[]) {
     }
     LOG(INFO) << "snapshot: restored process with pid="
               << (*proc).get()->get_pid();
-  } else {
+  } else if (!args.empty()) {
+    auto envp = BuildEnvp();
+    std::vector<std::string_view> envp_view;
+    envp_view.reserve(envp.size());
+    for (auto const &s : envp) envp_view.emplace_back(s);
     // Create the first process
-    proc = CreateFirstProcess(args[0], args, envp);
+    proc = CreateFirstProcess(args[0], args, envp_view);
   }
 
+  BUG_ON(!proc);
+
+  std::shared_ptr<Process> proc_ptr = *proc;
+
   // setup automatic snapshot
-  if (unlikely(GetCfg().snapshot_timeout())) {
+  if (proc_ptr && unlikely(GetCfg().snapshot_timeout())) {
     rt::Spawn([] {
       // Wait x seconds
       rt::Sleep(Duration(GetCfg().snapshot_timeout() * kSeconds));
@@ -132,10 +74,8 @@ void JunctionMain(int argc, char *argv[]) {
     });
   }
 
-  BUG_ON(!proc);
-
   // Drop reference so the process can properly destruct itself when done
-  (*proc).reset();
+  proc_ptr.reset();
 
   rt::WaitForever();
 }
@@ -150,7 +90,7 @@ void usage() {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc < 3) {
+  if (argc < 2) {
     usage();
     return -EINVAL;
   }
@@ -161,19 +101,19 @@ int main(int argc, char *argv[]) {
   argc--;
   argv++;
 
-  int i;
-  for (i = 1; i < argc; i++)
+  int i = 1;
+  for (; i < argc; i++)
     if (std::string(argv[i]) == "--") break;
 
-  if (i >= argc - 1) {
-    std::cerr << "Missing binary to launch" << std::endl;
-    usage();
-    return -EINVAL;
-  }
+  if (i == argc) i = argc - 1;
 
-  char **binary_args = &argv[i + 1];
+  char **binary_args = nullptr;
   int binary_argc = argc - i - 1;
   int junction_argc = i;
+
+  if (binary_argc > 0) {
+    binary_args = &argv[i + 1];
+  }
 
   junction::Status<void> ret =
       junction::GetCfg().FillFromArgs(junction_argc, argv);
