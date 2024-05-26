@@ -1,5 +1,9 @@
+
 #include <boost/program_options.hpp>
-#undef assert
+// Include base/assert.h now to ensure correct definition of assert is used.
+extern "C" {
+#include <base/assert.h>
+}
 
 #include <fstream>
 #include <iostream>

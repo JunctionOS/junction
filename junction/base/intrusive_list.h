@@ -9,6 +9,11 @@
 #endif
 #include <boost/intrusive/list.hpp>
 
+// Include base/assert.h now to ensure correct definition of assert is used.
+extern "C" {
+#include <base/assert.h>
+}
+
 namespace junction {
 
 #ifndef DEBUG
