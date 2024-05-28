@@ -21,6 +21,14 @@ extern "C" {
 
 namespace junction {
 
+// Pairs of (mount point, host path) for additional linux filesystems to be
+// mounted.
+const std::vector<std::pair<std::string, std::string>> linux_mount_points = {
+    {"/tmp", "/tmp"},
+    {"/home", "/home"},
+    {"/dev/shm", "/dev/shm"},
+};
+
 pid_t linux_pid;
 
 pid_t GetLinuxPid() { return linux_pid; }
@@ -174,7 +182,7 @@ Status<void> init() {
   ret = InitChroot();
   if (unlikely(!ret)) return ret;
 
-  ret = InitFs(GetFsMounts());
+  ret = InitFs(linux_mount_points, GetFsMounts());
   if (unlikely(!ret)) return ret;
 
   ret = ShimJmpInit();

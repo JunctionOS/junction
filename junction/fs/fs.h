@@ -318,14 +318,17 @@ class FSRoot {
 };
 
 namespace linuxfs {
-Status<std::shared_ptr<IDir>> InitLinuxFs();
-}
+Status<std::shared_ptr<IDir>> MountLinux(std::string_view path);
+Status<std::shared_ptr<IDir>> InitLinuxRoot();
+}  // namespace linuxfs
 
 namespace memfs {
 std::shared_ptr<IDir> MkFolder();
 }
 
-Status<void> InitFs(std::vector<std::string> mem_mount_points = {});
+Status<void> InitFs(
+    const std::vector<std::pair<std::string, std::string>> &linux_mount_points,
+    const std::vector<std::string> &mem_mount_points);
 
 class Process;
 

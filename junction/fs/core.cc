@@ -620,17 +620,19 @@ void Recurse(std::shared_ptr<IDir> root) {
   }
 }
 
-// Mounts a memfs filesystem rooted at @pos specified by @pathname.
-Status<void> MemFSMount(std::shared_ptr<IDir> pos, std::string_view pathname) {
-  std::vector<std::string_view> s = SplitPath(pathname, nullptr);
-  if (!s.size()) return {};
+// Ensures all folders in path of @path exist, creating memfs folders as needed.
+Status<Entry> SetupMountPoint(std::shared_ptr<IDir> pos,
+                              std::string_view path) {
+  std::vector<std::string_view> s = SplitPath(path, nullptr);
+  if (!s.size()) return MakeError(EINVAL);
+  std::string_view name = s.back();
+  s.pop_back();
 
-  // Find the directory in which the first memfs folder will be placed.
   auto it = s.begin();
-  for (; it != s.end() - 1; it++) {
+  for (; it != s.end(); it++) {
     const std::string_view &v = *it;
     if (v == "." || v == "..") {
-      LOG(ERR) << "mount point path must be normal: " << pathname;
+      LOG(ERR) << "mount point path must be normal: " << path;
       return MakeError(EINVAL);
     }
     if (v.empty()) continue;
@@ -639,24 +641,56 @@ Status<void> MemFSMount(std::shared_ptr<IDir> pos, std::string_view pathname) {
     pos = std::static_pointer_cast<IDir>(std::move(*next));
   }
 
-  // Insert memfs directories.
+  // Insert memfs directories as needed.
   for (; it != s.end(); it++) {
     std::shared_ptr<IDir> memfs = memfs::MkFolder();
     pos->Mount(std::string(*it), memfs);
     pos = std::move(memfs);
   }
 
+  return Entry{std::move(pos), name, true};
+}
+
+// Mounts a memfs filesystem rooted at @pos specified by @pathname.
+Status<void> MemFSMount(std::shared_ptr<IDir> pos, std::string_view mp) {
+  Status<Entry> tmp = SetupMountPoint(pos, mp);
+  if (!tmp) return MakeError(tmp);
+  auto &[dir, name, must_be_dir] = *tmp;
+  std::shared_ptr<IDir> memfs = memfs::MkFolder();
+  dir->Mount(std::string(name), memfs);
   return {};
 }
 
-Status<void> InitFs(std::vector<std::string> mem_mount_points) {
+// Mounts a linux fs rooted at @pos specified by @pathname from @host_path.
+Status<void> LinuxFSMount(std::shared_ptr<IDir> pos,
+                          std::string_view mount_point,
+                          std::string_view host_path) {
+  Status<Entry> tmp = SetupMountPoint(pos, mount_point);
+  if (!tmp) return MakeError(tmp);
+  auto &[dir, name, must_be_dir] = *tmp;
+
+  Status<std::shared_ptr<IDir>> mount = linuxfs::MountLinux(host_path);
+  if (!mount) return MakeError(mount);
+  dir->Mount(std::string(name), std::move(*mount));
+  return {};
+}
+
+Status<void> InitFs(
+    const std::vector<std::pair<std::string, std::string>> &linux_mount_points,
+    const std::vector<std::string> &mem_mount_points) {
   // Set the root to the linux FS mount point.
-  Status<std::shared_ptr<IDir>> tmp = linuxfs::InitLinuxFs();
+  Status<std::shared_ptr<IDir>> tmp = linuxfs::InitLinuxRoot();
   if (!tmp) return MakeError(tmp);
   IDir &linux_root = *tmp->get();
   linux_root.inc_nlink();
   // root's parent is itself.
   linux_root.SetParent(*tmp, ".");
+
+  // Mount any additional linux mountpoints/filesystems.
+  for (const auto &[mount_path, host_path] : linux_mount_points) {
+    if (Status<void> ret = LinuxFSMount(*tmp, mount_path, host_path); !ret)
+      return MakeError(ret);
+  }
 
   // Enumerate all Linux folders to cache dents.
   if (GetCfg().cache_linux_fs()) Recurse(*tmp);
