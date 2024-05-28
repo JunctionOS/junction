@@ -263,7 +263,7 @@ Status<std::span<char>> IDir::GetFullPath(const FSRoot &fs,
   }
 
   std::ospanstream out(dst);
-  for (auto it = paths.rend(); it != paths.rbegin(); it++) {
+  for (auto it = paths.rbegin(); it != paths.rend(); it++) {
     if (static_cast<size_t>(out.tellp()) + 1 + it->size() >= dst.size())
       return MakeError(ERANGE);
     out << "/" << *it;
@@ -704,6 +704,21 @@ Status<void> InitFs(
   }
 
   FSRoot::InitFsRoot(std::move(*tmp));
+
+  // Use the current cwd.
+  char buf[PATH_MAX];
+  char *cwd = getcwd(buf, sizeof(buf));
+  if (cwd == nullptr) return MakeError(errno);
+
+  // Get the corresponding inode.
+  Status<std::shared_ptr<Inode>> ino =
+      LookupInode(FSRoot::GetGlobalRoot(), cwd, true);
+  if (!ino) return MakeError(ino);
+  if (!(*ino)->is_dir()) return MakeError(ENOTDIR);
+
+  FSRoot::GetGlobalRoot().SetCwd(
+      std::static_pointer_cast<IDir>(std::move(*ino)));
+
   return {};
 }
 
