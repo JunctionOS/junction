@@ -33,6 +33,11 @@ Clone the Junction repo and run the following script that installs needed packag
 scripts/install.sh
 ```
 
+Install rust if needed.
+```
+curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain=nightly
+```
+
 Next, run the following command to compile Junction itself.
 ```
 scripts/build.sh
