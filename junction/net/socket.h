@@ -16,6 +16,7 @@ static_assert(kFlagNonblock == SOCK_NONBLOCK);
 static_assert(kFlagCloseExec == SOCK_CLOEXEC);
 
 inline constexpr unsigned int kMsgNoSignal = MSG_NOSIGNAL;
+inline constexpr unsigned int kMsgPeek = MSG_PEEK;
 
 class Socket : public File {
  public:
@@ -24,7 +25,8 @@ class Socket : public File {
 
   virtual Status<void> Bind(netaddr addr) { return MakeError(EINVAL); }
   virtual Status<void> Connect(netaddr addr) { return MakeError(EINVAL); }
-  virtual Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr) {
+  virtual Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
+                                  bool peek = false) {
     return MakeError(ENOTCONN);
   }
   virtual Status<size_t> WriteTo(std::span<const std::byte> buf,

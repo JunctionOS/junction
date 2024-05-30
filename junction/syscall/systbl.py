@@ -44,6 +44,7 @@ STRACE_ARGS_THAT_ARE_PATHNAMES = set([
     ("chmod", 0),
     ("execve", 0),
     ("execveat", 1),
+    ("chdir", 0)
 ])
 
 SKIP_STRACE_TARGET = ["vfork", "clone", "clone3", "rt_sigreturn"]

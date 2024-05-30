@@ -140,11 +140,12 @@ class TCPSocket : public Socket {
     return TcpConn().Write(buf);
   }
 
-  virtual Status<size_t> ReadFrom(std::span<std::byte> buf,
-                                  netaddr *raddr) override {
+  virtual Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
+                                  bool peek) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) *raddr = TcpConn().RemoteAddr();
+    if (peek) return TcpConn().ReadPeek(buf);
     return TcpConn().Read(buf);
   }
 

@@ -55,9 +55,10 @@ class UDPSocket : public Socket {
     return conn_.Write(buf);
   }
 
-  Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr) override {
+  Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
+                          bool peek) override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
-    return conn_.ReadFrom(buf, raddr);
+    return conn_.ReadFrom(buf, raddr, peek);
   }
 
   Status<size_t> WriteTo(std::span<const std::byte> buf,

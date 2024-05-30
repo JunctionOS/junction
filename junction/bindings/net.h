@@ -74,8 +74,9 @@ class UDPConn {
   }
 
   // Reads a datagram and gets from remote address.
-  Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr) {
-    ssize_t ret = udp_read_from(c_, buf.data(), buf.size_bytes(), raddr);
+  Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
+                          bool peek = false) {
+    ssize_t ret = udp_read_from(c_, buf.data(), buf.size_bytes(), raddr, peek);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
@@ -87,8 +88,8 @@ class UDPConn {
   }
 
   // Reads a datagram.
-  Status<size_t> Read(std::span<std::byte> buf) {
-    ssize_t ret = udp_read(c_, buf.data(), buf.size_bytes());
+  Status<size_t> Read(std::span<std::byte> buf, bool peek = false) {
+    ssize_t ret = udp_read_from(c_, buf.data(), buf.size_bytes(), NULL, peek);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
@@ -191,6 +192,13 @@ class TCPConn : public VectoredReader, public VectoredWriter {
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
+
+  Status<size_t> ReadPeek(std::span<std::byte> buf) {
+    ssize_t ret = tcp_read_peek(c_, buf.data(), buf.size_bytes());
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    return ret;
+  }
+
   // Writes to the TCP stream.
   Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = tcp_write(c_, buf.data(), buf.size_bytes());

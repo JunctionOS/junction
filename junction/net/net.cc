@@ -146,14 +146,15 @@ long usys_getsockopt(int sockfd, [[maybe_unused]] int level,
 
 ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
                       struct sockaddr *src_addr, socklen_t *addrlen) {
-  flags = flags & ~kMsgNoSignal;
+  bool peek = flags & kMsgPeek;
+  flags = flags & ~(kMsgNoSignal | kMsgPeek);
   if (unlikely(flags != 0)) return -EINVAL;
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
   netaddr addr;
   Status<size_t> ret = s.ReadFrom(readable_span(static_cast<char *>(buf), len),
-                                  src_addr ? &addr : nullptr);
+                                  src_addr ? &addr : nullptr, peek);
   if (unlikely(!ret)) return MakeCError(ret);
   if (src_addr) {
     auto conv_ret = NetAddrToSockAddr(addr, src_addr, addrlen);
