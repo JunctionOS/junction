@@ -969,8 +969,8 @@ long usys_rt_sigpending(sigset_t *sig, size_t sigsetsize) {
   return 0;
 }
 
-int usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
-                         const struct timespec *ts, size_t sigsetsize) {
+long usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
+                          const struct timespec *ts, size_t sigsetsize) {
   if (unlikely(sigsetsize != sizeof(k_sigset_t))) return -EINVAL;
 
   ThreadSignalHandler &hand = mythread().get_sighand();
@@ -1000,7 +1000,7 @@ int usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
   return tmp->si_signo;
 }
 
-int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
+long usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
   if (unlikely(sigsetsize != sizeof(k_sigset_t))) return -EINVAL;
 
   const k_sigset_t *mask = reinterpret_cast<const k_sigset_t *>(set);

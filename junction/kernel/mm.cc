@@ -602,21 +602,21 @@ intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
   return reinterpret_cast<intptr_t>(*ret);
 }
 
-int usys_mprotect(void *addr, size_t len, int prot) {
+long usys_mprotect(void *addr, size_t len, int prot) {
   MemoryMap &mm = myproc().get_mem_map();
   Status<void> ret = mm.MProtect(addr, len, prot);
   if (!ret) return MakeCError(ret);
   return 0;
 }
 
-int usys_munmap(void *addr, size_t len) {
+long usys_munmap(void *addr, size_t len) {
   MemoryMap &mm = myproc().get_mem_map();
   Status<void> ret = mm.MUnmap(addr, len);
   if (!ret) return MakeCError(ret);
   return 0;
 }
 
-int usys_madvise(void *addr, size_t len, int hint) {
+long usys_madvise(void *addr, size_t len, int hint) {
   MemoryMap &mm = myproc().get_mem_map();
   Status<void> ret = mm.MAdvise(addr, len, hint);
   if (!ret) return MakeCError(ret);

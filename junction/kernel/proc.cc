@@ -484,7 +484,7 @@ void Process::ThreadStopWait(Thread &th) {
   stopped_count_--;
 }
 
-pid_t usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru) {
+long usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru) {
   const auto &[idtype, id] = PidtoId(pid);
   Status<pid_t> ret = myproc().DoWait(idtype, id, options, nullptr, wstatus);
   if (!ret) return MakeCError(ret);
@@ -499,18 +499,18 @@ long usys_waitid(int which, pid_t pid, siginfo_t *infop, int options,
   return 0;
 }
 
-pid_t usys_getpid() { return myproc().get_pid(); }
+long usys_getpid() { return myproc().get_pid(); }
 
-pid_t usys_gettid() { return mythread().get_tid(); }
+long usys_gettid() { return mythread().get_tid(); }
 
-int usys_arch_prctl(int code, unsigned long addr) {
+long usys_arch_prctl(int code, unsigned long addr) {
   // TODO: supporting Intel AMX requires requesting the feature from the kernel.
   if (code != ARCH_SET_FS) return -EINVAL;
   thread_set_fsbase(thread_self(), addr);
   return 0;
 }
 
-pid_t usys_set_tid_address(int *tidptr) {
+long usys_set_tid_address(int *tidptr) {
   Thread &tstate = mythread();
   tstate.set_child_tid(reinterpret_cast<uint32_t *>(tidptr));
   return tstate.get_tid();

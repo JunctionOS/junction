@@ -540,20 +540,20 @@ void PollSource::DetachEPollObservers() {
                                      [](PollObserver *o) { delete o; });
 }
 
-int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
+long usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {
   if (timeout < 0) return DoPoll(fds, nfds, {});
   return DoPoll(fds, nfds,
                 Duration(static_cast<uint64_t>(timeout) * kMilliseconds));
 }
 
-int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *ts,
-               const sigset_t *sigmask, size_t sigsetsize) {
+long usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *ts,
+                const sigset_t *sigmask, size_t sigsetsize) {
   if (!ts) return DoPoll(fds, nfds, {});
   return DoPoll(fds, nfds, Duration(*ts), KernelSigset(sigmask));
 }
 
-int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-                struct timeval *tv) {
+long usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+                 struct timeval *tv) {
   std::optional<Duration> d;
   if (tv) d = Duration(*tv);
   auto [ret, left] = DoSelect(nfds, readfds, writefds, exceptfds, d);
@@ -561,9 +561,9 @@ int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
   return ret;
 }
 
-int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, struct timespec *ts,
-                  const sigset_t *sigmask) {
+long usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
+                   fd_set *exceptfds, struct timespec *ts,
+                   const sigset_t *sigmask) {
   std::optional<Duration> d;
   if (ts) d = Duration(*ts);
   auto [ret, left] =
@@ -573,13 +573,13 @@ int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
 }
 
 // This variant is deprecated, and size is ignored.
-int usys_epoll_create(int size) { return CreateEPollFile(); }
+long usys_epoll_create(int size) { return CreateEPollFile(); }
 
-int usys_epoll_create1(int flags) {
+long usys_epoll_create1(int flags) {
   return CreateEPollFile((flags & kFlagCloseExec) > 0);
 }
 
-int usys_epoll_ctl(int epfd, int op, int fd, const struct epoll_event *event) {
+long usys_epoll_ctl(int epfd, int op, int fd, const struct epoll_event *event) {
   // get the epoll file
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(epfd);
@@ -609,26 +609,26 @@ int usys_epoll_ctl(int epfd, int op, int fd, const struct epoll_event *event) {
   return 0;
 }
 
-int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
-                    int timeout_ms) {
+long usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
+                     int timeout_ms) {
   std::optional<Duration> timeout;
   if (timeout_ms >= 0)
     timeout = Duration(static_cast<uint64_t>(timeout_ms) * kMilliseconds);
   return DoEPollWait(epfd, events, maxevents, timeout);
 }
 
-int usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
-                     int timeout_ms, const sigset_t *sigmask,
-                     size_t sigsetsize) {
+long usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
+                      int timeout_ms, const sigset_t *sigmask,
+                      size_t sigsetsize) {
   std::optional<Duration> timeout;
   if (timeout_ms >= 0)
     timeout = Duration(static_cast<uint64_t>(timeout_ms) * kMilliseconds);
   return DoEPollWait(epfd, events, maxevents, timeout, KernelSigset(sigmask));
 }
 
-int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
-                      const struct timespec *ts, const sigset_t *sigmask,
-                      size_t sigsetsize) {
+long usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
+                       const struct timespec *ts, const sigset_t *sigmask,
+                       size_t sigsetsize) {
   std::optional<Duration> timeout;
   if (ts) timeout = Duration(*ts);
   return DoEPollWait(epfd, events, maxevents, timeout, KernelSigset(sigmask));

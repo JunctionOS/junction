@@ -164,7 +164,7 @@ Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   return {{sp, entry}};
 }
 
-int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
+long usys_execve(const char *filename, const char *argv[], const char *envp[]) {
   // allocate new memory map
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
   if (!mm) return MakeCError(mm);
@@ -208,8 +208,8 @@ int usys_execve(const char *filename, const char *argv[], const char *envp[]) {
   });
 }
 
-int usys_execveat(int fd, const char *filename, const char *argv[],
-                  const char *envp[], int flags) {
+long usys_execveat(int fd, const char *filename, const char *argv[],
+                   const char *envp[], int flags) {
   // TODO: support when Junction supports openat
   return -ENOSYS;
 }

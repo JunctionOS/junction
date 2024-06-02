@@ -33,7 +33,7 @@ long usys_getcpu(unsigned *cpu, unsigned *node,
   return 0;
 }
 
-int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) {
+long usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask) {
   // Fake response that can be used by programs to detect the number of cores
   size_t cores = rt::RuntimeMaxCores();
   if (cores / kBitsPerByte > cpusetsize) return -EPERM;

@@ -26,7 +26,7 @@ extern "C" {
 // File
 long usys_open(const char *pathname, int flags, mode_t mode);
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode);
-int usys_truncate(const char *path, off_t length);
+long usys_truncate(const char *path, off_t length);
 long usys_ftruncate(int fd, off_t length);
 long usys_fallocate(int fd, int mode, off_t offset, off_t len);
 long usys_access(const char *pathname, int mode);
@@ -34,16 +34,16 @@ long usys_faccessat(int dirfd, const char *pathname, int mode);
 long usys_faccessat2(int dirfd, const char *pathname, int mode, int flags);
 long usys_chdir(const char *pathname);
 long usys_fchdir(int fd);
-int usys_mknod(const char *pathname, mode_t mode, dev_t dev);
-int usys_mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev);
-int usys_rename(const char *oldpath, const char *newpath);
-int usys_renameat(int olddirfd, const char *oldpath, int newdirfd,
-                  const char *newpath);
-int usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
-                   const char *newpath, unsigned int flags);
-int usys_unlinkat(int dirfd, const char *pathname, int flags);
-int usys_symlink(const char *target, const char *pathname);
-int usys_symlinkat(const char *target, int dirfd, const char *pathname);
+long usys_mknod(const char *pathname, mode_t mode, dev_t dev);
+long usys_mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev);
+long usys_rename(const char *oldpath, const char *newpath);
+long usys_renameat(int olddirfd, const char *oldpath, int newdirfd,
+                   const char *newpath);
+long usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
+                    const char *newpath, unsigned int flags);
+long usys_unlinkat(int dirfd, const char *pathname, int flags);
+long usys_symlink(const char *target, const char *pathname);
+long usys_symlinkat(const char *target, int dirfd, const char *pathname);
 ssize_t usys_read(int fd, char *buf, size_t len);
 ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt);
 ssize_t usys_write(int fd, const char *buf, size_t len);
@@ -55,10 +55,10 @@ ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
                       int flags);
 ssize_t usys_sendfile(int out_fd, int in_fd, off_t *offset, size_t count);
 off_t usys_lseek(int fd, off_t offset, int whence);
-int usys_fsync(int fd);
-int usys_dup(int oldfd);
-int usys_dup2(int oldfd, int newfd);
-int usys_dup3(int oldfd, int newfd, int flags);
+long usys_fsync(int fd);
+long usys_dup(int oldfd);
+long usys_dup2(int oldfd, int newfd);
+long usys_dup3(int oldfd, int newfd, int flags);
 long usys_close(int fd);
 long usys_close_range(int first, int last, unsigned int flags);
 long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
@@ -70,20 +70,20 @@ long usys_lstat(const char *path, struct stat *statbuf);
 long usys_fstat(int fd, struct stat *statbuf);
 long usys_getdents(unsigned int fd, void *dirp, unsigned int count);
 long usys_getdents64(unsigned int fd, void *dirp, unsigned int count);
-int usys_pipe(int pipefd[2]);
-int usys_pipe2(int pipefd[2], int flags);
+long usys_pipe(int pipefd[2]);
+long usys_pipe2(int pipefd[2], int flags);
 long usys_fcntl(int fd, unsigned int cmd, unsigned long arg);
-int usys_mkdir(const char *pathname, mode_t mode);
-int usys_mkdirat(int fd, const char *pathname, mode_t mode);
-int usys_rmdir(const char *pathname);
+long usys_mkdir(const char *pathname, mode_t mode);
+long usys_mkdirat(int fd, const char *pathname, mode_t mode);
+long usys_rmdir(const char *pathname);
 long usys_link(const char *oldpath, const char *newpath);
 long usys_linkat(int olddirfd, const char *oldpath, int newdirfd,
                  const char *newpath, int flags);
-int usys_unlink(const char *pathname);
+long usys_unlink(const char *pathname);
 long usys_chown(const char *pathname, uid_t owner, gid_t group);
 long usys_chmod(const char *pathname, mode_t mode);
 long usys_getcwd(char *buf, size_t size);
-mode_t usys_umask(mode_t mask);
+long usys_umask(mode_t mask);
 
 ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz);
 ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
@@ -93,9 +93,9 @@ ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
 intptr_t usys_brk(uintptr_t addr);
 intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
                    off_t offset);
-int usys_mprotect(void *addr, size_t len, int prot);
-int usys_munmap(void *addr, size_t len);
-int usys_madvise(void *addr, size_t len, int hint);
+long usys_mprotect(void *addr, size_t len, int prot);
+long usys_munmap(void *addr, size_t len);
+long usys_madvise(void *addr, size_t len, int hint);
 
 // Net
 long usys_socket(int domain, int type, int protocol);
@@ -117,35 +117,35 @@ long usys_shutdown(int sockfd, int how);
 long usys_listen(int sockfd, int backlog);
 long usys_getsockname(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 long usys_getpeername(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
-int usys_socketpair(int domain, int type, int protocol, int sv[2]);
+long usys_socketpair(int domain, int type, int protocol, int sv[2]);
 
 // Poll
-int usys_poll(struct pollfd *fds, nfds_t nfds, int timeout);
-int usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p,
-               const sigset_t *sigmask, size_t sigsetsize);
-int usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
-                struct timeval *tv);
-int usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
-                  fd_set *exceptfds, struct timespec *ts,
-                  const sigset_t *sigmask);
-int usys_epoll_create(int size);
-int usys_epoll_create1(int flags);
-int usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event);
-int usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
-                    int timeout);
-int usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
-                     int timeout, const sigset_t *sigmask, size_t sigsetsize);
-int usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
-                      const struct timespec *timeout, const sigset_t *sigmask,
-                      size_t sigsetsize);
+long usys_poll(struct pollfd *fds, nfds_t nfds, int timeout);
+long usys_ppoll(struct pollfd *fds, nfds_t nfds, const struct timespec *tmo_p,
+                const sigset_t *sigmask, size_t sigsetsize);
+long usys_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds,
+                 struct timeval *tv);
+long usys_pselect6(int nfds, fd_set *readfds, fd_set *writefds,
+                   fd_set *exceptfds, struct timespec *ts,
+                   const sigset_t *sigmask);
+long usys_epoll_create(int size);
+long usys_epoll_create1(int flags);
+long usys_epoll_ctl(int epfd, int op, int fd, const epoll_event *event);
+long usys_epoll_wait(int epfd, struct epoll_event *events, int maxevents,
+                     int timeout);
+long usys_epoll_pwait(int epfd, struct epoll_event *events, int maxevents,
+                      int timeout, const sigset_t *sigmask, size_t sigsetsize);
+long usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
+                       const struct timespec *timeout, const sigset_t *sigmask,
+                       size_t sigsetsize);
 
 // Proc
-pid_t usys_getpid();
-pid_t usys_gettid();
-pid_t usys_set_tid_address(int *tidptr);
+long usys_getpid();
+long usys_gettid();
+long usys_set_tid_address(int *tidptr);
 [[noreturn]] void usys_exit_group(int status);
 [[noreturn]] void usys_exit(int status);
-int usys_arch_prctl(int code, unsigned long addr);
+long usys_arch_prctl(int code, unsigned long addr);
 long usys_clone(unsigned long clone_flags, unsigned long newsp,
                 uintptr_t parent_tidptr, uintptr_t child_tidptr,
                 unsigned long tls);
@@ -154,14 +154,14 @@ long usys_vfork();
 long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
                 const struct timespec *timeout, uint32_t *uaddr2,
                 uint32_t val3);
-pid_t usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru);
+long usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru);
 long usys_waitid(int which, pid_t pid, siginfo_t *infop, int options,
                  struct rusage *ru);
 
 // Sched
 long usys_sched_yield();
 long usys_getcpu(unsigned *cpu, unsigned *node, struct getcpu_cache *cache);
-int usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask);
+long usys_sched_getaffinity(pid_t pid, size_t cpusetsize, cpu_set_t *mask);
 long usys_sched_setscheduler(pid_t pid, int policy,
                              const struct sched_param *param);
 long usys_sched_getscheduler(pid_t pid);
@@ -195,10 +195,6 @@ long usys_prlimit64(pid_t pid, int resource, const struct rlimit *new_limit,
                     struct rlimit *old_limit);
 long usys_ioctl(int fd, unsigned long request, char *argp);
 long usys_sysinfo(struct sysinfo *info);
-uid_t usys_getuid();
-uid_t usys_geteuid();
-uid_t usys_getgid();
-uid_t usys_getegid();
 
 // Signals
 long usys_rt_sigaction(int sig, const struct k_sigaction *action,
@@ -210,9 +206,9 @@ long usys_tgkill(pid_t tgid, pid_t tid, int sig);
 long usys_kill(pid_t tgid, int sig);
 long usys_rt_tgsigqueueinfo(pid_t tgid, pid_t tid, int sig, siginfo_t *info);
 long usys_rt_sigpending(sigset_t *sig, size_t sigsetsize);
-int usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
-                         const struct timespec *ts, size_t sigsetsize);
-int usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize);
+long usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
+                          const struct timespec *ts, size_t sigsetsize);
+long usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize);
 long usys_pause();
 [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp);
 
@@ -221,9 +217,9 @@ long usys_eventfd2(unsigned int initval, int flags);
 long usys_eventfd(unsigned int initval);
 
 // Exec
-int usys_execve(const char *filename, const char *argv[], const char *envp[]);
-int usys_execveat(int fd, const char *filename, const char *argv[],
-                  const char *envp[], int flags);
+long usys_execve(const char *filename, const char *argv[], const char *envp[]);
+long usys_execveat(int fd, const char *filename, const char *argv[],
+                   const char *envp[], int flags);
 }
 
 }  // namespace junction

@@ -262,14 +262,14 @@ std::pair<int, int> CreatePipe(int flags = 0) {
 
 }  // namespace
 
-int usys_pipe(int pipefd[2]) {
+long usys_pipe(int pipefd[2]) {
   auto [read_fd, write_fd] = CreatePipe();
   pipefd[0] = read_fd;
   pipefd[1] = write_fd;
   return 0;
 }
 
-int usys_pipe2(int pipefd[2], int flags) {
+long usys_pipe2(int pipefd[2], int flags) {
   // check for supported flags.
   if ((flags & ~(kFlagNonblock | kFlagCloseExec)) != 0) return -EINVAL;
   auto [read_fd, write_fd] = CreatePipe(flags);

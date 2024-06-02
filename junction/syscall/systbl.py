@@ -184,6 +184,40 @@ for file in include_files:
 dispatch_file += [f"static_assert(SYS_NR == {SYS_NR});"]
 dispatch_file += ["namespace junction {"]
 
+# Helper code to validate usys functions.
+dispatch_file += ["""
+#include <type_traits>
+
+// Helper to extract function signature
+template <typename>
+struct function_traits;
+
+// Specialization for function pointers
+template <typename R, typename... Args>
+struct function_traits<R(*)(Args...)> {
+    using return_type = R;
+};
+
+// Helper alias
+template <typename T>
+using return_type_t = typename function_traits<T>::return_type;
+
+// Trait to check if the return type is either void or 8 bytes in size
+template <typename T, typename = void>
+struct is_void_or_8bytes : std::false_type {};
+
+template <typename T>
+struct is_void_or_8bytes<T, std::enable_if_t<std::is_void_v<T>>> : std::true_type {};
+
+template <typename T>
+struct is_void_or_8bytes<T, std::enable_if_t<!std::is_void_v<T> && sizeof(T) == 8>> : std::true_type {};
+
+// Helper variable template
+template <typename T>
+constexpr bool is_valid_syscall_v = is_void_or_8bytes<return_type_t<T>>::value;
+
+"""]
+
 with open(USYS_LIST) as f:
     for line in f:
         name = line.strip()
@@ -215,6 +249,9 @@ with open(USYS_LIST) as f:
             target = f"junction_entry_{name}"
         else:
             target = f"usys_{name}"
+
+        assertion = f"""static_assert(is_valid_syscall_v<decltype(&{target})>, "usys functions must return 64-bit values");"""
+        dispatch_file.append(assertion)
 
         systabl_targets[sysnr] = target
         if name not in SKIP_STRACE_TARGET:

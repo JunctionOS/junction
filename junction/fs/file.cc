@@ -434,7 +434,7 @@ off_t usys_lseek(int fd, off_t offset, int whence) {
   return static_cast<off_t>(*ret);
 }
 
-int usys_fsync(int fd) {
+long usys_fsync(int fd) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
@@ -443,14 +443,14 @@ int usys_fsync(int fd) {
   return 0;
 }
 
-int usys_dup(int oldfd) {
+long usys_dup(int oldfd) {
   FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
   if (!f) return -EBADF;
   return ftbl.Insert(std::move(f));
 }
 
-int usys_dup2(int oldfd, int newfd) {
+long usys_dup2(int oldfd, int newfd) {
   if (oldfd == newfd) return newfd;
   FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
@@ -459,7 +459,7 @@ int usys_dup2(int oldfd, int newfd) {
   return newfd;
 }
 
-int usys_dup3(int oldfd, int newfd, int flags) {
+long usys_dup3(int oldfd, int newfd, int flags) {
   if (oldfd == newfd) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(oldfd);
@@ -600,6 +600,6 @@ long usys_ioctl(int fd, unsigned long request, char *argp) {
   return 0;
 }
 
-mode_t usys_umask(mode_t mask) { return myproc().get_fs().SetUmask(mask); }
+long usys_umask(mode_t mask) { return myproc().get_fs().SetUmask(mask); }
 
 }  // namespace junction

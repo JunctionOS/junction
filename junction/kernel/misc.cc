@@ -24,7 +24,7 @@ utsname utsname = {.sysname = "Linux",
                    .machine = "x86_64"};
 }
 
-int usys_socketpair(int domain, int type, int protocol, int sv[2]) {
+long usys_socketpair(int domain, int type, int protocol, int sv[2]) {
   sv[0] = sv[1] = 0;
   return 0;
 }
@@ -85,13 +85,5 @@ long usys_prlimit64([[maybe_unused]] pid_t pid, int resource,
   }
   return 0;
 }
-
-uid_t usys_getuid() { return 0; }
-
-uid_t usys_geteuid() { return 0; }
-
-uid_t usys_getgid() { return 0; }
-
-uid_t usys_getegid() { return 0; }
 
 }  // namespace junction

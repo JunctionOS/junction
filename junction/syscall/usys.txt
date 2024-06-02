@@ -136,10 +136,10 @@ time
 rt_sigtimedwait
 rt_sigsuspend
 pause
-getuid
-geteuid
-getgid
-getegid
+getuid:::stub
+geteuid:::stub
+getgid:::stub
+getegid:::stub
 getxattr:::enotsup
 lgetxattr:::enotsup
 fgetxattr:::enotsup

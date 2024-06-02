@@ -283,7 +283,7 @@ Status<std::span<char>> IDir::GetFullPath(const FSRoot &fs,
 // System call implementation
 //
 
-int usys_mknod(const char *pathname, mode_t mode, dev_t dev) {
+long usys_mknod(const char *pathname, mode_t mode, dev_t dev) {
   Status<Entry> entry = LookupEntry(myproc().get_fs(), pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = MkNod(*entry, mode, dev);
@@ -291,7 +291,7 @@ int usys_mknod(const char *pathname, mode_t mode, dev_t dev) {
   return 0;
 }
 
-int usys_mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
+long usys_mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
   Status<Entry> entry = LookupEntry(myproc(), dirfd, pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = MkNod(*entry, mode, dev);
@@ -299,7 +299,7 @@ int usys_mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev) {
   return 0;
 }
 
-int usys_mkdir(const char *pathname, mode_t mode) {
+long usys_mkdir(const char *pathname, mode_t mode) {
   Status<Entry> entry = LookupEntry(myproc().get_fs(), pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = MkDir(*entry, mode);
@@ -307,7 +307,7 @@ int usys_mkdir(const char *pathname, mode_t mode) {
   return 0;
 }
 
-int usys_mkdirat(int dirfd, const char *pathname, mode_t mode) {
+long usys_mkdirat(int dirfd, const char *pathname, mode_t mode) {
   Status<Entry> entry = LookupEntry(myproc(), dirfd, pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = MkDir(*entry, mode);
@@ -315,7 +315,7 @@ int usys_mkdirat(int dirfd, const char *pathname, mode_t mode) {
   return 0;
 }
 
-int usys_unlink(const char *pathname) {
+long usys_unlink(const char *pathname) {
   Status<Entry> entry = LookupEntry(myproc().get_fs(), pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = Unlink(*entry);
@@ -323,7 +323,7 @@ int usys_unlink(const char *pathname) {
   return 0;
 }
 
-int usys_rmdir(const char *pathname) {
+long usys_rmdir(const char *pathname) {
   Status<Entry> entry = LookupEntry(myproc().get_fs(), pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = RmDir(*entry);
@@ -331,7 +331,7 @@ int usys_rmdir(const char *pathname) {
   return 0;
 }
 
-int usys_unlinkat(int dirfd, const char *pathname, int flags) {
+long usys_unlinkat(int dirfd, const char *pathname, int flags) {
   Status<Entry> entry = LookupEntry(myproc(), dirfd, pathname);
   if (!entry) return MakeCError(entry);
 
@@ -348,7 +348,7 @@ int usys_unlinkat(int dirfd, const char *pathname, int flags) {
   return 0;
 }
 
-int usys_symlink(const char *target, const char *pathname) {
+long usys_symlink(const char *target, const char *pathname) {
   Status<Entry> entry = LookupEntry(myproc().get_fs(), pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = SymLink(*entry, target);
@@ -356,15 +356,19 @@ int usys_symlink(const char *target, const char *pathname) {
   return 0;
 }
 
-int usys_symlinkat(const char *target, int dirfd, const char *pathname) {
+long usys_symlinkat(const char *target, int dirfd, const char *pathname) {
   Status<Entry> entry = LookupEntry(myproc(), dirfd, pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = SymLink(*entry, target);
-  if (!ret) return MakeCError(ret);
+  if (!ret) {
+    LOG(ERR) << "ret is " << ret.error() << " cerror is " << MakeCError(ret);
+
+    return MakeCError(ret);
+  }
   return 0;
 }
 
-int usys_rename(const char *oldpath, const char *newpath) {
+long usys_rename(const char *oldpath, const char *newpath) {
   FSRoot &fs = myproc().get_fs();
   Status<Entry> src_entry = LookupEntry(fs, oldpath);
   if (!src_entry) return MakeCError(src_entry);
@@ -375,8 +379,8 @@ int usys_rename(const char *oldpath, const char *newpath) {
   return 0;
 }
 
-int usys_renameat(int olddirfd, const char *oldpath, int newdirfd,
-                  const char *newpath) {
+long usys_renameat(int olddirfd, const char *oldpath, int newdirfd,
+                   const char *newpath) {
   Process &p = myproc();
   Status<Entry> src_entry = LookupEntry(p, olddirfd, oldpath);
   if (!src_entry) return MakeCError(src_entry);
@@ -387,8 +391,8 @@ int usys_renameat(int olddirfd, const char *oldpath, int newdirfd,
   return 0;
 }
 
-int usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
-                   const char *newpath, unsigned int flags) {
+long usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
+                    const char *newpath, unsigned int flags) {
   bool replace = !(flags & RENAME_NOREPLACE);
   // TODO(amb): no flags are supported so far.
   if ((flags & ~RENAME_NOREPLACE) != 0) return -EINVAL;
@@ -601,7 +605,7 @@ long usys_statfs(const char *path, struct statfs *buf) {
   return 0;
 }
 
-int usys_truncate(const char *path, off_t length) {
+long usys_truncate(const char *path, off_t length) {
   FSRoot &fs = myproc().get_fs();
   Status<std::shared_ptr<Inode>> tmp = LookupInode(fs, path, true);
   if (!tmp) return MakeCError(tmp);
