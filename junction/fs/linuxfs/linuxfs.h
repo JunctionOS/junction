@@ -5,16 +5,17 @@
 #include <set>
 
 #include "junction/fs/fs.h"
+#include "junction/kernel/ksys.h"
 
 namespace junction::linuxfs {
 
-extern int linux_root_fd;
+extern KernelFile linux_root_fd;
 extern struct statfs linux_statfs;
 extern std::set<dev_t> allowed_devs;
 
 class LinuxInode : public Inode {
  public:
-  LinuxInode(struct stat &stat, std::string &&path)
+  LinuxInode(const struct stat &stat, std::string &&path)
       : Inode(stat.st_mode, stat.st_ino),
         path_(std::move(path)),
         size_(stat.st_size) {
@@ -38,15 +39,17 @@ class LinuxInode : public Inode {
   }
 
   [[nodiscard]] off_t get_size() const { return size_; }
+  [[nodiscard]] std::string_view get_path() const { return path_; }
 
  private:
-  std::string path_;
-  off_t size_;
+  const std::string path_;
+  const off_t size_;
 };
 
 class LinuxISoftLink : public ISoftLink {
  public:
-  LinuxISoftLink(struct stat &stat, std::string &&path, std::string_view target)
+  LinuxISoftLink(const struct stat &stat, std::string &&path,
+                 std::string_view target)
       : ISoftLink(stat.st_mode, stat.st_ino),
         path_(std::move(path)),
         target_(target) {
@@ -66,13 +69,13 @@ class LinuxISoftLink : public ISoftLink {
   }
 
  private:
-  std::string path_;
-  std::string target_;
+  const std::string path_;
+  const std::string target_;
 };
 
 class LinuxIDir : public IDir {
  public:
-  LinuxIDir(struct stat &stat, std::string &&path, std::string_view name,
+  LinuxIDir(const struct stat &stat, std::string &&path, std::string_view name,
             std::shared_ptr<IDir> parent)
       : IDir(stat, name, parent), path_(std::move(path)) {
     assert(is_dir());
@@ -83,32 +86,17 @@ class LinuxIDir : public IDir {
   Status<void> MkNod(std::string_view name, mode_t mode, dev_t dev) override {
     return MakeError(EACCES);
   }
-  Status<void> MkDir(std::string_view name, mode_t mode) override {
-    return MakeError(EACCES);
-  }
-  Status<void> Unlink(std::string_view name) override {
-    return MakeError(EACCES);
-  }
-  Status<void> RmDir(std::string_view name) override {
-    return MakeError(EACCES);
-  }
-  Status<void> SymLink(std::string_view name, std::string_view path) override {
-    return MakeError(EACCES);
-  }
+  Status<void> MkDir(std::string_view name, mode_t mode) override;
+  Status<void> Unlink(std::string_view name) override;
+  Status<void> RmDir(std::string_view name) override;
+  Status<void> SymLink(std::string_view name, std::string_view target) override;
+
   Status<void> Rename(IDir &src, std::string_view src_name,
-                      std::string_view dst_name) override {
-    return MakeError(EACCES);
-  }
-  Status<void> Link(std::string_view name,
-                    std::shared_ptr<Inode> ino) override {
-    return MakeError(EACCES);
-  }
+                      std::string_view dst_name, bool replace) override;
+  Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino);
 
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
-                                       mode_t mode) override {
-    return MakeError(EACCES);
-  }
-
+                                       mode_t mode);
   std::vector<dir_entry> GetDents() override;
 
   // Inode ops
@@ -125,9 +113,26 @@ class LinuxIDir : public IDir {
  private:
   // Helper routine to intialize entries_
   Status<void> FillEntries();
-  bool Initialize();
+  void Initialize();
 
-  std::string path_;
+  // Helper routine for renaming.
+  Status<void> DoRename(LinuxIDir &src, std::string_view src_name,
+                        std::string_view dst_name, bool replace);
+
+  Status<KernelFile> GetLinuxDirFD() const {
+    return linux_root_fd.OpenAt(path_, O_DIRECTORY | O_RDONLY, S_IRUSR);
+  }
+
+  inline std::string AppendFileName(std::string_view name) const {
+    std::string result;
+    result.reserve(path_.size() + 1 + name.size());
+    result.append(path_);
+    result.append("/");
+    result.append(name);
+    return result;
+  }
+
+  const std::string path_;
   bool initialized_{false};
 };
 

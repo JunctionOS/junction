@@ -17,6 +17,12 @@ extern "C" {
 
 namespace junction {
 
+#ifdef WRITEABLE_LINUX_FS
+constexpr bool linux_fs_writeable() { return true; }
+#else
+constexpr bool linux_fs_writeable() { return false; }
+#endif
+
 // VDSO syscalls
 extern int (*ksys_clock_gettime)(clockid_t clockid, struct timespec *tp);
 
@@ -68,6 +74,56 @@ int ksys_getdents64(unsigned int fd, void *dirp, unsigned int count);
 void ksys_exit(int status) __attribute__((noreturn));
 }
 
+template <class T>
+concept SyscallArg = std::is_convertible_v<T, long> || std::is_pointer_v<T>;
+
+template <typename A, typename B, typename C, typename D, typename E,
+          typename F>
+  requires SyscallArg<A> && SyscallArg<B> && SyscallArg<C> && SyscallArg<D> &&
+           SyscallArg<E> && SyscallArg<F>
+static __always_inline long ksyscall(int sysnr, A arg1, B arg2, C arg3, D arg4,
+                                     E arg5, F arg6) {
+  return ksys_default((long)arg1, (long)arg2, (long)arg3, (long)arg4,
+                      (long)arg5, (long)arg6, sysnr);
+}
+
+template <typename A, typename B, typename C, typename D, typename E>
+static __always_inline long ksyscall(int sysnr, A arg1, B arg2, C arg3, D arg4,
+                                     E arg5) {
+  register long arg6 asm("r9");
+  return ksyscall(sysnr, arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+template <typename A, typename B, typename C, typename D>
+static __always_inline long ksyscall(int sysnr, A arg1, B arg2, C arg3,
+                                     D arg4) {
+  register long arg5 asm("r8");
+  return ksyscall(sysnr, arg1, arg2, arg3, arg4, arg5);
+}
+
+template <typename A, typename B, typename C>
+static __always_inline long ksyscall(int sysnr, A arg1, B arg2, C arg3) {
+  register long arg4 asm("rcx");
+  return ksyscall(sysnr, arg1, arg2, arg3, arg4);
+}
+
+template <typename A, typename B>
+static __always_inline long ksyscall(int sysnr, A arg1, B arg2) {
+  register long arg3 asm("rdx");
+  return ksyscall(sysnr, arg1, arg2, arg3);
+}
+
+template <typename A>
+static __always_inline long ksyscall(int sysnr, A arg1) {
+  register long arg2 asm("rsi");
+  return ksyscall(sysnr, arg1, arg2);
+}
+
+static __always_inline long ksyscall(int sysnr) {
+  register long arg1 asm("rdi");
+  return ksyscall(sysnr, arg1);
+}
+
 // KernelFile provides a wrapper around a Linux FD.
 class KernelFile : public VectoredWriter {
  public:
@@ -82,6 +138,12 @@ class KernelFile : public VectoredWriter {
   static Status<KernelFile> OpenAt(int fd, std::string_view path, int flags,
                                    mode_t mode) {
     int ret = ksys_openat(fd, path.data(), flags, mode);
+    if (ret < 0) return MakeError(-ret);
+    return KernelFile(ret);
+  }
+
+  Status<KernelFile> OpenAt(std::string_view path, int flags, mode_t mode) {
+    int ret = ksys_openat(fd_, path.data(), flags, mode);
     if (ret < 0) return MakeError(-ret);
     return KernelFile(ret);
   }
@@ -150,10 +212,74 @@ class KernelFile : public VectoredWriter {
     return {};
   }
 
+  inline Status<struct stat> StatAt() const {
+    struct stat buf;
+    int ret =
+        ksys_newfstatat(fd_, "", &buf, AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW);
+    if (ret < 0) return MakeError(-ret);
+    return buf;
+  }
+
+  inline Status<struct stat> StatAt(std::string_view path) {
+    struct stat buf;
+    int ret = ksys_newfstatat(fd_, path.data(), &buf, AT_SYMLINK_NOFOLLOW);
+    if (ret < 0) return MakeError(-ret);
+    return buf;
+  }
+
+  Status<void> UnlinkAt(std::string_view path, int flags = 0) {
+    if constexpr (!linux_fs_writeable()) return MakeError(EACCES);
+    int ret = ksyscall(__NR_unlinkat, fd_, path.data(), flags);
+    if (ret < 0) return MakeError(-ret);
+    return {};
+  }
+
+  Status<std::string_view> ReadLinkAt(std::string_view path,
+                                      std::span<char> buf) {
+    ssize_t wret = ksys_readlinkat(fd_, path.data(), buf.data(), buf.size());
+    if (wret < 0) return MakeError(-wret);
+    return {{buf.data(), static_cast<size_t>(wret)}};
+  }
+
+  Status<void> MkDirAt(std::string_view path, mode_t mode) {
+    if constexpr (!linux_fs_writeable()) return MakeError(EACCES);
+    int ret = ksyscall(__NR_mkdirat, fd_, path.data(), mode);
+    if (ret < 0) return MakeError(-ret);
+    return {};
+  }
+
+  Status<void> SymLinkAt(std::string_view target, std::string_view path) {
+    if constexpr (!linux_fs_writeable()) return MakeError(EACCES);
+    int ret = ksyscall(__NR_symlinkat, target.data(), fd_, path.data());
+    if (ret < 0) return MakeError(-ret);
+    return {};
+  }
+
+  static Status<void> RenameAt(KernelFile &olddir, std::string_view oldpath,
+                               KernelFile &newdir, std::string_view newpath,
+                               bool replace) {
+    if constexpr (!linux_fs_writeable()) return MakeError(EACCES);
+    int flags = replace ? 0 : RENAME_NOREPLACE;
+    int ret = ksyscall(__NR_renameat2, olddir.fd_, oldpath.data(), newdir.fd_,
+                       newpath.data(), flags);
+    if (ret < 0) return MakeError(-ret);
+    return {};
+  }
+
+  static Status<void> LinkAt(KernelFile &olddir, std::string_view oldpath,
+                             KernelFile &newdir, std::string_view newpath) {
+    if constexpr (!linux_fs_writeable()) return MakeError(EACCES);
+    int ret = ksyscall(__NR_linkat, olddir.fd_, oldpath.data(), newdir.fd_,
+                       newpath.data(), 0);
+    if (ret < 0) return MakeError(-ret);
+    return {};
+  }
+
   // Seek to a different position in the file.
   void Seek(off_t offset) { off_ = offset; }
 
   [[nodiscard]] int GetFd() const { return fd_; }
+  void Release() { fd_ = -1; }
 
  private:
   int fd_{-1};

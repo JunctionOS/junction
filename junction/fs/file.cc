@@ -572,12 +572,12 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
 }
 
 long usys_chown(const char *pathname, uid_t owner, gid_t group) {
-  LOG(WARN) << "chown: no-op";
+  LOG_ONCE(WARN) << "chown: no-op";
   return 0;
 }
 
 long usys_chmod(const char *pathname, mode_t mode) {
-  LOG(WARN) << "chmod: no-op";
+  LOG_ONCE(WARN) << "chmod: no-op";
   return 0;
 }
 

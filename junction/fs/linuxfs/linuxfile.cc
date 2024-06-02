@@ -17,16 +17,22 @@ extern "C" {
 
 namespace junction::linuxfs {
 
-LinuxFile::LinuxFile(int fd, int flags, mode_t mode, std::string &&pathname,
+LinuxFile::LinuxFile(KernelFile &&f, int flags, mode_t mode,
+                     std::string &&pathname,
                      std::shared_ptr<LinuxInode> ino) noexcept
     : SeekableFile(FileType::kNormal, flags, mode, std::move(pathname),
                    std::move(ino)),
-      fd_(fd) {}
+      fd_(f.GetFd()) {
+  f.Release();
+}
 
-LinuxFile::LinuxFile(int fd, int flags, mode_t mode, std::string_view pathname,
+LinuxFile::LinuxFile(KernelFile &&f, int flags, mode_t mode,
+                     std::string_view pathname,
                      std::shared_ptr<LinuxInode> ino) noexcept
     : SeekableFile(FileType::kNormal, flags, mode, pathname, std::move(ino)),
-      fd_(fd) {}
+      fd_(f.GetFd()) {
+  f.Release();
+}
 
 LinuxFile::~LinuxFile() { ksys_close(fd_); }
 

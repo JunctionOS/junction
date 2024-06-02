@@ -38,7 +38,8 @@ static struct sock_filter caladan_filter[] = {
 // Syscalls needed to manipulate the host fs.
 static struct sock_filter writeable_linux_fs[] = {
     ALLOW_JUNCTION_SYSCALL(mkdirat), ALLOW_JUNCTION_SYSCALL(linkat),
-    ALLOW_JUNCTION_SYSCALL(unlinkat)};
+    ALLOW_JUNCTION_SYSCALL(unlinkat), ALLOW_JUNCTION_SYSCALL(renameat2),
+    ALLOW_JUNCTION_SYSCALL(symlinkat)};
 
 // Syscalls needed to query dents/inodes in the host fs at runtime.
 static struct sock_filter uncached_linux_fs[] = {

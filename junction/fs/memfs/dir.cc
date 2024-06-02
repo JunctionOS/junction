@@ -23,9 +23,9 @@ class MemIDir : public IDir {
   Status<void> MkDir(std::string_view name, mode_t mode) override;
   Status<void> Unlink(std::string_view name) override;
   Status<void> RmDir(std::string_view name) override;
-  Status<void> SymLink(std::string_view name, std::string_view path) override;
+  Status<void> SymLink(std::string_view name, std::string_view target) override;
   Status<void> Rename(IDir &src, std::string_view src_name,
-                      std::string_view dst_name) override;
+                      std::string_view dst_name, bool replace) override;
   Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino) override;
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                        mode_t mode) override;
@@ -41,7 +41,7 @@ class MemIDir : public IDir {
  private:
   // Helper routine for renaming.
   Status<void> DoRename(MemIDir &src, std::string_view src_name,
-                        std::string_view dst_name);
+                        std::string_view dst_name, bool replace);
 };
 
 Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
@@ -91,12 +91,12 @@ Status<void> MemIDir::RmDir(std::string_view name) {
   return {};
 }
 
-Status<void> MemIDir::SymLink(std::string_view name, std::string_view path) {
-  return Insert(std::string(name), CreateISoftLink(path));
+Status<void> MemIDir::SymLink(std::string_view name, std::string_view target) {
+  return Insert(std::string(name), CreateISoftLink(target));
 }
 
 Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
-                               std::string_view dst_name) {
+                               std::string_view dst_name, bool replace) {
   assert(lock_.IsHeld());
   assert(src.lock_.IsHeld());
 
@@ -105,31 +105,34 @@ Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
   if (src_it == src.entries_.end()) return MakeError(ENOENT);
 
   // make sure the destination name doesn't exist already
-  auto dst_it = entries_.find(dst_name);
-  if (dst_it != entries_.end()) return MakeError(EEXIST);
+  if (!replace) {
+    auto dst_it = entries_.find(dst_name);
+    if (dst_it != entries_.end()) return MakeError(EEXIST);
+  }
 
   // perform the actual rename
   std::shared_ptr<Inode> ino = std::move(src_it->second);
   src.entries_.erase(src_it);
-  entries_[std::string(dst_name)] = std::move(ino);
 
   if (ino->is_dir()) {
     IDir &tdir = static_cast<IDir &>(*ino);
     tdir.SetParent(get_this(), dst_name);
   }
 
+  entries_.emplace(std::string(dst_name), std::move(ino));
+
   return {};
 }
 
 Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
-                             std::string_view dst_name) {
+                             std::string_view dst_name, bool replace) {
   auto *src_dir = most_derived_cast<MemIDir>(&src);
   if (!src_dir) return MakeError(EXDEV);
 
   // check if rename is in same directory
   if (src_dir == this) {
     rt::MutexGuard g(lock_);
-    return DoRename(*src_dir, src_name, dst_name);
+    return DoRename(*src_dir, src_name, dst_name, replace);
   }
 
   // otherwise rename is across different directories (to avoid deadlock)
@@ -144,21 +147,29 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
     lock_.Lock();
     src_dir->lock_.Lock();
   }
-  return DoRename(*src_dir, src_name, dst_name);
+  return DoRename(*src_dir, src_name, dst_name, replace);
 }
 
 Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
-  if (Status<void> ret = Insert(std::string(name), ino); !ret)
+  rt::MutexGuard g(lock_);
+  if (is_stale()) return MakeError(ESTALE);
+  if (Status<void> ret = InsertLocked(std::string(name), std::move(ino)); !ret)
     return MakeError(ret);
   return {};
 }
 
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
                                               mode_t mode) {
-  auto ino = std::make_shared<MemInode>(mode);
-  if (Status<void> ret = Insert(std::string(name), ino); !ret)
-    return MakeError(ret);
-  return ino->Open(flags, mode);
+  rt::MutexGuard g_(lock_);
+  auto it = entries_.find(name);
+  if (it == entries_.end()) {
+    auto ino = std::make_shared<MemInode>(mode);
+    InsertLockedNoCheck(name, ino);
+    return ino->Open(flags, mode);
+  }
+
+  if (flags & kFlagExclusive) return MakeError(EEXIST);
+  return it->second->Open(flags, mode);
 }
 
 std::vector<dir_entry> MemIDir::GetDents() {

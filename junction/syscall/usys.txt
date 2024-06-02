@@ -54,6 +54,7 @@ rmdir
 link
 linkat
 unlink
+unlinkat
 chown
 chmod
 getcwd
@@ -145,3 +146,10 @@ fgetxattr:::enotsup
 fadvise64:::stub
 utimensat:::stub
 futimens:::stub
+symlink
+symlinkat
+mknod
+mknodat
+rename
+renameat
+renameat2

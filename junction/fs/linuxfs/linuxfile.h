@@ -20,9 +20,9 @@ namespace junction::linuxfs {
 
 class LinuxFile : public SeekableFile {
  public:
-  LinuxFile(int fd, int flags, mode_t mode, std::string &&pathname,
+  LinuxFile(KernelFile &&f, int flags, mode_t mode, std::string &&pathname,
             std::shared_ptr<LinuxInode> ino) noexcept;
-  LinuxFile(int fd, int flags, mode_t mode, std::string_view pathname,
+  LinuxFile(KernelFile &&f, int flags, mode_t mode, std::string_view pathname,
             std::shared_ptr<LinuxInode> ino) noexcept;
   virtual ~LinuxFile();
 
@@ -67,13 +67,13 @@ class LinuxFile : public SeekableFile {
     else
       ino = reinterpret_cast<LinuxInode *>(tmp->get());
 
-    int fd = ksys_openat(linux_root_fd, filename.data(), flags, mode);
-    if (fd < 0) {
-      LOG(ERR) << "failed to open file " << filename << " ret: " << fd;
+    Status<KernelFile> f = linux_root_fd.OpenAt(filename, flags, mode);
+    if (!f) {
+      LOG(ERR) << "failed to open file " << filename << " ret: " << f.error();
       BUG();
     }
 
-    construct(fd, flags, mode, std::move(filename),
+    construct(std::move(*f), flags, mode, std::move(filename),
               std::static_pointer_cast<LinuxInode>(std::move(*tmp)));
     ar(cereal::base_class<SeekableFile>(construct.ptr()));
   }

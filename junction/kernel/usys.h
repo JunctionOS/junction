@@ -34,6 +34,16 @@ long usys_faccessat(int dirfd, const char *pathname, int mode);
 long usys_faccessat2(int dirfd, const char *pathname, int mode, int flags);
 long usys_chdir(const char *pathname);
 long usys_fchdir(int fd);
+int usys_mknod(const char *pathname, mode_t mode, dev_t dev);
+int usys_mknodat(int dirfd, const char *pathname, mode_t mode, dev_t dev);
+int usys_rename(const char *oldpath, const char *newpath);
+int usys_renameat(int olddirfd, const char *oldpath, int newdirfd,
+                  const char *newpath);
+int usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
+                   const char *newpath, unsigned int flags);
+int usys_unlinkat(int dirfd, const char *pathname, int flags);
+int usys_symlink(const char *target, const char *pathname);
+int usys_symlinkat(const char *target, int dirfd, const char *pathname);
 ssize_t usys_read(int fd, char *buf, size_t len);
 ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt);
 ssize_t usys_write(int fd, const char *buf, size_t len);

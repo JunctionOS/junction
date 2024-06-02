@@ -157,7 +157,7 @@ class IDir : public Inode {
       : Inode(kTypeDirectory | mode, inum),
         pptr_(std::make_unique<ParentPointer>(std::move(parent), name)),
         rcup_(pptr_.get()) {}
-  IDir(struct stat &buf, std::string_view name,
+  IDir(const struct stat &buf, std::string_view name,
        std::shared_ptr<IDir> parent = {})
       : Inode(kTypeDirectory | buf.st_mode, buf.st_ino),
         pptr_(std::make_unique<ParentPointer>(std::move(parent), name)),
@@ -182,10 +182,10 @@ class IDir : public Inode {
   virtual Status<void> RmDir(std::string_view name) = 0;
   // SymLink creates a symbolic link.
   virtual Status<void> SymLink(std::string_view name,
-                               std::string_view path) = 0;
+                               std::string_view target) = 0;
   // Rename changes the name/location of a file (called on the dest IDir).
   virtual Status<void> Rename(IDir &src, std::string_view src_name,
-                              std::string_view dst_name) = 0;
+                              std::string_view dst_name, bool replace) = 0;
   // Link creates a hard link.
   virtual Status<void> Link(std::string_view name,
                             std::shared_ptr<Inode> ino) = 0;
@@ -249,16 +249,23 @@ class IDir : public Inode {
   rt::Mutex lock_;
   std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 
-  Status<void> InsertLocked(std::string name, std::shared_ptr<Inode> ino) {
+  void InsertLockedNoCheck(std::string_view name, std::shared_ptr<Inode> ino) {
     assert(lock_.IsHeld());
-    if (is_stale()) return MakeError(ESTALE);
+    ino->inc_nlink();
+    entries_.emplace(name, std::move(ino));
+  }
+
+  [[nodiscard]] Status<void> InsertLocked(std::string name,
+                                          std::shared_ptr<Inode> ino) {
+    assert(lock_.IsHeld());
     auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
     if (!okay) return MakeError(EEXIST);
     it->second->inc_nlink();
     return {};
   }
 
-  Status<void> Insert(std::string name, std::shared_ptr<Inode> ino) {
+  [[nodiscard]] Status<void> Insert(std::string name,
+                                    std::shared_ptr<Inode> ino) {
     rt::MutexGuard g(lock_);
     return InsertLocked(std::move(name), std::move(ino));
   }

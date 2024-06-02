@@ -188,10 +188,11 @@ Status<void> SymLink(const Entry &entry, std::string_view target) {
   return entry.dir->SymLink(entry.name, target);
 }
 
-Status<void> Rename(const Entry &src_entry, const Entry &dst_entry) {
+Status<void> Rename(const Entry &src_entry, const Entry &dst_entry,
+                    bool replace) {
   auto &[src_idir, src_name, src_must_be_dir] = src_entry;
   auto &[dst_idir, dst_name, dst_must_be_dir] = dst_entry;
-  return dst_idir->Rename(*src_idir, src_name, dst_name);
+  return dst_idir->Rename(*src_idir, src_name, dst_name, replace);
 }
 
 Status<void> HardLink(std::shared_ptr<Inode> src, const Entry &dst_path) {
@@ -210,13 +211,12 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
     return idir->Open(mode, flags);
   }
 
-  Status<std::shared_ptr<Inode>> in = idir->Lookup(name);
-  if (!in) {
-    if (!(flags & kFlagCreate)) return MakeError(ENOENT);
+  if (flags & kFlagCreate)
     return idir->Create(name, flags, mode & ~fs.get_umask());
-  }
 
-  if (flags & kFlagExclusive) return MakeError(EEXIST);
+  Status<std::shared_ptr<Inode>> in = idir->Lookup(name);
+  if (!in) return MakeError(ENOENT);
+
   if ((*in)->is_symlink()) {
     if ((flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
       return MakeError(ELOOP);
@@ -370,7 +370,7 @@ int usys_rename(const char *oldpath, const char *newpath) {
   if (!src_entry) return MakeCError(src_entry);
   Status<Entry> dst_entry = LookupEntry(fs, newpath);
   if (!dst_entry) return MakeCError(dst_entry);
-  Status<void> ret = Rename(*src_entry, *dst_entry);
+  Status<void> ret = Rename(*src_entry, *dst_entry, true);
   if (!ret) return MakeCError(ret);
   return 0;
 }
@@ -382,16 +382,24 @@ int usys_renameat(int olddirfd, const char *oldpath, int newdirfd,
   if (!src_entry) return MakeCError(src_entry);
   Status<Entry> dst_entry = LookupEntry(p, newdirfd, newpath);
   if (!dst_entry) return MakeCError(dst_entry);
-  Status<void> ret = Rename(*src_entry, *dst_entry);
+  Status<void> ret = Rename(*src_entry, *dst_entry, true);
   if (!ret) return MakeCError(ret);
   return 0;
 }
 
 int usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
                    const char *newpath, unsigned int flags) {
+  bool replace = !(flags & RENAME_NOREPLACE);
   // TODO(amb): no flags are supported so far.
-  if (flags != 0) return -EINVAL;
-  return usys_renameat(olddirfd, oldpath, newdirfd, newpath);
+  if ((flags & ~RENAME_NOREPLACE) != 0) return -EINVAL;
+  Process &p = myproc();
+  Status<Entry> src_entry = LookupEntry(p, olddirfd, oldpath);
+  if (!src_entry) return MakeCError(src_entry);
+  Status<Entry> dst_entry = LookupEntry(p, newdirfd, newpath);
+  if (!dst_entry) return MakeCError(dst_entry);
+  Status<void> ret = Rename(*src_entry, *dst_entry, replace);
+  if (!ret) return MakeCError(ret);
+  return 0;
 }
 
 long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
@@ -695,6 +703,8 @@ Status<void> InitFs(
   // Enumerate all Linux folders to cache dents.
   if (GetCfg().cache_linux_fs()) Recurse(*tmp);
 
+#ifndef WRITEABLE_LINUX_FS
+
   // Mount the default memfs directory.
   if (Status<void> ret = MemFSMount(*tmp, "/memfs"); !ret) return ret;
 
@@ -702,6 +712,7 @@ Status<void> InitFs(
   for (const std::string &p : mem_mount_points) {
     if (Status<void> ret = MemFSMount(*tmp, p); !ret) return ret;
   }
+#endif
 
   FSRoot::InitFsRoot(std::move(*tmp));
 
