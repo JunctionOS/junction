@@ -18,7 +18,7 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-set(CMAKE_CXX_FLAGS "-Wall -g -fno-stack-protector -march=native -m64 -muintr")
+set(CMAKE_CXX_FLAGS "-Wall -g -fno-stack-protector -march=native -m64 -muintr -mxsavec")
 set(CMAKE_CXX_FLAGS_DEBUG "-DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3 -flto=auto -ffast-math -fconcepts-diagnostics-depth=100")
 
