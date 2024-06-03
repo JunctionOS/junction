@@ -38,7 +38,9 @@ class alignas(kCacheLineSize) JunctionCfg {
 
   [[nodiscard]] const std::string_view get_ld_path() const { return ld_path; }
 
-  [[nodiscard]] const std::string_view get_preload_path() const {
+  [[nodiscard]] const std::string &get_glibc_path() const { return glibc_path; }
+
+  [[nodiscard]] const std::string &get_preload_path() const {
     return preload_path;
   }
 
@@ -73,6 +75,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   std::string chroot_path;
   std::string fs_config_path;
   std::string interp_path;
+  std::string glibc_path;
   std::string ld_path;
   std::string preload_path;
   std::vector<std::string> binary_envp;

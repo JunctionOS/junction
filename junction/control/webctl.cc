@@ -39,10 +39,7 @@ bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
   }
 
   // Initialize environment and arguments
-  auto envp = BuildEnvp();
-  std::vector<std::string_view> envp_view;
-  envp_view.reserve(envp.size());
-  for (auto const &s : envp) envp_view.emplace_back(s);
+  auto [envp_s, envp_view] = BuildEnvp();
   auto proc = CreateFirstProcess(argv[0], argv, envp_view);
   if (!proc) {
     std::ostringstream error_msg;
@@ -93,14 +90,15 @@ bool HandleSnapshot(ControlConn &c, const ctl_schema::SnapshotRequest *req) {
 }
 bool HandleRestore(ControlConn &c, const ctl_schema::RestoreRequest *req) {
   LOG(INFO) << "handling restore request";
-  auto proc = RestoreProcess(req->snapshot_path()->string_view(),
-                             req->elf_path()->string_view());
+  Status<std::shared_ptr<Process>> proc = RestoreProcess(
+      req->snapshot_path()->string_view(), req->elf_path()->string_view());
 
   if (!proc) {
     std::ostringstream error_msg;
     error_msg << "failed to restore(snapshot_path="
               << req->snapshot_path()->string_view()
-              << ", elf_path=" << req->elf_path()->string_view() << ")";
+              << ", elf_path=" << req->elf_path()->string_view() << ") "
+              << proc.error();
     if (!c.SendError(error_msg.str())) {
       LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
       return true;

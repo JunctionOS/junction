@@ -51,7 +51,7 @@ add_test(
 
 add_test(
   NAME tbench_test_junction_no_optimization
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_path --interpreter_path --ld_preload -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --glibc_path --interpreter_path --ld_preload -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
 )
 
 add_test(
@@ -61,7 +61,7 @@ add_test(
 
 add_test(
   NAME tbench_test_junction_plus_shim
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_path --interpreter_path -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --glibc_path --interpreter_path -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
 )
 
 add_test(

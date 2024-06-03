@@ -18,10 +18,87 @@ extern "C" void junction_exec_start(void *entry_arg);
 
 }  // namespace
 
+Status<std::shared_ptr<Process>> CreateFirstProcess(
+    std::string_view path, const std::vector<std::string_view> &argv,
+    const std::vector<std::string_view> &envp) {
+  // Create the process object
+  Status<std::shared_ptr<Process>> proc = CreateInitProcess();
+  if (!proc) return MakeError(proc);
+
+  // Create and insert STDIN, STDOUT, STDERR files
+  std::shared_ptr<StdIOFile> fin =
+      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
+  std::shared_ptr<StdIOFile> fout =
+      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
+  std::shared_ptr<StdIOFile> ferr =
+      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
+  FileTable &ftbl = (**proc).get_file_table();
+  ftbl.Insert(std::move(fin));
+  ftbl.Insert(std::move(fout));
+  ftbl.Insert(std::move(ferr));
+
+  // Exec program image
+  Status<ExecInfo> ret = Exec(**proc, (*proc)->get_mem_map(), path, argv, envp);
+  if (!ret) {
+    LOG(ERR) << "Failed to exec binary " << path << ": " << ret.error();
+    return MakeError(ret);
+  }
+
+  Status<Thread *> tmp = (*proc)->CreateThreadMain();
+  if (!tmp) return MakeError(tmp);
+  Thread &th = **tmp;
+
+  FunctionCallTf &entry = FunctionCallTf::CreateOnSyscallStack(th);
+  thread_tf &tf = entry.GetFrame();
+  tf.rdi = 0;
+  tf.rsi = 0;
+  tf.rdx = 0;
+  tf.rcx = 0;
+  tf.r8 = 0;
+  tf.r9 = 0;
+  tf.rsp = std::get<0>(*ret);
+  tf.rip = std::get<1>(*ret);
+
+  th.mark_enter_kernel();
+  entry.MakeUnwinderSysret(th, th.GetCaladanThread()->tf);
+  th.ThreadReady();
+  return *proc;
+}
+
+std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
+  // Initialize environment and arguments
+  std::stringstream ld_path_s;
+  ld_path_s << "LD_LIBRARY_PATH=";
+  if (GetCfg().get_glibc_path().size()) ld_path_s << GetCfg().get_glibc_path();
+  if (GetCfg().get_ld_path().size()) ld_path_s << ":" << GetCfg().get_ld_path();
+  ld_path_s << ":/lib/x86_64-linux-gnu"
+            << ":/usr/lib/x86_64-linux-gnu"
+            << ":/usr/lib/jvm/java-17-openjdk-amd64/lib"
+            << ":/usr/lib/jvm/java-18-openjdk-amd64/lib"
+            << ":/usr/lib/jvm/java-19-openjdk-amd64/lib"
+            << ":/usr/lib/jvm/java-21-openjdk-amd64/lib";
+  std::string ld_path = ld_path_s.str();
+  std::string preload_path("LD_PRELOAD=" + GetCfg().get_preload_path());
+
+  const std::vector<std::string> &cfg_envp = GetCfg().get_binary_envp();
+
+  std::vector<std::string> envp;
+  envp.reserve(2 + cfg_envp.size());
+  envp.emplace_back(std::move(ld_path));
+  envp.emplace_back(std::move(preload_path));
+  for (const std::string &s : cfg_envp) envp.emplace_back(s);
+
+  std::vector<std::string_view> envp_view;
+  envp_view.reserve(envp.size());
+  for (const auto &p : envp) envp_view.emplace_back(p);
+  return {std::move(envp), std::move(envp_view)};
+}
+
 void JunctionMain(int argc, char *argv[]) {
   EnableMemoryAllocation();
 
-  std::vector<std::string_view> args = {};
+  std::vector<std::string_view> args;
+  args.reserve(argc);
   for (int i = 0; i < argc; i++) args.emplace_back(argv[i]);
 
   // Initialize core junction services
@@ -31,31 +108,28 @@ void JunctionMain(int argc, char *argv[]) {
   Status<std::shared_ptr<Process>> proc;
 
   if (GetCfg().restoring()) {
-    BUG_ON(args.size() < 2);
+    if (unlikely(argc < 2)) {
+      LOG(ERR) << "Too few arguments for restore";
+      syscall_exit(-1);
+    }
     LOG(INFO) << "snapshot: restoring from snapshot (elf=" << args[1]
               << ", metadata=" << args[0] << ")";
     proc = RestoreProcess(args[0], args[1]);
     if (!proc) {
       LOG(ERR) << "Failed to restore proc";
-      return;
+      syscall_exit(-1);
     }
     LOG(INFO) << "snapshot: restored process with pid="
               << (*proc).get()->get_pid();
-  } else if (!args.empty()) {
-    auto envp = BuildEnvp();
-    std::vector<std::string_view> envp_view;
-    envp_view.reserve(envp.size());
-    for (auto const &s : envp) envp_view.emplace_back(s);
+  } else {
+    auto [envp_s, envp_view] = BuildEnvp();
     // Create the first process
     proc = CreateFirstProcess(args[0], args, envp_view);
+    if (!proc) syscall_exit(-1);
   }
 
-  BUG_ON(!proc);
-
-  std::shared_ptr<Process> proc_ptr = *proc;
-
   // setup automatic snapshot
-  if (proc_ptr && unlikely(GetCfg().snapshot_timeout())) {
+  if (unlikely(GetCfg().snapshot_timeout())) {
     rt::Spawn([] {
       // Wait x seconds
       rt::Sleep(Duration(GetCfg().snapshot_timeout() * kSeconds));
@@ -75,7 +149,7 @@ void JunctionMain(int argc, char *argv[]) {
   }
 
   // Drop reference so the process can properly destruct itself when done
-  proc_ptr.reset();
+  proc->reset();
 
   rt::WaitForever();
 }

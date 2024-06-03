@@ -164,12 +164,12 @@ Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
   return ret;
 }
 
-std::shared_ptr<Process> RestoreProcess(std::string_view metadata_path,
-                                        std::string_view elf_path) {
+Status<std::shared_ptr<Process>> RestoreProcess(std::string_view metadata_path,
+                                                std::string_view elf_path) {
   rt::RuntimeLibcGuard guard;
 
   Status<KernelFile> f = KernelFile::Open(metadata_path, O_RDONLY, 0644);
-  BUG_ON(!f);
+  if (!f) return MakeError(f);
 
   StreamBufferReader<KernelFile> w(*f);
   std::istream instream(&w);
@@ -179,10 +179,10 @@ std::shared_ptr<Process> RestoreProcess(std::string_view metadata_path,
   ar(p);
 
   MemoryMap &mm = p->get_mem_map();
-  auto ret = LoadELF(mm, elf_path, p->get_fs());
+  Status<elf_data> ret = LoadELF(mm, elf_path, p->get_fs());
   if (!ret) {
     LOG(ERR) << "Elf load failed: " << ret.error();
-    return {};
+    return MakeError(ret);
   };
 
   // mark threads as runnable

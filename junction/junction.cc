@@ -63,10 +63,13 @@ po::options_description GetOptions() {
       po::value<std::string>()->implicit_value("")->default_value(
           CUSTOM_GLIBC_INTERPRETER_PATH),
       "use this custom interpreter for binaries")(
-      "ld_path",
+      "glibc_path",
       po::value<std::string>()->implicit_value("")->default_value(
           CUSTOM_GLIBC_DIR),
-      "a path to include in LD_LIBRARY_PATH, use to inject a custom libc")(
+      "path to custom libc")(
+      "ld_path",
+      po::value<std::string>()->implicit_value("")->default_value(""),
+      "a path to include in LD_LIBRARY_PATH")(
       "ld_preload",
       po::value<std::string>()->implicit_value("")->default_value(
           CUSTOM_GLIBC_PRELOAD),
@@ -111,6 +114,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   chroot_path = vm["chroot_path"].as<std::string>();
   fs_config_path = vm["fs_config_path"].as<std::string>();
   interp_path = vm["interpreter_path"].as<std::string>();
+  glibc_path = vm["glibc_path"].as<std::string>();
   ld_path = vm["ld_path"].as<std::string>();
   preload_path = vm["ld_preload"].as<std::string>();
 
@@ -136,6 +140,7 @@ void JunctionCfg::Print() {
   LOG(INFO) << "cfg: chroot_path = " << chroot_path;
   LOG(INFO) << "cfg: fs_config_path = " << fs_config_path;
   LOG(INFO) << "cfg: interpreter_path = " << interp_path;
+  LOG(INFO) << "cfg: glibc_path = " << glibc_path;
   LOG(INFO) << "cfg: ld_path = " << ld_path;
   LOG(INFO) << "cfg: ld_preload = " << preload_path;
   for (std::string &s : binary_envp) LOG(INFO) << "env: " << s;
