@@ -150,9 +150,7 @@ class File : public std::enable_shared_from_this<File> {
   virtual Status<void> Stat(struct stat *statbuf) const;
   virtual Status<void> StatFS(struct statfs *buf) const;
 
-  virtual Status<void> Ioctl(unsigned long request, char *argp) {
-    return MakeError(EINVAL);
-  }
+  virtual Status<void> Ioctl(unsigned long request, char *argp);
 
   // Default readv/writev implementations that falls back to write internally
   virtual Status<size_t> Writev(std::span<const iovec> vec, off_t *off);

@@ -276,6 +276,15 @@ Status<void> File::StatFS(struct statfs *buf) const {
   return {};
 }
 
+Status<void> File::Ioctl(unsigned long request, char *argp) {
+  if (request == FIOCLEX) {
+    set_flags(get_flags() | kFlagCloseExec);
+    return {};
+  }
+
+  return MakeError(EINVAL);
+}
+
 struct linux_dirent64 {
   ino64_t d_ino;           /* 64-bit inode number */
   off64_t d_off;           /* 64-bit offset to next structure */

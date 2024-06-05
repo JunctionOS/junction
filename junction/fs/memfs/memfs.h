@@ -30,15 +30,13 @@ inline void MemInodeToStats(const Inode &ino, struct stat *buf) {
 std::shared_ptr<ISoftLink> CreateISoftLink(std::string_view path);
 // Create a character or block device inode.
 std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode);
-// Allocate a unique inode number.
-ino_t AllocateInodeNumber();
 
 class MemInode : public Inode {
  public:
   MemInode(mode_t mode)
       : Inode(kTypeRegularFile | mode, AllocateInodeNumber()) {}
   Status<void> SetSize(size_t newlen) override;
-  Status<void> GetStats(struct stat *buf) const;
+  Status<void> GetStats(struct stat *buf) const override;
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
     const size_t n = std::min(buf.size(), buf_.size() - *off);

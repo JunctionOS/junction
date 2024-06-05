@@ -31,7 +31,6 @@ class LinuxFile : public SeekableFile {
                                off_t *off) override;
   virtual Status<void *> MMap(void *addr, size_t length, int prot, int flags,
                               off_t off);
-  virtual Status<void> Ioctl(unsigned long request, char *argp) override;
 
   [[nodiscard]] int get_fd() const { return fd_; }
   [[nodiscard]] size_t get_size() const override;

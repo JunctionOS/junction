@@ -7,6 +7,7 @@
 #include "junction/base/string.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
+#include "junction/fs/procfs/procfs.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 
@@ -507,24 +508,14 @@ Status<long> DoReadLink(Inode &ino, std::span<std::byte> dst) {
 ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
                         size_t bufsiz) {
   std::string_view p(pathname);
-
-  if (p == "/proc/self/exe") {
-    auto str = myproc().get_bin_path();
-    size_t copy = std::min(bufsiz, str.size());
-    std::memcpy(buf, str.data(), copy);
-    return copy;
-  }
-
   Status<long> ret;
-
   if (p.empty()) {
     FileTable &ftbl = myproc().get_file_table();
     File *f = ftbl.Get(dirfd);
     if (unlikely(!f)) return -EBADF;
     ret = f->ReadLink(readable_span(buf, bufsiz));
   } else {
-    Status<std::shared_ptr<Inode>> tmp =
-        LookupInode(myproc(), dirfd, pathname, false);
+    Status<std::shared_ptr<Inode>> tmp = LookupInode(myproc(), dirfd, p, false);
     if (!tmp) return MakeCError(tmp);
     ret = DoReadLink(*tmp->get(), readable_span(buf, bufsiz));
   }
@@ -535,16 +526,8 @@ ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
 
 ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz) {
   std::string_view p(pathname);
-  // TODO(jf): remove this when ready.
-  if (p == "/proc/self/exe") {
-    auto str = myproc().get_bin_path();
-    size_t copy = std::min(bufsiz, str.size());
-    std::memcpy(buf, str.data(), copy);
-    return copy;
-  }
-
   FSRoot &fs = myproc().get_fs();
-  Status<std::shared_ptr<Inode>> tmp = LookupInode(fs, pathname, false);
+  Status<std::shared_ptr<Inode>> tmp = LookupInode(fs, p, false);
   if (!tmp) return MakeCError(tmp);
   Status<long> ret = DoReadLink(*tmp->get(), readable_span(buf, bufsiz));
   if (!ret) return MakeCError(ret);
@@ -687,6 +670,19 @@ Status<void> LinuxFSMount(std::shared_ptr<IDir> pos,
   return {};
 }
 
+Status<void> SetupProcFs(std::shared_ptr<IDir> root) {
+  // Overwrite Linux version of "/proc"
+  std::shared_ptr<IDir> memfs = memfs::MkFolder();
+  memfs->Mount("meminfo", MakeMemInfo());
+
+  std::shared_ptr<IDir> self = memfs::MkFolder();
+  self->Mount("exe", MakeSelfExe());
+  memfs->Mount("self", std::move(self));
+
+  root->Mount("proc", std::move(memfs));
+  return {};
+}
+
 Status<void> InitFs(
     const std::vector<std::pair<std::string, std::string>> &linux_mount_points,
     const std::vector<std::string> &mem_mount_points) {
@@ -707,8 +703,6 @@ Status<void> InitFs(
   // Enumerate all Linux folders to cache dents.
   if (GetCfg().cache_linux_fs()) Recurse(*tmp);
 
-#ifndef WRITEABLE_LINUX_FS
-
   // Mount the default memfs directory.
   if (Status<void> ret = MemFSMount(*tmp, "/memfs"); !ret) return ret;
 
@@ -716,7 +710,8 @@ Status<void> InitFs(
   for (const std::string &p : mem_mount_points) {
     if (Status<void> ret = MemFSMount(*tmp, p); !ret) return ret;
   }
-#endif
+
+  if (Status<void> ret = SetupProcFs(*tmp); !ret) return ret;
 
   FSRoot::InitFsRoot(std::move(*tmp));
 
@@ -735,6 +730,11 @@ Status<void> InitFs(
       std::static_pointer_cast<IDir>(std::move(*ino)));
 
   return {};
+}
+
+ino_t AllocateInodeNumber() {
+  static std::atomic_size_t inos;
+  return inos.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
 }  // namespace junction

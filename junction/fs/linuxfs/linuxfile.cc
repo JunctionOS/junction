@@ -1,5 +1,4 @@
 extern "C" {
-#include <sys/ioctl.h>
 #include <sys/stat.h>
 }
 
@@ -78,16 +77,6 @@ Status<void *> LinuxFile::MMap(void *addr, size_t length, int prot, int flags,
   intptr_t ret = ksys_mmap(addr, length, prot, flags, fd_, off);
   if (ret < 0) return MakeError(-ret);
   return reinterpret_cast<void *>(ret);
-}
-
-Status<void> LinuxFile::Ioctl(unsigned long request,
-                              [[maybe_unused]] char *argp) {
-  if (request == FIOCLEX) {
-    // Equivalent to: fcntl(fd, F_SETFD, FD_CLOEXEC)
-    set_flags(get_flags() | FD_CLOEXEC);
-    return {};
-  }
-  return MakeError(EINVAL);
 }
 
 }  // namespace junction::linuxfs

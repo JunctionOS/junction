@@ -80,9 +80,4 @@ std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode) {
   return std::make_shared<MemIDevice>(dev, mode);
 }
 
-ino_t AllocateInodeNumber() {
-  static std::atomic_size_t inos;
-  return inos.fetch_add(1, std::memory_order_relaxed) + 1;
-}
-
 }  // namespace junction::memfs

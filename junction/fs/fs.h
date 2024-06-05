@@ -238,11 +238,12 @@ class IDir : public Inode {
   }
 
   // Directly inserts this ino into the entries list.
-  Status<void> Mount(std::string name, std::shared_ptr<IDir> ino) {
-    Status<void> ret = Insert(name, ino);
-    if (!ret) return ret;
-    ino->SetParent(get_this(), name);
-    return {};
+  void Mount(std::string name, std::shared_ptr<Inode> ino) {
+    InsertLockedNoCheck(name, ino);
+    if (ino->is_dir()) {
+      IDir &dir = static_cast<IDir &>(*ino);
+      dir.SetParent(get_this(), name);
+    }
   }
 
  protected:
@@ -336,6 +337,9 @@ std::shared_ptr<IDir> MkFolder();
 Status<void> InitFs(
     const std::vector<std::pair<std::string, std::string>> &linux_mount_points,
     const std::vector<std::string> &mem_mount_points);
+
+// Allocate a unique inode number.
+ino_t AllocateInodeNumber();
 
 class Process;
 

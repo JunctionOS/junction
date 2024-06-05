@@ -38,8 +38,8 @@ class StdIOFile : public File {
   template <class Archive>
   static void load_and_construct(Archive &ar,
                                  cereal::construct<StdIOFile> &construct) {
-    int fd = 0;
-    unsigned int mode = 0;
+    int fd;
+    unsigned int mode;
     ar(fd, mode);
     construct(fd, mode);
 

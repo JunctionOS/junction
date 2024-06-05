@@ -5,7 +5,8 @@
 extern "C" {
 #include <signal.h>        // stack_t
 #include <sys/resource.h>  // rlimit
-#include <sys/time.h>      // iterval
+#include <sys/stat.h>      // stat
+#include <sys/time.h>      // itimerval
 }
 
 #include "junction/base/arch.h"
@@ -44,6 +45,11 @@ void serialize(Archive &archive, siginfo_t &s) {
 template <class Archive>
 void serialize(Archive &archive, netaddr &n) {
   archive(n.ip, n.port);
+}
+
+template <class Archive>
+void serialize(Archive &archive, struct stat &s) {
+  archive(cereal::binary_data(reinterpret_cast<uint8_t *>(&s), sizeof(s)));
 }
 
 }  // namespace cereal

@@ -140,9 +140,12 @@ getuid:::stub
 geteuid:::stub
 getgid:::stub
 getegid:::stub
+setfsuid:::stub
+setfsgid:::stub
 getxattr:::enotsup
 lgetxattr:::enotsup
 fgetxattr:::enotsup
+listxattr:::enotsup
 fadvise64:::stub
 utimensat:::stub
 futimens:::stub

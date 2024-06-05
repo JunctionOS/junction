@@ -9,6 +9,7 @@ add_library(fs
   linuxfs/linuxfs.cc
   memfs/memfs.cc
   memfs/dir.cc
+  procfs/procfs.cc
 )
 
 target_link_libraries(fs
