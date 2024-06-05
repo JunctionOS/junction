@@ -93,6 +93,16 @@ class Duration {
   // Enable comparisons
   constexpr auto operator<=>(const Duration &) const = default;
 
+  // Durations can be added.
+  constexpr Duration &operator+=(const Duration &rhs) {
+    duration_ += rhs.Microseconds();
+    return *this;
+  }
+
+  constexpr Duration operator+(const Duration &other) const {
+    return Duration(duration_ + other.Microseconds());
+  }
+
  private:
   int64_t duration_;
 };

@@ -32,9 +32,15 @@ long usys_clock_getres([[maybe_unused]] clockid_t clockid,
 }
 
 long usys_clock_gettime(clockid_t clockid, struct timespec *tp) {
-  if (unlikely(clockid == CLOCK_PROCESS_CPUTIME_ID ||
-               clockid == CLOCK_THREAD_CPUTIME_ID))
-    LOG_ONCE(WARN) << "FIXME: application using CPUTIME clock";
+  if (clockid == CLOCK_THREAD_CPUTIME_ID) {
+    *tp = mythread().GetRuntime().Timespec();
+    return 0;
+  }
+
+  if (clockid == CLOCK_PROCESS_CPUTIME_ID) {
+    *tp = myproc().GetRuntime().Timespec();
+    return 0;
+  }
 
   *tp = Time::Now().TimespecUnixTime();
   return 0;

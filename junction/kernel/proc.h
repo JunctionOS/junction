@@ -103,6 +103,11 @@ class Thread {
     if (sighand_.EnqueueSignal(info)) SendIpi();
   }
 
+  [[nodiscard]] Duration GetRuntime() {
+    return Duration(thread_get_total_cycles(GetCaladanThread()) /
+                    cycles_per_us);
+  }
+
   void SendIpi() {
     /*
      * Signals can be delivered at the following points:
@@ -472,6 +477,13 @@ class Process : public std::enable_shared_from_this<Process> {
     fs_.SetCwd(std::move(new_cwd));
   }
 
+  [[nodiscard]] Duration GetRuntime() {
+    Duration d(0);
+    rt::ScopedLock g(child_thread_lock_);
+    for (const auto &[_pid, th] : thread_map_) d += th->GetRuntime();
+    return d + accumulated_runtime_;
+  }
+
  private:
   friend class cereal::access;
 
@@ -670,6 +682,9 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Timers
   ITimer it_real_{*this};
+
+  // Counters
+  Duration accumulated_runtime_{0};  // Time from exited threads.
 
   static rt::Spin pid_map_lock_;
   static std::map<pid_t, Process *> pid_to_proc_;
