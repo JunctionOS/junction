@@ -2,6 +2,11 @@
 //
 // TODO(amb): Support the "packet mode" enabled by O_DIRECT?
 
+extern "C" {
+#include <net/ip.h>
+#include <sys/socket.h>
+}
+
 #include <atomic>
 #include <memory>
 
@@ -10,6 +15,7 @@
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/limits.h"
+#include "junction/net/socket.h"
 #include "junction/snapshot/cereal.h"
 
 namespace junction {
@@ -18,14 +24,15 @@ namespace {
 
 class Pipe {
  public:
-  friend std::pair<int, int> CreatePipe(int flags);
   friend class PipeReaderFile;
   friend class PipeWriterFile;
+  friend class PipeSocketFile;
 
   explicit Pipe(size_t size) noexcept : chan_(size) {}
   ~Pipe() = default;
 
-  Status<size_t> Read(std::span<std::byte> buf, bool nonblocking);
+  Status<size_t> Read(std::span<std::byte> buf, bool nonblocking,
+                      bool peek = false);
   Status<size_t> Write(std::span<const std::byte> buf, bool nonblocking);
   void CloseReader();
   void CloseWriter();
@@ -46,6 +53,9 @@ class Pipe {
     ar(p.chan_, p.reader_closed_, p.writer_closed_);
   }
 
+  [[nodiscard]] bool is_empty() const { return chan_.is_empty(); }
+  [[nodiscard]] bool is_full() const { return chan_.is_full(); }
+
  private:
   bool reader_is_closed() const {
     return reader_closed_.load(std::memory_order_acquire);
@@ -64,11 +74,12 @@ class Pipe {
   PollSource *write_poll_{nullptr};
 };
 
-Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking) {
+Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking,
+                          bool peek) {
   size_t n;
   while (true) {
     // Read from the channel (without locking).
-    Status<size_t> ret = chan_.Read(buf);
+    Status<size_t> ret = chan_.Read(buf, peek);
     if (ret) {
       n = *ret;
       break;
@@ -164,12 +175,18 @@ class PipeReaderFile : public File {
  public:
   PipeReaderFile(std::shared_ptr<Pipe> pipe, int flags) noexcept
       : File(FileType::kNormal, flags & kFlagNonblock, kModeRead),
-        pipe_(std::move(pipe)) {}
+        pipe_(std::move(pipe)) {
+    pipe_->read_poll_ = &get_poll_source();
+    if (pipe_->writer_is_closed() && !pipe_->reader_is_closed())
+      get_poll_source().Set(kPollHUp);
+    else if (!pipe_->is_empty())
+      get_poll_source().Set(kPollIn);
+  }
   ~PipeReaderFile() override { pipe_->CloseReader(); }
 
   Status<size_t> Read(std::span<std::byte> buf,
                       [[maybe_unused]] off_t *off) override {
-    return pipe_->Read(buf, (get_flags() & kFlagNonblock) != 0);
+    return pipe_->Read(buf, is_nonblocking());
   }
 
   Status<void> Stat(struct stat *statbuf) const override {
@@ -187,14 +204,13 @@ class PipeReaderFile : public File {
     ar(pipe_, cereal::base_class<File>(this));
   }
 
-  // default constructor, only for cereal
-  PipeReaderFile() noexcept : File(FileType::kNormal, 0, kModeRead) {}
-
   template <class Archive>
-  void load(Archive &ar) {
-    ar(pipe_, cereal::base_class<File>(this));
-    pipe_->read_poll_ = &get_poll_source();
-    if (!pipe_->chan_.is_empty()) pipe_->read_poll_->Set(kPollIn);
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<PipeReaderFile> &construct) {
+    std::shared_ptr<Pipe> pipe;
+    ar(pipe);
+    construct(std::move(pipe), 0);
+    ar(cereal::base_class<File>(construct.ptr()));
   }
 
   std::shared_ptr<Pipe> pipe_;
@@ -204,12 +220,18 @@ class PipeWriterFile : public File {
  public:
   PipeWriterFile(std::shared_ptr<Pipe> pipe, int flags) noexcept
       : File(FileType::kNormal, flags & kFlagNonblock, kModeWrite),
-        pipe_(std::move(pipe)) {}
+        pipe_(std::move(pipe)) {
+    pipe_->write_poll_ = &get_poll_source();
+    if (pipe_->reader_is_closed() && !pipe_->writer_is_closed())
+      get_poll_source().Set(kPollErr);
+    else if (!pipe_->is_full())
+      get_poll_source().Set(kPollOut);
+  }
   ~PipeWriterFile() override { pipe_->CloseWriter(); }
 
   Status<size_t> Write(std::span<const std::byte> buf,
                        [[maybe_unused]] off_t *off) override {
-    return pipe_->Write(buf, (get_flags() & kFlagNonblock) != 0);
+    return pipe_->Write(buf, is_nonblocking());
   }
 
   Status<void> Stat(struct stat *statbuf) const override {
@@ -226,14 +248,13 @@ class PipeWriterFile : public File {
     ar(pipe_, cereal::base_class<File>(this));
   }
 
-  // default constructor, only for cereal
-  PipeWriterFile() noexcept : File(FileType::kNormal, 0, kModeWrite) {}
-
   template <class Archive>
-  void load(Archive &ar) {
-    ar(pipe_, cereal::base_class<File>(this));
-    pipe_->write_poll_ = &get_poll_source();
-    if (!pipe_->chan_.is_full()) pipe_->write_poll_->Set(kPollOut);
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<PipeWriterFile> &construct) {
+    std::shared_ptr<Pipe> pipe;
+    ar(pipe);
+    construct(std::move(pipe), 0);
+    ar(cereal::base_class<File>(construct.ptr()));
   }
 
   std::shared_ptr<Pipe> pipe_;
@@ -245,12 +266,9 @@ std::pair<int, int> CreatePipe(int flags = 0) {
 
   // Create the reader file.
   auto reader = std::make_shared<PipeReaderFile>(pipe, flags);
-  pipe->read_poll_ = &reader->get_poll_source();
 
   // Create the writer file.
-  auto writer = std::make_shared<PipeWriterFile>(pipe, flags);
-  pipe->write_poll_ = &writer->get_poll_source();
-  pipe->write_poll_->Set(kPollOut);
+  auto writer = std::make_shared<PipeWriterFile>(std::move(pipe), flags);
 
   // Insert both files into the file table.
   FileTable &ftbl = myproc().get_file_table();
@@ -258,6 +276,77 @@ std::pair<int, int> CreatePipe(int flags = 0) {
   int read_fd = ftbl.Insert(std::move(reader), cloexec);
   int write_fd = ftbl.Insert(std::move(writer), cloexec);
   return std::make_pair(read_fd, write_fd);
+}
+
+class PipeSocketFile : public Socket {
+ public:
+  PipeSocketFile(std::shared_ptr<Pipe> rx, std::shared_ptr<Pipe> tx,
+                 int flags = 0)
+      : Socket(flags), rx_(std::move(rx)), tx_(std::move(tx)) {
+    rx_->read_poll_ = &get_poll_source();
+    tx_->write_poll_ = &get_poll_source();
+    if (!rx_->is_empty()) get_poll_source().Set(kPollIn);
+    if (!tx_->is_full()) get_poll_source().Set(kPollOut);
+  }
+  ~PipeSocketFile() override = default;
+
+  Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
+                          bool peek = false) override {
+    if (raddr) *raddr = {MAKE_IP_ADDR(127, 0, 0, 1), 0};
+    return rx_->Read(buf, is_nonblocking(), peek);
+  }
+
+  Status<size_t> WriteTo(std::span<const std::byte> buf,
+                         const netaddr *raddr) override {
+    return tx_->Write(buf, is_nonblocking());
+  }
+
+  Status<size_t> WritevTo(std::span<const iovec> iov,
+                          const netaddr *raddr) override {
+    off_t off;
+    return File::Writev(iov, &off);
+  }
+
+  Status<size_t> Write(std::span<const std::byte> buf, off_t *off) {
+    return tx_->Write(buf, is_nonblocking());
+  }
+
+ private:
+  friend cereal::access;
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(rx_, tx_, cereal::base_class<Socket>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<PipeSocketFile> &construct) {
+    std::shared_ptr<Pipe> rx;
+    std::shared_ptr<Pipe> tx;
+    ar(rx, tx);
+    construct(std::move(rx), std::move(tx), 0);
+    ar(cereal::base_class<Socket>(construct.ptr()));
+  }
+
+  std::shared_ptr<Pipe> rx_;
+  std::shared_ptr<Pipe> tx_;
+};
+
+std::pair<int, int> CreatePipeSocket(int flags = 0) {
+  auto p1 = std::make_shared<Pipe>(kPipeSize);
+  auto p2 = std::make_shared<Pipe>(kPipeSize);
+
+  // Create the reader file.
+  auto pipe1 = std::make_shared<PipeSocketFile>(p1, p2, flags);
+  auto pipe2 =
+      std::make_shared<PipeSocketFile>(std::move(p2), std::move(p1), flags);
+
+  // Insert both files into the file table.
+  FileTable &ftbl = myproc().get_file_table();
+  bool cloexec = (flags & kFlagCloseExec) > 0;
+  int fd1 = ftbl.Insert(std::move(pipe1), cloexec);
+  int fd2 = ftbl.Insert(std::move(pipe2), cloexec);
+  return std::make_pair(fd1, fd2);
 }
 
 }  // namespace
@@ -278,7 +367,18 @@ long usys_pipe2(int pipefd[2], int flags) {
   return 0;
 }
 
+long usys_socketpair(int domain, int type, [[maybe_unused]] int protocol,
+                     int sv[2]) {
+  if (domain != AF_UNIX) return -EAFNOSUPPORT;
+  if ((type & kSockTypeMask) != SOCK_STREAM) return -EINVAL;
+  auto [fd1, fd2] = CreatePipeSocket(type & ~kSockTypeMask);
+  sv[0] = fd1;
+  sv[1] = fd2;
+  return 0;
+}
+
 }  // namespace junction
 
 CEREAL_REGISTER_TYPE(junction::PipeReaderFile);
 CEREAL_REGISTER_TYPE(junction::PipeWriterFile);
+CEREAL_REGISTER_TYPE(junction::PipeSocketFile);

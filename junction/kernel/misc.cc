@@ -24,11 +24,6 @@ utsname utsname = {.sysname = "Linux",
                    .machine = "x86_64"};
 }
 
-long usys_socketpair(int domain, int type, int protocol, int sv[2]) {
-  sv[0] = sv[1] = 0;
-  return 0;
-}
-
 long usys_uname(struct utsname *buf) {
   if (!buf) return -EFAULT;
   std::memcpy(buf, &utsname, sizeof(utsname));

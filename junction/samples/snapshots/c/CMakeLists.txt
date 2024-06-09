@@ -25,6 +25,10 @@ add_executable(st_pipe
 	st_pipe.cc
 )
 
+add_executable(st_socketpair
+  st_socketpair.cc
+)
+
 add_executable(st_stdio_file
 	st_stdio_file.cc
 )
@@ -89,6 +93,19 @@ add_test(
   NAME c_st_pipe_restore
   COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
   /tmp/st_pipe.metadata /tmp/st_pipe.elf"
+)
+
+# st_socketpair
+add_test(
+  NAME c_st_socketpair_snapshot
+  COMMAND sh -c "rm -f /tmp/st_socketpair.metadata /tmp/st_socketpair.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/st_socketpair --\
+  $<TARGET_FILE:st_socketpair>"
+)
+
+add_test(
+  NAME c_st_socketpair_restore
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
+  /tmp/st_socketpair.metadata /tmp/st_socketpair.elf"
 )
 
 # st_stdio_file

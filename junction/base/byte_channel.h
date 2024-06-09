@@ -39,7 +39,7 @@ class ByteChannel {
   [[nodiscard]] size_t get_size() const { return size_; }
 
   // Reads bytes out of the channel. May return less than the bytes available.
-  Status<size_t> Read(std::span<std::byte> buf);
+  Status<size_t> Read(std::span<std::byte> buf, bool peek = false);
   // Writes bytes in to the channel. May return less than the bytes available.
   Status<size_t> Write(std::span<const std::byte> buf);
 
@@ -86,7 +86,7 @@ inline bool ByteChannel::is_full() const {
          size_;
 }
 
-inline Status<size_t> ByteChannel::Read(std::span<std::byte> buf) {
+inline Status<size_t> ByteChannel::Read(std::span<std::byte> buf, bool peek) {
   size_t in = in_.load(std::memory_order_acquire);
   size_t out = out_.load(std::memory_order_relaxed);
   size_t n = std::min(in - out, buf.size());
@@ -97,13 +97,13 @@ inline Status<size_t> ByteChannel::Read(std::span<std::byte> buf) {
   if (n > n_to_end) {
     std::copy_n(std::begin(buf_) + (out & mask_), n_to_end, buf.begin());
     std::copy_n(std::begin(buf_), n - n_to_end, buf.begin() + n_to_end);
-    out_.store(out + n, std::memory_order_release);
+    if (!peek) out_.store(out + n, std::memory_order_release);
     return n;
   }
 
   // Otherwise do a single copy.
   std::copy_n(std::begin(buf_) + (out & mask_), n, buf.begin());
-  out_.store(out + n, std::memory_order_release);
+  if (!peek) out_.store(out + n, std::memory_order_release);
   return n;
 }
 

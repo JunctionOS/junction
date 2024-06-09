@@ -17,6 +17,7 @@ static_assert(kFlagCloseExec == SOCK_CLOEXEC);
 
 inline constexpr unsigned int kMsgNoSignal = MSG_NOSIGNAL;
 inline constexpr unsigned int kMsgPeek = MSG_PEEK;
+inline constexpr unsigned int kSockTypeMask = 0xf;
 
 class Socket : public File {
  public:
@@ -46,6 +47,20 @@ class Socket : public File {
   virtual Status<void> Shutdown(int how) { return MakeError(ENOTCONN); }
   virtual Status<netaddr> RemoteAddr() const { return MakeError(ENOTCONN); }
   virtual Status<netaddr> LocalAddr() const { return MakeError(ENOTCONN); }
+
+  Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
+    return ReadFrom(buf, nullptr);
+  }
+
+  Status<size_t> Write(std::span<const std::byte> buf, off_t *off) override {
+    return WriteTo(buf, nullptr);
+  }
+
+  Status<void> Stat(struct stat *statbuf) const override {
+    memset(statbuf, 0, sizeof(*statbuf));
+    statbuf->st_mode = S_IFSOCK | S_IRUSR;
+    return {};
+  }
 
  private:
   friend class cereal::access;
