@@ -239,6 +239,7 @@ class IDir : public Inode {
 
   // Directly inserts this ino into the entries list.
   void Mount(std::string name, std::shared_ptr<Inode> ino) {
+    rt::MutexGuard g(lock_);
     InsertLockedNoCheck(name, ino);
     if (ino->is_dir()) {
       IDir &dir = static_cast<IDir &>(*ino);
