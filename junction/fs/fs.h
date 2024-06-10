@@ -254,7 +254,7 @@ class IDir : public Inode {
   void InsertLockedNoCheck(std::string_view name, std::shared_ptr<Inode> ino) {
     assert(lock_.IsHeld());
     ino->inc_nlink();
-    entries_.emplace(name, std::move(ino));
+    entries_[std::string(name)] = std::move(ino);
   }
 
   [[nodiscard]] Status<void> InsertLocked(std::string name,

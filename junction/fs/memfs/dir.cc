@@ -119,8 +119,7 @@ Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
     tdir.SetParent(get_this(), dst_name);
   }
 
-  entries_.emplace(std::string(dst_name), std::move(ino));
-
+  entries_[std::string(dst_name)] = std::move(ino);
   return {};
 }
 

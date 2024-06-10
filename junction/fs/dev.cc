@@ -17,8 +17,9 @@ template <Status<size_t> (*Reader)(std::span<std::byte>, bool),
           Status<size_t> (*Writer)(std::span<const std::byte>)>
 class SpecialFile : public File {
  public:
-  SpecialFile(unsigned int flags, unsigned int mode) noexcept
-      : File(FileType::kSpecial, flags, mode) {}
+  SpecialFile(unsigned int flags, unsigned int mode,
+              std::shared_ptr<Inode> ino) noexcept
+      : File(FileType::kSpecial, flags, mode, std::move(ino)) {}
   ~SpecialFile() override = default;
 
   Status<size_t> Read(std::span<std::byte> buf,
@@ -78,11 +79,13 @@ using CDevURandomFile = SpecialFile<CDevReadURandom, CDevWriteNull>;
 
 template <typename T>
   requires(std::derived_from<T, File>)
-std::shared_ptr<File> MakeFile(unsigned int flags, unsigned int mode) {
-  return std::make_shared<T>(flags, mode);
+std::shared_ptr<File> MakeFile(unsigned int flags, unsigned int mode,
+                               std::shared_ptr<Inode> ino) {
+  return std::make_shared<T>(flags, mode, std::move(ino));
 }
 
-using FactoryPtr = std::shared_ptr<File> (*)(unsigned int flags, mode_t mode);
+using FactoryPtr = std::shared_ptr<File> (*)(unsigned int flags, mode_t mode,
+                                             std::shared_ptr<Inode> ino);
 
 // Table of supported character devices
 const std::map<dev_t, FactoryPtr> CharacterDevices{
@@ -104,7 +107,7 @@ Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, dev_t dev,
   if (it == CharacterDevices.end()) return MakeError(ENODEV);
 
   // Create the file.
-  return it->second(flags, mode);
+  return it->second(flags, mode, ino.get_this());
 }
 
 }  // namespace junction

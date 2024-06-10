@@ -5,6 +5,7 @@
 #include <utility>
 
 #include "junction/base/string.h"
+#include "junction/fs/dev.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
 #include "junction/fs/procfs/procfs.h"
@@ -683,6 +684,25 @@ Status<void> SetupProcFs(std::shared_ptr<IDir> root) {
   return {};
 }
 
+Status<void> SetupDevices(std::shared_ptr<IDir> root) {
+  std::shared_ptr<IDir> memfs = memfs::MkFolder();
+
+  mode_t mode = kTypeCharacter | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP |
+                S_IROTH | S_IWOTH;
+
+  if (Status<void> ret = memfs->MkNod("null", mode, MakeDevice(1, 3)); !ret)
+    return ret;
+  if (Status<void> ret = memfs->MkNod("zero", mode, MakeDevice(1, 5)); !ret)
+    return ret;
+  if (Status<void> ret = memfs->MkNod("random", mode, MakeDevice(1, 8)); !ret)
+    return ret;
+  if (Status<void> ret = memfs->MkNod("urandom", mode, MakeDevice(1, 9)); !ret)
+    return ret;
+
+  root->Mount("dev", std::move(memfs));
+  return {};
+}
+
 Status<void> InitFs(
     const std::vector<std::pair<std::string, std::string>> &linux_mount_points,
     const std::vector<std::string> &mem_mount_points) {
@@ -693,6 +713,10 @@ Status<void> InitFs(
   linux_root.inc_nlink();
   // root's parent is itself.
   linux_root.SetParent(*tmp, ".");
+
+  if (Status<void> ret = SetupProcFs(*tmp); !ret) return ret;
+
+  if (Status<void> ret = SetupDevices(*tmp); !ret) return ret;
 
   // Mount any additional linux mountpoints/filesystems.
   for (const auto &[mount_path, host_path] : linux_mount_points) {
@@ -710,8 +734,6 @@ Status<void> InitFs(
   for (const std::string &p : mem_mount_points) {
     if (Status<void> ret = MemFSMount(*tmp, p); !ret) return ret;
   }
-
-  if (Status<void> ret = SetupProcFs(*tmp); !ret) return ret;
 
   FSRoot::InitFsRoot(std::move(*tmp));
 

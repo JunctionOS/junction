@@ -253,7 +253,7 @@ Status<void> LinuxIDir::DoRename(LinuxIDir &src, std::string_view src_name,
       IDir &tdir = static_cast<IDir &>(*ino);
       tdir.SetParent(get_this(), dst_name);
     }
-    entries_.emplace(dst_name, std::move(ino));
+    entries_[std::string(dst_name)] = std::move(ino);
     return {};
   }
 
