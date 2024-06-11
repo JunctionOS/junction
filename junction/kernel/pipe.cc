@@ -37,6 +37,26 @@ class Pipe {
   void CloseReader();
   void CloseWriter();
 
+  void AttachReadPoll(PollSource *p) {
+    assert(!read_poll_);
+    read_poll_ = p;
+    if (reader_is_closed()) return;
+    if (writer_is_closed())
+      read_poll_->Set(kPollHUp);
+    else if (!is_empty())
+      read_poll_->Set(kPollIn);
+  }
+
+  void AttachWritePoll(PollSource *p) {
+    assert(!write_poll_);
+    write_poll_ = p;
+    if (writer_is_closed()) return;
+    if (reader_is_closed())
+      write_poll_->Set(kPollErr);
+    else if (!is_full())
+      write_poll_->Set(kPollOut);
+  }
+
   template <class Archive>
   void save(Archive &ar) const {
     ar(chan_.get_size(), chan_, reader_closed_, writer_closed_);
@@ -176,11 +196,7 @@ class PipeReaderFile : public File {
   PipeReaderFile(std::shared_ptr<Pipe> pipe, int flags) noexcept
       : File(FileType::kNormal, flags & kFlagNonblock, kModeRead),
         pipe_(std::move(pipe)) {
-    pipe_->read_poll_ = &get_poll_source();
-    if (pipe_->writer_is_closed() && !pipe_->reader_is_closed())
-      get_poll_source().Set(kPollHUp);
-    else if (!pipe_->is_empty())
-      get_poll_source().Set(kPollIn);
+    pipe_->AttachReadPoll(&get_poll_source());
   }
   ~PipeReaderFile() override { pipe_->CloseReader(); }
 
@@ -221,11 +237,7 @@ class PipeWriterFile : public File {
   PipeWriterFile(std::shared_ptr<Pipe> pipe, int flags) noexcept
       : File(FileType::kNormal, flags & kFlagNonblock, kModeWrite),
         pipe_(std::move(pipe)) {
-    pipe_->write_poll_ = &get_poll_source();
-    if (pipe_->reader_is_closed() && !pipe_->writer_is_closed())
-      get_poll_source().Set(kPollErr);
-    else if (!pipe_->is_full())
-      get_poll_source().Set(kPollOut);
+    pipe_->AttachWritePoll(&get_poll_source());
   }
   ~PipeWriterFile() override { pipe_->CloseWriter(); }
 
@@ -283,12 +295,31 @@ class PipeSocketFile : public Socket {
   PipeSocketFile(std::shared_ptr<Pipe> rx, std::shared_ptr<Pipe> tx,
                  int flags = 0)
       : Socket(flags), rx_(std::move(rx)), tx_(std::move(tx)) {
-    rx_->read_poll_ = &get_poll_source();
-    tx_->write_poll_ = &get_poll_source();
-    if (!rx_->is_empty()) get_poll_source().Set(kPollIn);
-    if (!tx_->is_full()) get_poll_source().Set(kPollOut);
+    rx_->AttachReadPoll(&get_poll_source());
+    tx_->AttachWritePoll(&get_poll_source());
   }
-  ~PipeSocketFile() override = default;
+  ~PipeSocketFile() override {
+    rx_->CloseReader();
+    tx_->CloseWriter();
+  }
+
+  Status<void> Shutdown(int how) override {
+    switch (how) {
+      case SHUT_RD:
+        rx_->CloseReader();
+        break;
+      case SHUT_WR:
+        tx_->CloseWriter();
+        break;
+      case SHUT_RDWR:
+        rx_->CloseReader();
+        tx_->CloseWriter();
+        break;
+      default:
+        return MakeError(EINVAL);
+    }
+    return {};
+  }
 
   Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
                           bool peek = false) override {
@@ -307,7 +338,7 @@ class PipeSocketFile : public Socket {
     return File::Writev(iov, &off);
   }
 
-  Status<size_t> Write(std::span<const std::byte> buf, off_t *off) {
+  Status<size_t> Write(std::span<const std::byte> buf, off_t *off) override {
     return tx_->Write(buf, is_nonblocking());
   }
 
