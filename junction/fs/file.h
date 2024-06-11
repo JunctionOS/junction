@@ -163,6 +163,14 @@ class File : public std::enable_shared_from_this<File> {
     NotifyFlagsChanging(flags_, flags);
     flags_ = flags;
   }
+  void set_flag(unsigned int flag) {
+    NotifyFlagsChanging(flags_, flags_ | flag);
+    flags_ |= flag;
+  }
+  void clear_flag(unsigned int flag) {
+    NotifyFlagsChanging(flags_, flags_ & ~flag);
+    flags_ &= ~flag;
+  }
   [[nodiscard]] unsigned int get_mode() const { return mode_; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
   [[nodiscard]] bool is_nonblocking() const {
@@ -357,6 +365,9 @@ class FileTable {
 
   // Tests if an fd is close-on-exec.
   bool TestCloseOnExec(int fd);
+
+  // Set an fd as not close-on-exec.
+  void ClearCloseOnExec(int fd);
 
   // Runs a function on each file descriptor in the table. Preemption is
   // disabled during each call to the function.

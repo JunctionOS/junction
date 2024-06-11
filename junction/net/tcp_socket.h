@@ -91,21 +91,6 @@ class TCPSocket : public Socket {
     return MakeError(ENOTCONN);
   }
 
-  Status<void> Ioctl(unsigned long request,
-                     [[maybe_unused]] char *argp) override {
-    switch (request) {
-      case FIONBIO:
-        set_flags(get_flags() | kFlagNonblock);
-        return {};
-      case FIONCLEX:
-        set_flags(get_flags() | kFlagCloseExec);
-        return {};
-      default:
-        LOG_ONCE(WARN) << "Unsupported ioctl request: " << request;
-        return MakeError(EINVAL);
-    }
-  }
-
   Status<netaddr> RemoteAddr() const override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(ENOTCONN);

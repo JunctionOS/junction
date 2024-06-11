@@ -174,6 +174,12 @@ bool FileTable::TestCloseOnExec(int fd) {
   return close_on_exec_.test(fd);
 }
 
+void FileTable::ClearCloseOnExec(int fd) {
+  rt::SpinGuard g(lock_);
+  assert(static_cast<size_t>(fd) < farr_->len && farr_->files[fd]);
+  return close_on_exec_.clear(fd);
+}
+
 void FileTable::DoCloseOnExec() {
   rt::SpinGuard g(lock_);
   for_each_set_bit(close_on_exec_,
@@ -277,8 +283,12 @@ Status<void> File::StatFS(struct statfs *buf) const {
 }
 
 Status<void> File::Ioctl(unsigned long request, char *argp) {
-  if (request == FIOCLEX) {
-    set_flags(get_flags() | kFlagCloseExec);
+  if (request == FIONBIO) {
+    int nonblock = *reinterpret_cast<int *>(argp);
+    if (nonblock)
+      set_flag(kFlagNonblock);
+    else
+      clear_flag(kFlagNonblock);
     return {};
   }
 
@@ -600,10 +610,21 @@ long usys_close_range(int first, int last, unsigned int flags) {
   return 0;
 }
 
+bool DoFileTableIoctls(FileTable &ftbl, int fd, unsigned long request) {
+  if (request == FIOCLEX)
+    ftbl.SetCloseOnExec(fd);
+  else if (request == FIONCLEX)
+    ftbl.ClearCloseOnExec(fd);
+  else
+    return false;
+  return true;
+}
+
 long usys_ioctl(int fd, unsigned long request, char *argp) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
+  if (DoFileTableIoctls(ftbl, fd, request)) return 0;
   auto ret = f->Ioctl(request, argp);
   if (!ret) return MakeCError(ret);
   return 0;
