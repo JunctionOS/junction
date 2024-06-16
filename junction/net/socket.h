@@ -21,7 +21,8 @@ inline constexpr unsigned int kSockTypeMask = 0xf;
 
 class Socket : public File {
  public:
-  Socket(int flags = 0) : File(FileType::kSocket, flags, kModeReadWrite) {}
+  Socket(int flags = 0)
+      : File(FileType::kSocket, flags, FileMode::kReadWrite) {}
   ~Socket() override = default;
 
   virtual Status<void> Bind(netaddr addr) { return MakeError(EINVAL); }

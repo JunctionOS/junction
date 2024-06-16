@@ -26,7 +26,7 @@ class EventFDFile : public File {
  public:
   EventFDFile(unsigned int initval, int flags) noexcept
       : File(FileType::kNormal, flags & kEventFdSupportedFlags,
-             kModeReadWrite) {
+             FileMode::kReadWrite) {
     val_ = initval;
     get_poll_source().Set(kPollOut);
   }
@@ -43,7 +43,7 @@ class EventFDFile : public File {
   friend class cereal::access;
 
   // Constructor for cereal.
-  EventFDFile() : File(FileType::kNormal, 0, kModeReadWrite) {}
+  EventFDFile() : File(FileType::kNormal, 0, FileMode::kReadWrite) {}
 
   template <class Archive>
   void save(Archive &ar) const {

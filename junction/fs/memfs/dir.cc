@@ -122,17 +122,17 @@ Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
 }
 
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
-                                              mode_t mode) {
+                                              mode_t mode, FileMode fmode) {
   rt::MutexGuard g_(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) {
     auto ino = std::make_shared<MemInode>(mode);
     InsertLockedNoCheck(name, ino);
-    return ino->Open(flags, mode);
+    return ino->Open(flags, fmode);
   }
 
   if (flags & kFlagExclusive) return MakeError(EEXIST);
-  return it->second->Open(flags, mode);
+  return it->second->Open(flags, fmode);
 }
 
 std::vector<dir_entry> MemIDir::GetDents() {

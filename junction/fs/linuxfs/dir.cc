@@ -277,12 +277,13 @@ inline std::shared_ptr<LinuxInode> CastToLinuxInode(std::shared_ptr<Inode> in) {
 }
 
 Status<std::shared_ptr<File>> LinuxWrIDir::Create(std::string_view name,
-                                                  int flags, mode_t mode) {
+                                                  int flags, mode_t mode,
+                                                  FileMode fmode) {
   assert(flags & O_CREAT);
   std::string abspath = AppendFileName(name);
   std::shared_ptr<LinuxInode> ino;
   rt::MutexGuard g(lock_);
-  Status<KernelFile> f = linux_root_fd.OpenAt(abspath, flags, mode);
+  Status<KernelFile> f = linux_root_fd.OpenAt(abspath, flags, fmode, mode);
   if (!f) return MakeError(f);
 
   if (!initialized_) Initialize();
@@ -303,7 +304,7 @@ Status<std::shared_ptr<File>> LinuxWrIDir::Create(std::string_view name,
     ino = CastToLinuxInode(std::move(*in));
   }
 
-  return std::make_shared<LinuxFile>(std::move(*f), flags, mode,
+  return std::make_shared<LinuxFile>(std::move(*f), flags, fmode,
                                      std::move(abspath), std::move(ino));
 }
 

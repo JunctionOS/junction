@@ -55,7 +55,7 @@ class MemInode : public Inode {
   }
 
   // Open a file for this inode.
-  Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) override;
+  Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override;
 
   Status<void> GetStatFS(struct statfs *buf) const override {
     StatFs(buf);
@@ -91,7 +91,7 @@ class MemIDir : public IDir {
                       std::string_view dst_name, bool replace) override;
   Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino) override;
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
-                                       mode_t mode) override;
+                                       mode_t mode, FileMode fmode) override;
   std::vector<dir_entry> GetDents() override;
 
   // Inode ops

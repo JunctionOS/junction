@@ -204,17 +204,19 @@ Status<void> HardLink(std::shared_ptr<Inode> src, const Entry &dst_path) {
 }
 
 Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
-                                   int flags, mode_t mode) {
+                                   int combined_flags, mode_t mode) {
   auto &[idir, name, must_be_dir] = path;
+
+  auto [flags, fmode] = FromFlags(combined_flags);
 
   // Special case for "/"
   if (!name.size()) {
     if (flags & kFlagExclusive) return MakeError(EINVAL);
-    return idir->Open(mode, flags);
+    return idir->Open(flags, fmode);
   }
 
   if (flags & kFlagCreate)
-    return idir->Create(name, flags, mode & ~fs.get_umask());
+    return idir->Create(name, flags, mode & ~fs.get_umask(), fmode);
 
   Status<std::shared_ptr<Inode>> in = idir->Lookup(name);
   if (!in) return MakeError(ENOENT);
@@ -225,7 +227,7 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
     in = WalkPath(fs, std::move(idir), {name}, true);
     if (!in) return MakeError(in);
   }
-  return (*in)->Open(mode, flags);
+  return (*in)->Open(flags, fmode);
 }
 
 }  // namespace

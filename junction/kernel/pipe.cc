@@ -194,7 +194,7 @@ void Pipe::CloseWriter() {
 class PipeReaderFile : public File {
  public:
   PipeReaderFile(std::shared_ptr<Pipe> pipe, int flags) noexcept
-      : File(FileType::kNormal, flags & kFlagNonblock, kModeRead),
+      : File(FileType::kNormal, flags & kFlagNonblock, FileMode::kRead),
         pipe_(std::move(pipe)) {
     pipe_->AttachReadPoll(&get_poll_source());
   }
@@ -235,7 +235,7 @@ class PipeReaderFile : public File {
 class PipeWriterFile : public File {
  public:
   PipeWriterFile(std::shared_ptr<Pipe> pipe, int flags) noexcept
-      : File(FileType::kNormal, flags & kFlagNonblock, kModeWrite),
+      : File(FileType::kNormal, flags & kFlagNonblock, FileMode::kWrite),
         pipe_(std::move(pipe)) {
     pipe_->AttachWritePoll(&get_poll_source());
   }

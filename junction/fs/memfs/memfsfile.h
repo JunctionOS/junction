@@ -8,7 +8,7 @@ namespace junction::memfs {
 
 class MemFSFile : public SeekableFile {
  public:
-  MemFSFile(unsigned int flags, mode_t mode, std::shared_ptr<MemInode> ino)
+  MemFSFile(unsigned int flags, FileMode mode, std::shared_ptr<MemInode> ino)
       : SeekableFile(FileType::kNormal, flags, mode, std::move(ino)) {}
 
   Status<void> Truncate(off_t newlen) override {

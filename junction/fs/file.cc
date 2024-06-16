@@ -203,7 +203,7 @@ long usys_ftruncate(int fd, off_t length) {
 ssize_t usys_read(int fd, char *buf, size_t len) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
+  if (unlikely(!f || !f->is_readable())) return -EBADF;
   Status<size_t> ret = f->Read(readable_span(buf, len), &f->get_off_ref());
   if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
@@ -212,7 +212,7 @@ ssize_t usys_read(int fd, char *buf, size_t len) {
 ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
+  if (unlikely(!f || !f->is_readable())) return -EBADF;
   Status<size_t> ret =
       f->Readv({iov, static_cast<size_t>(iovcnt)}, &f->get_off_ref());
   if (!ret) return MakeCError(ret);
@@ -222,7 +222,7 @@ ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt) {
 ssize_t usys_write(int fd, const char *buf, size_t len) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  if (unlikely(!f || !f->is_writeable())) return -EBADF;
   Status<size_t> ret = f->Write(writable_span(buf, len), &f->get_off_ref());
   if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
@@ -231,7 +231,7 @@ ssize_t usys_write(int fd, const char *buf, size_t len) {
 ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f || f->get_mode() == kModeWrite)) return -EBADF;
+  if (unlikely(!f || !f->is_readable())) return -EBADF;
   Status<size_t> ret = f->Read(readable_span(buf, len), &offset);
   if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
@@ -355,7 +355,7 @@ Status<long> DoDirent(IDir &dir, std::span<std::byte> dirp, off_t &off,
   return dirp.size() - out.size();
 }
 
-DirectoryFile::DirectoryFile(unsigned int flags, mode_t mode,
+DirectoryFile::DirectoryFile(unsigned int flags, FileMode mode,
                              std::shared_ptr<IDir> ino)
     : File(FileType::kDirectory, flags, mode, std::move(ino)) {}
 
@@ -369,7 +369,7 @@ Status<long> DirectoryFile::GetDents64(std::span<std::byte> dirp, off_t *off) {
   return DoDirent(dir, dirp, *off, DirentToDent64);
 }
 
-SoftLinkFile::SoftLinkFile(unsigned int flags, mode_t mode,
+SoftLinkFile::SoftLinkFile(unsigned int flags, FileMode mode,
                            std::shared_ptr<ISoftLink> ino)
     : File(FileType::kSymlink, flags, mode, std::move(ino)) {}
 
@@ -385,7 +385,7 @@ ssize_t usys_writev(int fd, const iovec *iov, int iovcnt) {
   if (iovcnt <= 0) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  if (unlikely(!f || !f->is_writeable())) return -EBADF;
   Status<size_t> ret =
       f->Writev({iov, static_cast<size_t>(iovcnt)}, &f->get_off_ref());
   if (!ret) return MakeCError(ret);
@@ -396,7 +396,7 @@ ssize_t usys_pwritev(int fd, const iovec *iov, int iovcnt, off_t offset) {
   if (iovcnt <= 0) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  if (unlikely(!f || !f->is_writeable())) return -EBADF;
   Status<size_t> ret = f->Writev({iov, static_cast<size_t>(iovcnt)}, &offset);
   if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
@@ -409,7 +409,7 @@ ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
   if (iovcnt <= 0) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  if (unlikely(!f || !f->is_writeable())) return -EBADF;
   Status<size_t> ret = f->Writev({iov, static_cast<size_t>(iovcnt)}, &offset);
   if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
@@ -418,7 +418,7 @@ ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
 ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
-  if (unlikely(!f || f->get_mode() == kModeRead)) return -EBADF;
+  if (unlikely(!f || !f->is_writeable())) return -EBADF;
   Status<size_t> ret = f->Write(writable_span(buf, len), &offset);
   if (!ret) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
@@ -428,9 +428,9 @@ ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
 ssize_t usys_sendfile(int out_fd, int in_fd, off_t *offset, size_t count) {
   FileTable &ftbl = myproc().get_file_table();
   File *fout = ftbl.Get(out_fd);
-  if (unlikely(!fout || fout->get_mode() == kModeRead)) return -EBADF;
+  if (unlikely(!fout || !fout->is_writeable())) return -EBADF;
   File *fin = ftbl.Get(in_fd);
-  if (unlikely(!fin || fin->get_mode() == kModeWrite ||
+  if (unlikely(!fin || !fin->is_readable() ||
                fin->get_type() == FileType::kSocket))
     return -EBADF;
   std::vector<std::byte> buf(count);
@@ -576,7 +576,7 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
       ftbl.SetCloseOnExec(fd);
       return 0;
     case F_GETFL:
-      return f->get_mode() | f->get_flags();
+      return ToFlags(f->get_mode()) | f->get_flags();
     case F_SETFL:
       arg &= ~(O_RDONLY | O_WRONLY | O_RDWR | O_CREAT | O_EXCL | O_NOCTTY |
                O_TRUNC);

@@ -35,7 +35,10 @@ int WriteFull(const int fd, const unsigned char *buf, const int size) {
 
   while (n < size) {
     int pret = poll(&pfd, 1, -1);
-    assert(pret == 1);
+    if (pret != 1) {
+      perror("poll");
+      return -1;
+    }
     assert(pfd.revents == POLLOUT);
 
     ssize_t ret = write(fd, buf + n, size - n);

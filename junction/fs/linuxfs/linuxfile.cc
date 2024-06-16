@@ -16,7 +16,7 @@ extern "C" {
 
 namespace junction::linuxfs {
 
-LinuxFile::LinuxFile(KernelFile &&f, int flags, mode_t mode,
+LinuxFile::LinuxFile(KernelFile &&f, int flags, FileMode mode,
                      std::string &&pathname,
                      std::shared_ptr<LinuxInode> ino) noexcept
     : SeekableFile(FileType::kNormal, flags, mode, std::move(pathname),
@@ -25,7 +25,7 @@ LinuxFile::LinuxFile(KernelFile &&f, int flags, mode_t mode,
   f.Release();
 }
 
-LinuxFile::LinuxFile(KernelFile &&f, int flags, mode_t mode,
+LinuxFile::LinuxFile(KernelFile &&f, int flags, FileMode mode,
                      std::string_view pathname,
                      std::shared_ptr<LinuxInode> ino) noexcept
     : SeekableFile(FileType::kNormal, flags, mode, pathname, std::move(ino)),

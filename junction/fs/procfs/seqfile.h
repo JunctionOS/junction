@@ -9,9 +9,8 @@ namespace junction {
 
 class SeqFile : public File {
  public:
-  SeqFile(unsigned int flags, mode_t mode, std::shared_ptr<Inode> ino,
-          std::string &&output)
-      : File(FileType::kNormal, flags, mode, std::move(ino)),
+  SeqFile(unsigned int flags, std::shared_ptr<Inode> ino, std::string &&output)
+      : File(FileType::kNormal, flags, FileMode::kRead, std::move(ino)),
         output_(std::move(output)) {}
   ~SeqFile() = default;
 
@@ -32,12 +31,13 @@ class SeqFile : public File {
 
  private:
   friend cereal::access;
-  SeqFile(mode_t mode, std::string &&output)
-      : File(FileType::kNormal, 0, mode), output_(std::move(output)) {}
+  SeqFile(std::string &&output)
+      : File(FileType::kNormal, 0, FileMode::kRead),
+        output_(std::move(output)) {}
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(get_mode(), output_, cereal::base_class<File>(this));
+    ar(output_, cereal::base_class<File>(this));
     if (has_stat_) {
       ar(true, stat_);
       return;
@@ -59,10 +59,9 @@ class SeqFile : public File {
   static void load_and_construct(Archive &ar,
                                  cereal::construct<SeqFile> &construct) {
     std::string output;
-    mode_t mode;
-    ar(mode, output);
+    ar(output);
 
-    construct(mode, std::move(output));
+    construct(std::move(output));
     SeqFile &f = *construct.ptr();
     ar(cereal::base_class<File>(&f), f.has_stat_);
     if (f.has_stat_) ar(f.stat_);

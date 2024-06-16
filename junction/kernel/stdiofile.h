@@ -17,7 +17,7 @@ constexpr int kStdErrFileNo = STDERR_FILENO;
 
 class StdIOFile : public File {
  public:
-  StdIOFile(int fd, unsigned int mode);
+  StdIOFile(int fd, FileMode mode);
   virtual ~StdIOFile();
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
   virtual Status<size_t> Write(std::span<const std::byte> buf,
@@ -39,7 +39,7 @@ class StdIOFile : public File {
   static void load_and_construct(Archive &ar,
                                  cereal::construct<StdIOFile> &construct) {
     int fd;
-    unsigned int mode;
+    FileMode mode;
     ar(fd, mode);
     construct(fd, mode);
 

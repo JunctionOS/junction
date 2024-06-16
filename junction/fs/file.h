@@ -78,9 +78,23 @@ inline constexpr unsigned int kAtEmptyPath = AT_EMPTY_PATH;
 // File permission modes.
 //
 
-inline constexpr unsigned int kModeRead = O_RDONLY;
-inline constexpr unsigned int kModeWrite = O_WRONLY;
-inline constexpr unsigned int kModeReadWrite = O_RDWR;
+enum class FileMode : unsigned int {
+  kRead = O_RDONLY,
+  kWrite = O_WRONLY,
+  kReadWrite = O_RDWR,
+};
+
+inline constexpr unsigned int kAccessModeMask = O_ACCMODE;
+
+inline constexpr std::pair<unsigned int, FileMode> FromFlags(
+    unsigned int flags) {
+  return {flags & ~kAccessModeMask,
+          static_cast<FileMode>(flags & kAccessModeMask)};
+}
+
+inline constexpr unsigned int ToFlags(FileMode mode) {
+  return static_cast<unsigned int>(mode);
+}
 
 //
 // Seek from operations.
@@ -100,17 +114,17 @@ class ISoftLink;
 // The base class for UNIX files.
 class File : public std::enable_shared_from_this<File> {
  public:
-  File(FileType type, unsigned int flags, mode_t mode,
+  File(FileType type, unsigned int flags, FileMode mode,
        std::shared_ptr<Inode> ino = {})
       : type_(type), flags_(flags), mode_(mode), ino_(std::move(ino)) {}
-  File(FileType type, unsigned int flags, mode_t mode,
+  File(FileType type, unsigned int flags, FileMode mode,
        std::string_view filename, std::shared_ptr<Inode> ino = {})
       : type_(type),
         flags_(flags),
         mode_(mode),
         ino_(std::move(ino)),
         filename_(filename) {}
-  File(FileType type, unsigned int flags, mode_t mode, std::string &&filename,
+  File(FileType type, unsigned int flags, FileMode mode, std::string &&filename,
        std::shared_ptr<Inode> ino = {})
       : type_(type),
         flags_(flags),
@@ -171,7 +185,9 @@ class File : public std::enable_shared_from_this<File> {
     NotifyFlagsChanging(flags_, flags_ & ~flag);
     flags_ &= ~flag;
   }
-  [[nodiscard]] unsigned int get_mode() const { return mode_; }
+  [[nodiscard]] FileMode get_mode() const { return mode_; }
+  [[nodiscard]] bool is_readable() const { return mode_ != FileMode::kWrite; }
+  [[nodiscard]] bool is_writeable() const { return mode_ != FileMode::kRead; }
   [[nodiscard]] off_t &get_off_ref() { return off_; }
   [[nodiscard]] bool is_nonblocking() const {
     return get_flags() & kFlagNonblock;
@@ -221,7 +237,7 @@ class File : public std::enable_shared_from_this<File> {
 
   const FileType type_;
   unsigned int flags_;
-  const mode_t mode_;
+  const FileMode mode_;
   off_t off_{0};
   bool poll_source_setup_{false};
   PollSource poll_;
@@ -260,7 +276,7 @@ class SeekableFile : public File {
 // Class for a directory file, supports getdents and getdents64.
 class DirectoryFile : public File {
  public:
-  DirectoryFile(unsigned int flags, mode_t mode, std::shared_ptr<IDir> ino);
+  DirectoryFile(unsigned int flags, FileMode mode, std::shared_ptr<IDir> ino);
   Status<long> GetDents(std::span<std::byte> dirp, off_t *off) override;
   Status<long> GetDents64(std::span<std::byte> dirp, off_t *off) override;
 };
@@ -268,7 +284,8 @@ class DirectoryFile : public File {
 // Class for a symlink file, supports readlink.
 class SoftLinkFile : public File {
  public:
-  SoftLinkFile(unsigned int flags, mode_t mode, std::shared_ptr<ISoftLink> ino);
+  SoftLinkFile(unsigned int flags, FileMode mode,
+               std::shared_ptr<ISoftLink> ino);
   Status<long> ReadLink(std::span<std::byte> buf) override;
 };
 

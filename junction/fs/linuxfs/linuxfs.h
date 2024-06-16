@@ -24,7 +24,7 @@ class LinuxInode : public Inode {
   }
 
   // Open a file for this inode.
-  Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) override;
+  Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override;
 
   // Get attributes.
   Status<void> GetStats(struct stat *buf) const override {
@@ -96,9 +96,9 @@ class LinuxIDir : public memfs::MemIDir {
   }
 
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
-                                       mode_t mode) override {
+                                       mode_t mode, FileMode fmode) override {
     InitCheck();
-    return MemIDir::Create(name, flags, mode);
+    return MemIDir::Create(name, flags, mode, fmode);
   }
 
   std::vector<dir_entry> GetDents() override {
@@ -140,7 +140,7 @@ class LinuxIDir : public memfs::MemIDir {
   }
 
   Status<KernelFile> GetLinuxDirFD() const {
-    return linux_root_fd.OpenAt(path_, O_DIRECTORY | O_RDONLY, S_IRUSR);
+    return linux_root_fd.OpenAt(path_, O_DIRECTORY, FileMode::kRead);
   }
 
   inline std::string AppendFileName(std::string_view name) const {
@@ -177,7 +177,7 @@ class LinuxWrIDir : public LinuxIDir {
                       std::string_view dst_name, bool replace) override;
   Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino) override;
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
-                                       mode_t mode) override;
+                                       mode_t mode, FileMode fmode) override;
 
  protected:
   std::shared_ptr<IDir> InstantiateChildDir(const struct stat &buf,

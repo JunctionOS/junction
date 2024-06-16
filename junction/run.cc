@@ -27,11 +27,11 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
 
   // Create and insert STDIN, STDOUT, STDERR files
   std::shared_ptr<StdIOFile> fin =
-      std::make_shared<StdIOFile>(kStdInFileNo, kModeRead);
+      std::make_shared<StdIOFile>(kStdInFileNo, FileMode::kRead);
   std::shared_ptr<StdIOFile> fout =
-      std::make_shared<StdIOFile>(kStdOutFileNo, kModeWrite);
+      std::make_shared<StdIOFile>(kStdOutFileNo, FileMode::kWrite);
   std::shared_ptr<StdIOFile> ferr =
-      std::make_shared<StdIOFile>(kStdErrFileNo, kModeWrite);
+      std::make_shared<StdIOFile>(kStdErrFileNo, FileMode::kWrite);
   FileTable &ftbl = (**proc).get_file_table();
   ftbl.Insert(std::move(fin));
   ftbl.Insert(std::move(fout));

@@ -20,9 +20,9 @@ namespace junction::linuxfs {
 
 class LinuxFile : public SeekableFile {
  public:
-  LinuxFile(KernelFile &&f, int flags, mode_t mode, std::string &&pathname,
+  LinuxFile(KernelFile &&f, int flags, FileMode mode, std::string &&pathname,
             std::shared_ptr<LinuxInode> ino) noexcept;
-  LinuxFile(KernelFile &&f, int flags, mode_t mode, std::string_view pathname,
+  LinuxFile(KernelFile &&f, int flags, FileMode mode, std::string_view pathname,
             std::shared_ptr<LinuxInode> ino) noexcept;
   ~LinuxFile() override;
 
@@ -48,7 +48,7 @@ class LinuxFile : public SeekableFile {
                                  cereal::construct<LinuxFile> &construct) {
     std::string filename;
     int flags;
-    mode_t mode;
+    FileMode mode;
     ar(filename, flags, mode);
 
     Status<std::shared_ptr<Inode>> tmp =

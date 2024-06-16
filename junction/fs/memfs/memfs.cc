@@ -14,8 +14,8 @@ class MemIDevice : public Inode {
   MemIDevice(dev_t dev, mode_t mode)
       : Inode(mode, AllocateInodeNumber()), dev_(dev) {}
 
-  Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) override {
-    return DeviceOpen(*this, dev_, mode, flags);
+  Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override {
+    return DeviceOpen(*this, dev_, flags, mode);
   }
   Status<void> GetStats(struct stat *buf) const override {
     MemInodeToStats(*this, buf);
@@ -47,7 +47,7 @@ Status<void> MemInode::GetStats(struct stat *buf) const {
   return {};
 }
 
-Status<std::shared_ptr<File>> MemInode::Open(uint32_t flags, mode_t mode) {
+Status<std::shared_ptr<File>> MemInode::Open(uint32_t flags, FileMode mode) {
   return std::make_shared<MemFSFile>(flags, mode, shared_from_base<MemInode>());
 }
 

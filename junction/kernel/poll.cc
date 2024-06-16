@@ -308,7 +308,7 @@ class EPollObserver : public PollObserver {
 
 class EPollFile : public File {
  public:
-  EPollFile() : File(FileType::kSpecial, 0, 0) {}
+  EPollFile() : File(FileType::kSpecial, 0, FileMode::kRead) {}
   ~EPollFile();
 
   static void Notify(PollSource &s);

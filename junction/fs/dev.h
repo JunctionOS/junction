@@ -9,12 +9,9 @@ extern "C" {
 #include <memory>
 
 #include "junction/base/error.h"
+#include "junction/fs/file.h"
 
 namespace junction {
-
-// forward declarations
-class Inode;
-class File;
 
 inline constexpr size_t kMinorShift = 20;
 inline constexpr dev_t kMinorMask = ((1U << kMinorShift) - 1);
@@ -26,6 +23,6 @@ constexpr dev_t MakeDevice(dev_t major, dev_t minor) {
 
 // DeviceOpen creates a special file for the inode's device number.
 Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, dev_t dev,
-                                         unsigned int flags, mode_t mode);
+                                         unsigned int flags, FileMode mode);
 
 }  // namespace junction

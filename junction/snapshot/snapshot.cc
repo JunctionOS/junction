@@ -52,8 +52,8 @@ std::pair<std::vector<elf_phdr>, std::vector<VMArea>> GetPHDRs(MemoryMap &mm) {
 Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
                          std::string_view elf_path) {
   auto [pheaders, vmas] = GetPHDRs(mm);
-  auto elf_file = KernelFile::Open(elf_path, O_CREAT | O_TRUNC | O_WRONLY,
-                                   S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  auto elf_file =
+      KernelFile::Open(elf_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
 
   if (unlikely(!elf_file)) {
     return MakeError(elf_file);
@@ -128,9 +128,8 @@ Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
 void SnapshotMetadata(Process &p, std::string_view metadata_path) {
   rt::RuntimeLibcGuard guard;
 
-  Status<KernelFile> metadata_file =
-      KernelFile::Open(metadata_path, O_CREAT | O_TRUNC | O_WRONLY,
-                       S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
+  Status<KernelFile> metadata_file = KernelFile::Open(
+      metadata_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
   BUG_ON(!metadata_file);
   StreamBufferWriter<KernelFile> w(*metadata_file);
   std::ostream outstream(&w);
@@ -168,7 +167,7 @@ Status<std::shared_ptr<Process>> RestoreProcess(std::string_view metadata_path,
                                                 std::string_view elf_path) {
   rt::RuntimeLibcGuard guard;
 
-  Status<KernelFile> f = KernelFile::Open(metadata_path, O_RDONLY, 0644);
+  Status<KernelFile> f = KernelFile::Open(metadata_path, 0, FileMode::kRead);
   if (!f) return MakeError(f);
 
   StreamBufferReader<KernelFile> w(*f);

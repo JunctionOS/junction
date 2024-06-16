@@ -39,8 +39,8 @@ class ProcFSInode : public Inode {
   }
 
   // Open a file for this inode.
-  Status<std::shared_ptr<File>> Open(uint32_t flags, mode_t mode) override {
-    return std::make_shared<SeqFile>(flags, kModeRead, get_this(), Gen());
+  Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override {
+    return std::make_shared<SeqFile>(flags, get_this(), Gen());
   }
 };
 

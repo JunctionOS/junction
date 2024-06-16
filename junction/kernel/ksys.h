@@ -14,6 +14,7 @@ extern "C" {
 
 #include "junction/base/error.h"
 #include "junction/base/io.h"
+#include "junction/fs/file.h"
 
 namespace junction {
 
@@ -129,21 +130,22 @@ class KernelFile : public VectoredWriter {
  public:
   // Open creates a new file descriptor attached to a file path.
   static Status<KernelFile> Open(std::string_view path, int flags,
-                                 mode_t mode) {
-    int ret = ksys_open(path.data(), flags, mode);
+                                 FileMode fmode, mode_t mode = 0) {
+    int ret = ksys_open(path.data(), flags | ToFlags(fmode), mode);
     if (ret < 0) return MakeError(-ret);
     return KernelFile(ret);
   }
 
   static Status<KernelFile> OpenAt(int fd, std::string_view path, int flags,
-                                   mode_t mode) {
-    int ret = ksys_openat(fd, path.data(), flags, mode);
+                                   FileMode fmode, mode_t mode = 0) {
+    int ret = ksys_openat(fd, path.data(), flags | ToFlags(fmode), mode);
     if (ret < 0) return MakeError(-ret);
     return KernelFile(ret);
   }
 
-  Status<KernelFile> OpenAt(std::string_view path, int flags, mode_t mode) {
-    int ret = ksys_openat(fd_, path.data(), flags, mode);
+  Status<KernelFile> OpenAt(std::string_view path, int flags, FileMode fmode,
+                            mode_t mode = 0) {
+    int ret = ksys_openat(fd_, path.data(), flags | ToFlags(fmode), mode);
     if (ret < 0) return MakeError(-ret);
     return KernelFile(ret);
   }

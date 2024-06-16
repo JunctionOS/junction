@@ -24,10 +24,11 @@ class JunctionFile {
  public:
   // Open creates a new file descriptor attached to a file path.
   static Status<JunctionFile> Open(FSRoot &fs, std::string_view path, int flags,
-                                   mode_t mode) {
+                                   FileMode mode) {
     Status<std::shared_ptr<Inode>> in = LookupInode(fs, path);
     if (!in) return MakeError(in);
-    Status<std::shared_ptr<File>> f = (*in)->Open(mode, flags);
+
+    Status<std::shared_ptr<File>> f = (*in)->Open(flags, mode);
     if (!f) return MakeError(f);
     return JunctionFile(std::move(*f));
   }
@@ -220,8 +221,7 @@ Status<elf_data::interp_data> LoadInterp(MemoryMap &mm, FSRoot &fs,
   DLOG(INFO) << "elf: loading interpreter ELF object file '" << path << "'";
 
   // Open the file.
-  Status<JunctionFile> file =
-      JunctionFile::Open(fs, path, 0, S_IRUSR | S_IXUSR);
+  Status<JunctionFile> file = JunctionFile::Open(fs, path, 0, FileMode::kRead);
   if (!file) return MakeError(file);
 
   // Load the ELF header.
@@ -264,8 +264,7 @@ Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path, FSRoot &fs) {
   DLOG(INFO) << "elf: loading ELF object file '" << path << "'";
 
   // Open the file.
-  Status<JunctionFile> file =
-      JunctionFile::Open(fs, path, 0, S_IRUSR | S_IXUSR);
+  Status<JunctionFile> file = JunctionFile::Open(fs, path, 0, FileMode::kRead);
   if (!file) return MakeError(file);
 
   // Load the ELF header.
