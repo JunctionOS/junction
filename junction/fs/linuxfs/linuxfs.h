@@ -41,6 +41,7 @@ class LinuxInode : public Inode {
 
   [[nodiscard]] off_t get_size() const { return size_; }
   [[nodiscard]] std::string_view get_path() const { return path_; }
+  [[nodiscard]] Status<void> SetSize(size_t sz) override;
 
  private:
   const std::string path_;

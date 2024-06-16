@@ -227,6 +227,8 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
     in = WalkPath(fs, std::move(idir), {name}, true);
     if (!in) return MakeError(in);
   }
+
+  if (flags & kFlagTruncate) (*in)->SetSize(0);
   return (*in)->Open(flags, fmode);
 }
 

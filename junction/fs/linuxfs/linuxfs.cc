@@ -23,6 +23,13 @@ Status<std::shared_ptr<File>> LinuxInode::Open(uint32_t flags, FileMode mode) {
                                      shared_from_base<LinuxInode>());
 }
 
+Status<void> LinuxInode::SetSize(size_t size) {
+  if constexpr (!linux_fs_writeable()) return MakeError(EACCES);
+  long ret = ksyscall(__NR_truncate, path_.data(), 0);
+  if (ret < 0) return MakeError(-ret);
+  return {};
+}
+
 Status<std::shared_ptr<IDir>> MountLinux(std::string_view path) {
   struct stat buf;
   int ret = ksys_newfstatat(AT_FDCWD, path.data(), &buf, AT_EMPTY_PATH);
