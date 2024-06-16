@@ -25,9 +25,11 @@ Status<std::shared_ptr<IDir>> MountLinux(std::string_view path) {
   int ret = ksys_newfstatat(AT_FDCWD, path.data(), &buf, AT_EMPTY_PATH);
   if (ret) return MakeError(-ret);
   allowed_devs.insert(buf.st_dev);
-  auto ino = std::make_shared<LinuxIDir>(buf, std::string(path), std::string{},
+  if constexpr (linux_fs_writeable())
+    return std::make_shared<LinuxWrIDir>(buf, std::string(path), std::string{},
                                          std::shared_ptr<IDir>{});
-  return std::move(ino);
+  return std::make_shared<LinuxIDir>(buf, std::string(path), std::string{},
+                                     std::shared_ptr<IDir>{});
 }
 
 // Setup the linuxfs. Must be called before privileges are dropped.

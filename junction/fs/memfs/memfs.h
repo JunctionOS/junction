@@ -39,6 +39,7 @@ class MemInode : public Inode {
   Status<void> GetStats(struct stat *buf) const override;
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
+    rt::MutexGuard g_(lock_);
     const size_t n = std::min(buf.size(), buf_.size() - *off);
     std::copy_n(buf_.cbegin() + *off, n, buf.begin());
     *off += n;
@@ -46,6 +47,7 @@ class MemInode : public Inode {
   }
 
   Status<size_t> Write(std::span<const std::byte> buf, off_t *off) {
+    rt::MutexGuard g_(lock_);
     if (buf_.size() - *off < buf.size()) buf_.Resize(buf.size() + *off);
     std::copy_n(buf.begin(), buf.size(), buf_.begin() + *off);
     *off += buf.size();
@@ -64,7 +66,69 @@ class MemInode : public Inode {
 
  private:
   // file contents
+  rt::Mutex lock_;
   SlabList<kBlockSize> buf_;
+};
+
+class MemIDir : public IDir {
+ public:
+  MemIDir(mode_t mode, std::string_view name, std::shared_ptr<IDir> parent)
+      : IDir(mode, AllocateInodeNumber(), name, parent) {}
+  MemIDir(mode_t mode, std::string &&name, std::shared_ptr<IDir> parent)
+      : IDir(mode, AllocateInodeNumber(), std::move(name), parent) {}
+  MemIDir(const struct stat &stat, std::string &&name,
+          std::shared_ptr<IDir> parent)
+      : IDir(stat, std::move(name), parent) {}
+
+  // Directory ops
+  Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override;
+  Status<void> MkNod(std::string_view name, mode_t mode, dev_t dev) override;
+  Status<void> MkDir(std::string_view name, mode_t mode) override;
+  Status<void> Unlink(std::string_view name) override;
+  Status<void> RmDir(std::string_view name) override;
+  Status<void> SymLink(std::string_view name, std::string_view target) override;
+  Status<void> Rename(IDir &src, std::string_view src_name,
+                      std::string_view dst_name, bool replace) override;
+  Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino) override;
+  Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
+                                       mode_t mode) override;
+  std::vector<dir_entry> GetDents() override;
+
+  // Inode ops
+  Status<void> GetStats(struct stat *buf) const override;
+  Status<void> GetStatFS(struct statfs *buf) const override {
+    StatFs(buf);
+    return {};
+  }
+
+ private:
+  // Helper routine for renaming.
+  Status<void> DoRename(MemIDir &src, std::string_view src_name,
+                        std::string_view dst_name, bool replace);
+};
+
+// MemISoftLink is an inode type for soft link
+class MemISoftLink : public ISoftLink {
+ public:
+  MemISoftLink(std::string_view path)
+      : ISoftLink(0, AllocateInodeNumber()), path_(path) {}
+  MemISoftLink(const struct stat &stat, std::string_view path)
+      : ISoftLink(stat), path_(path) {}
+  ~MemISoftLink() override = default;
+
+  std::string ReadLink() override { return path_; }
+  Status<void> GetStats(struct stat *buf) const override {
+    MemInodeToStats(*this, buf);
+    return {};
+  }
+
+  Status<void> GetStatFS(struct statfs *buf) const override {
+    StatFs(buf);
+    return {};
+  }
+
+ private:
+  const std::string path_;
 };
 
 }  // namespace junction::memfs

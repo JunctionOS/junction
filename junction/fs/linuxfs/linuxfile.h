@@ -24,15 +24,13 @@ class LinuxFile : public SeekableFile {
             std::shared_ptr<LinuxInode> ino) noexcept;
   LinuxFile(KernelFile &&f, int flags, mode_t mode, std::string_view pathname,
             std::shared_ptr<LinuxInode> ino) noexcept;
-  virtual ~LinuxFile();
+  ~LinuxFile() override;
 
-  virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
-  virtual Status<size_t> Write(std::span<const std::byte> buf,
-                               off_t *off) override;
-  virtual Status<void *> MMap(void *addr, size_t length, int prot, int flags,
-                              off_t off);
+  Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
+  Status<size_t> Write(std::span<const std::byte> buf, off_t *off) override;
+  Status<void *> MMap(void *addr, size_t length, int prot, int flags,
+                      off_t off);
 
-  [[nodiscard]] int get_fd() const { return fd_; }
   [[nodiscard]] size_t get_size() const override;
 
  private:

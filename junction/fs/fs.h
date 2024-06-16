@@ -113,6 +113,9 @@ inline void InodeToStats(const Inode &ino, struct stat *buf) {
 class ISoftLink : public Inode {
  public:
   ISoftLink(mode_t mode, ino_t inum) : Inode(kTypeSymLink | mode, inum) {}
+  ISoftLink(const struct stat &buf)
+      : Inode(kTypeSymLink | buf.st_mode, buf.st_ino) {}
+
   ~ISoftLink() override = default;
 
   // Opens a file that does nothing.
@@ -332,7 +335,9 @@ Status<std::shared_ptr<IDir>> InitLinuxRoot();
 }  // namespace linuxfs
 
 namespace memfs {
-std::shared_ptr<IDir> MkFolder();
+std::shared_ptr<IDir> MkFolder(mode_t mode = S_IRWXU,
+                               std::string &&name = std::string{"."},
+                               std::shared_ptr<IDir> parent = {});
 }
 
 Status<void> InitFs(

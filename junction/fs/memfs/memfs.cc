@@ -8,28 +8,6 @@ namespace junction::memfs {
 
 namespace {
 
-// MemISoftLink is an inode type for soft link
-class MemISoftLink : public ISoftLink {
- public:
-  MemISoftLink(std::string_view path)
-      : ISoftLink(0, AllocateInodeNumber()), path_(path) {}
-  ~MemISoftLink() override = default;
-
-  std::string ReadLink() override { return path_; }
-  Status<void> GetStats(struct stat *buf) const override {
-    MemInodeToStats(*this, buf);
-    return {};
-  }
-
-  Status<void> GetStatFS(struct statfs *buf) const override {
-    StatFs(buf);
-    return {};
-  }
-
- private:
-  const std::string path_;
-};
-
 // MemIDevice is an inode type for character and block devices
 class MemIDevice : public Inode {
  public:
@@ -57,6 +35,7 @@ class MemIDevice : public Inode {
 
 Status<void> MemInode::SetSize(size_t newlen) {
   if (unlikely(newlen > kMaxSizeBytes)) return MakeError(EINVAL);
+  rt::MutexGuard g_(lock_);
   buf_.Resize(newlen);
   return {};
 }
