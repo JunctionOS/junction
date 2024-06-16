@@ -275,7 +275,10 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
     VMArea &vma = it->second;
 
     // skip if the protection isn't changed
-    if (vma.prot == prot) continue;
+    if (vma.prot == prot) {
+      TryMergeRight(prev_it, vma);
+      continue;
+    }
 
     // split the VMA to modify the right part? [start, vma.end)
     if (start > vma.start) {
