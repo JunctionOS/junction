@@ -9,7 +9,7 @@
 namespace junction::memfs {
 
 Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
-  rt::MutexGuard g(lock_);
+  rt::ScopedSharedLock g(lock_);
   if (auto it = entries_.find(name); it != entries_.end()) return it->second;
   return MakeError(ENOENT);
 }
@@ -26,7 +26,7 @@ Status<void> MemIDir::MkDir(std::string_view name, mode_t mode) {
 }
 
 Status<void> MemIDir::Unlink(std::string_view name) {
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) return MakeError(ENOENT);
   if (it->second->is_dir()) return MakeError(EISDIR);
@@ -36,7 +36,7 @@ Status<void> MemIDir::Unlink(std::string_view name) {
 }
 
 Status<void> MemIDir::RmDir(std::string_view name) {
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) return MakeError(ENOENT);
   auto *dir = most_derived_cast<MemIDir>(it->second.get());
@@ -44,7 +44,7 @@ Status<void> MemIDir::RmDir(std::string_view name) {
 
   // Confirm the directory is empty
   {
-    rt::MutexGuard g(dir->lock_);
+    rt::ScopedLock g(dir->lock_);
     if (!dir->entries_.empty()) return MakeError(ENOTEMPTY);
     dir->dec_nlink();
     assert(dir->is_stale());
@@ -94,7 +94,7 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
 
   // check if rename is in same directory
   if (src_dir == this) {
-    rt::MutexGuard g(lock_);
+    rt::ScopedLock g(lock_);
     return DoRename(*src_dir, src_name, dst_name, replace);
   }
 
@@ -114,7 +114,7 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
 }
 
 Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   if (is_stale()) return MakeError(ESTALE);
   if (Status<void> ret = InsertLocked(std::string(name), std::move(ino)); !ret)
     return MakeError(ret);
@@ -123,7 +123,7 @@ Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
 
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
                                               mode_t mode, FileMode fmode) {
-  rt::MutexGuard g_(lock_);
+  rt::ScopedLock g_(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) {
     auto ino = std::make_shared<MemInode>(mode);
@@ -137,7 +137,7 @@ Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
 
 std::vector<dir_entry> MemIDir::GetDents() {
   std::vector<dir_entry> result;
-  rt::MutexGuard g(lock_);
+  rt::ScopedSharedLock g(lock_);
   for (const auto &[name, ino] : entries_)
     result.emplace_back(name, ino->get_inum(), ino->get_type());
   return result;

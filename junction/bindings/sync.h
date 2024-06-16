@@ -733,6 +733,15 @@ class SharedMutex {
   // UnlockShared releases the mutex as a reader.
   void UnlockShared();
 
+  // Upgrade a reader to a writer. Another writer may obtain the lock before
+  // this call returns, so the caller should assume that the protected data may
+  // have been modified during this call.
+  void UpgradeLock();
+
+  // Downgrade a writer to a reader without dropping the lock (no writer will be
+  // scheduled until at least after the reader lock is released.
+  void DowngradeLock();
+
  private:
   void WakeAllShared(WaitQueue &dst);
   void WakeOneExclusive(WaitQueue &dst);

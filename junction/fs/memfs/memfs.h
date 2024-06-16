@@ -39,7 +39,7 @@ class MemInode : public Inode {
   Status<void> GetStats(struct stat *buf) const override;
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
-    rt::MutexGuard g_(lock_);
+    rt::ScopedSharedLock g_(lock_);
     const size_t n = std::min(buf.size(), buf_.size() - *off);
     std::copy_n(buf_.cbegin() + *off, n, buf.begin());
     *off += n;
@@ -47,8 +47,12 @@ class MemInode : public Inode {
   }
 
   Status<size_t> Write(std::span<const std::byte> buf, off_t *off) {
-    rt::MutexGuard g_(lock_);
-    if (buf_.size() - *off < buf.size()) buf_.Resize(buf.size() + *off);
+    rt::ScopedSharedLock g_(lock_);
+    if (buf_.size() - *off < buf.size()) {
+      lock_.UpgradeLock();
+      if (buf_.size() - *off < buf.size()) buf_.Resize(buf.size() + *off);
+      lock_.DowngradeLock();
+    }
     std::copy_n(buf.begin(), buf.size(), buf_.begin() + *off);
     *off += buf.size();
     return buf.size();
@@ -65,8 +69,10 @@ class MemInode : public Inode {
   [[nodiscard]] size_t get_size() const { return buf_.size(); }
 
  private:
-  // file contents
-  rt::Mutex lock_;
+  // Protects modifications to buf_. A reader lock holder can read/write to buf_
+  // but a writer lock must be used to resize buf_.
+  rt::SharedMutex lock_;
+  // File contents.
   SlabList<kBlockSize> buf_;
 };
 

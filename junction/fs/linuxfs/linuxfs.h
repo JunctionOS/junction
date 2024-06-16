@@ -135,7 +135,7 @@ class LinuxIDir : public memfs::MemIDir {
 
   void InitCheck() {
     if (access_once(initialized_)) return;
-    rt::MutexGuard g(lock_);
+    rt::ScopedLock g(lock_);
     if (!initialized_) Initialize();
   }
 

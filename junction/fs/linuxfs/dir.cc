@@ -137,7 +137,7 @@ void LinuxIDir::Initialize() {
 
 Status<void> LinuxWrIDir::MkDir(std::string_view name, mode_t mode) {
   std::string abspath = AppendFileName(name);
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   Status<void> ret = linux_root_fd.MkDirAt(abspath, mode);
   if (!ret) return ret;
   if (!initialized_) return {};
@@ -152,7 +152,7 @@ Status<void> LinuxWrIDir::MkDir(std::string_view name, mode_t mode) {
 
 Status<void> LinuxWrIDir::Unlink(std::string_view name) {
   std::string abspath = AppendFileName(name);
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   Status<void> ret = linux_root_fd.UnlinkAt(abspath);
   if (!ret) return ret;
   if (auto it = entries_.find(name); it != entries_.end()) entries_.erase(it);
@@ -161,7 +161,7 @@ Status<void> LinuxWrIDir::Unlink(std::string_view name) {
 
 Status<void> LinuxWrIDir::RmDir(std::string_view name) {
   std::string abspath = AppendFileName(name);
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   Status<void> ret = linux_root_fd.UnlinkAt(abspath, AT_REMOVEDIR);
   if (!ret) return ret;
   if (auto it = entries_.find(name); it != entries_.end()) entries_.erase(it);
@@ -171,7 +171,7 @@ Status<void> LinuxWrIDir::RmDir(std::string_view name) {
 Status<void> LinuxWrIDir::SymLink(std::string_view name,
                                   std::string_view target) {
   std::string abspath = AppendFileName(name);
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   Status<void> ret = linux_root_fd.SymLinkAt(target, abspath);
   if (!ret) return ret;
   if (!initialized_) return {};
@@ -235,7 +235,7 @@ Status<void> LinuxWrIDir::Rename(IDir &src, std::string_view src_name,
 
   // check if rename is in same directory
   if (src_dir == this) {
-    rt::MutexGuard g(lock_);
+    rt::ScopedLock g(lock_);
     return DoRename(*src_dir, src_name, dst_name, replace);
   }
 
@@ -262,7 +262,7 @@ Status<void> LinuxWrIDir::Link(std::string_view name,
 
   std::string abspath = AppendFileName(name);
 
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   Status<void> ret = KernelFile::LinkAt(linux_root_fd, src_ino->get_path(),
                                         linux_root_fd, abspath);
   if (!ret) return ret;
@@ -282,7 +282,7 @@ Status<std::shared_ptr<File>> LinuxWrIDir::Create(std::string_view name,
   assert(flags & O_CREAT);
   std::string abspath = AppendFileName(name);
   std::shared_ptr<LinuxInode> ino;
-  rt::MutexGuard g(lock_);
+  rt::ScopedLock g(lock_);
   Status<KernelFile> f = linux_root_fd.OpenAt(abspath, flags, fmode, mode);
   if (!f) return MakeError(f);
 

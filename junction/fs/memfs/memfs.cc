@@ -35,7 +35,7 @@ class MemIDevice : public Inode {
 
 Status<void> MemInode::SetSize(size_t newlen) {
   if (unlikely(newlen > kMaxSizeBytes)) return MakeError(EINVAL);
-  rt::MutexGuard g_(lock_);
+  rt::ScopedLock g_(lock_);
   buf_.Resize(newlen);
   return {};
 }

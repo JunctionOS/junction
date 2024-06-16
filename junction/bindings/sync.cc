@@ -131,6 +131,28 @@ void SharedMutex::UnlockShared() {
   tmp.WakeOne();
 }
 
+void SharedMutex::UpgradeLock() {
+  UniqueLock ul(lock_);
+  assert(cnt_ > 0);
+  cnt_--;
+  if (cnt_ > 0) {
+    WaitNoRecheck(std::move(ul), exclusive_queue_);
+    return;
+  }
+  cnt_ = -1;
+}
+
+void SharedMutex::DowngradeLock() {
+  WaitQueue tmp;
+  {
+    SpinGuard g(lock_);
+    assert(cnt_ == -1);
+    WakeAllShared(tmp);
+    cnt_ += 1;
+  }
+  tmp.WakeAll();
+}
+
 __always_inline bool ConditionVariable::DoWait(bool block,
                                                const bool *timeout) {
   assert(lock_->IsHeld());

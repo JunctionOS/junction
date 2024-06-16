@@ -231,7 +231,7 @@ class IDir : public Inode {
   // Must be called during a rename.
   void SetParent(std::shared_ptr<IDir> new_parent, std::string_view new_name) {
     assert(!lock_.IsHeld());
-    rt::MutexGuard g(lock_);
+    rt::ScopedLock g(lock_);
     rt::RCURead l;
     rt::RCUReadGuard rg(l);
     auto newp =
@@ -243,7 +243,7 @@ class IDir : public Inode {
 
   // Directly inserts this ino into the entries list.
   void Mount(std::string name, std::shared_ptr<Inode> ino) {
-    rt::MutexGuard g(lock_);
+    rt::ScopedLock g(lock_);
     InsertLockedNoCheck(name, ino);
     if (ino->is_dir()) {
       IDir &dir = static_cast<IDir &>(*ino);
@@ -252,7 +252,7 @@ class IDir : public Inode {
   }
 
  protected:
-  rt::Mutex lock_;
+  rt::SharedMutex lock_;
   std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 
   void InsertLockedNoCheck(std::string_view name, std::shared_ptr<Inode> ino) {
@@ -272,7 +272,7 @@ class IDir : public Inode {
 
   [[nodiscard]] Status<void> Insert(std::string name,
                                     std::shared_ptr<Inode> ino) {
-    rt::MutexGuard g(lock_);
+    rt::ScopedLock g(lock_);
     return InsertLocked(std::move(name), std::move(ino));
   }
 
