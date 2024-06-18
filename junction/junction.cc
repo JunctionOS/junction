@@ -54,7 +54,7 @@ namespace po = boost::program_options;
 
 po::options_description GetOptions() {
   po::options_description desc("Junction options");
-  desc.add_options()("help", "produce help message")(
+  desc.add_options()("help,h", "produce help message")(
       "chroot_path", po::value<std::string>()->default_value("/"),
       "chroot path to execute the binary from")(
       "fs_config_path", po::value<std::string>()->default_value(""),
@@ -106,10 +106,10 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
     po::notify(vm);
   } catch (std::exception &e) {
     std::cerr << "parse error: " << e.what() << std::endl;
-    return MakeError(-1);
+    return MakeError(EINVAL);
   }
 
-  if (vm.count("help")) return MakeError(0);
+  if (vm.count("help")) return MakeError(EINVAL);
 
   chroot_path = vm["chroot_path"].as<std::string>();
   fs_config_path = vm["fs_config_path"].as<std::string>();

@@ -167,6 +167,10 @@ int main(int argc, char *argv[]) {
   if (argc < 2) {
     usage();
     return -EINVAL;
+  } else if (strncmp(argv[1], "--help", 6) == 0 ||
+             strncmp(argv[1], "-h", 2) == 0) {
+    usage();
+    return -EINVAL;
   }
 
   /* pick off runtime config file */
@@ -176,13 +180,15 @@ int main(int argc, char *argv[]) {
   argv++;
 
   int i = 1;
-  for (; i < argc; i++)
-    if (std::string(argv[i]) == "--") break;
-
-  if (i == argc) i = argc - 1;
-
+  bool found_dash = false;
+  for (; i < argc; i++) {
+    if (std::string(argv[i]) == "--") {
+      found_dash = true;
+      break;
+    }
+  }
   char **binary_args = nullptr;
-  int binary_argc = argc - i - 1;
+  int binary_argc = argc - i - (found_dash ? 1 : 0);
   int junction_argc = i;
 
   if (binary_argc > 0) {
