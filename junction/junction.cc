@@ -75,7 +75,9 @@ po::options_description GetOptions() {
           CUSTOM_GLIBC_PRELOAD),
       "location of ld preload library")(
       "env,E", po::value<std::vector<std::string>>()->multitoken(),
-      "environment flags for binary")(
+      "environment flags for binary")("port,p",
+                                 po::value<int>()->default_value(42),
+                                 "port number to setup control port on")(
       "strace,s", po::bool_switch()->default_value(false), "strace mode")(
       "restore,r", po::bool_switch()->default_value(false),
       "restore from a snapshot")("loglevel,l",
@@ -128,6 +130,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
   cache_linux_fs_ = vm["cache_linux_fs"].as<bool>();
   snapshot_timeout_s_ = vm["snapshot-timeout"].as<int>();
+  port_ = vm["port"].as<int>();
   if (snapshot_timeout_s_ && snapshot_prefix_.empty()) {
     std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;
     return MakeError(EINVAL);

@@ -55,6 +55,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] bool cache_linux_fs() const { return cache_linux_fs_; }
 
   [[nodiscard]] int snapshot_timeout() const { return snapshot_timeout_s_; }
+  [[nodiscard]] uint16_t port() const { return port_; }
 
   [[nodiscard]] const std::string_view get_snapshot_prefix() const {
     return snapshot_prefix_;
@@ -80,6 +81,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   std::string preload_path;
   std::vector<std::string> binary_envp;
 
+  uint16_t port_;
   bool restore;
   bool stack_switching;
   bool cache_linux_fs_;

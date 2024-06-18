@@ -11,10 +11,6 @@
 
 namespace junction {
 
-namespace {
-constexpr uint64_t kControlPort = 42;
-}
-
 bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
   LOG(INFO) << "handling run request";
 
@@ -272,9 +268,9 @@ void ControlServer(rt::TCPQueue &q) {
 }
 
 Status<void> InitControlServer() {
-  Status<rt::TCPQueue> q = rt::TCPQueue::Listen({0, kControlPort}, 4096);
+  Status<rt::TCPQueue> q = rt::TCPQueue::Listen({0, GetCfg().port()}, 4096);
   if (!q) return MakeError(q);
-  LOG(INFO) << "started control server on port " << kControlPort;
+  LOG(INFO) << "started control server on port " << GetCfg().port();
 
   rt::Spawn([q = std::move(*q)] mutable { ControlServer(q); });
 
