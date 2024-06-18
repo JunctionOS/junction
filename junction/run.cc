@@ -121,7 +121,7 @@ void JunctionMain(int argc, char *argv[]) {
     }
     LOG(INFO) << "snapshot: restored process with pid="
               << (*proc).get()->get_pid();
-  } else {
+  } else if (!args.empty()) {
     auto [envp_s, envp_view] = BuildEnvp();
     // Create the first process
     proc = CreateFirstProcess(args[0], args, envp_view);
@@ -129,7 +129,7 @@ void JunctionMain(int argc, char *argv[]) {
   }
 
   // setup automatic snapshot
-  if (unlikely(GetCfg().snapshot_timeout())) {
+  if (unlikely(!args.empty() && GetCfg().snapshot_timeout())) {
     rt::Spawn([] {
       // Wait x seconds
       rt::Sleep(Duration(GetCfg().snapshot_timeout() * kSeconds));
@@ -148,8 +148,10 @@ void JunctionMain(int argc, char *argv[]) {
     });
   }
 
-  // Drop reference so the process can properly destruct itself when done
-  proc->reset();
+  if (!args.empty()) {
+    // Drop reference so the process can properly destruct itself when done
+    proc->reset();
+  }
 
   rt::WaitForever();
 }
