@@ -130,7 +130,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   snapshot_timeout_s_ = vm["snapshot-timeout"].as<int>();
   if (snapshot_timeout_s_ && snapshot_prefix_.empty()) {
     std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;
-    return MakeError(-1);
+    return MakeError(EINVAL);
   }
 
   return {};

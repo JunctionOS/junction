@@ -202,7 +202,7 @@ Status<void> InitXsave() {
              << " bytes for XSAVE area, but only " << XSAVE_AREA_SIZE
              << " bytes were reserved. "
              << "Please recompile with a larger XSAVE_AREA_RESERVED.";
-    return MakeError(-1);
+    return MakeError(EINVAL);
   }
 
   return {};
