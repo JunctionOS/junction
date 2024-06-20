@@ -5,4 +5,4 @@ process.kill(process.pid, "SIGSTOP")
 console.log("Restored!");
 
 // this will explicitly kill the process
-process.abort();
+process.exit(0);
