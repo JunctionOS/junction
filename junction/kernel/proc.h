@@ -23,6 +23,7 @@ extern "C" {
 #include "junction/kernel/mm.h"
 #include "junction/kernel/signal.h"
 #include "junction/kernel/trapframe.h"
+#include "junction/kernel/usys.h"
 #include "junction/limits.h"
 #include "junction/snapshot/cereal.h"
 
@@ -50,6 +51,8 @@ inline bool SignalIfOwned(struct kthread *k, const thread_t *th) {
   if (found && !uintr_enabled) ksys_tgkill(GetLinuxPid(), k->tid, SIGURG);
   return found;
 }
+
+class ThreadRef;
 
 // Thread is a UNIX thread object.
 class Thread {
@@ -270,9 +273,18 @@ class Thread {
     if (GetCaladanThread()->has_fsbase) ar(GetCaladanThread()->tf.fsbase);
   }
 
+  // Take a reference to this Thread.
+  ThreadRef get_ref();
+
  private:
   friend class Process;
+  friend class ThreadRef;
+  friend void usys_exit(int status) __noreturn;
+
   bool IsStopped() const;
+
+  // Called by a holder of a ThreadRef when the ref count hits 0.
+  static void DestroyThread(Thread *th);
 
   // Safety check for functions that can only be called by the owning thread
   // when in interrupt or syscall context.
@@ -306,7 +318,49 @@ class Thread {
 
   // Wrapper around entry trapframe pointer.
   FunctionCallTf fcall_tf;
+
+  std::atomic<size_t> ref_count_{1};
 };
+
+// Simple shared pointer-like object to allow references to a Thread without
+// holding its Process's lock.
+class ThreadRef {
+ public:
+  explicit ThreadRef() : th_(nullptr) {}
+  Thread *get() { return th_; }
+  Thread *operator->() { return th_; }
+  explicit operator bool() const noexcept { return th_ != nullptr; }
+  ~ThreadRef() {
+    if (!th_) return;
+    if (--th_->ref_count_ > 0) return;
+    Thread::DestroyThread(th_);
+  }
+
+  // Allow move.
+  ThreadRef(ThreadRef &&o) noexcept : th_(std::exchange(o.th_, nullptr)) {}
+  ThreadRef &operator=(ThreadRef &&o) noexcept {
+    th_ = std::exchange(o.th_, nullptr);
+    return *this;
+  }
+
+  // Allow copy.
+  ThreadRef(const ThreadRef &o) : th_(o.th_) {
+    if (th_) th_->ref_count_ += 1;
+  }
+
+  ThreadRef &operator=(const ThreadRef &o) {
+    th_ = o.th_;
+    if (th_) th_->ref_count_ += 1;
+    return *this;
+  }
+
+ private:
+  friend class Thread;
+  ThreadRef(Thread *th) : th_(th) { th_->ref_count_ += 1; }
+  Thread *th_;
+};
+
+inline ThreadRef Thread::get_ref() { return ThreadRef(this); }
 
 // Make sure that Caladan's thread def has enough room for the Thread class
 static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
@@ -378,7 +432,6 @@ class Process : public std::enable_shared_from_this<Process> {
   Status<std::shared_ptr<Process>> CreateProcessVfork(rt::ThreadWaker &&w);
 
   Status<Thread *> CreateThreadMain();
-  Status<Thread *> GetThreadMain();
   Status<Thread *> CreateThread();
   Thread &CreateTestThread();
 
@@ -415,13 +468,10 @@ class Process : public std::enable_shared_from_this<Process> {
       return {};
     }
 
-    rt::SpinGuard g(child_thread_lock_);
-
-    auto it = thread_map_.find(tid);
-    if (it == thread_map_.end()) return MakeError(ESRCH);
-
-    Thread &th = *it->second;
-    if (th.get_sighand().EnqueueSignal(si)) th.SendIpi();
+    Status<ThreadRef> tmp = FindThread(tid);
+    if (!tmp) return MakeError(tmp);
+    ThreadRef &th = *tmp;
+    if (th->get_sighand().EnqueueSignal(si)) th->SendIpi();
     return {};
   }
 
@@ -450,6 +500,13 @@ class Process : public std::enable_shared_from_this<Process> {
     // Might be racing with Process destructor, ensure that ref count has not
     // already hit 0.
     return it->second->weak_from_this().lock();
+  }
+
+  Status<ThreadRef> FindThread(pid_t tid) {
+    rt::SpinGuard g(child_thread_lock_);
+    auto it = thread_map_.find(tid);
+    if (it == thread_map_.end()) return MakeError(ESRCH);
+    return it->second->get_ref();
   }
 
   // Called by threads to wait for SIGCONT. This call must occur inside of a

@@ -153,6 +153,19 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
 
 }  // namespace detail
 
+void Thread::DestroyThread(Thread *th) {
+  assert(th->ref_count_ == 0);
+  thread_t *cth = th->GetCaladanThread();
+  assert(cth != thread_self());
+  th->~Thread();
+  // Ensure the thread is no longer scheduled.
+  if (unlikely(load_acquire(&cth->thread_running))) {
+    /* wait until the scheduler finishes switching stacks */
+    while (load_acquire(&cth->thread_running)) cpu_relax();
+  }
+  thread_free(cth);
+}
+
 Thread::~Thread() {
   uint32_t *child_tid = get_child_tid();
   if (child_tid) {
@@ -270,14 +283,6 @@ Status<Thread *> Process::CreateThreadMain() {
   th->junction_thread = true;
   thread_map_[get_pid()] = tstate;
   return tstate;
-}
-
-// Used for starting the main thread, will change when restoring multiple
-// threads
-Status<Thread *> Process::GetThreadMain() {
-  Thread *main = thread_map_[get_pid()];
-  if (main == nullptr) return MakeError(EINVAL);
-  return main;
 }
 
 Status<Thread *> Process::CreateThread() {
@@ -566,17 +571,22 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   return ret;
 }
 
-extern "C" [[noreturn]] void usys_exit_finish(int status) {
+[[noreturn]] void usys_exit(int status) {
   Thread *tptr = &mythread();
   tptr->set_xstate(status);
-  tptr->~Thread();
-  rt::Exit();
-}
+  rt::Preempt::Lock();
+  if (--tptr->ref_count_ <= 0) {
+    assert(tptr->ref_count_ == 0);
+    rt::Preempt::Unlock();
+    RunOnSyscallStack([tptr]() {
+      tptr->~Thread();
+      rt::Exit();
+    });
+  }
 
-void usys_exit(int status) {
-  if (IsOnStack(GetSyscallStack())) usys_exit_finish(status);
-  nosave_switch(reinterpret_cast<thread_fn_t>(usys_exit_finish),
-                GetSyscallStackBottom(), status);
+  // A reference holder will clean up this thread.
+  rt::Preempt::UnlockAndPark();
+  std::unreachable();
 }
 
 void usys_exit_group(int status) {
