@@ -119,17 +119,19 @@ void JunctionMain(int argc, char *argv[]) {
       LOG(ERR) << "Failed to restore proc";
       syscall_exit(-1);
     }
-    LOG(INFO) << "snapshot: restored process with pid="
-              << (*proc).get()->get_pid();
-  } else if (!args.empty()) {
-    auto [envp_s, envp_view] = BuildEnvp();
-    // Create the first process
-    proc = CreateFirstProcess(args[0], args, envp_view);
-    if (!proc) syscall_exit(-1);
+    LOG(INFO) << "snapshot: restored process with pid=" << (*proc)->get_pid();
+    rt::WaitForever();
   }
 
+  if (args.empty()) rt::WaitForever();
+
+  auto [envp_s, envp_view] = BuildEnvp();
+  // Create the first process
+  proc = CreateFirstProcess(args[0], args, envp_view);
+  if (!proc) syscall_exit(-1);
+
   // setup automatic snapshot
-  if (unlikely(!args.empty() && GetCfg().snapshot_timeout())) {
+  if (unlikely(GetCfg().snapshot_timeout())) {
     rt::Spawn([] {
       // Wait x seconds
       rt::Sleep(Duration(GetCfg().snapshot_timeout() * kSeconds));
@@ -148,11 +150,8 @@ void JunctionMain(int argc, char *argv[]) {
     });
   }
 
-  if (!args.empty()) {
-    // Drop reference so the process can properly destruct itself when done
-    proc->reset();
-  }
-
+  // Drop reference so the process can properly destruct itself when done
+  proc->reset();
   rt::WaitForever();
 }
 
@@ -169,14 +168,14 @@ int main(int argc, char *argv[]) {
   if (argc < 2) {
     usage();
     return -EINVAL;
-  } else if (strncmp(argv[1], "--help", 6) == 0 ||
-             strncmp(argv[1], "-h", 2) == 0) {
+  }
+
+  std::string first_arg(argv[1]);
+  if (first_arg == "--help" || first_arg == "-h") {
     usage();
     return -EINVAL;
   }
 
-  /* pick off runtime config file */
-  std::string cfg_file(argv[1]);
   argv[1] = argv[0];
   argc--;
   argv++;
@@ -205,7 +204,7 @@ int main(int argc, char *argv[]) {
   }
 
   int rtret = junction::rt::RuntimeInit(
-      cfg_file, [=] { junction::JunctionMain(binary_argc, binary_args); });
+      first_arg, [=] { junction::JunctionMain(binary_argc, binary_args); });
   if (rtret) {
     std::cerr << "runtime failed to start" << std::endl;
     return rtret;

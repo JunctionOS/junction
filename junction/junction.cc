@@ -76,8 +76,8 @@ po::options_description GetOptions() {
       "location of ld preload library")(
       "env,E", po::value<std::vector<std::string>>()->multitoken(),
       "environment flags for binary")("port,p",
-                                 po::value<int>()->default_value(42),
-                                 "port number to setup control port on")(
+                                      po::value<int>()->default_value(42),
+                                      "port number to setup control port on")(
       "strace,s", po::bool_switch()->default_value(false), "strace mode")(
       "restore,r", po::bool_switch()->default_value(false),
       "restore from a snapshot")("loglevel,l",
