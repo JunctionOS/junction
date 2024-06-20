@@ -237,6 +237,8 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
 
   // stash a copy of rax before the syscall
   new_frame.uc.uc_mcontext.trapno = new_frame.uc.uc_mcontext.rax;
+  assert(new_frame.uc.uc_mcontext.trapno >= 0 &&
+         new_frame.uc.uc_mcontext.trapno < 4096);
 
   new_frame.InvalidateAltStack();
 

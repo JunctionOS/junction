@@ -70,6 +70,10 @@ constexpr k_sigset_t kProcessWideSignals =
 
 constexpr k_sigset_t kStopStartSignals = MultiSignalMask(SIGSTOP, SIGCONT);
 
+[[nodiscard]] inline constexpr bool IsRestartSys(int rax) {
+  return rax == -ERESTARTNOHAND || rax == -ERESTARTSYS;
+}
+
 // k_sigaction defines the actions for a signal (in sync with Linux definition)
 struct k_sigaction {
   sighandler handler;

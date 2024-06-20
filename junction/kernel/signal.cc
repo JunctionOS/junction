@@ -805,10 +805,6 @@ extern "C" void deliver_signals_jmp_thread(thread_t *th) {
   return;
 }
 
-[[nodiscard]] bool IsRestartSys(int rax) {
-  return rax == -ERESTARTNOHAND || rax == -ERESTARTSYS;
-}
-
 // Check if restart is needed post handler, updates the trapframe if needed.
 void CheckRestartSysPostHandler(SyscallFrame &entry, int rax,
                                 const DeliveredSignal &sig) {

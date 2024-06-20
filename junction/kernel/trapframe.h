@@ -77,6 +77,15 @@ class SyscallFrame : virtual public Trapframe {
   // Modify the trapframe to repeat the system call when restored.
   virtual void ResetToSyscallStart() = 0;
 
+  // Reset a possible ERESTARTSYS to EINTR.
+  virtual void ResetRestartRax() = 0;
+
+  // Mark this trapframe as a non-syscall trapframe (ie from an interrupt).
+  virtual void ClearSyscallNr() = 0;
+
+  // Check if this trapframe resulted from a system call or interrupt.
+  [[nodiscard]] virtual bool is_from_syscall() const = 0;
+
   // Set the value for RAX in this trapframe.
   virtual void SetRax(uint64_t rax,
                       std::optional<uint64_t> rsp = std::nullopt) = 0;
@@ -128,6 +137,16 @@ class KernelSignalTf : public SyscallFrame {
   void SetRax(uint64_t rax, std::optional<uint64_t> rsp) override {
     sigframe.uc.uc_mcontext.rax = rax;
     if (rsp) sigframe.uc.uc_mcontext.rsp = *rsp;
+  }
+
+  void ResetRestartRax() override;
+
+  [[nodiscard]] bool is_from_syscall() const override {
+    return static_cast<size_t>(sigframe.uc.uc_mcontext.trapno) < 4096;
+  }
+
+  void ClearSyscallNr() override {
+    sigframe.uc.uc_mcontext.trapno = std::numeric_limits<size_t>::max();
   }
 
   [[nodiscard]] inline uint64_t GetRsp() const override {
@@ -214,6 +233,16 @@ class FunctionCallTf : public SyscallFrame {
 
   [[noreturn]] void JmpRestartSyscall() override;
   void ResetToSyscallStart() override;
+  void ResetRestartRax() override;
+
+  void ClearSyscallNr() override {
+    tf->orig_rax = std::numeric_limits<size_t>::max();
+  }
+
+  [[nodiscard]] bool is_from_syscall() const override {
+    return static_cast<size_t>(tf->orig_rax) < 4096;
+  }
+
   void SetRax(uint64_t rax, std::optional<uint64_t> rsp) override {
     tf->rax = rax;
     if (rsp) tf->rsp = *rsp;

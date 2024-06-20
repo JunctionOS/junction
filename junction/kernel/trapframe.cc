@@ -78,6 +78,11 @@ extern "C" [[noreturn]] void UintrKFrameLoopReturn(k_sigframe *frame,
   }
 }
 
+void KernelSignalTf::ResetRestartRax() {
+  if (is_from_syscall() && IsRestartSys(sigframe.uc.uc_mcontext.rax))
+    sigframe.uc.uc_mcontext.rax = -EINTR;
+}
+
 void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   th.SetTrapframe(*this);
   if (uintr_enabled) {
@@ -147,6 +152,10 @@ FunctionCallTf &FunctionCallTf::CreateOnSyscallStack(Thread &th) {
   thread_tf *stack_tf = AllocateOnStack<thread_tf>(&rsp);
   new (stack_wrapper) FunctionCallTf(stack_tf);
   return *stack_wrapper;
+}
+
+void FunctionCallTf::ResetRestartRax() {
+  if (is_from_syscall() && IsRestartSys(tf->rax)) tf->rax = -EINTR;
 }
 
 uint64_t RewindIndirectSystemCall(uint64_t rip) {
@@ -246,17 +255,21 @@ void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th) {
   SigframeType trapframe_type;
   ar(trapframe_type);
 
+  KernelSignalTf *ktf;
+  FunctionCallTf *ftf;
   Trapframe *tf;
 
   switch (trapframe_type) {
     case SigframeType::kKernelSignal:
-      tf = KernelSignalTf::DoLoad(ar, &stack_bottom);
+      tf = ktf = KernelSignalTf::DoLoad(ar, &stack_bottom);
+      ktf->ResetRestartRax();
       break;
     case SigframeType::kJunctionUIPI:
       tf = UintrTf::DoLoad(ar, &stack_bottom);
       break;
     case SigframeType::kJunctionTf:
-      tf = FunctionCallTf::DoLoad(ar, &stack_bottom);
+      tf = ftf = FunctionCallTf::DoLoad(ar, &stack_bottom);
+      ftf->ResetRestartRax();
       break;
     default:
       BUG();
