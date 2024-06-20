@@ -296,6 +296,10 @@ class EPollObserver : public PollObserver {
  private:
   void Notify(unsigned int event_mask) override;
 
+  friend void junction::EpollObserverSave(cereal::BinaryOutputArchive &ar,
+                                          const PollObserver &o);
+  friend void junction::EpollObserverLoad(cereal::BinaryInputArchive &ar);
+
   bool attached_{false};  // TODO(amb): switch to better intrusive list?
   bool one_shot_triggered_;
   EPollFile *epollf_;
@@ -314,7 +318,7 @@ class EPollFile : public File {
   static void Notify(PollSource &s);
 
   bool Add(File &f, uint32_t events, uint64_t user_data,
-           bool one_shot_triggered = false);
+           bool one_shot_triggered = false, uint32_t triggered_events = 0);
   bool Modify(File &f, uint32_t events, uint64_t user_data);
   bool Delete(File &f);
   int Wait(std::span<epoll_event> events, std::optional<Duration> timeout,
@@ -339,39 +343,11 @@ class EPollFile : public File {
   template <class Archive>
   void save(Archive &ar) const {
     ar(cereal::base_class<File>(this));
-
-    // Dump relevant state from attached epoll observers. Specifically, we just
-    // need each File, the watched events, and the user data. We don't track how
-    // many events are in the list, so prefix each entry with a boolean true,
-    // and add a boolean false at the end.
-    for (auto it = events_.begin(); it != events_.end(); it++) {
-      const EPollObserver &o = *it;
-      assert(o.attached_);
-      ar(true, o.f_->shared_from_this(), o.watched_events_, o.user_data_,
-         o.one_shot_triggered_);
-    }
-
-    ar(false);
   }
 
   template <class Archive>
   void load(Archive &ar) {
     ar(cereal::base_class<File>(this));
-
-    bool has_next;
-
-    while (true) {
-      ar(has_next);
-      if (!has_next) break;
-
-      std::shared_ptr<File> f;
-      uint32_t events;
-      uint64_t user_data;
-      bool one_shot_triggered;
-
-      ar(f, events, user_data, one_shot_triggered);
-      Add(*f.get(), events, user_data, one_shot_triggered);
-    }
   }
 
   int DeliverEvents(std::span<epoll_event> events_out);
@@ -401,16 +377,17 @@ void EPollFile::Notify(PollSource &s) {
 }
 
 bool EPollFile::Add(File &f, uint32_t events, uint64_t user_data,
-                    bool one_shot_triggered) {
+                    bool one_shot_triggered, uint32_t triggered_events) {
   events |= (kPollHUp | kPollErr);  // can't be ignored
   auto o = std::make_unique<EPollObserver>(*this, f, events, user_data,
                                            one_shot_triggered);
   PollSource &src = f.get_poll_source();
   rt::SpinGuard guard(src.lock_);
   for (const auto &o : src.epoll_observers_)
-    if (unlikely(static_cast<const EPollObserver &>(o).f_ == &f)) return false;
+    if (unlikely(static_cast<const EPollObserver &>(o).epollf_ == this))
+      return false;
   src.epoll_observers_.push_back(*o);
-  o->Notify(src.get_events());
+  o->Notify(src.get_events() | triggered_events);
   o.release();
   return true;
 }
@@ -538,6 +515,29 @@ void PollSource::DetachEPollObservers() {
   epoll_observers_.erase_and_dispose(epoll_observers_.begin(),
                                      epoll_observers_.end(),
                                      [](PollObserver *o) { delete o; });
+}
+
+void EpollObserverSave(cereal::BinaryOutputArchive &ar, const PollObserver &o) {
+  assert(dynamic_cast<const detail::EPollObserver *>(&o) != nullptr);
+  auto &oe = static_cast<const detail::EPollObserver &>(o);
+  auto epf = std::static_pointer_cast<detail::EPollFile>(
+      oe.epollf_->shared_from_this());
+  std::shared_ptr<File> file = oe.f_->shared_from_this();
+  ar(epf, file, oe.watched_events_, oe.user_data_, oe.one_shot_triggered_,
+     oe.triggered_events_);
+}
+
+void EpollObserverLoad(cereal::BinaryInputArchive &ar) {
+  std::shared_ptr<detail::EPollFile> epf;
+  std::shared_ptr<File> file;
+  uint32_t watched_events;
+  uint32_t triggered_events;
+  uint64_t user_data;
+  bool one_shot_triggered;
+  ar(epf, file, watched_events, user_data, one_shot_triggered,
+     triggered_events);
+  epf->Add(*file.get(), watched_events, user_data, one_shot_triggered,
+           triggered_events);
 }
 
 long usys_poll(struct pollfd *fds, nfds_t nfds, int timeout) {

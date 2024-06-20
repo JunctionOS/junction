@@ -210,12 +210,12 @@ class File : public std::enable_shared_from_this<File> {
   // Use save/load here so that derived classes have more flexibility.
   template <class Archive>
   void save(Archive &ar) const {
-    ar(flags_, off_);
+    ar(flags_, off_, poll_);
   }
 
   template <class Archive>
   void load(Archive &ar) {
-    ar(flags_, off_);
+    ar(flags_, off_, poll_);
   }
 
   // Add so that Cereal doesn't require this class to be default constructible.

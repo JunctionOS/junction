@@ -12,6 +12,7 @@ extern "C" {
 #include "junction/base/arch.h"
 #include "junction/base/intrusive_list.h"
 #include "junction/bindings/sync.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -71,6 +72,9 @@ class PollObserver {
   PollSource *src_{nullptr};
 };
 
+void EpollObserverSave(cereal::BinaryOutputArchive &ar, const PollObserver &o);
+void EpollObserverLoad(cereal::BinaryInputArchive &ar);
+
 // PollSource generates events and delivers them to each PollObserver.
 class alignas(kCacheLineSize) PollSource {
  public:
@@ -98,6 +102,27 @@ class alignas(kCacheLineSize) PollSource {
 
   // Unregisters an observer from this source.
   void Detach(PollObserver &o);
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    // Save epoll observers.
+    for (const PollObserver &o : epoll_observers_) {
+      ar(true);
+      EpollObserverSave(ar, o);
+    }
+    ar(false);
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    bool done;
+    ar(done);
+
+    while (done) {
+      EpollObserverLoad(ar);
+      ar(done);
+    }
+  }
 
  private:
   void Notify();
