@@ -71,8 +71,7 @@ po::options_description GetOptions() {
       po::value<std::string>()->implicit_value("")->default_value(""),
       "a path to include in LD_LIBRARY_PATH")(
       "ld_preload",
-      po::value<std::string>()->implicit_value("")->default_value(
-          CUSTOM_GLIBC_PRELOAD),
+      po::value<std::string>()->implicit_value("")->default_value(""),
       "location of ld preload library")(
       "env,E", po::value<std::vector<std::string>>()->multitoken(),
       "environment flags for binary")("port,p",

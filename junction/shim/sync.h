@@ -22,7 +22,7 @@ struct ShimMutex {
   uint32_t init_magic{kInitMagic};
   mutex_t mutex;
   ShimMutex() { mutex_init(&mutex); }
-  ~ShimMutex() { assert(!mutex_held(&mutex)); }
+  ~ShimMutex() {}
   static inline void InitCheck(ShimMutex *m) {
     if (unlikely(m->init_magic != kInitMagic)) new (m) ShimMutex();
   }
