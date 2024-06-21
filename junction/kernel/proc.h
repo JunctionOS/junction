@@ -18,6 +18,7 @@ extern "C" {
 #include "junction/base/uid.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
+#include "junction/fs/procfs/procfs.h"
 #include "junction/junction.h"
 #include "junction/kernel/itimer.h"
 #include "junction/kernel/mm.h"
@@ -75,6 +76,7 @@ class Thread {
   }
 
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
+  [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
 
   void set_child_tid(uint32_t *tid) { child_tid_ = tid; }
   void set_xstate(int xstate) { xstate_ = xstate; }
@@ -320,6 +322,9 @@ class Thread {
   FunctionCallTf fcall_tf;
 
   std::atomic<size_t> ref_count_{1};
+
+  // Data for procfs entries for this thread.
+  procfs::ProcFSData procfs_data_;
 };
 
 // Simple shared pointer-like object to allow references to a Thread without
@@ -329,6 +334,7 @@ class ThreadRef {
   explicit ThreadRef() : th_(nullptr) {}
   Thread *get() { return th_; }
   Thread *operator->() { return th_; }
+  Thread *operator*() { return th_; }
   explicit operator bool() const noexcept { return th_ != nullptr; }
   ~ThreadRef() {
     if (!th_) return;
@@ -414,6 +420,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
   [[nodiscard]] bool is_stopped() const { return stopped_; }
   [[nodiscard]] FSRoot &get_fs() { return fs_; }
+  [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
 
   [[nodiscard]] const std::string_view get_bin_path() const {
     return binary_path_;
@@ -492,6 +499,7 @@ class Process : public std::enable_shared_from_this<Process> {
   Status<Process *> FindWaitableProcess(idtype_t idtype, id_t id,
                                         unsigned int wait_flags);
 
+  // Find a process for a given pid. Returns null if not found.
   static std::shared_ptr<Process> Find(pid_t pid) {
     rt::SpinGuard g(pid_map_lock_);
     auto it = pid_to_proc_.find(pid);
@@ -539,6 +547,28 @@ class Process : public std::enable_shared_from_this<Process> {
     rt::ScopedLock g(child_thread_lock_);
     for (const auto &[_pid, th] : thread_map_) d += th->GetRuntime();
     return d + accumulated_runtime_;
+  }
+
+  // Run a function for each process in the system. The function will be called
+  // with a spinlock held and preemption disabled, so the function should not
+  // block.
+  template <typename F>
+  static void ForEachProcess(F func) {
+    rt::SpinGuard g(pid_map_lock_);
+    for (const auto &[pid, proc] : pid_to_proc_) {
+      std::shared_ptr<Process> lck = proc->weak_from_this().lock();
+      if (!lck) continue;
+      func(*proc);
+    }
+  }
+
+  // Run a function for each thread in this process. The function will be called
+  // with a spinlock held and preemption disabled, so the function should not
+  // block.
+  template <typename F>
+  void ForEachThread(F func) {
+    rt::SpinGuard g(child_thread_lock_);
+    for (const auto &[pid, th] : thread_map_) func(*th);
   }
 
  private:
@@ -742,6 +772,9 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Counters
   Duration accumulated_runtime_{0};  // Time from exited threads.
+
+  // Procfs entries.
+  procfs::ProcFSData procfs_data_;
 
   static rt::Spin pid_map_lock_;
   static std::map<pid_t, Process *> pid_to_proc_;

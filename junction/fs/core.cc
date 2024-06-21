@@ -675,19 +675,6 @@ Status<void> LinuxFSMount(std::shared_ptr<IDir> pos,
   return {};
 }
 
-Status<void> SetupProcFs(std::shared_ptr<IDir> root) {
-  // Overwrite Linux version of "/proc"
-  std::shared_ptr<IDir> memfs = memfs::MkFolder();
-  memfs->Mount("meminfo", MakeMemInfo());
-
-  std::shared_ptr<IDir> self = memfs::MkFolder();
-  self->Mount("exe", MakeSelfExe());
-  memfs->Mount("self", std::move(self));
-
-  root->Mount("proc", std::move(memfs));
-  return {};
-}
-
 Status<void> SetupDevices(std::shared_ptr<IDir> root) {
   std::shared_ptr<IDir> memfs = memfs::MkFolder();
 
@@ -718,7 +705,7 @@ Status<void> InitFs(
   // root's parent is itself.
   linux_root.SetParent(*tmp, ".");
 
-  if (Status<void> ret = SetupProcFs(*tmp); !ret) return ret;
+  linux_root.Mount("proc", procfs::MakeProcFS(*tmp));
 
   if (Status<void> ret = SetupDevices(*tmp); !ret) return ret;
 

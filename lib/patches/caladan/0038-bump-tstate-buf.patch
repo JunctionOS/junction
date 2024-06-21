@@ -1,4 +1,4 @@
-From b36d9d500238dd540b3577a8c30aeda24f7465b4 Mon Sep 17 00:00:00 2001
+From 4a703ce1ad363451beb684f0e8e814b249731f0e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 20 Jun 2024 19:27:11 -0400
 Subject: [PATCH 38/38] bump tstate buf
@@ -8,7 +8,7 @@ Subject: [PATCH 38/38] bump tstate buf
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 0783446..334466e 100644
+index 0783446..888a3a5 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -121,7 +121,7 @@ struct thread {
@@ -16,7 +16,7 @@ index 0783446..334466e 100644
      atomic8_t        interrupt_state;
      struct thread_tf    *entry_regs;
 -    unsigned long    junction_tstate_buf[22];
-+    unsigned long    junction_tstate_buf[23];
++    unsigned long    junction_tstate_buf[25];
      struct stack        *stack;
      uint16_t        last_cpu;
      uint16_t        cur_kthread;

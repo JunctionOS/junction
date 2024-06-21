@@ -261,6 +261,9 @@ class IDir : public Inode {
     return pptr_->name_in_parent;
   }
 
+  // Retrieves the parent of a directory that never changes.
+  [[nodiscard]] IDir &get_static_parent() const { return *pptr_->parent.get(); }
+
  private:
   const IDirType type_;
   std::unique_ptr<ParentPointer> pptr_;
