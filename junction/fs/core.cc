@@ -200,6 +200,7 @@ Status<void> Rename(const Entry &src_entry, const Entry &dst_entry,
 Status<void> HardLink(std::shared_ptr<Inode> src, const Entry &dst_path) {
   if (src->is_dir()) return MakeError(EPERM);
   auto &[dst_idir, dst_name, must_be_dir] = dst_path;
+  if (must_be_dir) return MakeError(EPERM);
   return dst_idir->Link(dst_name, std::move(src));
 }
 
@@ -222,7 +223,7 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
   if (!in) return MakeError(ENOENT);
 
   if ((*in)->is_symlink()) {
-    if ((flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
+    if (!must_be_dir && (flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
       return MakeError(ELOOP);
     in = WalkPath(fs, std::move(idir), {name}, true);
     if (!in) return MakeError(in);
@@ -239,8 +240,9 @@ Status<std::shared_ptr<Inode>> LookupInode(const FSRoot &fs,
                                            std::string_view path,
                                            bool chase_link) {
   if (!PathIsValid(path)) return MakeError(EINVAL);
-  std::vector<std::string_view> spath = SplitPath(path, nullptr);
-  return WalkPath(fs, GetPathDir(fs, path), spath, chase_link);
+  bool must_be_dir;
+  std::vector<std::string_view> spath = SplitPath(path, &must_be_dir);
+  return WalkPath(fs, GetPathDir(fs, path), spath, chase_link || must_be_dir);
 }
 
 // LookupInode finds an inode for a path
@@ -250,8 +252,10 @@ Status<std::shared_ptr<Inode>> LookupInode(Process &p, int dirfd,
   if (!PathIsValid(path)) return MakeError(EINVAL);
   Status<std::shared_ptr<IDir>> pathd = GetPathDirAt(p, dirfd, path);
   if (!pathd) return MakeError(pathd);
-  std::vector<std::string_view> spath = SplitPath(path, nullptr);
-  return WalkPath(p.get_fs(), std::move(*pathd), spath, chase_link);
+  bool must_be_dir;
+  std::vector<std::string_view> spath = SplitPath(path, &must_be_dir);
+  return WalkPath(p.get_fs(), std::move(*pathd), spath,
+                  chase_link || must_be_dir);
 }
 
 // Attempts to get the fullpath from the root of the filesystem to this IDir by
@@ -366,11 +370,7 @@ long usys_symlinkat(const char *target, int dirfd, const char *pathname) {
   Status<Entry> entry = LookupEntry(myproc(), dirfd, pathname);
   if (!entry) return MakeCError(entry);
   Status<void> ret = SymLink(*entry, target);
-  if (!ret) {
-    LOG(ERR) << "ret is " << ret.error() << " cerror is " << MakeCError(ret);
-
-    return MakeCError(ret);
-  }
+  if (!ret) return MakeCError(ret);
   return 0;
 }
 

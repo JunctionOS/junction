@@ -142,10 +142,8 @@ struct dir_entry {
 // Backwards link for an IDir; contains a pointer to the parent and the name
 // of this IDir.
 struct ParentPointer : public rt::RCUObject {
-  ParentPointer(std::shared_ptr<IDir> parent, std::string &&name)
+  ParentPointer(std::shared_ptr<IDir> parent, std::string name)
       : parent(std::move(parent)), name_in_parent(std::move(name)) {}
-  ParentPointer(std::shared_ptr<IDir> parent, std::string_view name)
-      : parent(std::move(parent)), name_in_parent(name) {}
   std::shared_ptr<IDir> parent;
   std::string name_in_parent;
 };
@@ -153,18 +151,27 @@ struct ParentPointer : public rt::RCUObject {
 // Forward declaration.
 class FSRoot;
 
+enum class IDirType {
+  kUnknown = 0,
+  kMem = 1,
+};
+
 // IDir is an inode type for directories
 class IDir : public Inode {
  public:
-  IDir(mode_t mode, ino_t inum, std::string_view name,
+  IDir(mode_t mode, ino_t inum, std::string name, IDirType type,
        std::shared_ptr<IDir> parent = {})
       : Inode(kTypeDirectory | mode, inum),
-        pptr_(std::make_unique<ParentPointer>(std::move(parent), name)),
+        type_(type),
+        pptr_(std::make_unique<ParentPointer>(std::move(parent),
+                                              std::move(name))),
         rcup_(pptr_.get()) {}
-  IDir(const struct stat &buf, std::string_view name,
+  IDir(const struct stat &buf, std::string name, IDirType type,
        std::shared_ptr<IDir> parent = {})
       : Inode(kTypeDirectory | buf.st_mode, buf.st_ino),
-        pptr_(std::make_unique<ParentPointer>(std::move(parent), name)),
+        type_(type),
+        pptr_(std::make_unique<ParentPointer>(std::move(parent),
+                                              std::move(name))),
         rcup_(pptr_.get()) {}
 
   ~IDir() override = default;
@@ -229,54 +236,33 @@ class IDir : public Inode {
   Status<std::span<char>> GetFullPath(const FSRoot &fs, std::span<char> dst);
 
   // Must be called during a rename.
-  void SetParent(std::shared_ptr<IDir> new_parent, std::string_view new_name) {
+  void SetParent(std::shared_ptr<IDir> new_parent, std::string new_name) {
     assert(!lock_.IsHeld());
     rt::ScopedLock g(lock_);
     rt::RCURead l;
     rt::RCUReadGuard rg(l);
-    auto newp =
-        std::make_unique<ParentPointer>(std::move(new_parent), new_name);
+    auto newp = std::make_unique<ParentPointer>(std::move(new_parent),
+                                                std::move(new_name));
     rcup_.set(newp.get());
     rt::RCUFree(std::move(pptr_));
     pptr_ = std::move(newp);
   }
 
   // Directly inserts this ino into the entries list.
-  void Mount(std::string name, std::shared_ptr<Inode> ino) {
-    rt::ScopedLock g(lock_);
-    InsertLockedNoCheck(name, ino);
-    if (ino->is_dir()) {
-      IDir &dir = static_cast<IDir &>(*ino);
-      dir.SetParent(get_this(), name);
-    }
-  }
+  virtual Status<void> Mount(std::string name, std::shared_ptr<Inode> ino) = 0;
+
+  IDirType get_idir_type() const { return type_; }
 
  protected:
   rt::SharedMutex lock_;
-  std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 
-  void InsertLockedNoCheck(std::string_view name, std::shared_ptr<Inode> ino) {
-    assert(lock_.IsHeld());
-    ino->inc_nlink();
-    entries_[std::string(name)] = std::move(ino);
-  }
-
-  [[nodiscard]] Status<void> InsertLocked(std::string name,
-                                          std::shared_ptr<Inode> ino) {
-    assert(lock_.IsHeld());
-    auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
-    if (!okay) return MakeError(EEXIST);
-    it->second->inc_nlink();
-    return {};
-  }
-
-  [[nodiscard]] Status<void> Insert(std::string name,
-                                    std::shared_ptr<Inode> ino) {
-    rt::ScopedLock g(lock_);
-    return InsertLocked(std::move(name), std::move(ino));
+  // Retrieves the name of a directory that never changes.
+  [[nodiscard]] std::string get_static_name() const {
+    return pptr_->name_in_parent;
   }
 
  private:
+  const IDirType type_;
   std::unique_ptr<ParentPointer> pptr_;
   rt::RCUPtr<ParentPointer> rcup_;
 };

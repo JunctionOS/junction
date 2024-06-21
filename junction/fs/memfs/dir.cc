@@ -9,23 +9,27 @@
 namespace junction::memfs {
 
 Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
+  DoInitCheck();
   rt::ScopedSharedLock g(lock_);
   if (auto it = entries_.find(name); it != entries_.end()) return it->second;
   return MakeError(ENOENT);
 }
 
 Status<void> MemIDir::MkNod(std::string_view name, mode_t mode, dev_t dev) {
+  DoInitCheck();
   if ((mode & (kTypeCharacter | kTypeBlock)) == 0) return MakeError(EINVAL);
   auto ino = CreateIDevice(dev, mode);
   return Insert(std::string(name), std::move(ino));
 }
 
 Status<void> MemIDir::MkDir(std::string_view name, mode_t mode) {
-  auto ino = std::make_shared<MemIDir>(mode, name, get_this());
+  DoInitCheck();
+  auto ino = std::make_shared<MemIDir>(mode, std::string(name), get_this());
   return Insert(std::string(name), std::move(ino));
 }
 
 Status<void> MemIDir::Unlink(std::string_view name) {
+  DoInitCheck();
   rt::ScopedLock g(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) return MakeError(ENOENT);
@@ -36,6 +40,7 @@ Status<void> MemIDir::Unlink(std::string_view name) {
 }
 
 Status<void> MemIDir::RmDir(std::string_view name) {
+  DoInitCheck();
   rt::ScopedLock g(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) return MakeError(ENOENT);
@@ -56,6 +61,7 @@ Status<void> MemIDir::RmDir(std::string_view name) {
 }
 
 Status<void> MemIDir::SymLink(std::string_view name, std::string_view target) {
+  DoInitCheck();
   return Insert(std::string(name), CreateISoftLink(target));
 }
 
@@ -80,7 +86,7 @@ Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
 
   if (ino->is_dir()) {
     IDir &tdir = static_cast<IDir &>(*ino);
-    tdir.SetParent(get_this(), dst_name);
+    tdir.SetParent(get_this(), std::string(dst_name));
   }
 
   entries_[std::string(dst_name)] = std::move(ino);
@@ -89,8 +95,9 @@ Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
 
 Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
                              std::string_view dst_name, bool replace) {
-  auto *src_dir = most_derived_cast<MemIDir>(&src);
-  if (!src_dir) return MakeError(EXDEV);
+  DoInitCheck();
+  if (src.get_idir_type() != IDirType::kMem) return MakeError(EXDEV);
+  MemIDir *src_dir = static_cast<MemIDir *>(&src);
 
   // check if rename is in same directory
   if (src_dir == this) {
@@ -114,6 +121,7 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
 }
 
 Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
+  DoInitCheck();
   rt::ScopedLock g(lock_);
   if (is_stale()) return MakeError(ESTALE);
   if (Status<void> ret = InsertLocked(std::string(name), std::move(ino)); !ret)
@@ -123,6 +131,7 @@ Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
 
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
                                               mode_t mode, FileMode fmode) {
+  DoInitCheck();
   rt::ScopedLock g_(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) {
@@ -136,6 +145,7 @@ Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
 }
 
 std::vector<dir_entry> MemIDir::GetDents() {
+  DoInitCheck();
   std::vector<dir_entry> result;
   rt::ScopedSharedLock g(lock_);
   for (const auto &[name, ino] : entries_)

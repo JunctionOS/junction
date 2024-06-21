@@ -78,13 +78,12 @@ class MemInode : public Inode {
 
 class MemIDir : public IDir {
  public:
-  MemIDir(mode_t mode, std::string_view name, std::shared_ptr<IDir> parent)
-      : IDir(mode, AllocateInodeNumber(), name, parent) {}
-  MemIDir(mode_t mode, std::string &&name, std::shared_ptr<IDir> parent)
-      : IDir(mode, AllocateInodeNumber(), std::move(name), parent) {}
-  MemIDir(const struct stat &stat, std::string &&name,
+  MemIDir(mode_t mode, std::string name, std::shared_ptr<IDir> parent)
+      : IDir(mode, AllocateInodeNumber(), std::move(name), IDirType::kMem,
+             parent) {}
+  MemIDir(const struct stat &stat, std::string name,
           std::shared_ptr<IDir> parent)
-      : IDir(stat, std::move(name), parent) {}
+      : IDir(stat, std::move(name), IDirType::kMem, parent) {}
 
   // Directory ops
   Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override;
@@ -107,10 +106,65 @@ class MemIDir : public IDir {
     return {};
   }
 
+  Status<void> Mount(std::string name, std::shared_ptr<Inode> ino) override {
+    rt::ScopedLock g(lock_);
+    InsertLockedNoCheck(name, ino);
+    if (ino->is_dir()) {
+      IDir &dir = static_cast<IDir &>(*ino);
+      dir.SetParent(get_this(), std::move(name));
+    }
+    return {};
+  }
+
+ protected:
+  // Subclasses override this to add custom logic run on the first access of
+  // this directory.
+  virtual void DoInitialize(){};
+
+  [[nodiscard]] bool is_initialized() const {
+    return load_acquire(&initialized_);
+  }
+  void MarkInitialized() { store_release(&initialized_, true); }
+
+  __always_inline void DoInitCheck() {
+    if (unlikely(!is_initialized())) RunInitialize();
+  }
+  std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
+
+  void InsertLockedNoCheck(std::string_view name, std::shared_ptr<Inode> ino) {
+    assert(lock_.IsHeld());
+    ino->inc_nlink();
+    entries_[std::string(name)] = std::move(ino);
+  }
+
+  [[nodiscard]] Status<void> InsertLocked(std::string name,
+                                          std::shared_ptr<Inode> ino) {
+    assert(lock_.IsHeld());
+    auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
+    if (!okay) return MakeError(EEXIST);
+    it->second->inc_nlink();
+    return {};
+  }
+
+  [[nodiscard]] Status<void> Insert(std::string name,
+                                    std::shared_ptr<Inode> ino) {
+    rt::ScopedLock g(lock_);
+    return InsertLocked(std::move(name), std::move(ino));
+  }
+
  private:
+  bool initialized_{false};
   // Helper routine for renaming.
   Status<void> DoRename(MemIDir &src, std::string_view src_name,
                         std::string_view dst_name, bool replace);
+
+  __noinline void RunInitialize() {
+    rt::ScopedLock g(lock_);
+    if (likely(!initialized_)) {
+      DoInitialize();
+      MarkInitialized();
+    }
+  }
 };
 
 // MemISoftLink is an inode type for soft link

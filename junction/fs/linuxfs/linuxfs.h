@@ -16,7 +16,7 @@ extern std::set<dev_t> allowed_devs;
 
 class LinuxInode : public Inode {
  public:
-  LinuxInode(const struct stat &stat, std::string &&path)
+  LinuxInode(const struct stat &stat, std::string path)
       : Inode(stat.st_mode, stat.st_ino),
         path_(std::move(path)),
         size_(stat.st_size) {
@@ -50,61 +50,11 @@ class LinuxInode : public Inode {
 
 class LinuxIDir : public memfs::MemIDir {
  public:
-  LinuxIDir(const struct stat &stat, std::string &&path, std::string_view name,
+  LinuxIDir(const struct stat &stat, std::string path, std::string name,
             std::shared_ptr<IDir> parent)
       : MemIDir(stat, std::string(name), std::move(parent)),
         path_(std::move(path)) {
     assert(is_dir());
-  }
-
-  // Directory ops
-  Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override {
-    InitCheck();
-    return MemIDir::Lookup(name);
-  }
-  Status<void> MkNod(std::string_view name, mode_t mode, dev_t dev) override {
-    InitCheck();
-    return MemIDir::MkNod(name, mode, dev);
-  }
-  Status<void> MkDir(std::string_view name, mode_t mode) override {
-    InitCheck();
-    return MemIDir::MkDir(name, mode);
-  }
-  Status<void> Unlink(std::string_view name) override {
-    InitCheck();
-    return MemIDir::Unlink(name);
-  }
-  Status<void> RmDir(std::string_view name) override {
-    InitCheck();
-    return MemIDir::RmDir(name);
-  }
-  Status<void> SymLink(std::string_view name,
-                       std::string_view target) override {
-    InitCheck();
-    return MemIDir::SymLink(name, target);
-  }
-
-  Status<void> Rename(IDir &src, std::string_view src_name,
-                      std::string_view dst_name, bool replace) override {
-    InitCheck();
-    return MemIDir::Rename(src, src_name, dst_name, replace);
-  }
-
-  Status<void> Link(std::string_view name,
-                    std::shared_ptr<Inode> ino) override {
-    InitCheck();
-    return MemIDir::Link(name, std::move(ino));
-  }
-
-  Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
-                                       mode_t mode, FileMode fmode) override {
-    InitCheck();
-    return MemIDir::Create(name, flags, mode, fmode);
-  }
-
-  std::vector<dir_entry> GetDents() override {
-    InitCheck();
-    return MemIDir::GetDents();
   }
 
   // Inode ops
@@ -121,23 +71,17 @@ class LinuxIDir : public memfs::MemIDir {
  protected:
   // Helper routine to intialize entries_
   Status<void> FillEntries();
-  void Initialize();
+  void DoInitialize() override;
 
   Status<std::shared_ptr<Inode>> ToInode(const struct stat &stat,
-                                         std::string &&abspath,
+                                         std::string abspath,
                                          std::string_view entry_name);
 
   virtual std::shared_ptr<IDir> InstantiateChildDir(const struct stat &buf,
-                                                    std::string &&abspath,
-                                                    std::string_view name) {
-    return std::make_shared<LinuxIDir>(buf, std::move(abspath), name,
+                                                    std::string abspath,
+                                                    std::string name) {
+    return std::make_shared<LinuxIDir>(buf, std::move(abspath), std::move(name),
                                        get_this());
-  }
-
-  void InitCheck() {
-    if (access_once(initialized_)) return;
-    rt::ScopedLock g(lock_);
-    if (!initialized_) Initialize();
   }
 
   Status<KernelFile> GetLinuxDirFD() const {
@@ -154,14 +98,13 @@ class LinuxIDir : public memfs::MemIDir {
   }
 
   const std::string path_;
-  bool initialized_{false};
 };
 
 class LinuxWrIDir : public LinuxIDir {
  public:
-  LinuxWrIDir(const struct stat &stat, std::string &&path,
-              std::string_view name, std::shared_ptr<IDir> parent)
-      : LinuxIDir(stat, std::move(path), name, std::move(parent)) {
+  LinuxWrIDir(const struct stat &stat, std::string path, std::string name,
+              std::shared_ptr<IDir> parent)
+      : LinuxIDir(stat, std::move(path), std::move(name), std::move(parent)) {
     assert(is_dir());
   }
 
@@ -182,10 +125,10 @@ class LinuxWrIDir : public LinuxIDir {
 
  protected:
   std::shared_ptr<IDir> InstantiateChildDir(const struct stat &buf,
-                                            std::string &&abspath,
-                                            std::string_view name) override {
-    return std::make_shared<LinuxWrIDir>(buf, std::move(abspath), name,
-                                         get_this());
+                                            std::string abspath,
+                                            std::string name) override {
+    return std::make_shared<LinuxWrIDir>(buf, std::move(abspath),
+                                         std::move(name), get_this());
   }
 
  private:
