@@ -68,7 +68,7 @@ class ProcFSInode : public Inode {
   std::shared_ptr<IDir> parent_;
 };
 
-constexpr std::optional<pid_t> ParsePid(std::string_view s) {
+std::optional<pid_t> ParsePid(std::string_view s) {
   pid_t result;
   if (std::from_chars(s.data(), s.data() + s.size(), result).ec == std::errc{})
     return result;

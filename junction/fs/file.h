@@ -356,7 +356,7 @@ class FileTable {
   std::shared_ptr<File> Dup(int fd);
 
   // Inserts a file into the file table and refcounts it. Returns the fd number.
-  int Insert(std::shared_ptr<File> f, size_t lowest = 0, bool cloexec = false);
+  int Insert(std::shared_ptr<File> f, bool cloexec = false, size_t lowest = 0);
 
   // Inserts a file into the file table at a specific fd number and refcounts
   // it. If a file already exists for the fd number, it will be replaced

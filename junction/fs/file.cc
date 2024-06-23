@@ -84,7 +84,7 @@ std::shared_ptr<File> FileTable::Dup(int fd) {
   return tbl->files[fd];
 }
 
-int FileTable::Insert(std::shared_ptr<File> f, size_t lowest, bool cloexec) {
+int FileTable::Insert(std::shared_ptr<File> f, bool cloexec, size_t lowest) {
   rt::SpinGuard g(lock_);
   size_t i;
   auto fin = finally([this, cloexec, &i] {
@@ -567,13 +567,17 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
       std::shared_ptr<File> fdup;
       fdup = ftbl.Dup(fd);
       if (!fdup) return -EBADF;
-      return ftbl.Insert(std::move(fdup), arg, cmd == F_DUPFD_CLOEXEC);
+      return ftbl.Insert(std::move(fdup), cmd == F_DUPFD_CLOEXEC, arg);
     }
     case F_GETFD:
       return ftbl.TestCloseOnExec(fd) ? FD_CLOEXEC : 0;
     case F_SETFD:
-      if (arg != FD_CLOEXEC) return -EINVAL;
-      ftbl.SetCloseOnExec(fd);
+      if (arg == FD_CLOEXEC)
+        ftbl.SetCloseOnExec(fd);
+      else if (arg == 0)
+        ftbl.ClearCloseOnExec(fd);
+      else
+        return -EINVAL;
       return 0;
     case F_GETFL:
       return ToFlags(f->get_mode()) | f->get_flags();
