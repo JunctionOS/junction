@@ -694,6 +694,12 @@ Status<void> SetupDevices(std::shared_ptr<IDir> root) {
   return {};
 }
 
+Status<void> FSSnapshotPrepare() {
+  FSRoot &fs = FSRoot::GetGlobalRoot();
+  auto root = fs.get_root();
+  return root->Unmount("proc");
+}
+
 Status<void> InitFs(
     const std::vector<std::pair<std::string, std::string>> &linux_mount_points,
     const std::vector<std::string> &mem_mount_points) {

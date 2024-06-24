@@ -29,6 +29,10 @@ add_executable(st_socketpair
   st_socketpair.cc
 )
 
+add_executable(st_device
+  st_device.cc
+)
+
 add_executable(st_stdio_file
 	st_stdio_file.cc
 )
@@ -106,6 +110,18 @@ add_test(
   NAME c_st_socketpair_restore
   COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r --\
   /tmp/st_socketpair.metadata /tmp/st_socketpair.elf"
+)
+
+add_test(
+  NAME c_st_device_snapshot
+  COMMAND sh -c "rm -f /tmp/st_device.metadata /tmp/st_device.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} -S --snapshot-prefix /tmp/st_device --\
+  $<TARGET_FILE:st_device>"
+)
+
+add_test(
+  NAME c_st_device_restore
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r --\
+  /tmp/st_device.metadata /tmp/st_device.elf"
 )
 
 # st_stdio_file

@@ -119,9 +119,6 @@ Status<void> SnapshotElf(MemoryMap &mm, std::string_view elf_path) {
 
     if (!mem_region_len) continue;
 
-    // TODO(amb): Copied this code but it looks incorrect
-    // some regions are not readable so we need to remap them as readable
-    // before they get written to the elf
     if (!(vma.prot & PROT_READ)) {
       auto ret = KernelMProtect(reinterpret_cast<void *>(vma.start),
                                 mem_region_len, vma.prot | PROT_READ);
@@ -136,6 +133,8 @@ Status<void> SnapshotElf(MemoryMap &mm, std::string_view elf_path) {
 }
 
 Status<void> SnapshotMetadata(Process &p, std::string_view metadata_path) {
+  if (Status<void> ret = FSSnapshotPrepare(); !ret) return ret;
+
   rt::RuntimeLibcGuard guard;
 
   Status<KernelFile> metadata_file = KernelFile::Open(

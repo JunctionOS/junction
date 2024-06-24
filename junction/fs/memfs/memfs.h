@@ -33,8 +33,8 @@ std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode);
 
 class MemInode : public Inode {
  public:
-  MemInode(mode_t mode)
-      : Inode(kTypeRegularFile | mode, AllocateInodeNumber()) {}
+  MemInode(mode_t mode, ino_t inum = AllocateInodeNumber())
+      : Inode(kTypeRegularFile | mode, inum) {}
   Status<void> SetSize(size_t newlen) override;
   Status<void> GetStats(struct stat *buf) const override;
 
@@ -68,6 +68,24 @@ class MemInode : public Inode {
 
   [[nodiscard]] size_t get_size() const { return buf_.size(); }
 
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(get_mode(), get_inum());
+    ar(buf_);
+    ar(cereal::base_class<Inode>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<MemInode> &construct) {
+    mode_t mode;
+    ino_t inum;
+    ar(mode, inum);
+    construct(mode, inum);
+    ar(construct->buf_);
+    ar(cereal::base_class<Inode>(construct.ptr()));
+  }
+
  private:
   // Protects modifications to buf_. A reader lock holder can read/write to buf_
   // but a writer lock must be used to resize buf_.
@@ -78,9 +96,9 @@ class MemInode : public Inode {
 
 class MemIDir : public IDir {
  public:
-  MemIDir(mode_t mode, std::string name, std::shared_ptr<IDir> parent)
-      : IDir(mode, AllocateInodeNumber(), std::move(name), IDirType::kMem,
-             parent) {}
+  MemIDir(mode_t mode, std::string name, std::shared_ptr<IDir> parent,
+          ino_t ino = AllocateInodeNumber())
+      : IDir(mode, ino, std::move(name), IDirType::kMem, parent) {}
   MemIDir(const struct stat &stat, std::string name,
           std::shared_ptr<IDir> parent)
       : IDir(stat, std::move(name), IDirType::kMem, parent) {}
@@ -114,6 +132,45 @@ class MemIDir : public IDir {
       dir.SetParent(get_this(), std::move(name));
     }
     return {};
+  }
+
+  Status<void> Unmount(std::string_view name) override {
+    rt::ScopedLock g(lock_);
+    auto it = entries_.find(name);
+    if (it == entries_.end()) return MakeError(ENOENT);
+    it->second->dec_nlink();
+    entries_.erase(it);
+    return {};
+  }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    if (is_most_derived<MemIDir>(*this))
+      ar(get_mode(), get_inum(), get_parent(), get_name());
+    ar(initialized_, entries_);
+    ar(cereal::base_class<IDir>(this));
+  }
+
+  // Used only by derived classes.
+  template <class Archive>
+  void load(Archive &ar) {
+    assert(!is_most_derived<MemIDir>(*this));
+    ar(initialized_, entries_);
+    ar(cereal::base_class<IDir>(this));
+  }
+
+  // Called when a MemIDir is instantiated.
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<MemIDir> &construct) {
+    mode_t mode;
+    ino_t inum;
+    std::shared_ptr<IDir> parent;
+    std::string name_in_parent;
+    ar(mode, inum, parent, name_in_parent);
+    construct(mode, std::move(name_in_parent), std::move(parent), inum);
+    ar(construct->initialized_, construct->entries_);
+    ar(cereal::base_class<IDir>(construct.ptr()));
   }
 
  protected:
@@ -170,8 +227,8 @@ class MemIDir : public IDir {
 // MemISoftLink is an inode type for soft link
 class MemISoftLink : public ISoftLink {
  public:
-  MemISoftLink(std::string_view path)
-      : ISoftLink(0, AllocateInodeNumber()), path_(path) {}
+  MemISoftLink(std::string_view path, ino_t ino = AllocateInodeNumber())
+      : ISoftLink(0777, ino), path_(path) {}
   MemISoftLink(const struct stat &stat, std::string_view path)
       : ISoftLink(stat), path_(path) {}
   ~MemISoftLink() override = default;
@@ -185,6 +242,22 @@ class MemISoftLink : public ISoftLink {
   Status<void> GetStatFS(struct statfs *buf) const override {
     StatFs(buf);
     return {};
+  }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(get_inum(), path_);
+    ar(cereal::base_class<ISoftLink>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<MemISoftLink> &construct) {
+    ino_t inum;
+    std::string path;
+    ar(inum, path);
+    construct(std::move(path), inum);
+    ar(cereal::base_class<ISoftLink>(construct.ptr()));
   }
 
  private:

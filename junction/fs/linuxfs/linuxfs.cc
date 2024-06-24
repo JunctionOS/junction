@@ -53,3 +53,7 @@ Status<std::shared_ptr<IDir>> InitLinuxRoot() {
 }
 
 }  // namespace junction::linuxfs
+
+CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxInode);
+CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxIDir);
+CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxWrIDir);

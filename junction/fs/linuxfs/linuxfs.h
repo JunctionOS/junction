@@ -7,6 +7,7 @@
 #include "junction/fs/fs.h"
 #include "junction/fs/memfs/memfs.h"
 #include "junction/kernel/ksys.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction::linuxfs {
 
@@ -20,6 +21,11 @@ class LinuxInode : public Inode {
       : Inode(stat.st_mode, stat.st_ino),
         path_(std::move(path)),
         size_(stat.st_size) {
+    assert(!is_symlink() && !is_dir());
+  }
+  // Cereal constructor
+  LinuxInode(mode_t mode, ino_t ino, std::string path, off_t size)
+      : Inode(mode, ino), path_(std::move(path)), size_(size) {
     assert(!is_symlink() && !is_dir());
   }
 
@@ -43,6 +49,24 @@ class LinuxInode : public Inode {
   [[nodiscard]] std::string_view get_path() const { return path_; }
   [[nodiscard]] Status<void> SetSize(size_t sz) override;
 
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(path_, size_, get_mode(), get_inum());
+    ar(cereal::base_class<Inode>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<LinuxInode> &construct) {
+    std::string path;
+    off_t size;
+    mode_t mode;
+    ino_t inum;
+    ar(path, size, mode, inum);
+    construct(mode, inum, std::move(path), size);
+    ar(cereal::base_class<Inode>(construct.ptr()));
+  }
+
  private:
   const std::string path_;
   const off_t size_;
@@ -53,6 +77,13 @@ class LinuxIDir : public memfs::MemIDir {
   LinuxIDir(const struct stat &stat, std::string path, std::string name,
             std::shared_ptr<IDir> parent)
       : MemIDir(stat, std::string(name), std::move(parent)),
+        path_(std::move(path)) {
+    assert(is_dir());
+  }
+  // Cereal constructor
+  LinuxIDir(mode_t mode, ino_t inum, std::string path, std::string name,
+            std::shared_ptr<IDir> parent)
+      : MemIDir(mode, std::string(name), std::move(parent), inum),
         path_(std::move(path)) {
     assert(is_dir());
   }
@@ -68,8 +99,35 @@ class LinuxIDir : public memfs::MemIDir {
     return {};
   }
 
+  template <class Archive>
+  void save(Archive &ar) const {
+    if (is_most_derived<LinuxIDir>(*this))
+      ar(get_mode(), get_inum(), get_parent(), get_name(), path_);
+    ar(cereal::base_class<MemIDir>(this));
+  }
+
+  // Used only by derived classes.
+  template <class Archive>
+  void load(Archive &ar) {
+    assert(!is_most_derived<LinuxIDir>(*this));
+    ar(cereal::base_class<MemIDir>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<LinuxIDir> &construct) {
+    mode_t mode;
+    ino_t inum;
+    std::shared_ptr<IDir> parent;
+    std::string name_in_parent, path;
+    ar(mode, inum, parent, name_in_parent, path);
+    construct(mode, inum, std::move(path), std::move(name_in_parent),
+              std::move(parent));
+    ar(cereal::base_class<MemIDir>(construct.ptr()));
+  }
+
  protected:
-  // Helper routine to intialize entries_
+  // Helper routine to intialize entries_.
   Status<void> FillEntries();
   void DoInitialize() override;
 
@@ -108,6 +166,14 @@ class LinuxWrIDir : public LinuxIDir {
     assert(is_dir());
   }
 
+  // Cereal constructor.
+  LinuxWrIDir(mode_t mode, ino_t inum, std::string path, std::string name,
+              std::shared_ptr<IDir> parent)
+      : LinuxIDir(mode, inum, std::move(path), std::move(name),
+                  std::move(parent)) {
+    assert(is_dir());
+  }
+
   // Directory ops
   Status<void> MkNod(std::string_view name, mode_t mode, dev_t dev) override {
     return MakeError(EACCES);
@@ -122,6 +188,25 @@ class LinuxWrIDir : public LinuxIDir {
   Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino) override;
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                        mode_t mode, FileMode fmode) override;
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(get_mode(), get_inum(), get_parent(), get_name(), path_);
+    ar(cereal::base_class<LinuxIDir>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<LinuxWrIDir> &construct) {
+    mode_t mode;
+    ino_t inum;
+    std::shared_ptr<IDir> parent;
+    std::string name_in_parent, path;
+    ar(mode, inum, parent, name_in_parent, path);
+    construct(mode, inum, std::move(path), std::move(name_in_parent),
+              std::move(parent));
+    ar(cereal::base_class<LinuxIDir>(construct.ptr()));
+  }
 
  protected:
   std::shared_ptr<IDir> InstantiateChildDir(const struct stat &buf,

@@ -31,6 +31,24 @@ class SpecialFile : public File {
                        [[maybe_unused]] off_t *off) override {
     return Writer(buf);
   }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(get_flags(), get_mode(), get_inode_ref().shared_from_this());
+    ar(cereal::base_class<File>(this));
+  }
+
+  // TODO(cereal): avoid archiving the underlying inode.
+  template <class Archive>
+  static void load_and_construct(
+      Archive &ar, cereal::construct<SpecialFile<Reader, Writer>> &construct) {
+    unsigned int flags;
+    FileMode mode;
+    std::shared_ptr<Inode> in;
+    ar(flags, mode, in);
+    construct(flags, mode, std::move(in));
+    ar(cereal::base_class<File>(construct.ptr()));
+  }
 };
 
 //
@@ -111,3 +129,8 @@ Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, dev_t dev,
 }
 
 }  // namespace junction
+
+CEREAL_REGISTER_TYPE(junction::CDevNullFile);
+CEREAL_REGISTER_TYPE(junction::CDevZeroFile);
+CEREAL_REGISTER_TYPE(junction::CDevRandomFile);
+CEREAL_REGISTER_TYPE(junction::CDevURandomFile);

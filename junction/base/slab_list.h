@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "junction/base/bits.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -172,6 +173,23 @@ class SlabList {
   }
 
   size_t size() const { return size_; }
+
+  template <class Archive>
+  void save(Archive& ar) const {
+    ar(size_, n_blocks_in_use_);
+    for (size_t i = 0; i < n_blocks_in_use_; i++)
+      ar(cereal::binary_data(block_ptrs_[i].get(), BlockSize));
+  }
+
+  template <class Archive>
+  void load(Archive& ar) {
+    ar(size_, n_blocks_in_use_);
+    block_ptrs_.resize(n_blocks_in_use_);
+    for (size_t i = 0; i < n_blocks_in_use_; i++) {
+      block_ptrs_[i].reset(new char[BlockSize]);
+      ar(cereal::binary_data(block_ptrs_[i].get(), BlockSize));
+    }
+  }
 
  private:
   std::vector<std::unique_ptr<char[]>> block_ptrs_;

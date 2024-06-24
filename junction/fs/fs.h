@@ -89,6 +89,23 @@ class Inode : public std::enable_shared_from_this<Inode> {
     return shared_from_this();
   };
 
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(nlink_);
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(nlink_);
+  }
+
+  // Add so that Cereal doesn't require this class to be default constructible.
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<File> &construct) {
+    std::unreachable();
+  }
+
  protected:
   template <class Derived>
   [[nodiscard]] std::shared_ptr<Derived> shared_from_base() {
@@ -131,6 +148,23 @@ class ISoftLink : public Inode {
   [[nodiscard]] std::shared_ptr<ISoftLink> get_this() {
     return std::static_pointer_cast<ISoftLink>(Inode::get_this());
   };
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(cereal::base_class<Inode>(this));
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(cereal::base_class<Inode>(this));
+  }
+
+  // Add so that Cereal doesn't require this class to be default constructible.
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<ISoftLink> &construct) {
+    std::unreachable();
+  }
 };
 
 struct dir_entry {
@@ -250,8 +284,26 @@ class IDir : public Inode {
 
   // Directly inserts this ino into the entries list.
   virtual Status<void> Mount(std::string name, std::shared_ptr<Inode> ino) = 0;
+  virtual Status<void> Unmount(std::string_view name) = 0;
 
   IDirType get_idir_type() const { return type_; }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(cereal::base_class<Inode>(this));
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    ar(cereal::base_class<Inode>(this));
+  }
+
+  // Add so that Cereal doesn't require this class to be default constructible.
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<File> &construct) {
+    std::unreachable();
+  }
 
  protected:
   rt::SharedMutex lock_;
@@ -329,6 +381,8 @@ std::shared_ptr<IDir> MkFolder(mode_t mode = S_IRWXU,
                                std::string &&name = std::string{"."},
                                std::shared_ptr<IDir> parent = {});
 }
+
+Status<void> FSSnapshotPrepare();
 
 Status<void> InitFs(
     const std::vector<std::pair<std::string, std::string>> &linux_mount_points,

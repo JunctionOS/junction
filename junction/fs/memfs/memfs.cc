@@ -11,8 +11,8 @@ namespace {
 // MemIDevice is an inode type for character and block devices
 class MemIDevice : public Inode {
  public:
-  MemIDevice(dev_t dev, mode_t mode)
-      : Inode(mode, AllocateInodeNumber()), dev_(dev) {}
+  MemIDevice(dev_t dev, mode_t mode, ino_t inum = AllocateInodeNumber())
+      : Inode(mode, inum), dev_(dev) {}
 
   Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override {
     return DeviceOpen(*this, dev_, flags, mode);
@@ -25,6 +25,23 @@ class MemIDevice : public Inode {
   Status<void> GetStatFS(struct statfs *buf) const override {
     StatFs(buf);
     return {};
+  }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(dev_, get_mode(), get_inum());
+    ar(cereal::base_class<Inode>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<MemIDevice> &construct) {
+    dev_t dev;
+    mode_t mode;
+    ino_t inum;
+    ar(dev, mode, inum);
+    construct(dev, mode, inum);
+    ar(cereal::base_class<Inode>(construct.ptr()));
   }
 
  private:
@@ -60,3 +77,8 @@ std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode) {
 }
 
 }  // namespace junction::memfs
+
+CEREAL_REGISTER_TYPE(junction::memfs::MemInode);
+CEREAL_REGISTER_TYPE(junction::memfs::MemIDir);
+CEREAL_REGISTER_TYPE(junction::memfs::MemISoftLink);
+CEREAL_REGISTER_TYPE(junction::memfs::MemIDevice);

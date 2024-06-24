@@ -612,9 +612,10 @@ class Process : public std::enable_shared_from_this<Process> {
   // Constructor for deserialization
   // TODO(cereal): FIX fsroot
   template <class Archive>
-  Process(pid_t pid, Archive &ar)
+  Process(pid_t pid, Archive &ar, std::shared_ptr<IDir> root,
+          std::shared_ptr<IDir> cwd)
       : pid_(pid),
-        fs_(FSRoot::GetGlobalRoot()),
+        fs_(std::move(root), std::move(cwd)),
         signal_tbl_(DeferInit),
         stopped_(true) {
     RegisterProcess(*this);
@@ -633,8 +634,9 @@ class Process : public std::enable_shared_from_this<Process> {
     BUG_ON(exited_ || doing_exec_ || exec_waker_ || vfork_waker_ ||
            child_waiters_);
 
-    ar(pid_, pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
-       shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
+    ar(pid_, fs_.get_root(), fs_.get_cwd(), pgid_, parent_, file_tbl_, mem_map_,
+       limit_nofile_, signal_tbl_, shared_sig_q_, child_procs_, wait_state_,
+       wait_status_, it_real_.get());
 
     ar(thread_map_.size());
     for (const auto &[pid, th] : thread_map_) {
@@ -647,8 +649,9 @@ class Process : public std::enable_shared_from_this<Process> {
   static void load_and_construct(Archive &ar,
                                  cereal::construct<Process> &construct) {
     pid_t pid;
-    ar(pid);
-    construct(pid, ar);
+    std::shared_ptr<IDir> root, cwd;
+    ar(pid, root, cwd);
+    construct(pid, ar, std::move(root), std::move(cwd));
 
     size_t n_threads;
     ar(n_threads);
