@@ -225,6 +225,8 @@ class File : public std::enable_shared_from_this<File> {
     std::unreachable();
   }
 
+  [[nodiscard]] virtual size_t get_size() const { return 0; }
+
  protected:
   [[nodiscard]] bool IsPollSourceSetup() const { return poll_source_setup_; }
 
@@ -260,7 +262,6 @@ class SeekableFile : public File {
         return MakeError(EINVAL);
     }
   }
-  [[nodiscard]] virtual size_t get_size() const = 0;
 
   template <class Archive>
   void load(Archive &ar) {

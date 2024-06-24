@@ -84,6 +84,8 @@ struct VMArea {
   off_t offset;
 };
 
+std::ostream &operator<<(std::ostream &os, const VMArea &vma);
+
 struct TracerReport {
   TracerReport() = default;
   explicit TracerReport(

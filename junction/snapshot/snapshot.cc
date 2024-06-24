@@ -32,18 +32,23 @@ std::pair<std::vector<elf_phdr>, std::vector<VMArea>> GetPHDRs(MemoryMap &mm) {
     if (vma.prot & PROT_EXEC) flags |= kFlagExec;
     if (vma.prot & PROT_WRITE) flags |= kFlagWrite;
     if (vma.prot & PROT_READ) flags |= kFlagRead;
+
+    size_t filesz = vma.Length();
+    if (vma.type == VMType::kFile)
+      filesz = std::min(PageAlign(vma.file->get_size() - vma.offset), filesz);
+
     elf_phdr phdr = {
         .type = kPTypeLoad,
         .flags = flags,
         .offset = offset,
         .vaddr = vma.start,
-        .paddr = 0,              // don't care
-        .filesz = vma.Length(),  // memory region size
-        .memsz = vma.Length(),   // memory region size
-        .align = kPageSize,      // align to page size
+        .paddr = 0,             // don't care
+        .filesz = filesz,       // size of data in the file
+        .memsz = vma.Length(),  // total memory region size
+        .align = kPageSize,     // align to page size
     };
     phdrs.push_back(phdr);
-    offset += vma.Length();
+    offset += filesz;
   }
 
   return std::make_pair(phdrs, vmas);
@@ -108,6 +113,12 @@ Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
   for (const VMArea &vma : vmas) {
     size_t mem_region_len = vma.Length();
     assert(IsPageAligned(mem_region_len));
+
+    if (vma.type == VMType::kFile)
+      mem_region_len =
+          std::min(PageAlign(vma.file->get_size() - vma.offset), vma.Length());
+
+    if (!mem_region_len) continue;
 
     // TODO(amb): Copied this code but it looks incorrect
     // some regions are not readable so we need to remap them as readable
