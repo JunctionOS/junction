@@ -242,7 +242,7 @@ void ControlWorker(ControlConn c) {
   while (true) {
     auto ret = c.Recv();
     if (!ret) {
-      if (ret.error().code() != EPIPE) {
+      if (ret.error().code() != EUNEXPECTEDEOF) {
         LOG(WARN) << "failed to receive from control connection: "
                   << ret.error();
       }
@@ -261,8 +261,8 @@ void ControlServer(rt::TCPQueue &q) {
   while (true) {
     Status<rt::TCPConn> c = q.Accept();
     if (!c) panic("couldn't accept a connection");
-    rt::Spawn([c = ControlConn(std::move(*c))] mutable {
-      ControlWorker(std::move(c));
+    rt::Spawn([c = std::move(*c)] mutable {
+      ControlWorker(ControlConn(std::move(c)));
     });
   }
 }

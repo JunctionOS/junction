@@ -26,23 +26,9 @@ class ControlConn {
   ControlConn(const ControlConn &c) = delete;
   ControlConn &operator=(const ControlConn &c) = delete;
 
-  // allow move
-  ControlConn(ControlConn &&c) noexcept
-      : conn_(std::move(c.conn_)),
-        len_(c.len_),
-        buf_(std::move(c.buf_)),
-        request_(c.request_) {
-    c.request_ = nullptr;
-  }
-
-  ControlConn &operator=(ControlConn &&c) noexcept {
-    conn_ = std::move(c.conn_);
-    len_ = c.len_;
-    buf_ = std::move(c.buf_);
-    request_ = c.request_;
-    c.request_ = nullptr;
-    return *this;
-  }
+  // disable move
+  ControlConn(ControlConn &&c) noexcept = delete;
+  ControlConn &operator=(ControlConn &&c) noexcept = delete;
 
   // destructor
   ~ControlConn() = default;
@@ -50,36 +36,20 @@ class ControlConn {
   // get the request in the connection
   const ctl_schema::Request *Get() const { return request_; }
 
+  inline static constexpr size_t kPrefixSize = sizeof(flatbuffers::uoffset_t);
+
   // read from the TCP connection and get the next stream
   // return true if there is a next request
   // return false if the connection is closed
   Status<void> Recv() {
     Reset();
-    uint32_t total_message_size = 0;  // 0 == unknown
-    while (true) {
-      if (total_message_size != 0) Reserve(total_message_size);
-
-      size_t to_read = total_message_size == 0 ? buf_.capacity() - len_
-                                               : total_message_size - len_;
-      Status<size_t> ret = conn_.Read(
-          readable_span(reinterpret_cast<char *>(buf_.data() + len_), to_read));
-      if (!ret)
-        return MakeError(ret);
-      else if (*ret == 0)
-        return MakeError(EPIPE);
-
-      len_ += *ret;
-
-      if (total_message_size == 0) {
-        total_message_size = flatbuffers::GetSizePrefixedBufferLength(
-            reinterpret_cast<const uint8_t *const>(buf_.data()));
-      }
-
-      if (len_ > 0 && len_ == total_message_size) {
-        break;
-      }
-    }
-
+    Status<void> ret = ReadFull(conn_, {buf_.data(), kPrefixSize});
+    if (!ret) return ret;
+    flatbuffers::uoffset_t msg_size =
+        flatbuffers::GetPrefixedSize(reinterpret_cast<uint8_t *>(buf_.data()));
+    Reserve(msg_size + kPrefixSize);
+    ret = ReadFull(conn_, {buf_.data() + kPrefixSize, msg_size});
+    if (!ret) return ret;
     request_ = ctl_schema::GetSizePrefixedRequest(buf_.data());
     return {};
   }
@@ -128,10 +98,7 @@ class ControlConn {
   }
 
  private:
-  void Reset() {
-    len_ = 0;
-    request_ = nullptr;
-  }
+  void Reset() { request_ = nullptr; }
   void Reserve(size_t new_cap) { buf_.reserve(new_cap); }
 
   Status<void> Send(flatbuffers::FlatBufferBuilder &&fbb) {
@@ -142,7 +109,6 @@ class ControlConn {
   }
 
   rt::TCPConn conn_;
-  size_t len_{0};
   std::vector<std::byte> buf_;
 
   ctl_schema::Request const *request_{nullptr};

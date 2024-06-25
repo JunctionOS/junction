@@ -41,7 +41,7 @@ Status<elf_header> ReadHeader(JunctionFile &f) {
   Status<void> ret = ReadFull(f, writable_byte_view(hdr));
   if (!ret) return MakeError(ret);
   if (!HeaderIsValid(hdr)) {
-    LOG(DEBUG) << "elf: invalid/unsupported ELF file.";
+    DLOG(DEBUG) << "elf: invalid/unsupported ELF file.";
     return MakeError(EINVAL);
   }
   return hdr;
