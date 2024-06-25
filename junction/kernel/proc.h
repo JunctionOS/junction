@@ -422,14 +422,6 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] FSRoot &get_fs() { return fs_; }
   [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
 
-  [[nodiscard]] const std::string_view get_bin_path() const {
-    return binary_path_;
-  }
-
-  void set_bin_path(const std::string_view &path) {
-    binary_path_ = std::string(path);
-  }
-
   void set_limit_nofile(const rlimit *rlim) {
     limit_nofile_.rlim_cur = rlim->rlim_cur;
     limit_nofile_.rlim_max = rlim->rlim_max;
@@ -628,9 +620,8 @@ class Process : public std::enable_shared_from_this<Process> {
     RegisterProcess(*this);
 
     // TODO(cereal): add cwd
-    ar(pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, binary_path_,
-       signal_tbl_, shared_sig_q_, child_procs_, wait_state_, wait_status_,
-       it_real_.get());
+    ar(pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
+       shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
 
     detail::AcquirePid(pid_);
     detail::AcquirePid(pgid_);
@@ -642,9 +633,8 @@ class Process : public std::enable_shared_from_this<Process> {
     BUG_ON(exited_ || doing_exec_ || exec_waker_ || vfork_waker_ ||
            child_waiters_);
 
-    ar(pid_, pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, binary_path_,
-       signal_tbl_, shared_sig_q_, child_procs_, wait_state_, wait_status_,
-       it_real_.get());
+    ar(pid_, pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
+       shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
 
     ar(thread_map_.size());
     for (const auto &[pid, th] : thread_map_) {
@@ -716,7 +706,6 @@ class Process : public std::enable_shared_from_this<Process> {
   // TODO: enforce limit
   rlimit limit_nofile_{kDefaultNoFile,
                        kDefaultNoFile};  // current rlimit for RLIMIT_NOFILE
-  std::string binary_path_;
 
   // Wake this blocked thread that is waiting for the vfork thread to exec().
   rt::ThreadWaker vfork_waker_;

@@ -179,6 +179,26 @@ class alignas(kCacheLineSize) MemoryMap {
   // Returns true if this page fault is handled by the MM.
   bool HandlePageFault(uintptr_t addr, Time time);
 
+  [[nodiscard]] const std::string_view get_bin_path() const {
+    return binary_path_;
+  }
+
+  [[nodiscard]] const std::string_view get_cmd_line() const {
+    return cmd_line_;
+  }
+
+  void set_bin_path(const std::string_view &path,
+                    std::vector<std::string_view> &argv) {
+    binary_path_ = std::string(path);
+    size_t len = 0;
+    for (auto &arg : argv) len += arg.size() + 1;
+    cmd_line_.reserve(len);
+    for (auto &arg : argv) {
+      auto ptr = arg.data();
+      cmd_line_.insert(cmd_line_.end(), ptr, ptr + arg.size() + 1);
+    }
+  }
+
   static uintptr_t AllocateMMRegion(size_t len) {
     rt::SpinGuard g(mm_lock_);
     uintptr_t base = mm_base_addr_;
@@ -196,7 +216,7 @@ class alignas(kCacheLineSize) MemoryMap {
   friend class PageAccessTracer;
   template <class Archive>
   void save(Archive &ar) const {
-    ar(mm_start_, mm_end_ - mm_start_, brk_addr_);
+    ar(mm_start_, mm_end_ - mm_start_, brk_addr_, binary_path_, cmd_line_);
   }
 
   template <class Archive>
@@ -212,7 +232,7 @@ class alignas(kCacheLineSize) MemoryMap {
     if (!ret) throw std::bad_alloc();
 
     construct(*ret, len);
-    ar(construct->brk_addr_);
+    ar(construct->brk_addr_, construct->binary_path_, construct->cmd_line_);
   }
 
   // Find a free range of memory of size @len, returns the start address of that
@@ -244,6 +264,8 @@ class alignas(kCacheLineSize) MemoryMap {
   uintptr_t brk_addr_;
   std::map<uintptr_t, VMArea> vmareas_;
   std::unique_ptr<PageAccessTracer> tracer_;
+  std::string binary_path_;
+  std::string cmd_line_;
 
   static rt::Spin mm_lock_;
   static uintptr_t mm_base_addr_;

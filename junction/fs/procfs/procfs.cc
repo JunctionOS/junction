@@ -174,6 +174,8 @@ class ProcessDir : public memfs::MemIDir {
     if (is_dead()) return;
     InsertLockedNoCheck("exe",
                         std::make_shared<ProcFSLink<GetExe>>(0777, get_this()));
+    InsertLockedNoCheck(
+        "cmdline", std::make_shared<ProcFSInode<GetCmdLine>>(0444, get_this()));
     InsertLockedNoCheck("task", std::make_shared<TaskDir>(get_this()));
   }
 
@@ -183,7 +185,15 @@ class ProcessDir : public memfs::MemIDir {
     ProcessDir &dir = static_cast<ProcessDir &>(*parent);
     std::shared_ptr<Process> p = dir.proc_.lock();
     if (!p) return "[stale]";
-    return std::string(p->get_bin_path());
+    return std::string(p->get_mem_map().get_bin_path());
+  }
+
+  static std::string GetCmdLine(IDir *parent) {
+    assert(parent);
+    ProcessDir &dir = static_cast<ProcessDir &>(*parent);
+    std::shared_ptr<Process> p = dir.proc_.lock();
+    if (!p) return "[stale]";
+    return std::string(p->get_mem_map().get_cmd_line());
   }
 
   std::weak_ptr<Process> proc_;

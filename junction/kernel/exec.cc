@@ -147,7 +147,7 @@ Status<elf_data> TryLoadBin(Process &p, MemoryMap &mm,
   if (!file) return MakeError(file);
   if (auto edata = LoadELF(mm, *file, p.get_fs(), pathname); edata) {
     // Record pathname in proc
-    p.set_bin_path(pathname);
+    mm.set_bin_path(pathname, argv);
     return edata;
   }
   if (max_depth == 0) return MakeError(ELOOP);
@@ -161,7 +161,7 @@ Status<elf_data> TryLoadBin(Process &p, MemoryMap &mm,
   std::getline(instream, s);
   std::vector<std::string_view> tokens = split(s, ' ', 1);
 
-  argv.insert(argv.begin(), pathname);
+  argv[0] = pathname;
   if (tokens.size() > 1) {
     assert(tokens.size() == 2);
     argv.insert(argv.begin(), tokens[1]);
