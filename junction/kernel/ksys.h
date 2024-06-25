@@ -18,6 +18,8 @@ extern "C" {
 
 namespace junction {
 
+inline constexpr int kMaxIovLen = 1024;  // Linux's max.
+
 #ifdef WRITEABLE_LINUX_FS
 constexpr bool linux_fs_writeable() { return true; }
 #else
@@ -61,13 +63,14 @@ static inline ssize_t ksys_read(int fd, void *buf, size_t count) {
 }
 
 static inline ssize_t ksys_pwritev(int fd, const struct iovec *iov, int iovcnt,
-                                   off_t offset, int flags) {
-  return syscall_pwritev2(fd, iov, iovcnt, offset, 0, flags);
+                                   off_t offset) {
+  iovcnt = std::min(kMaxIovLen, iovcnt);
+  return syscall_pwritev2(fd, iov, iovcnt, offset, 0, 0);
 }
 static inline ssize_t ksys_pwrite(int fd, const void *buf, size_t count,
                                   off_t offset) {
   const struct iovec iov = {.iov_base = (void *)buf, .iov_len = count};
-  return ksys_pwritev(fd, &iov, 1, offset, 0);
+  return ksys_pwritev(fd, &iov, 1, offset);
 }
 int ksys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
                     int flags);
@@ -188,7 +191,7 @@ class KernelFile : public VectoredWriter {
 
   // Write to the file.
   Status<size_t> Writev(std::span<const iovec> iov) {
-    ssize_t ret = ksys_pwritev(fd_, iov.data(), iov.size(), off_, 0);
+    ssize_t ret = ksys_pwritev(fd_, iov.data(), iov.size(), off_);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     off_ += ret;
     return static_cast<size_t>(ret);
