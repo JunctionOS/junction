@@ -68,8 +68,8 @@ Status<std::shared_ptr<File>> MemInode::Open(uint32_t flags, FileMode mode) {
   return std::make_shared<MemFSFile>(flags, mode, shared_from_base<MemInode>());
 }
 
-std::shared_ptr<ISoftLink> CreateISoftLink(std::string_view path) {
-  return std::make_shared<MemISoftLink>(path);
+std::shared_ptr<ISoftLink> CreateISoftLink(std::string path) {
+  return std::make_shared<MemISoftLink>(std::move(path));
 }
 
 std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode) {

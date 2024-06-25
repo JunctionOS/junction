@@ -36,7 +36,7 @@ class ProcFSLink : public ISoftLink {
   ProcFSLink(mode_t mode, std::shared_ptr<IDir> parent = {})
       : ISoftLink(mode, AllocateInodeNumber()), parent_(std::move(parent)) {}
 
-  std::string ReadLink() override { return Gen(parent_.get()); };
+  std::string ReadLink() const override { return Gen(parent_.get()); };
 
   Status<void> GetStats(struct stat *buf) const override {
     InodeToStats(*this, buf);

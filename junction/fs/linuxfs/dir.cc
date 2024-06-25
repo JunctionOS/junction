@@ -101,7 +101,7 @@ Status<std::shared_ptr<Inode>> LinuxIDir::ToInode(const struct stat &stat,
     char buf[PATH_MAX];
     Status<std::string_view> target = linux_root_fd.ReadLinkAt(abspath, {buf});
     if (!target) return MakeError(target);
-    return std::make_shared<memfs::MemISoftLink>(stat, *target);
+    return std::make_shared<LinuxISoftLink>(stat, std::string(*target));
   }
 
   return {};
@@ -116,6 +116,7 @@ Status<void> LinuxIDir::FillEntries() {
   DirectoryIterator it(*fd);
   return it.ForEach(
       [&](std::string_view name, struct stat &stat) -> Status<void> {
+        if (entries_.count(name) > 0) return {};
         Status<std::shared_ptr<Inode>> in =
             ToInode(stat, AppendFileName(name), name);
         if (!in) return MakeError(in);
@@ -178,7 +179,7 @@ Status<void> LinuxWrIDir::SymLink(std::string_view name,
   if (!is_initialized()) return {};
   Status<struct stat> stat = linux_root_fd.StatAt(abspath);
   if (unlikely(!stat)) LinuxFSPanic("stat after SymLink", stat.error());
-  auto ino = std::make_shared<memfs::MemISoftLink>(*stat, target);
+  auto ino = std::make_shared<LinuxISoftLink>(*stat, std::string(target));
   InsertLockedNoCheck(name, std::move(ino));
   return {};
 }

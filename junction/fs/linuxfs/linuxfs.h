@@ -15,6 +15,30 @@ extern KernelFile linux_root_fd;
 extern struct statfs linux_statfs;
 extern std::set<dev_t> allowed_devs;
 
+class LinuxISoftLink : public memfs::MemISoftLink {
+ public:
+  LinuxISoftLink(const struct stat &stat, std::string path)
+      : MemISoftLink(stat, std::move(path)) {}
+  LinuxISoftLink(ino_t ino, std::string path)
+      : MemISoftLink(std::move(path), ino) {}
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(ReadLink(), get_inum());
+    ar(cereal::base_class<MemISoftLink>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<LinuxISoftLink> &construct) {
+    std::string path;
+    ino_t ino;
+    ar(path, ino);
+    construct(ino, std::move(path));
+    ar(cereal::base_class<MemISoftLink>(construct.ptr()));
+  }
+};
+
 class LinuxInode : public Inode {
  public:
   LinuxInode(const struct stat &stat, std::string path)
@@ -86,6 +110,31 @@ class LinuxIDir : public memfs::MemIDir {
       : MemIDir(mode, std::string(name), std::move(parent), inum),
         path_(std::move(path)) {
     assert(is_dir());
+  }
+
+  void PruneForSnapshot() override {
+    auto it = entries_.begin();
+    while (it != entries_.end()) {
+      std::shared_ptr<Inode> &in = it->second;
+      bool erase;
+      if (in->is_dir()) {
+        IDir *id = static_cast<IDir *>(in.get());
+        id->PruneForSnapshot();
+        LinuxIDir *d = dynamic_cast<LinuxIDir *>(id);
+        erase = d && d->entries_.empty();
+      } else if (in->is_symlink()) {
+        erase = dynamic_cast<LinuxISoftLink *>(in.get()) != nullptr;
+      } else {
+        erase = dynamic_cast<LinuxInode *>(in.get()) != nullptr;
+      }
+      if (erase) {
+        in->dec_nlink();
+        it = entries_.erase(it);
+      } else {
+        it++;
+      }
+    }
+    ClearInitialized();
   }
 
   // Inode ops

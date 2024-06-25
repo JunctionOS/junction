@@ -142,7 +142,7 @@ class ISoftLink : public Inode {
   }
 
   // ReadLink reads the path of the link.
-  virtual std::string ReadLink() = 0;
+  virtual std::string ReadLink() const = 0;
 
   // Gets a shared pointer to this softlink.
   [[nodiscard]] std::shared_ptr<ISoftLink> get_this() {
@@ -214,6 +214,8 @@ class IDir : public Inode {
   Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode fmode) override {
     return std::make_shared<DirectoryFile>(flags, fmode, get_this());
   }
+
+  virtual void PruneForSnapshot() {}
 
   // Lookup finds a directory entry by name.
   virtual Status<std::shared_ptr<Inode>> Lookup(std::string_view name) = 0;

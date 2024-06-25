@@ -62,7 +62,7 @@ Status<void> MemIDir::RmDir(std::string_view name) {
 
 Status<void> MemIDir::SymLink(std::string_view name, std::string_view target) {
   DoInitCheck();
-  return Insert(std::string(name), CreateISoftLink(target));
+  return Insert(std::string(name), CreateISoftLink(std::string(target)));
 }
 
 Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,

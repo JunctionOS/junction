@@ -697,7 +697,9 @@ Status<void> SetupDevices(std::shared_ptr<IDir> root) {
 Status<void> FSSnapshotPrepare() {
   FSRoot &fs = FSRoot::GetGlobalRoot();
   auto root = fs.get_root();
-  return root->Unmount("proc");
+  if (Status<void> ret = root->Unmount("proc"); !ret) return ret;
+  root->PruneForSnapshot();
+  return {};
 }
 
 Status<void> InitFs(

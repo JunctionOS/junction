@@ -27,7 +27,7 @@ inline void MemInodeToStats(const Inode &ino, struct stat *buf) {
 }
 
 // Create a soft link inode.
-std::shared_ptr<ISoftLink> CreateISoftLink(std::string_view path);
+std::shared_ptr<ISoftLink> CreateISoftLink(std::string path);
 // Create a character or block device inode.
 std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode);
 
@@ -124,6 +124,15 @@ class MemIDir : public IDir {
     return {};
   }
 
+  void PruneForSnapshot() override {
+    for (auto &[name, in] : entries_) {
+      if (in->is_dir()) {
+        IDir *id = static_cast<IDir *>(in.get());
+        id->PruneForSnapshot();
+      }
+    }
+  }
+
   Status<void> Mount(std::string name, std::shared_ptr<Inode> ino) override {
     rt::ScopedLock g(lock_);
     InsertLockedNoCheck(name, ino);
@@ -182,6 +191,7 @@ class MemIDir : public IDir {
     return load_acquire(&initialized_);
   }
   void MarkInitialized() { store_release(&initialized_, true); }
+  void ClearInitialized() { store_release(&initialized_, false); }
 
   __always_inline void DoInitCheck() {
     if (unlikely(!is_initialized())) RunInitialize();
@@ -227,13 +237,13 @@ class MemIDir : public IDir {
 // MemISoftLink is an inode type for soft link
 class MemISoftLink : public ISoftLink {
  public:
-  MemISoftLink(std::string_view path, ino_t ino = AllocateInodeNumber())
-      : ISoftLink(0777, ino), path_(path) {}
-  MemISoftLink(const struct stat &stat, std::string_view path)
-      : ISoftLink(stat), path_(path) {}
+  MemISoftLink(std::string path, ino_t ino = AllocateInodeNumber())
+      : ISoftLink(0777, ino), path_(std::move(path)) {}
+  MemISoftLink(const struct stat &stat, std::string path)
+      : ISoftLink(stat), path_(std::move(path)) {}
   ~MemISoftLink() override = default;
 
-  std::string ReadLink() override { return path_; }
+  std::string ReadLink() const override { return path_; }
   Status<void> GetStats(struct stat *buf) const override {
     MemInodeToStats(*this, buf);
     return {};
@@ -246,7 +256,13 @@ class MemISoftLink : public ISoftLink {
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(get_inum(), path_);
+    if (is_most_derived<MemISoftLink>(*this)) ar(get_inum(), path_);
+    ar(cereal::base_class<ISoftLink>(this));
+  }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    assert(!is_most_derived<MemISoftLink>(*this));
     ar(cereal::base_class<ISoftLink>(this));
   }
 
