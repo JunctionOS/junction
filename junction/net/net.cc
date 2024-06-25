@@ -140,7 +140,14 @@ long usys_getsockopt(int sockfd, [[maybe_unused]] int level,
                      [[maybe_unused]] socklen_t *option_len) {
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
-  LOG_ONCE(WARN) << "Unsupported: getsockopt";
+  Socket &s = sock_ret.value().get();
+  Status<int> val = s.GetSockOpt(level, option_name);
+  if (!val) {
+    LOG_ONCE(WARN) << "Unsupported: getsockopt";
+  } else {
+    if (!option_len || *option_len < sizeof(int)) return -EINVAL;
+    *reinterpret_cast<int *>(option_value) = *val;
+  }
   return 0;
 }
 

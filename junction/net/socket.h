@@ -49,6 +49,10 @@ class Socket : public File {
   virtual Status<netaddr> RemoteAddr() const { return MakeError(ENOTCONN); }
   virtual Status<netaddr> LocalAddr() const { return MakeError(ENOTCONN); }
 
+  virtual Status<int> GetSockOpt(int level, int optname) const {
+    return MakeError(EINVAL);
+  }
+
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
     return ReadFrom(buf, nullptr);
   }

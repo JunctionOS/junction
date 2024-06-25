@@ -212,7 +212,6 @@ class ProcRootDir : public memfs::MemIDir {
       std::shared_ptr<Process> proc = Process::Find(*tmp);
       if (!proc) return MakeError(ENOENT);
 
-      // pid_t pid = proc->get_pid();
       rt::ScopedLock g(lock_);
       return GetProcDir(*proc.get()).get_this();
     }

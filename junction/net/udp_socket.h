@@ -88,6 +88,20 @@ class UDPSocket : public Socket {
     return conn_.LocalAddr();
   }
 
+  Status<int> GetSockOpt(int level, int optname) const override {
+    if (level != SOL_SOCKET) return MakeError(EINVAL);
+    switch (optname) {
+      case SO_DOMAIN:
+        return AF_INET;
+      case SO_PROTOCOL:
+        return IPPROTO_UDP;
+      case SO_TYPE:
+        return SOCK_DGRAM;
+      default:
+        return MakeError(EINVAL);
+    }
+  }
+
   // TODO(jsf): Writev, WritevTo, Readv
 
  private:

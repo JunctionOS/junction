@@ -179,13 +179,9 @@ class alignas(kCacheLineSize) MemoryMap {
   // Returns true if this page fault is handled by the MM.
   bool HandlePageFault(uintptr_t addr, Time time);
 
-  [[nodiscard]] const std::string_view get_bin_path() const {
-    return binary_path_;
-  }
+  [[nodiscard]] std::string_view get_bin_path() const { return binary_path_; }
 
-  [[nodiscard]] const std::string_view get_cmd_line() const {
-    return cmd_line_;
-  }
+  [[nodiscard]] std::string_view get_cmd_line() const { return cmd_line_; }
 
   void set_bin_path(const std::string_view &path,
                     std::vector<std::string_view> &argv) {

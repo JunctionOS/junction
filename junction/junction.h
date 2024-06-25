@@ -24,19 +24,15 @@ class Process;
 
 class alignas(kCacheLineSize) JunctionCfg {
  public:
-  [[nodiscard]] const std::string_view get_chroot_path() const {
-    return chroot_path;
-  }
+  [[nodiscard]] std::string_view get_chroot_path() const { return chroot_path; }
 
-  [[nodiscard]] const std::string_view get_fs_config_path() const {
+  [[nodiscard]] std::string_view get_fs_config_path() const {
     return fs_config_path;
   }
 
-  [[nodiscard]] const std::string_view get_interp_path() const {
-    return interp_path;
-  }
+  [[nodiscard]] std::string_view get_interp_path() const { return interp_path; }
 
-  [[nodiscard]] const std::string_view get_ld_path() const { return ld_path; }
+  [[nodiscard]] std::string_view get_ld_path() const { return ld_path; }
 
   [[nodiscard]] const std::string &get_glibc_path() const { return glibc_path; }
 
@@ -57,7 +53,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] int snapshot_timeout() const { return snapshot_timeout_s_; }
   [[nodiscard]] uint16_t port() const { return port_; }
 
-  [[nodiscard]] const std::string_view get_snapshot_prefix() const {
+  [[nodiscard]] std::string_view get_snapshot_prefix() const {
     return snapshot_prefix_;
   }
 

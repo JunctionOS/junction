@@ -164,6 +164,22 @@ class TCPSocket : public Socket {
     return TcpConn().Readv(iov);
   }
 
+  Status<int> GetSockOpt(int level, int optname) const override {
+    if (level != SOL_SOCKET) return MakeError(EINVAL);
+    switch (optname) {
+      case SO_ACCEPTCONN:
+        return state_ == SocketState::kSockListening ? 1 : 0;
+      case SO_DOMAIN:
+        return AF_INET;
+      case SO_PROTOCOL:
+        return IPPROTO_TCP;
+      case SO_TYPE:
+        return SOCK_STREAM;
+      default:
+        return MakeError(EINVAL);
+    }
+  }
+
  private:
   enum class SocketState {
     kSockUnbound,
