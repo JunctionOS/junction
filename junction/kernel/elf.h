@@ -103,7 +103,9 @@ enum {
   kFlagRead = 4,   // Read permission
 };
 
+class JunctionFile;
 // Load an ELF object file into memory. Returns metadata if successful.
-Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path, FSRoot &fs);
+Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
+                         std::string_view path);
 
 }  // namespace junction

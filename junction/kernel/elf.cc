@@ -12,64 +12,13 @@
 #include "junction/bindings/log.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
+#include "junction/fs/junction_file.h"
 #include "junction/junction.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 
 namespace junction {
 namespace {
-
-// JunctionFile provides a wrapper around a Junction FS-provided file.
-class JunctionFile {
- public:
-  // Open creates a new file descriptor attached to a file path.
-  static Status<JunctionFile> Open(FSRoot &fs, std::string_view path, int flags,
-                                   FileMode mode) {
-    Status<std::shared_ptr<Inode>> in = LookupInode(fs, path);
-    if (!in) return MakeError(in);
-
-    Status<std::shared_ptr<File>> f = (*in)->Open(flags, mode);
-    if (!f) return MakeError(f);
-    return JunctionFile(std::move(*f));
-  }
-
-  explicit JunctionFile(std::shared_ptr<File> &&f) noexcept
-      : f_(std::move(f)) {}
-  ~JunctionFile() = default;
-
-  // Read from the file.
-  Status<size_t> Read(std::span<std::byte> buf) { return f_->Read(buf, &off_); }
-
-  // Write to the file.
-  Status<size_t> Write(std::span<const std::byte> buf) {
-    return f_->Write(buf, &off_);
-  }
-
-  // Map a portion of the file.
-  Status<void *> MMap(MemoryMap &mm, size_t length, int prot, int flags,
-                      off_t off) {
-    assert(!(flags & (MAP_FIXED | MAP_ANONYMOUS)));
-    flags |= MAP_PRIVATE;
-    return mm.MMap(nullptr, length, prot, flags, f_, off);
-  }
-
-  // Map a portion of the file to a fixed address.
-  Status<void> MMapFixed(MemoryMap &mm, void *addr, size_t length, int prot,
-                         int flags, off_t off) {
-    assert(!(flags & MAP_ANONYMOUS));
-    flags |= MAP_FIXED | MAP_PRIVATE;
-    Status<void *> ret = mm.MMap(addr, length, prot, flags, f_, off);
-    if (!ret) return MakeError(ret);
-    return {};
-  }
-
-  // Seek to a different position in the file.
-  void Seek(off_t offset) { f_->Seek(offset, SeekFrom::kStart); }
-
- private:
-  std::shared_ptr<File> f_;
-  off_t off_{0};
-};
 
 constexpr bool HeaderIsValid(const elf_header &hdr) {
   if (hdr.magic[0] != '\177' || hdr.magic[1] != 'E' || hdr.magic[2] != 'L' ||
@@ -92,7 +41,7 @@ Status<elf_header> ReadHeader(JunctionFile &f) {
   Status<void> ret = ReadFull(f, writable_byte_view(hdr));
   if (!ret) return MakeError(ret);
   if (!HeaderIsValid(hdr)) {
-    LOG(ERR) << "elf: invalid/unsupported ELF file.";
+    LOG(DEBUG) << "elf: invalid/unsupported ELF file.";
     return MakeError(EINVAL);
   }
   return hdr;
@@ -260,29 +209,24 @@ std::optional<elf_phdr> FindPHDRByType(const std::vector<elf_phdr> &v,
 
 }  // namespace
 
-Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path, FSRoot &fs) {
-  DLOG(INFO) << "elf: loading ELF object file '" << path << "'";
-
-  // Open the file.
-  Status<JunctionFile> file = JunctionFile::Open(fs, path, 0, FileMode::kRead);
-  if (!file) return MakeError(file);
-
+Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
+                         std::string_view path) {
   // Load the ELF header.
-  Status<elf_header> hdr = ReadHeader(*file);
+  Status<elf_header> hdr = ReadHeader(file);
   if (!hdr) return MakeError(hdr);
   // Check if the ELF type is supported.
   if (hdr->type != kETypeExec && hdr->type != kETypeDynamic)
     return MakeError(EINVAL);
 
   // Load the PHDR table.
-  Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(*file, *hdr);
+  Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(file, *hdr);
   if (!phdrs) return MakeError(phdrs);
 
   // Load the interpreter (if present).
   std::optional<elf_data::interp_data> interp_data;
   std::optional<elf_phdr> phdr = FindPHDRByType(*phdrs, kPTypeInterp);
   if (phdr) {
-    Status<std::string> path = ReadInterp(*file, *phdr);
+    Status<std::string> path = ReadInterp(file, *phdr);
     if (!path) return MakeError(path);
     Status<elf_data::interp_data> data = LoadInterp(mm, fs, *path);
     if (!data) return MakeError(data);
@@ -290,7 +234,7 @@ Status<elf_data> LoadELF(MemoryMap &mm, std::string_view path, FSRoot &fs) {
   }
   // Load the PHDR segments.
   Status<std::pair<uintptr_t, size_t>> ret =
-      LoadSegments(mm, *file, *phdrs, hdr->type == kETypeDynamic);
+      LoadSegments(mm, file, *phdrs, hdr->type == kETypeDynamic);
   if (!ret) return MakeError(ret);
   // Look for a PHDR table segment
   uintptr_t phdr_va = 0;

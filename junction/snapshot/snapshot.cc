@@ -10,6 +10,7 @@ extern "C" {
 
 #include "junction/base/error.h"
 #include "junction/fs/file.h"
+#include "junction/fs/junction_file.h"
 #include "junction/kernel/elf.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
@@ -60,9 +61,7 @@ Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
   auto elf_file =
       KernelFile::Open(elf_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
 
-  if (unlikely(!elf_file)) {
-    return MakeError(elf_file);
-  }
+  if (unlikely(!elf_file)) return MakeError(elf_file);
 
   // write headers
   elf_header hdr;
@@ -188,8 +187,10 @@ Status<std::shared_ptr<Process>> RestoreProcess(std::string_view metadata_path,
   std::shared_ptr<Process> p;
   ar(p);
 
-  MemoryMap &mm = p->get_mem_map();
-  Status<elf_data> ret = LoadELF(mm, elf_path, p->get_fs());
+  Status<JunctionFile> elf =
+      JunctionFile::Open(p->get_fs(), elf_path, 0, FileMode::kRead);
+  if (!elf) return MakeError(elf);
+  Status<elf_data> ret = LoadELF(p->get_mem_map(), *elf, p->get_fs(), elf_path);
   if (!ret) {
     LOG(ERR) << "Elf load failed: " << ret.error();
     return MakeError(ret);

@@ -7,6 +7,7 @@
 #include "junction/bindings/runtime.h"
 #include "junction/junction.h"
 #include "junction/kernel/exec.h"
+#include "junction/run.h"
 #include "junction/snapshot/snapshot.h"
 
 namespace junction {
@@ -19,7 +20,7 @@ extern "C" void junction_exec_start(void *entry_arg);
 }  // namespace
 
 Status<std::shared_ptr<Process>> CreateFirstProcess(
-    std::string_view path, const std::vector<std::string_view> &argv,
+    std::string_view path, std::vector<std::string_view> &argv,
     const std::vector<std::string_view> &envp) {
   // Create the process object
   Status<std::shared_ptr<Process>> proc = CreateInitProcess();

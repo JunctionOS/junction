@@ -12,7 +12,7 @@
 namespace junction {
 
 Status<std::shared_ptr<Process>> CreateFirstProcess(
-    std::string_view path, const std::vector<std::string_view> &argv,
+    std::string_view path, std::vector<std::string_view> &argv,
     const std::vector<std::string_view> &envp);
 
 std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp();

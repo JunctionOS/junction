@@ -13,7 +13,9 @@ extern "C" {
 
 #include "junction/base/arch.h"
 #include "junction/base/io.h"
+#include "junction/base/string.h"
 #include "junction/bindings/log.h"
+#include "junction/fs/junction_file.h"
 #include "junction/junction.h"
 #include "junction/kernel/elf.h"
 #include "junction/kernel/exec.h"
@@ -24,7 +26,8 @@ namespace junction {
 namespace {
 
 // the number of auxiliary vectors used
-constexpr size_t kNumAuxVectors = 18;
+inline constexpr size_t kNumAuxVectors = 18;
+inline constexpr size_t kMaxInterpFollow = 4;
 
 size_t VectorBytes(const std::vector<std::string_view> &vec) {
   size_t len = 0;
@@ -135,15 +138,43 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
 
 }  // namespace
 
-Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
-                      const std::vector<std::string_view> &argv,
-                      const std::vector<std::string_view> &envp) {
-  // load the ELF program image file
-  auto edata = LoadELF(mm, pathname, p.get_fs());
-  if (!edata) return MakeError(edata);
+Status<elf_data> TryLoadBin(Process &p, MemoryMap &mm,
+                            std::string_view pathname,
+                            std::vector<std::string_view> &argv,
+                            size_t max_depth = kMaxInterpFollow) {
+  Status<JunctionFile> file =
+      JunctionFile::Open(p.get_fs(), pathname, 0, FileMode::kRead);
+  if (!file) return MakeError(file);
+  if (auto edata = LoadELF(mm, *file, p.get_fs(), pathname); edata) {
+    // Record pathname in proc
+    p.set_bin_path(pathname);
+    return edata;
+  }
+  if (max_depth == 0) return MakeError(ELOOP);
 
-  // Record pathname in proc
-  p.set_bin_path(pathname);
+  file->Seek(0);
+  StreamBufferReader r(*file, 256);
+  std::istream instream(&r);
+  if (instream.get() != '#' || instream.get() != '!') return MakeError(EINVAL);
+
+  std::string s;
+  std::getline(instream, s);
+  std::vector<std::string_view> tokens = split(s, ' ', 1);
+
+  argv.insert(argv.begin(), pathname);
+  if (tokens.size() > 1) {
+    assert(tokens.size() == 2);
+    argv.insert(argv.begin(), tokens[1]);
+  }
+
+  return TryLoadBin(p, mm, tokens[0], argv, max_depth - 1);
+}
+
+Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
+                      std::vector<std::string_view> &argv,
+                      const std::vector<std::string_view> &envp) {
+  auto edata = TryLoadBin(p, mm, pathname, argv);
+  if (!edata) return MakeError(edata);
 
   // Create the first thread
   uint64_t entry =
