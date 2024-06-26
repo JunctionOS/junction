@@ -31,12 +31,12 @@ add_custom_target(go_resizer_bin ALL
 # go_hello_world
 add_test(
   NAME go_hello_world_snapshot
-  COMMAND sh -c "rm -f /tmp/go_hello_world.metadata /tmp/go_hello_world.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/go_hello_world --\
+  COMMAND sh -c "rm -f /tmp/go_hello_world.metadata /tmp/go_hello_world.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} -S --snapshot-prefix /tmp/go_hello_world --\
   ${go_hello}"
 )
 
 add_test(
   NAME go_hello_world_restore
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r --\
   /tmp/go_hello_world.metadata /tmp/go_hello_world.elf"
 )

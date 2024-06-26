@@ -29,6 +29,8 @@ namespace junction {
 
 Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
                          std::string_view elf_path);
+Status<void> SnapshotProc(Process *p, std::string_view metadata_path,
+                          std::string_view elf_path);
 Status<std::shared_ptr<Process>> RestoreProcess(std::string_view metadata_path,
                                                 std::string_view elf_path);
 

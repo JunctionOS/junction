@@ -9,6 +9,7 @@ extern "C" {
 }
 
 #include "junction/base/error.h"
+#include "junction/base/finally.h"
 #include "junction/fs/file.h"
 #include "junction/fs/junction_file.h"
 #include "junction/kernel/elf.h"
@@ -55,8 +56,7 @@ std::pair<std::vector<elf_phdr>, std::vector<VMArea>> GetPHDRs(MemoryMap &mm) {
   return std::make_pair(phdrs, vmas);
 }
 
-Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
-                         std::string_view elf_path) {
+Status<void> SnapshotElf(MemoryMap &mm, std::string_view elf_path) {
   auto [pheaders, vmas] = GetPHDRs(mm);
   auto elf_file =
       KernelFile::Open(elf_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
@@ -76,7 +76,7 @@ Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
   hdr.type = kETypeExec;
   hdr.machine = kMachineAMD64;
   hdr.version = static_cast<uint32_t>(kMagicVersion);
-  hdr.entry = entry_addr;
+  hdr.entry = 0;
   hdr.phoff = sizeof(elf_header);
   hdr.shoff = 0;
   hdr.flags = 0;
@@ -135,19 +135,29 @@ Status<void> SnapshotElf(MemoryMap &mm, uint64_t entry_addr,
   return WritevFull(*elf_file, elf_iovecs);
 }
 
-void SnapshotMetadata(Process &p, std::string_view metadata_path) {
+Status<void> SnapshotMetadata(Process &p, std::string_view metadata_path) {
   rt::RuntimeLibcGuard guard;
 
   Status<KernelFile> metadata_file = KernelFile::Open(
       metadata_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
-  BUG_ON(!metadata_file);
+  if (!metadata_file) return MakeError(metadata_file);
   StreamBufferWriter<KernelFile> w(*metadata_file);
   std::ostream outstream(&w);
   cereal::BinaryOutputArchive ar(outstream);
   ar(p.shared_from_this());
+  return {};
 }
 
 }  // namespace
+
+Status<void> SnapshotProc(Process *p, std::string_view metadata_path,
+                          std::string_view elf_path) {
+  LOG(INFO) << "snapshotting proc " << p->get_pid() << " into " << metadata_path
+            << " and " << elf_path;
+  Status<void> ret = SnapshotMetadata(*p, metadata_path);
+  if (!ret) return ret;
+  return SnapshotElf(p->get_mem_map(), elf_path);
+}
 
 Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
                          std::string_view elf_path) {
@@ -163,14 +173,8 @@ Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
   p->Signal(SIGSTOP);
   p->WaitForFullStop();
 
-  LOG(INFO) << "snapshotting proc " << pid << " into " << metadata_path
-            << " and " << elf_path;
-  SnapshotMetadata(*p.get(), metadata_path);
-  Status<void> ret =
-      SnapshotElf(p->get_mem_map(), 0 /* entry_addr */, elf_path);
-
-  p->Signal(SIGCONT);
-  return ret;
+  auto f = finally([&] { p->Signal(SIGCONT); });
+  return SnapshotProc(p.get(), metadata_path, elf_path);
 }
 
 Status<std::shared_ptr<Process>> RestoreProcess(std::string_view metadata_path,

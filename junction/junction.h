@@ -49,8 +49,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
   [[nodiscard]] bool madv_dontneed_remap() const { return madv_remap; }
   [[nodiscard]] bool cache_linux_fs() const { return cache_linux_fs_; }
-
-  [[nodiscard]] int snapshot_timeout() const { return snapshot_timeout_s_; }
+  [[nodiscard]] bool snapshot_on_stop() const { return snapshot_on_stop_; }
   [[nodiscard]] uint16_t port() const { return port_; }
 
   [[nodiscard]] std::string_view get_snapshot_prefix() const {
@@ -81,7 +80,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   bool restore;
   bool stack_switching;
   bool cache_linux_fs_;
-  int snapshot_timeout_s_;
+  bool snapshot_on_stop_;
   std::string snapshot_prefix_;
   static JunctionCfg singleton_;
 };

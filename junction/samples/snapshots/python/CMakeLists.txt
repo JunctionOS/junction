@@ -26,25 +26,25 @@ set(thumbnails "${CMAKE_CURRENT_SOURCE_DIR}/thumbnails")
 # python_hello_world
 add_test(
   NAME python_hello_world_snapshot
-  COMMAND sh -c "rm -f /tmp/python_hello_world.metadata /tmp/python_hello_world.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/python_hello_world --\
+  COMMAND sh -c "rm -f /tmp/python_hello_world.metadata /tmp/python_hello_world.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} -S --snapshot-prefix /tmp/python_hello_world --\
   ${Python3_EXECUTABLE} ${python_hello_world}"
 )
 
 add_test(
   NAME python_hello_world_restore
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r --\
   /tmp/python_hello_world.metadata /tmp/python_hello_world.elf"
 )
 
 # python_numpy
 add_test(
   NAME python_numpy_snapshot
-  COMMAND sh -c "rm -f /tmp/python_numpy.metadata /tmp/python_numpy.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -S 1 --snapshot-prefix /tmp/python_numpy --\
+  COMMAND sh -c "rm -f /tmp/python_numpy.metadata /tmp/python_numpy.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} -S --snapshot-prefix /tmp/python_numpy --\
   ${Python3_EXECUTABLE} ${python_numpy}"
 )
 
 add_test(
   NAME python_numpy_restore
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --ld_preload -r --\
+  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r --\
   /tmp/python_numpy.metadata /tmp/python_numpy.elf"
 )

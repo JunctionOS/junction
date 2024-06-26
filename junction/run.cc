@@ -132,22 +132,20 @@ void JunctionMain(int argc, char *argv[]) {
   if (!proc) syscall_exit(-1);
 
   // setup automatic snapshot
-  if (unlikely(GetCfg().snapshot_timeout())) {
-    rt::Spawn([] {
-      // Wait x seconds
-      rt::Sleep(Duration(GetCfg().snapshot_timeout() * kSeconds));
-      LOG(INFO) << "done sleeping, snapshot time!";
+  if (unlikely(GetCfg().snapshot_on_stop())) {
+    rt::Spawn([p = *proc] mutable {
+      p->WaitForFullStop();
       std::string mtpath =
           std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
       std::string epath = std::string(GetCfg().get_snapshot_prefix()) + ".elf";
-
-      auto ret = SnapshotPid(1, mtpath, epath);
+      auto ret = SnapshotProc(p.get(), mtpath, epath);
       if (!ret) {
         LOG(ERR) << "Failed to snapshot: " << ret.error();
         syscall_exit(-1);
       } else {
         LOG(INFO) << "snapshot successful!";
       }
+      p->Signal(SIGCONT);
     });
   }
 
