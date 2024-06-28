@@ -181,24 +181,31 @@ Status<std::shared_ptr<Process>> RestoreProcess(std::string_view metadata_path,
                                                 std::string_view elf_path) {
   rt::RuntimeLibcGuard guard;
 
-  Status<KernelFile> f = KernelFile::Open(metadata_path, 0, FileMode::kRead);
-  if (!f) return MakeError(f);
+  Time start = Time::Now();
 
+  Status<KernelFile> f = KernelFile::Open(metadata_path, 0, FileMode::kRead);
+  if (unlikely(!f)) return MakeError(f);
   StreamBufferReader<KernelFile> w(*f);
   std::istream instream(&w);
   cereal::BinaryInputArchive ar(instream);
-
   std::shared_ptr<Process> p;
   ar(p);
 
+  Time end_metadata = Time::Now();
+
   Status<JunctionFile> elf =
       JunctionFile::Open(p->get_fs(), elf_path, 0, FileMode::kRead);
-  if (!elf) return MakeError(elf);
+  if (unlikely(!elf)) return MakeError(elf);
   Status<elf_data> ret = LoadELF(p->get_mem_map(), *elf, p->get_fs(), elf_path);
-  if (!ret) {
+  Time end_elf = Time::Now();
+  if (unlikely(!ret)) {
     LOG(ERR) << "Elf load failed: " << ret.error();
     return MakeError(ret);
   };
+
+  LOG(INFO) << "restore time " << (end_elf - start).Microseconds()
+           << " metadata: " << (end_metadata - start).Microseconds()
+           << " elf: " << (end_elf - end_metadata).Microseconds();
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)

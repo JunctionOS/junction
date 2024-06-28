@@ -146,7 +146,11 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   newth.ThreadReady();
 
   // Wait for child thread to exit or exec.
-  if (do_vfork) rt::WaitForever();
+  if (do_vfork) {
+    if (unlikely(GetCfg().strace_enabled()))
+      LogSyscall(newth.get_tid(), "vfork", &usys_vfork);
+    rt::WaitForever();
+  }
 
   return newth.get_tid();
 }
@@ -529,7 +533,8 @@ long usys_vfork() {
   cl_args.flags = kVforkRequiredFlags;
 
   long ret = detail::DoClone(&cl_args, mythread().GetSyscallFrame().GetRsp());
-  if (unlikely(GetCfg().strace_enabled())) LogSyscall(ret, "vfork");
+  if (unlikely(GetCfg().strace_enabled() && ret < 0))
+    LogSyscall(ret, "vfork", &usys_vfork);
 
   return ret;
 }
@@ -542,7 +547,7 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
     ret = detail::DoClone(cl_args, cl_args->stack + cl_args->stack_size);
 
   if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall(ret, "clone3", cl_args->flags,
+    LogSyscall(ret, "clone3", &usys_clone, cl_args->flags,
                reinterpret_cast<void *>(cl_args->stack),
                reinterpret_cast<void *>(cl_args->parent_tid),
                reinterpret_cast<void *>(cl_args->child_tid),
@@ -564,14 +569,16 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
 
   long ret = detail::DoClone(&cl_args, newsp);
   if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall(ret, "clone", clone_flags, reinterpret_cast<void *>(newsp),
-               reinterpret_cast<void *>(parent_tidptr),
-               reinterpret_cast<void *>(child_tidptr),
-               reinterpret_cast<void *>(tls));
+    LogSyscall(
+        ret, "clone", &usys_clone, clone_flags, reinterpret_cast<void *>(newsp),
+        reinterpret_cast<void *>(parent_tidptr),
+        reinterpret_cast<void *>(child_tidptr), reinterpret_cast<void *>(tls));
   return ret;
 }
 
 [[noreturn]] void usys_exit(int status) {
+  if (unlikely(GetCfg().strace_enabled()))
+    LogSyscall("exit", &usys_exit, status);
   Thread *tptr = &mythread();
   tptr->set_xstate(status);
   rt::Preempt::Lock();
@@ -590,6 +597,8 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
 }
 
 void usys_exit_group(int status) {
+  if (unlikely(GetCfg().strace_enabled()))
+    LogSyscall("exit_group", &usys_exit_group, status);
   myproc().DoExit(status);
   usys_exit(status);
 }

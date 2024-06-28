@@ -24,9 +24,11 @@ static size_t __strlen(const char *msg) {
 void __cxa_throw(void *thrown_exception, void *pvtinfo, void (*dest)(void *)) {
   std::exception *ex = static_cast<std::exception *>(thrown_exception);
   const char *msg = ex->what();
-  write_msg("Exception message: ");
-  syscall_write(2, msg, __strlen(msg));
-  write_msg("\n\n");
+  if (msg) {
+    write_msg("Exception message: ");
+    syscall_write(2, msg, __strlen(msg));
+    write_msg("\n\n");
+  }
   write_msg("Exception thrown in Junction's libc.\n");
   write_msg("Exception unwinding and backtrace is not supported.\n");
   write_msg("Rebuild with the PERMISSIVE_SECCOMP flag.\n");

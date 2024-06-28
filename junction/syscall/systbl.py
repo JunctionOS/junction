@@ -57,7 +57,42 @@ STRACE_ARGS_THAT_ARE_PATHNAMES = set([
     ("symlinkat", 2),
 ])
 
-SKIP_STRACE_TARGET = ["vfork", "clone", "clone3", "rt_sigreturn"]
+AT_FDS = [
+    ("openat", 0),
+    ("faccessat", 0),
+    ("faccessat2", 0),
+    ("mknodat", 0),
+    ("renameat", 0),
+    ("renameat", 2),
+    ("renameat2", 0),
+    ("renameat2", 2),
+    ("unlinkat", 0),
+    ("symlinkat", 1),
+    ("newfstatat", 0),
+    ("mkdirat", 0),
+    ("linkat", 0),
+    ("linkat", 2),
+    ("readlinkat", 0),
+]
+
+PTR_RETS = [
+    "mmap",
+    "brk",
+]
+
+TYPE_ARR = {
+    p : 'reinterpret_cast<strace::PathName *>' for p in STRACE_ARGS_THAT_ARE_PATHNAMES
+}
+
+TYPE_ARR.update({
+    p: 'static_cast<strace::AtFD>' for p in AT_FDS
+})
+
+TYPE_ARR.update({
+    (p, -1): 'reinterpret_cast<void *>' for p in PTR_RETS
+})
+
+SKIP_STRACE_TARGET = ["exit", "exit_group", "vfork", "clone", "clone3", "rt_sigreturn"]
 
 systabl_targets = [None for i in range(SYS_NR)]
 systabl_strace_targets = [None for i in range(SYS_NR)]
@@ -70,18 +105,19 @@ systabl_targets[454] = "junction_fncall_enter_preserve_regs"
 for i in range(451, 455):
     systabl_strace_targets[i] = systabl_targets[i]
 
-def genLogSyscallCall(pretty_name, with_ret):
-    fn = ""
+def genLogSyscallCall(pretty_name, with_ret, fnname):
+    ret = ""
     if with_ret:
-        fn += f"\n\tLogSyscall(ret, \"{pretty_name}\","
-    else:
-        fn += f"\n\tLogSyscall(\"{pretty_name}\","
-
-    for i in range(6):
-        if (pretty_name, i) not in STRACE_ARGS_THAT_ARE_PATHNAMES:
-            fn += f"\n\t\treinterpret_cast<void *>(arg{i})"
+        if (pretty_name, -1) in TYPE_ARR:
+            ret = f"{TYPE_ARR[(pretty_name, -1)]}(ret), "
         else:
-            fn += f"\n\t\treinterpret_cast<char *>(arg{i})"
+            ret = "ret, "
+    fn = f"\n\tLogSyscall({ret}\"{pretty_name}\", &{fnname},"
+    for i in range(6):
+        if (pretty_name, i) not in TYPE_ARR:
+            fn += f"\n\t\t(arg{i})"
+        else:
+            fn += f"\n\t\t{TYPE_ARR[(pretty_name, i)]}(arg{i})"
         if i < 5:
             fn += ","
     fn += ");"
@@ -91,15 +127,13 @@ def emit_strace_target(pretty_name, function_name, output):
     fn = f"\nextern \"C\" __attribute__((cold)) uint64_t {function_name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
     runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 
-    is_exec_or_exit = "execve" in name or "exit" in name
-
-    if STRACE_LOG_BEFORE_RETURN or is_exec_or_exit:
-        fn += genLogSyscallCall(pretty_name, False)
+    if STRACE_LOG_BEFORE_RETURN:
+        fn += genLogSyscallCall(pretty_name, False, function_name)
 
     fn += runsyscall_cmd
 
-    if STRACE_LOG_AFTER_RETURN and not is_exec_or_exit:
-        fn += genLogSyscallCall(pretty_name, True)
+    if STRACE_LOG_AFTER_RETURN:
+        fn += genLogSyscallCall(pretty_name, True, function_name)
 
     fn += "\n\treturn ret;"
     fn += "\n}"

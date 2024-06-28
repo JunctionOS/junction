@@ -20,6 +20,7 @@ extern "C" {
 #include "junction/kernel/elf.h"
 #include "junction/kernel/exec.h"
 #include "junction/kernel/usys.h"
+#include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
 
 namespace junction {
@@ -203,13 +204,21 @@ long usys_execve(const char *filename, const char *argv[], const char *envp[]) {
   // turn argv and envp in string_view vectors, memory must remain valid until
   // after Exec returns
   std::vector<std::string_view> argv_view;
-  while (*argv) argv_view.emplace_back(*argv++);
+  const char **ptr = argv;
+  while (*ptr) argv_view.emplace_back(*ptr++);
 
   std::vector<std::string_view> envp_view;
-  while (*envp) envp_view.emplace_back(*envp++);
+  ptr = envp;
+  while (*ptr) envp_view.emplace_back(*ptr++);
 
   Status<ExecInfo> ret = Exec(myproc(), **mm, filename, argv_view, envp_view);
   if (!ret) return MakeCError(ret);
+
+  // The syscall has suceeded.
+  if (unlikely(GetCfg().strace_enabled()))
+    LogSyscall(0, "execve", &usys_execve,
+               reinterpret_cast<const strace::PathName *>(filename), argv,
+               envp);
 
   // Finish exec from a different stack, since this stack may be unmapped when
   // replacing a proc's MM

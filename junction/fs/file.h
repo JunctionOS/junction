@@ -141,7 +141,7 @@ class File : public std::enable_shared_from_this<File> {
   }
   virtual Status<void> Truncate(off_t newlen) { return MakeError(EINVAL); }
   virtual Status<off_t> Seek(off_t off, SeekFrom origin) {
-    return MakeError(EINVAL);
+    return MakeError(ESPIPE);
   }
   virtual Status<void> Sync() { return MakeError(EINVAL); }
   virtual Status<void *> MMap(void *addr, size_t length, int prot, int flags,

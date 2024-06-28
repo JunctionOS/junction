@@ -283,6 +283,7 @@ Status<void> File::StatFS(struct statfs *buf) const {
 }
 
 Status<void> File::Ioctl(unsigned long request, char *argp) {
+  if (request == TCGETS) return MakeError(ENOTTY);
   if (request == FIONBIO) {
     int nonblock = *reinterpret_cast<int *>(argp);
     if (nonblock)
