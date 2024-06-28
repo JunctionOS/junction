@@ -7,8 +7,8 @@ extern "C" {
 
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
+#include "junction/fs/stdiofile.h"
 #include "junction/kernel/ksys.h"
-#include "junction/kernel/stdiofile.h"
 
 namespace junction {
 

@@ -19,7 +19,6 @@ extern "C" {
 #include "junction/junction.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
-#include "junction/kernel/stdiofile.h"
 #include "junction/kernel/usys.h"
 
 namespace {

@@ -5,6 +5,7 @@
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/runtime.h"
+#include "junction/fs/stdiofile.h"
 #include "junction/junction.h"
 #include "junction/kernel/exec.h"
 #include "junction/run.h"

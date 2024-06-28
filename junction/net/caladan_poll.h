@@ -1,7 +1,5 @@
 #pragma once
 
-#include "junction/kernel/poll.h"
-
 namespace junction {
 
 extern "C" {

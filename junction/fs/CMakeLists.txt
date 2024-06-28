@@ -3,13 +3,17 @@ message(STATUS "Building junction filesystem")
 add_library(fs
   core.cc
   dev.cc
+  eventfd.cc
   file.cc
   linuxfs/dir.cc
   linuxfs/linuxfile.cc
   linuxfs/linuxfs.cc
   memfs/memfs.cc
   memfs/dir.cc
+  pipe.cc
+  poll.cc
   procfs/procfs.cc
+  stdiofile.cc
 )
 
 target_link_libraries(fs

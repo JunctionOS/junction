@@ -1,6 +1,6 @@
 #include "junction/net/caladan_poll.h"
 
-#include "junction/kernel/poll.h"
+#include "junction/fs/poll.h"
 
 namespace junction {
 

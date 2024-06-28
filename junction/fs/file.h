@@ -15,7 +15,7 @@ extern "C" {
 #include "junction/base/error.h"
 #include "junction/bindings/rcu.h"
 #include "junction/bindings/sync.h"
-#include "junction/kernel/poll.h"
+#include "junction/fs/poll.h"
 #include "junction/snapshot/cereal.h"
 
 namespace junction {

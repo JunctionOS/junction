@@ -204,8 +204,8 @@ Status<std::shared_ptr<Process>> RestoreProcess(std::string_view metadata_path,
   };
 
   LOG(INFO) << "restore time " << (end_elf - start).Microseconds()
-           << " metadata: " << (end_metadata - start).Microseconds()
-           << " elf: " << (end_elf - end_metadata).Microseconds();
+            << " metadata: " << (end_metadata - start).Microseconds()
+            << " elf: " << (end_elf - end_metadata).Microseconds();
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)

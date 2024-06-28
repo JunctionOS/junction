@@ -2,20 +2,16 @@ message(STATUS "Building junction kernel")
 
 set(SOURCES_C_CPP
   elf.cc
-  eventfd.cc
   exec.cc
   futex.cc
   itimer.cc
   misc.cc
   mm.cc
-  pipe.cc
-  poll.cc
   proc.cc
   random.cc
   sched.cc
   sigframe.cc
   signal.cc
-  stdiofile.cc
   time.cc
   trapframe.cc
 )

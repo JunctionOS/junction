@@ -3,11 +3,7 @@
 #pragma once
 
 #include "junction/base/error.h"
-#include "junction/bindings/log.h"
-#include "junction/bindings/runtime.h"
-#include "junction/junction.h"
-#include "junction/kernel/exec.h"
-#include "junction/kernel/stdiofile.h"
+#include "junction/kernel/proc.h"
 
 namespace junction {
 
