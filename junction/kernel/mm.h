@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <unordered_map>
 #include <vector>
@@ -183,6 +184,14 @@ class alignas(kCacheLineSize) MemoryMap {
 
   [[nodiscard]] std::string_view get_cmd_line() const { return cmd_line_; }
 
+  [[nodiscard]] bool is_non_reloc() const { return is_non_reloc_; };
+
+  void mark_non_reloc() {
+    assert(!is_non_reloc_);
+    is_non_reloc_ = true;
+    nr_non_reloc_maps_++;
+  };
+
   void set_bin_path(const std::string_view &path,
                     std::vector<std::string_view> &argv) {
     binary_path_ = std::string(path);
@@ -206,6 +215,8 @@ class alignas(kCacheLineSize) MemoryMap {
     rt::SpinGuard g(mm_lock_);
     mm_base_addr_ = std::max(mm_base_addr_, base + PageAlign(len));
   }
+
+  [[nodiscard]] static size_t get_nr_non_reloc() { return nr_non_reloc_maps_; }
 
  private:
   friend class cereal::access;
@@ -262,9 +273,11 @@ class alignas(kCacheLineSize) MemoryMap {
   std::unique_ptr<PageAccessTracer> tracer_;
   std::string binary_path_;
   std::string cmd_line_;
+  bool is_non_reloc_{false};
 
   static rt::Spin mm_lock_;
   static uintptr_t mm_base_addr_;
+  static std::atomic_size_t nr_non_reloc_maps_;
 };
 
 // Reserve a region of virtual memory for a MemoryMap.

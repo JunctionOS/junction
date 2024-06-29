@@ -19,6 +19,7 @@ using ExecInfo = std::pair<uint64_t, uint64_t>;
 // thread_ready to start the program.
 Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                       std::vector<std::string_view> &argv,
-                      const std::vector<std::string_view> &envp);
+                      const std::vector<std::string_view> &envp,
+                      bool must_be_reloc = false);
 
 }  // namespace junction

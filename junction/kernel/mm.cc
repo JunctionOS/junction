@@ -29,6 +29,7 @@ namespace junction {
 rt::Spin MemoryMap::mm_lock_;
 // Next address used for memory map.
 uintptr_t MemoryMap::mm_base_addr_{0x300000000000};
+std::atomic_size_t MemoryMap::nr_non_reloc_maps_{0};
 
 namespace {
 
@@ -96,6 +97,7 @@ MemoryMap::~MemoryMap() {
     Status<void> ret = KernelMUnmap(vma.Addr(), vma.Length());
     if (!ret) LOG(ERR) << "mm: munmap failed with error " << ret.error();
   }
+  if (is_non_reloc_) nr_non_reloc_maps_--;
 }
 
 bool MemoryMap::TryMergeRight(std::map<uintptr_t, VMArea>::iterator prev,

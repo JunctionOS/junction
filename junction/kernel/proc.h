@@ -411,6 +411,12 @@ class Process : public std::enable_shared_from_this<Process> {
 
   [[nodiscard]] pid_t get_pid() const { return pid_; }
   [[nodiscard]] pid_t get_pgid() const { return pgid_; }
+  [[nodiscard]] pid_t get_ppid() const {
+    if (parent_) return parent_->get_pid();
+    return 1;
+  }
+
+  [[nodiscard]] bool in_vfork_preexec() const { return !!vfork_waker_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
   [[nodiscard]] MemoryMap &get_mem_map() { return *mem_map_; }
   [[nodiscard]] SignalTable &get_signal_table() { return signal_tbl_; }

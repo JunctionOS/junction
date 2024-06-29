@@ -210,13 +210,19 @@ std::optional<elf_phdr> FindPHDRByType(const std::vector<elf_phdr> &v,
 }  // namespace
 
 Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
-                         std::string_view path) {
+                         std::string_view path, bool must_be_reloc) {
   // Load the ELF header.
   Status<elf_header> hdr = ReadHeader(file);
   if (!hdr) return MakeError(hdr);
+
+  bool reloc = hdr->type == kETypeDynamic;
   // Check if the ELF type is supported.
-  if (hdr->type != kETypeExec && hdr->type != kETypeDynamic)
+  if (hdr->type != kETypeExec && !reloc) return MakeError(EINVAL);
+
+  if (!reloc && must_be_reloc) {
+    LOG(ERR) << "Attempted to load multiple non-relocatable binaries";
     return MakeError(EINVAL);
+  }
 
   // Load the PHDR table.
   Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(file, *hdr);
@@ -232,9 +238,12 @@ Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
     if (!data) return MakeError(data);
     interp_data = *data;
   }
+
+  if (!reloc) mm.mark_non_reloc();
+
   // Load the PHDR segments.
   Status<std::pair<uintptr_t, size_t>> ret =
-      LoadSegments(mm, file, *phdrs, hdr->type == kETypeDynamic);
+      LoadSegments(mm, file, *phdrs, reloc);
   if (!ret) return MakeError(ret);
   // Look for a PHDR table segment
   uintptr_t phdr_va = 0;

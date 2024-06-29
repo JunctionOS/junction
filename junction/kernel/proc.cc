@@ -509,6 +509,8 @@ long usys_waitid(int which, pid_t pid, siginfo_t *infop, int options,
   return 0;
 }
 
+long usys_getppid() { return myproc().get_ppid(); }
+
 long usys_getpid() { return myproc().get_pid(); }
 
 long usys_gettid() { return mythread().get_tid(); }

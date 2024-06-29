@@ -6,6 +6,7 @@ chdir
 fchdir
 getpid
 gettid
+getppid
 arch_prctl
 vfork
 clone3

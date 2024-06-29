@@ -142,11 +142,14 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
 Status<elf_data> TryLoadBin(Process &p, MemoryMap &mm,
                             std::string_view pathname,
                             std::vector<std::string_view> &argv,
+                            bool must_be_reloc,
                             size_t max_depth = kMaxInterpFollow) {
   Status<JunctionFile> file =
       JunctionFile::Open(p.get_fs(), pathname, 0, FileMode::kRead);
   if (!file) return MakeError(file);
-  if (auto edata = LoadELF(mm, *file, p.get_fs(), pathname); edata) {
+
+  auto edata = LoadELF(mm, *file, p.get_fs(), pathname, must_be_reloc);
+  if (edata) {
     // Record pathname in proc
     mm.set_bin_path(pathname, argv);
     return edata;
@@ -168,13 +171,14 @@ Status<elf_data> TryLoadBin(Process &p, MemoryMap &mm,
     argv.insert(argv.begin(), tokens[1]);
   }
 
-  return TryLoadBin(p, mm, tokens[0], argv, max_depth - 1);
+  return TryLoadBin(p, mm, tokens[0], argv, must_be_reloc, max_depth - 1);
 }
 
 Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
                       std::vector<std::string_view> &argv,
-                      const std::vector<std::string_view> &envp) {
-  auto edata = TryLoadBin(p, mm, pathname, argv);
+                      const std::vector<std::string_view> &envp,
+                      bool must_be_reloc) {
+  auto edata = TryLoadBin(p, mm, pathname, argv, must_be_reloc);
   if (!edata) return MakeError(edata);
 
   // Create the first thread
@@ -211,8 +215,26 @@ long usys_execve(const char *filename, const char *argv[], const char *envp[]) {
   ptr = envp;
   while (*ptr) envp_view.emplace_back(*ptr++);
 
-  Status<ExecInfo> ret = Exec(myproc(), **mm, filename, argv_view, envp_view);
-  if (!ret) return MakeCError(ret);
+  Process &p = myproc();
+  MemoryMap &old_mm = p.get_mem_map();
+
+  // If exec was called from a process with a non-relocatable executable (that
+  // is not in vfork) then we can safely replace it with another non-relocatable
+  // executable.
+  size_t nr_non_reloc = MemoryMap::get_nr_non_reloc();
+  if (nr_non_reloc && old_mm.is_non_reloc() && !p.in_vfork_preexec())
+    nr_non_reloc--;
+
+  Status<ExecInfo> ret =
+      Exec(p, **mm, filename, argv_view, envp_view, nr_non_reloc > 0);
+  if (!ret) {
+    if (unlikely((**mm).is_non_reloc() && old_mm.is_non_reloc())) {
+      LOG(ERR) << "exec: failed while replacing existing non-reloc map with a "
+                  "new one";
+      syscall_exit(-1);
+    }
+    return MakeCError(ret);
+  }
 
   // The syscall has suceeded.
   if (unlikely(GetCfg().strace_enabled()))

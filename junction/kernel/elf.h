@@ -106,6 +106,6 @@ enum {
 class JunctionFile;
 // Load an ELF object file into memory. Returns metadata if successful.
 Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
-                         std::string_view path);
+                         std::string_view path, bool must_be_reloc = false);
 
 }  // namespace junction
