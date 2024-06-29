@@ -578,9 +578,7 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   return ret;
 }
 
-[[noreturn]] void usys_exit(int status) {
-  if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall("exit", &usys_exit, status);
+[[noreturn]] void FinishExit(int status) {
   Thread *tptr = &mythread();
   tptr->set_xstate(status);
   rt::Preempt::Lock();
@@ -598,11 +596,17 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   std::unreachable();
 }
 
+[[noreturn]] void usys_exit(int status) {
+  if (unlikely(GetCfg().strace_enabled()))
+    LogSyscall("exit", &usys_exit, status);
+  FinishExit(status);
+}
+
 void usys_exit_group(int status) {
   if (unlikely(GetCfg().strace_enabled()))
     LogSyscall("exit_group", &usys_exit_group, status);
   myproc().DoExit(status);
-  usys_exit(status);
+  FinishExit(status);
 }
 
 }  // namespace junction

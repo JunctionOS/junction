@@ -75,11 +75,6 @@ AT_FDS = [
     ("readlinkat", 0),
 ]
 
-PTR_RETS = [
-    "mmap",
-    "brk",
-]
-
 TYPE_ARR = {
     p : 'reinterpret_cast<strace::PathName *>' for p in STRACE_ARGS_THAT_ARE_PATHNAMES
 }
@@ -88,8 +83,23 @@ TYPE_ARR.update({
     p: 'static_cast<strace::AtFD>' for p in AT_FDS
 })
 
+VOIDP = 'reinterpret_cast<void *>'
+
 TYPE_ARR.update({
-    (p, -1): 'reinterpret_cast<void *>' for p in PTR_RETS
+    ("mmap", -1): VOIDP,
+    ("brk", -1): VOIDP,
+    ("mmap", 2): 'static_cast<strace::ProtFlag>',
+    ("mprotect", 2): 'static_cast<strace::ProtFlag>',
+    ("pipe", 0): 'reinterpret_cast<strace::FDPair *>',
+    ("pipe2", 0): 'reinterpret_cast<strace::FDPair *>',
+    ("socketpair", 3): 'reinterpret_cast<strace::FDPair *>',
+    ("mmap", 3): 'static_cast<strace::MMapFlag>',
+    ("open", 1): 'static_cast<strace::OpenFlag>',
+    ("openat", 2): 'static_cast<strace::OpenFlag>',
+    ("rt_sigaction", 0): 'static_cast<strace::SignalNumber>',
+    ("kill", 1): 'static_cast<strace::SignalNumber>',
+    ("tgkill", 2): 'static_cast<strace::SignalNumber>',
+    ("rt_tgsigqueueinfo", 2): 'static_cast<strace::SignalNumber>',
 })
 
 SKIP_STRACE_TARGET = ["exit", "exit_group", "vfork", "clone", "clone3", "rt_sigreturn"]
@@ -124,8 +134,8 @@ def genLogSyscallCall(pretty_name, with_ret, fnname):
     return fn
 
 def emit_strace_target(pretty_name, function_name, output):
-    fn = f"\nextern \"C\" __attribute__((cold)) uint64_t {function_name}_trace(uint64_t arg0, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5) {'{'}"
-    runsyscall_cmd = f"\n\tuint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
+    fn = f"\nextern \"C\" __attribute__((cold)) int64_t {function_name}_trace(int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5) {'{'}"
+    runsyscall_cmd = f"\n\tint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 
     if STRACE_LOG_BEFORE_RETURN:
         fn += genLogSyscallCall(pretty_name, False, function_name)
@@ -172,7 +182,7 @@ def emit_passthrough_target(syscall_name, sysnr, output):
 def emit_stub_target(syscall_name, output):
     wrapper_name = f"{syscall_name}_stub"
     fn = f"""
-    extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+    extern "C" long {wrapper_name}(void) {'{'}
         return 0;
     {'}'}"""
     output.append(fn)

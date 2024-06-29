@@ -14,7 +14,12 @@ namespace junction {
 namespace strace {
 
 struct PathName {};
+struct FDPair {};
 enum class AtFD : int {};
+enum class ProtFlag : int {};
+enum class MMapFlag : int {};
+enum class OpenFlag : int {};
+enum class SignalNumber : int {};
 
 template <typename U>
 inline void PrintArg(const char **array, U, rt::Logger &ss) {
@@ -42,36 +47,29 @@ inline void PrintArg(char *arg, U, rt::Logger &ss) {
   ss << (void *)arg;
 }
 
-template <typename T>
-struct is_pathname_ptr : std::is_same<std::remove_const_t<T>, PathName *> {};
-
-template <typename T>
-constexpr bool is_pathname_ptr_v = is_pathname_ptr<T>::value;
-
 // Override: print char *s that are annotated as PathNames.
-template <typename T,
-          typename std::enable_if_t<is_pathname_ptr_v<T>> * = nullptr>
-inline void PrintArg(const char *arg, T, rt::Logger &ss) {
-  ss << "\"" << arg << "\"";
-}
+void PrintArg(const char *arg, PathName *, rt::Logger &ss);
 
 // Don't print const char * args without a PathName annotation.
-template <typename T,
-          typename std::enable_if_t<!is_pathname_ptr_v<T>> * = nullptr>
+template <typename T>
 inline void PrintArg(const char *arg, T, rt::Logger &ss) {
   ss << (const void *)arg;
 }
 
-inline void PrintArg(int fd, AtFD, rt::Logger &ss) {
-  if (fd == AT_FDCWD)
-    ss << "AT_FDCWD";
-  else
-    ss << fd;
-}
+void PrintArg(int fd, AtFD, rt::Logger &ss);
+void PrintArg(int prot, ProtFlag, rt::Logger &ss);
+void PrintArg(int flags, MMapFlag, rt::Logger &ss);
+void PrintArg(int *fds, FDPair *, rt::Logger &ss);
+void PrintArg(int flags, OpenFlag, rt::Logger &ss);
+void PrintArg(int signo, SignalNumber, rt::Logger &ss);
 
 template <typename U>
-inline void PrintArg(int fds[2], U, rt::Logger &ss) {
-  ss << "[" << fds[0] << ", " << fds[1] << "]";
+inline void PrintArg(struct timespec *t, U, rt::Logger &ss) {
+  if (!t) {
+    ss << "NULL";
+    return;
+  }
+  ss << "{tv_sec=" << t->tv_sec << ", tv_nsec=" << t->tv_nsec << "}";
 }
 
 template <int N, typename Ret, typename... UsysArgs, typename ArgT>
@@ -98,6 +96,7 @@ void LogSyscall(Ret retval, std::string_view name, UsysRet (*fn)(UsysArgs...),
     strace::UnpackArgs<n_args - 1>(logger, fn, args_t);
   }
   logger << ") = " << retval;
+  if ((long)retval < 0) logger << " [" << Error(-((long)retval)) << "]";
 }
 
 template <typename... RegisterArgs, typename Ret, typename... UsysArgs>

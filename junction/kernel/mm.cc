@@ -580,9 +580,9 @@ void MemoryMap::LogMappings() {
   for (auto const &[end, vma] : vmareas_) LOG(INFO) << vma;
 }
 
-intptr_t usys_brk(uintptr_t addr) {
+intptr_t usys_brk(void *addr) {
   MemoryMap &mm = myproc().get_mem_map();
-  Status<uintptr_t> ret = mm.SetBreak(addr);
+  Status<uintptr_t> ret = mm.SetBreak(reinterpret_cast<uintptr_t>(addr));
   if (!ret) return MakeCError(ret);
   return *ret;
 }

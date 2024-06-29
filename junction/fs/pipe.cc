@@ -208,7 +208,7 @@ class PipeReaderFile : public File {
   Status<void> Stat(struct stat *statbuf) const override {
     // TODO(jf): do we need to fill in more fields?
     memset(statbuf, 0, sizeof(*statbuf));
-    statbuf->st_mode = S_IFIFO | S_IRUSR;
+    statbuf->st_mode = S_IFIFO | S_IRUSR | S_IWUSR;
     return {};
   }
 
@@ -248,7 +248,7 @@ class PipeWriterFile : public File {
 
   Status<void> Stat(struct stat *statbuf) const override {
     memset(statbuf, 0, sizeof(*statbuf));
-    statbuf->st_mode = S_IFIFO | S_IWUSR;
+    statbuf->st_mode = S_IFIFO | S_IWUSR | S_IRUSR;
     return {};
   }
 

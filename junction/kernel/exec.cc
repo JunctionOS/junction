@@ -238,8 +238,7 @@ long usys_execve(const char *filename, const char *argv[], const char *envp[]) {
 
   // The syscall has suceeded.
   if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall(0, "execve", &usys_execve,
-               reinterpret_cast<const strace::PathName *>(filename), argv,
+    LogSyscall(0, "execve", &usys_execve, (strace::PathName *)filename, argv,
                envp);
 
   // Finish exec from a different stack, since this stack may be unmapped when

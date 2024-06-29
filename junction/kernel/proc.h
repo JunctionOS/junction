@@ -281,7 +281,7 @@ class Thread {
  private:
   friend class Process;
   friend class ThreadRef;
-  friend void usys_exit(int status) __noreturn;
+  friend void FinishExit(int status) __noreturn;
 
   bool IsStopped() const;
 
