@@ -359,7 +359,7 @@ class EPollFile : public File {
 
 EPollFile::~EPollFile() {
   FileTable &ftbl = myproc().get_file_table();
-  ftbl.ForEach([this](File &f) { Delete(f); });
+  ftbl.ForEach([this](File &f, int fd) { Delete(f); });
 }
 
 void EPollFile::Notify(PollSource &s) {

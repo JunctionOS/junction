@@ -16,8 +16,6 @@ namespace junction {
 StdIOFile::StdIOFile(int fd, FileMode mode)
     : File(FileType::kNormal, 0, mode), fd_(fd) {}
 
-StdIOFile::~StdIOFile() {}
-
 Status<size_t> StdIOFile::Read(std::span<std::byte> buf, off_t *off) {
   long ret = ksys_read(fd_, buf.data(), buf.size_bytes());
   if (ret < 0) return MakeError(-ret);

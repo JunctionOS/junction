@@ -18,12 +18,10 @@ constexpr int kStdErrFileNo = STDERR_FILENO;
 class StdIOFile : public File {
  public:
   StdIOFile(int fd, FileMode mode);
-  virtual ~StdIOFile();
-  virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
-  virtual Status<size_t> Write(std::span<const std::byte> buf,
-                               off_t *off) override;
-  virtual Status<void> Stat(struct stat *statbuf) const override;
-  virtual Status<void> Sync() override;
+  Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
+  Status<size_t> Write(std::span<const std::byte> buf, off_t *off) override;
+  Status<void> Stat(struct stat *statbuf) const override;
+  Status<void> Sync() override;
 
   [[nodiscard]] int get_fd() const { return fd_; }
 

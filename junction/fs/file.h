@@ -16,6 +16,7 @@ extern "C" {
 #include "junction/bindings/rcu.h"
 #include "junction/bindings/sync.h"
 #include "junction/fs/poll.h"
+#include "junction/fs/procfs/procfs.h"
 #include "junction/snapshot/cereal.h"
 
 namespace junction {
@@ -227,6 +228,8 @@ class File : public std::enable_shared_from_this<File> {
 
   [[nodiscard]] virtual size_t get_size() const { return 0; }
 
+  [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
+
  protected:
   [[nodiscard]] bool IsPollSourceSetup() const { return poll_source_setup_; }
 
@@ -245,6 +248,7 @@ class File : public std::enable_shared_from_this<File> {
   PollSource poll_;
   const std::shared_ptr<Inode> ino_;
   const std::string filename_;
+  procfs::ProcFSData procfs_data_;
 };
 
 class SeekableFile : public File {
@@ -436,7 +440,7 @@ void FileTable::ForEach(F func) {
     if (unlikely(static_cast<size_t>(fd) >= tbl->len)) break;
     File *f = tbl->files[fd++].get();
     if (!f) continue;
-    func(*f);
+    func(*f, fd - 1);
   }
 }
 

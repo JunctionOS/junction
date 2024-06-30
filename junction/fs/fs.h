@@ -15,6 +15,7 @@ extern "C" {
 
 #include "junction/bindings/rcu.h"
 #include "junction/fs/file.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -41,6 +42,9 @@ inline constexpr mode_t kTypeMask =
 
 // Shift required to convert type bits to file types (eg DT_REG, etc.)
 inline constexpr uint32_t kTypeShift = 12;
+
+class File;
+class SoftLinkFile;
 
 // Inode is the base class for all inodes
 class Inode : public std::enable_shared_from_this<Inode> {
@@ -97,13 +101,6 @@ class Inode : public std::enable_shared_from_this<Inode> {
   template <class Archive>
   void load(Archive &ar) {
     ar(nlink_);
-  }
-
-  // Add so that Cereal doesn't require this class to be default constructible.
-  template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<File> &construct) {
-    std::unreachable();
   }
 
  protected:
@@ -172,6 +169,8 @@ struct dir_entry {
   unsigned long inum;
   unsigned int type;
 };
+
+class IDir;
 
 // Backwards link for an IDir; contains a pointer to the parent and the name
 // of this IDir.

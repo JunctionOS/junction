@@ -28,6 +28,17 @@ std::string GetMemInfo(IDir *) {
   return ss.str();
 }
 
+std::optional<int> ParseInt(std::string_view s) {
+  int result;
+  if (std::from_chars(s.data(), s.data() + s.size(), result).ec == std::errc{})
+    return result;
+  return std::nullopt;
+}
+
+ProcFSData::~ProcFSData() {
+  if (in_) in_->dec_nlink();
+}
+
 std::string GetPidString(IDir *) { return std::to_string(myproc().get_pid()); }
 
 template <std::string (*Gen)(IDir *)>
@@ -68,13 +79,6 @@ class ProcFSInode : public Inode {
   std::shared_ptr<IDir> parent_;
 };
 
-std::optional<pid_t> ParsePid(std::string_view s) {
-  pid_t result;
-  if (std::from_chars(s.data(), s.data() + s.size(), result).ec == std::errc{})
-    return result;
-  return std::nullopt;
-}
-
 // /proc/<pid>/task/<tid>
 class ThreadDir : public memfs::MemIDir {
  public:
@@ -93,6 +97,55 @@ class ThreadDir : public memfs::MemIDir {
   pid_t tid_;
 };
 
+// /proc/<pid>/fd
+class FDDir : public memfs::MemIDir {
+ public:
+  FDDir(std::shared_ptr<IDir> parent)
+      : MemIDir(0555, std::string(kFDDirName), std::move(parent)) {}
+  ~FDDir() override = default;
+
+  Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override {
+    Status<std::shared_ptr<Process>> tmp = GetProcess();
+    if (!tmp) return MakeError(tmp);
+    std::shared_ptr<Process> &proc = *tmp;
+
+    std::optional<int> fd = ParseInt(name);
+    if (!fd) return MakeError(ENOENT);
+
+    FileTable &ftbl = proc->get_file_table();
+    File *f = ftbl.Get(*fd);
+    if (!f) return MakeError(ENOENT);
+    return GetFDLink(*f).get_this();
+  }
+
+  std::vector<dir_entry> GetDents() override {
+    Status<std::shared_ptr<Process>> tmp = GetProcess();
+    if (!tmp) return {};
+    std::shared_ptr<Process> &proc = *tmp;
+
+    std::vector<dir_entry> ret;
+    FileTable &ftbl = proc->get_file_table();
+    ftbl.ForEach([&](File &f, int fd) {
+      ret.emplace_back(std::to_string(fd), 0, kTypeSymLink | 0777);
+    });
+    return ret;
+  }
+
+ private:
+  Inode &GetFDLink(File &f) {
+    ProcFSData &data = f.get_procfs();
+    if (!data.in_) {
+      data.in_ = memfs::CreateISoftLink(f.get_filename());
+      data.in_->inc_nlink();
+    }
+    return *data.in_.get();
+  }
+
+  Status<std::shared_ptr<Process>> GetProcess();
+
+  inline static constexpr std::string_view kFDDirName = "fd";
+};
+
 // /proc/<pid>/task
 class TaskDir : public memfs::MemIDir {
  public:
@@ -105,7 +158,7 @@ class TaskDir : public memfs::MemIDir {
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<Process> &proc = *tmp;
 
-    std::optional<pid_t> tid = ParsePid(name);
+    std::optional<int> tid = ParseInt(name);
     if (tid) {
       Status<ThreadRef> th = proc->FindThread(*tid);
       if (!th) return MakeError(ENOENT);
@@ -139,11 +192,11 @@ class TaskDir : public memfs::MemIDir {
  private:
   ThreadDir &GetThreadDir(Thread &t) {
     ProcFSData &data = t.get_procfs();
-    if (!data.dir_) {
-      data.dir_ = std::make_shared<ThreadDir>(t, get_this());
-      data.dir_->inc_nlink();
+    if (!data.in_) {
+      data.in_ = std::make_shared<ThreadDir>(t, get_this());
+      data.in_->inc_nlink();
     }
-    return *std::static_pointer_cast<ThreadDir>(data.dir_).get();
+    return *std::static_pointer_cast<ThreadDir>(data.in_).get();
   }
 
   Status<std::shared_ptr<Process>> GetProcess();
@@ -177,6 +230,7 @@ class ProcessDir : public memfs::MemIDir {
     InsertLockedNoCheck(
         "cmdline", std::make_shared<ProcFSInode<GetCmdLine>>(0444, get_this()));
     InsertLockedNoCheck("task", std::make_shared<TaskDir>(get_this()));
+    InsertLockedNoCheck("fd", std::make_shared<FDDir>(get_this()));
   }
 
  private:
@@ -206,7 +260,7 @@ class ProcRootDir : public memfs::MemIDir {
       : MemIDir(0555, std::string{"proc"}, std::move(parent)) {}
 
   Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override {
-    std::optional<pid_t> tmp = ParsePid(name);
+    std::optional<int> tmp = ParseInt(name);
 
     if (tmp) {
       std::shared_ptr<Process> proc = Process::Find(*tmp);
@@ -245,15 +299,20 @@ class ProcRootDir : public memfs::MemIDir {
   ProcessDir &GetProcDir(Process &p) {
     assert(lock_.IsHeld());
     ProcFSData &data = p.get_procfs();
-    if (!data.dir_) {
-      data.dir_ = std::make_shared<ProcessDir>(p, get_this());
-      data.dir_->inc_nlink();
+    if (!data.in_) {
+      data.in_ = std::make_shared<ProcessDir>(p, get_this());
+      data.in_->inc_nlink();
     }
-    return *std::static_pointer_cast<ProcessDir>(data.dir_).get();
+    return *std::static_pointer_cast<ProcessDir>(data.in_).get();
   }
 };
 
 Status<std::shared_ptr<Process>> TaskDir::GetProcess() {
+  ProcessDir &dir = static_cast<ProcessDir &>(get_static_parent());
+  return dir.GetProcess();
+}
+
+Status<std::shared_ptr<Process>> FDDir::GetProcess() {
   ProcessDir &dir = static_cast<ProcessDir &>(get_static_parent());
   return dir.GetProcess();
 }

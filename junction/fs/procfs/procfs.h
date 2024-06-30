@@ -1,22 +1,28 @@
 #pragma once
 
-#include "junction/fs/fs.h"
+#include <memory>
 
-namespace junction::procfs {
+namespace junction {
+
+class Inode;
+class IDir;
+
+namespace procfs {
 
 class ProcFSData {
  public:
   ProcFSData() = default;
-  ~ProcFSData() {
-    if (dir_) dir_->dec_nlink();
-  }
+  ~ProcFSData();
 
  private:
   friend class ProcRootDir;
   friend class TaskDir;
-  std::shared_ptr<IDir> dir_;
+  friend class FDDir;
+  std::shared_ptr<Inode> in_;
 };
 
 std::shared_ptr<Inode> MakeProcFS(std::shared_ptr<IDir> parent);
 
-}  // namespace junction::procfs
+}  // namespace procfs
+
+}  // namespace junction
