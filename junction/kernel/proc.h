@@ -520,13 +520,7 @@ class Process : public std::enable_shared_from_this<Process> {
   // ready to be restored.
   void ThreadStopWait(Thread &th);
 
-  Status<void> WaitForFullStop() {
-    rt::SpinGuard g(child_thread_lock_);
-    rt::Wait(child_thread_lock_, stopped_threads_,
-             [&]() { return stopped_count_ == thread_map_.size() || exited_; });
-    if (exited_) return MakeError(ESRCH);
-    return {};
-  }
+  Status<void> WaitForFullStop();
 
   // mark all threads as ready to run
   void RunThreads() {

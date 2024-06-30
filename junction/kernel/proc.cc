@@ -143,13 +143,20 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   if (cl_args->flags & CLONE_CHILD_CLEARTID)
     newth.set_child_tid(reinterpret_cast<uint32_t *>(cl_args->child_tid));
 
-  newth.ThreadReady();
-
-  // Wait for child thread to exit or exec.
   if (do_vfork) {
+    bool was_stopped = myproc().is_stopped();
+    if (likely(!was_stopped)) {
+      myproc().Signal(SIGSTOP);
+      myproc().WaitForFullStop();
+    }
     if (unlikely(GetCfg().strace_enabled()))
       LogSyscall(newth.get_tid(), "vfork", &usys_vfork);
+    newth.ThreadReady();
+    // Wait for child thread to exit or exec.
     rt::WaitForever();
+    if (!was_stopped) myproc().Signal(SIGCONT);
+  } else {
+    newth.ThreadReady();
   }
 
   return newth.get_tid();
@@ -213,6 +220,17 @@ std::map<pid_t, Process *> Process::pid_to_proc_;
 Process::~Process() {
   DeregisterProcess(*this);
   detail::ReleasePid(pid_, pgid_);
+}
+
+Status<void> Process::WaitForFullStop() {
+  bool this_thread_stopped = IsJunctionThread() && this == &myproc();
+  rt::SpinGuard g(child_thread_lock_);
+  if (this_thread_stopped) stopped_count_ += 1;
+  rt::Wait(child_thread_lock_, stopped_threads_,
+           [&]() { return stopped_count_ == thread_map_.size() || exited_; });
+  if (this_thread_stopped) stopped_count_ -= 1;
+  if (exited_) return MakeError(ESRCH);
+  return {};
 }
 
 void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
@@ -514,6 +532,8 @@ long usys_getppid() { return myproc().get_ppid(); }
 long usys_getpid() { return myproc().get_pid(); }
 
 long usys_gettid() { return mythread().get_tid(); }
+
+long usys_getpgid() { return myproc().get_pgid(); }
 
 long usys_arch_prctl(int code, unsigned long addr) {
   // TODO: supporting Intel AMX requires requesting the feature from the kernel.

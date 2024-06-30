@@ -80,14 +80,14 @@ std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
             << ":/usr/lib/jvm/java-19-openjdk-amd64/lib"
             << ":/usr/lib/jvm/java-21-openjdk-amd64/lib";
   std::string ld_path = ld_path_s.str();
-  std::string preload_path("LD_PRELOAD=" + GetCfg().get_preload_path());
 
   const std::vector<std::string> &cfg_envp = GetCfg().get_binary_envp();
 
   std::vector<std::string> envp;
   envp.reserve(2 + cfg_envp.size());
   envp.emplace_back(std::move(ld_path));
-  envp.emplace_back(std::move(preload_path));
+  if (GetCfg().get_preload_path().size())
+    envp.emplace_back("LD_PRELOAD=" + GetCfg().get_preload_path());
   for (const std::string &s : cfg_envp) envp.emplace_back(s);
 
   std::vector<std::string_view> envp_view;

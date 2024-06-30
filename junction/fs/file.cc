@@ -107,7 +107,7 @@ int FileTable::Insert(std::shared_ptr<File> f, bool cloexec, size_t lowest) {
 
 void FileTable::InsertAt(int fd, std::shared_ptr<File> f, bool cloexec) {
   rt::SpinGuard g(lock_);
-  if (static_cast<size_t>(fd) >= farr_->len) Resize(fd);
+  if (static_cast<size_t>(fd) >= farr_->len) Resize(fd + 1);
   farr_->files[fd] = std::move(f);
   if (cloexec) close_on_exec_.set(fd);
 }
@@ -282,7 +282,12 @@ Status<void> File::StatFS(struct statfs *buf) const {
 }
 
 Status<void> File::Ioctl(unsigned long request, char *argp) {
-  if (request == TCGETS) return MakeError(ENOTTY);
+  switch (request) {
+    case TCGETS:
+    case TIOCGPGRP:
+      return MakeError(ENOTTY);
+  }
+
   if (request == FIONBIO) {
     int nonblock = *reinterpret_cast<int *>(argp);
     if (nonblock)

@@ -7,6 +7,8 @@ fchdir
 getpid
 gettid
 getppid
+getpgid
+getpgrp:::stub
 arch_prctl
 vfork
 clone3

@@ -165,11 +165,7 @@ Status<elf_data> TryLoadBin(Process &p, MemoryMap &mm,
   std::getline(instream, s);
   std::vector<std::string_view> tokens = split(s, ' ', 1);
 
-  argv[0] = pathname;
-  if (tokens.size() > 1) {
-    assert(tokens.size() == 2);
-    argv.insert(argv.begin(), tokens[1]);
-  }
+  argv.insert(argv.begin(), tokens.begin(), tokens.end());
 
   return TryLoadBin(p, mm, tokens[0], argv, must_be_reloc, max_depth - 1);
 }

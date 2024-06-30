@@ -143,6 +143,7 @@ long usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
 long usys_getpid();
 long usys_getppid();
 long usys_gettid();
+long usys_getpgid();
 long usys_set_tid_address(int *tidptr);
 [[noreturn]] void usys_exit_group(int status);
 [[noreturn]] void usys_exit(int status);
