@@ -59,8 +59,9 @@ Status<std::vector<elf_phdr>> ReadPHDRs(JunctionFile &f,
 
   // Confirm that the PHDRs contain valid state.
   for (const elf_phdr &phdr : phdrs) {
-    if (!std::has_single_bit(phdr.align) || phdr.filesz > phdr.memsz ||
-        (phdr.vaddr & (phdr.align - 1)) != (phdr.offset & (phdr.align - 1))) {
+    if (phdr.filesz > phdr.memsz ||
+        (phdr.align > 1 && !std::has_single_bit(phdr.align) &&
+         (phdr.vaddr & (phdr.align - 1)) != (phdr.offset & (phdr.align - 1)))) {
       LOG(ERR) << "elf: encountered an invalid PHDR.";
       return MakeError(EINVAL);
     }
