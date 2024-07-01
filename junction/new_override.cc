@@ -23,6 +23,8 @@ struct alignas(kCacheLineSize) {
   bool ready;
 } runtime;
 
+[[nodiscard]] bool IsRuntimeReady() { return runtime.ready; }
+
 __always_inline void *do_new(size_t size) {
   // Handle the case where the runtime is not initialized
   if (unlikely(!runtime.ready)) return std::malloc(size);
@@ -43,14 +45,16 @@ __always_inline void *do_new_aligned(size_t size, std::align_val_t a) {
   // Handle the case where the runtime is not initialized
   if (unlikely(!runtime.ready)) return std::aligned_alloc(size, align);
 
+  size_t aligned = AlignUp(size, align);
+
   // Handle the case where the object being allocated is large
-  if (unlikely(size >= kMaxAllocSize)) {
+  if (unlikely(aligned >= kMaxAllocSize)) {
     rt::RuntimeLibcGuard guard;
     return std::aligned_alloc(size, align);
   }
 
   // Hot path: Handle typical allocations using the runtime
-  return smalloc(AlignUp(size, align));
+  return smalloc(aligned);
 }
 
 __always_inline void do_free(void *ptr) {
@@ -71,7 +75,7 @@ __always_inline void do_free(void *ptr) {
   std::free(ptr);
 }
 
-void EnableMemoryAllocation() { runtime.ready = true; }
+void MarkRuntimeReady() { runtime.ready = true; }
 
 void ThrowBadAlloc() {
   if (likely(runtime.ready)) {

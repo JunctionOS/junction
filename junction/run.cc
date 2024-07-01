@@ -97,7 +97,7 @@ std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
 }
 
 void JunctionMain(int argc, char *argv[]) {
-  EnableMemoryAllocation();
+  MarkRuntimeReady();
 
   std::vector<std::string_view> args;
   args.reserve(argc);
