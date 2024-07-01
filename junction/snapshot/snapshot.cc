@@ -82,19 +82,20 @@ Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetPHDRs(
   }
 
   for (const FSMemoryArea &area : ctx.mem_areas_) {
+    size_t saved_area = PageAlign(area.in_use_size);
     elf_phdr phdr = {
         .type = kPTypeLoad,
         .flags = kFlagRead | kFlagWrite,
         .offset = offset,
         .vaddr = reinterpret_cast<uintptr_t>(area.ptr),
-        .paddr = 0,                  // don't care
-        .filesz = area.in_use_size,  // size of data in the file
-        .memsz = area.max_size,      // total memory region size
-        .align = kPageSize,          // align to page size
+        .paddr = 0,              // don't care
+        .filesz = saved_area,    // size of data in the file
+        .memsz = area.max_size,  // total memory region size
+        .align = kPageSize,      // align to page size
     };
     phdrs.push_back(phdr);
-    offset += area.in_use_size;
-    if (area.in_use_size) iovs.emplace_back(area.ptr, area.in_use_size);
+    offset += saved_area;
+    if (saved_area) iovs.emplace_back(area.ptr, saved_area);
   }
 
   return std::make_pair(phdrs, iovs);
