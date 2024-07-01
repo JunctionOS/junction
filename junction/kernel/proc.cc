@@ -233,6 +233,14 @@ Status<void> Process::WaitForFullStop() {
   return {};
 }
 
+Status<void> Process::WaitForResume() {
+  rt::SpinGuard g(child_thread_lock_);
+  rt::Wait(child_thread_lock_, stopped_threads_,
+           [&]() { return !stopped_ || exited_; });
+  if (exited_) return MakeError(ESRCH);
+  return {};
+}
+
 void Process::FinishExec(std::shared_ptr<MemoryMap> &&new_mm) {
   {
     rt::SpinGuard g(child_thread_lock_);

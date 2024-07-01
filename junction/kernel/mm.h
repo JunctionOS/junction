@@ -53,6 +53,11 @@ struct VMArea {
   // Length returns the length of the VMA.
   size_t Length() const { return end - start; }
 
+  size_t DataLength() const {
+    if (type != VMType::kFile) return Length();
+    return std::min(PageAlign(file->get_size() - offset), Length());
+  }
+
   std::string TypeString() const {
     switch (type) {
       case VMType::kNormal:

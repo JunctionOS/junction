@@ -135,7 +135,12 @@ void JunctionMain(int argc, char *argv[]) {
   // setup automatic snapshot
   if (unlikely(GetCfg().snapshot_on_stop())) {
     rt::Spawn([p = *proc] mutable {
-      p->WaitForFullStop();
+      // Note: this is a little race-y but is only meant as a convenience for
+      // testing.
+      for (int i = 0; i < GetCfg().snapshot_on_stop(); i++) {
+        p->WaitForResume();
+        p->WaitForFullStop();
+      }
       std::string mtpath =
           std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
       std::string epath = std::string(GetCfg().get_snapshot_prefix()) + ".elf";

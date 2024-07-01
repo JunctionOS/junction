@@ -82,8 +82,9 @@ po::options_description GetOptions() {
       "restore from a snapshot")("loglevel,l",
                                  po::value<int>()->default_value(LOG_DEBUG),
                                  "the maximum log level to print")(
-      "snapshot-on-stop,S", po::bool_switch()->default_value(false),
-      "take a snapshot when the main process stops")(
+      "snapshot-on-stop,S",
+      po::value<int>()->default_value(0)->implicit_value(1),
+      "take a snapshot when the main process stops (after N stops)")(
       "snapshot-prefix", po::value<std::string>()->default_value(""),
       "snapshot prefix path (will generate <prefix>.metadata and <prefix>.elf")(
       "stackswitch", po::bool_switch()->default_value(false),
@@ -128,7 +129,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   restore = vm["restore"].as<bool>();
   snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
   cache_linux_fs_ = vm["cache_linux_fs"].as<bool>();
-  snapshot_on_stop_ = vm["snapshot-on-stop"].as<bool>();
+  snapshot_on_stop_ = vm["snapshot-on-stop"].as<int>();
   port_ = vm["port"].as<int>();
   if (snapshot_on_stop_ && snapshot_prefix_.empty()) {
     std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;

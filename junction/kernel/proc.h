@@ -521,6 +521,7 @@ class Process : public std::enable_shared_from_this<Process> {
   void ThreadStopWait(Thread &th);
 
   Status<void> WaitForFullStop();
+  Status<void> WaitForResume();
 
   // mark all threads as ready to run
   void RunThreads() {

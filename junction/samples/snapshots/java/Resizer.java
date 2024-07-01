@@ -50,6 +50,8 @@ class Resizer {
             // run the function again to profile
             resizer.resizeImage(bi, 30, 30);
 
+            System.out.println("Done resizing!");
+
         } catch (IOException e) {
             System.err.println("No image file found");
             e.printStackTrace();

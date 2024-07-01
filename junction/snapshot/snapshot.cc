@@ -24,6 +24,19 @@ namespace junction {
 
 namespace {
 
+Status<void> RestoreVMAProtections(MemoryMap &mm) {
+  const std::vector<VMArea> vmas = mm.get_vmas();
+  for (const VMArea &vma : vmas) {
+    if (vma.prot & PROT_READ) continue;
+    size_t filesz = vma.DataLength();
+    if (!filesz) continue;
+    Status<void> ret =
+        KernelMProtect(reinterpret_cast<void *>(vma.start), filesz, vma.prot);
+    if (!ret) return MakeError(ret);
+  }
+  return {};
+}
+
 Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetPHDRs(
     MemoryMap &mm, SnapshotContext &ctx) {
   const std::vector<VMArea> vmas = mm.get_vmas();
@@ -41,9 +54,7 @@ Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetPHDRs(
     if (vma.prot & PROT_WRITE) flags |= kFlagWrite;
     if (vma.prot & PROT_READ) flags |= kFlagRead;
 
-    size_t filesz = vma.Length();
-    if (vma.type == VMType::kFile)
-      filesz = std::min(PageAlign(vma.file->get_size() - vma.offset), filesz);
+    size_t filesz = vma.DataLength();
 
     elf_phdr phdr = {
         .type = kPTypeLoad,
@@ -140,7 +151,9 @@ Status<void> SnapshotElf(MemoryMap &mm, SnapshotContext &ctx,
   }
 
   elf_iovecs.insert(elf_iovecs.end(), iovs.begin(), iovs.end());
-  return WritevFull(*elf_file, elf_iovecs);
+
+  if (Status<void> ret = WritevFull(*elf_file, elf_iovecs); !ret) return ret;
+  return RestoreVMAProtections(mm);
 }
 
 Status<void> SnapshotMetadata(Process &p, std::string_view metadata_path) {

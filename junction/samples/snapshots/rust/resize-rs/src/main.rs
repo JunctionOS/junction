@@ -60,5 +60,7 @@ fn main() -> anyhow::Result<()> {
     // run the function once more to profile 
     _thumbnail = resize(&img)?;
 
+    println!("Done resizing!");
+
     Ok(())
 }
