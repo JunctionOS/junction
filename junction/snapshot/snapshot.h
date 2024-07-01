@@ -27,6 +27,20 @@ extern "C" {
 
 namespace junction {
 
+struct FSMemoryArea {
+  char *ptr;
+  size_t in_use_size;
+  size_t max_size;
+};
+
+struct SnapshotContext {
+  std::vector<FSMemoryArea> mem_areas_;
+};
+
+SnapshotContext &GetSnapshotContext();
+void StartSnapshotContext();
+void EndSnapshotContext();
+
 Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
                          std::string_view elf_path);
 Status<void> SnapshotProc(Process *p, std::string_view metadata_path,

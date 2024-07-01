@@ -6,12 +6,15 @@
 #include "junction/fs/dev.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
+#include "junction/snapshot/snapshot.h"
 
 namespace junction::memfs {
 
 inline constexpr __fsword_t TMPFS_MAGIC = 0x01021994;
 inline constexpr size_t kBlockSize = 4096;
-inline constexpr size_t kMaxSizeBytes = (1UL << 33);  // 8 GB
+inline constexpr size_t kMaxSizeBytes = (1UL << 30);                  // 1 GB
+inline constexpr size_t kMaxMemfdExtent = (1UL << 45);                // 35 TB
+inline constexpr size_t kMaxFiles = kMaxMemfdExtent / kMaxSizeBytes;  // 32K
 
 inline void StatFs(struct statfs *buf) {
   buf->f_type = TMPFS_MAGIC;
@@ -32,29 +35,45 @@ std::shared_ptr<ISoftLink> CreateISoftLink(std::string path);
 std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode);
 
 class MemInode : public Inode {
+  class Token {
+    explicit Token() = default;
+    friend MemInode;
+  };
+
  public:
-  MemInode(mode_t mode, ino_t inum = AllocateInodeNumber())
-      : Inode(kTypeRegularFile | mode, inum) {}
+  MemInode(Token, char *buf, off_t off, mode_t mode,
+           ino_t inum = AllocateInodeNumber())
+      : Inode(kTypeRegularFile | mode, inum), buf_(buf), extent_offset_(off) {}
+  ~MemInode() override;
+
+  // Create a new MemInode.
+  static Status<std::shared_ptr<MemInode>> Create(mode_t mode);
+
   Status<void> SetSize(size_t newlen) override;
   Status<void> GetStats(struct stat *buf) const override;
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
     rt::ScopedSharedLock g_(lock_);
-    const size_t n = std::min(buf.size(), buf_.size() - *off);
-    std::copy_n(buf_.cbegin() + *off, n, buf.begin());
+    const size_t n = std::min(buf.size(), size_ - *off);
+    std::memcpy(buf.data(), buf_ + *off, n);
     *off += n;
     return n;
   }
 
-  Status<size_t> Write(std::span<const std::byte> buf, off_t *off) {
+  Status<size_t> Write(std::span<const std::byte> buf, off_t *off_off) {
+    size_t off = static_cast<size_t>(*off_off);
+    if (unlikely(off >= kMaxSizeBytes)) return MakeError(ENOSPC);
+    // Truncate buf if it will overflow our max size.
+    if (unlikely(buf.size() > kMaxSizeBytes - off))
+      buf = buf.subspan(0, kMaxSizeBytes - off);
     rt::ScopedSharedLock g_(lock_);
-    if (buf_.size() - *off < buf.size()) {
+    if (off + buf.size() > size_) {
       lock_.UpgradeLock();
-      if (buf_.size() - *off < buf.size()) buf_.Resize(buf.size() + *off);
+      if (off + buf.size() > size_) size_ = off + buf.size();
       lock_.DowngradeLock();
     }
-    std::copy_n(buf.begin(), buf.size(), buf_.begin() + *off);
-    *off += buf.size();
+    std::memcpy(buf_ + off, buf.data(), buf.size());
+    *off_off += buf.size();
     return buf.size();
   }
 
@@ -66,13 +85,17 @@ class MemInode : public Inode {
     return {};
   }
 
-  [[nodiscard]] size_t get_size() const { return buf_.size(); }
+  Status<void *> MMap(void *addr, size_t length, int prot, int flags,
+                      off_t off);
+
+  [[nodiscard]] size_t get_size() const { return size_; }
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(get_mode(), get_inum());
-    ar(buf_);
+    ar(get_mode(), get_inum(), reinterpret_cast<uintptr_t>(buf_));
+    ar(size_);
     ar(cereal::base_class<Inode>(this));
+    GetSnapshotContext().mem_areas_.emplace_back(buf_, size_, kMaxSizeBytes);
   }
 
   template <class Archive>
@@ -80,9 +103,10 @@ class MemInode : public Inode {
                                  cereal::construct<MemInode> &construct) {
     mode_t mode;
     ino_t inum;
-    ar(mode, inum);
-    construct(mode, inum);
-    ar(construct->buf_);
+    uintptr_t buf;
+    ar(mode, inum, buf);
+    construct(Token{}, reinterpret_cast<char *>(buf), -1, mode, inum);
+    ar(construct->size_);
     ar(cereal::base_class<Inode>(construct.ptr()));
   }
 
@@ -91,7 +115,9 @@ class MemInode : public Inode {
   // but a writer lock must be used to resize buf_.
   rt::SharedMutex lock_;
   // File contents.
-  SlabList<kBlockSize> buf_;
+  char *const buf_;
+  size_t size_{0};
+  const off_t extent_offset_;
 };
 
 class MemIDir : public IDir {

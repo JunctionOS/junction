@@ -40,6 +40,12 @@ class MemFSFile : public SeekableFile {
     const MemInode &ino = static_cast<const MemInode &>(get_inode_ref());
     return ino.GetStatFS(buf);
   }
+
+  Status<void *> MMap(void *addr, size_t length, int prot, int flags,
+                      off_t off) override {
+    MemInode &ino = static_cast<MemInode &>(get_inode_ref());
+    return ino.MMap(addr, length, prot, flags, off);
+  }
 };
 
 }  // namespace junction::memfs

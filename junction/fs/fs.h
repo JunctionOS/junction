@@ -381,7 +381,8 @@ namespace memfs {
 std::shared_ptr<IDir> MkFolder(mode_t mode = S_IRWXU,
                                std::string &&name = std::string{"."},
                                std::shared_ptr<IDir> parent = {});
-}
+Status<void> InitMemfs();
+}  // namespace memfs
 
 Status<void> FSSnapshotPrepare();
 

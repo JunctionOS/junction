@@ -135,9 +135,11 @@ Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
   rt::ScopedLock g_(lock_);
   auto it = entries_.find(name);
   if (it == entries_.end()) {
-    auto ino = std::make_shared<MemInode>(mode);
-    InsertLockedNoCheck(name, ino);
-    return ino->Open(flags, fmode);
+    Status<std::shared_ptr<MemInode>> ino = MemInode::Create(mode);
+    if (unlikely(!ino)) return MakeError(ino);
+    Status<std::shared_ptr<File>> f = (*ino)->Open(flags, fmode);
+    if (likely(f)) InsertLockedNoCheck(name, std::move(*ino));
+    return f;
   }
 
   if (flags & kFlagExclusive) return MakeError(EEXIST);

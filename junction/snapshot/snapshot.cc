@@ -12,6 +12,7 @@ extern "C" {
 #include "junction/base/finally.h"
 #include "junction/fs/file.h"
 #include "junction/fs/junction_file.h"
+#include "junction/fs/memfs/memfs.h"
 #include "junction/kernel/elf.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
@@ -22,11 +23,16 @@ extern "C" {
 namespace junction {
 
 namespace {
-std::pair<std::vector<elf_phdr>, std::vector<VMArea>> GetPHDRs(MemoryMap &mm) {
-  auto vmas = mm.get_vmas();
+
+Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetPHDRs(
+    MemoryMap &mm, SnapshotContext &ctx) {
+  const std::vector<VMArea> vmas = mm.get_vmas();
   std::vector<elf_phdr> phdrs;
-  phdrs.reserve(vmas.size());  // vmas
-  uint64_t offset = (vmas.size()) * sizeof(elf_phdr) + sizeof(elf_header);
+  std::vector<iovec> iovs;
+  size_t total_sections = vmas.size() + ctx.mem_areas_.size();
+  phdrs.reserve(total_sections);
+  iovs.reserve(total_sections);
+  uint64_t offset = total_sections * sizeof(elf_phdr) + sizeof(elf_header);
   offset = AlignUp(offset, kPageSize);
 
   for (const VMArea &vma : vmas) {
@@ -51,14 +57,44 @@ std::pair<std::vector<elf_phdr>, std::vector<VMArea>> GetPHDRs(MemoryMap &mm) {
     };
     phdrs.push_back(phdr);
     offset += filesz;
+
+    if (!filesz) continue;
+
+    // Make memory area readable if needed.
+    if (!(vma.prot & PROT_READ)) {
+      auto ret = KernelMProtect(reinterpret_cast<void *>(vma.start), filesz,
+                                vma.prot | PROT_READ);
+      if (!ret) return MakeError(ret);
+    }
+
+    iovs.emplace_back(reinterpret_cast<void *>(vma.start), filesz);
   }
 
-  return std::make_pair(phdrs, vmas);
+  for (const FSMemoryArea &area : ctx.mem_areas_) {
+    elf_phdr phdr = {
+        .type = kPTypeLoad,
+        .flags = kFlagRead | kFlagWrite,
+        .offset = offset,
+        .vaddr = reinterpret_cast<uintptr_t>(area.ptr),
+        .paddr = 0,                  // don't care
+        .filesz = area.in_use_size,  // size of data in the file
+        .memsz = area.max_size,      // total memory region size
+        .align = kPageSize,          // align to page size
+    };
+    phdrs.push_back(phdr);
+    offset += area.in_use_size;
+    if (area.in_use_size) iovs.emplace_back(area.ptr, area.in_use_size);
+  }
+
+  return std::make_pair(phdrs, iovs);
 }
 
-Status<void> SnapshotElf(MemoryMap &mm, std::string_view elf_path) {
-  auto [pheaders, vmas] = GetPHDRs(mm);
-  auto elf_file =
+Status<void> SnapshotElf(MemoryMap &mm, SnapshotContext &ctx,
+                         std::string_view elf_path) {
+  auto ret = GetPHDRs(mm, ctx);
+  if (!ret) return MakeError(ret);
+  auto &[pheaders, iovs] = *ret;
+  Status<KernelFile> elf_file =
       KernelFile::Open(elf_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
 
   if (unlikely(!elf_file)) return MakeError(elf_file);
@@ -88,47 +124,22 @@ Status<void> SnapshotElf(MemoryMap &mm, std::string_view elf_path) {
   hdr.shstrndx = 0;
 
   std::vector<iovec> elf_iovecs;
-  size_t const header_size =
-      sizeof(elf_header) + pheaders.size() * sizeof(elf_phdr);
-  bool const needs_padding = header_size < AlignUp(header_size, 4096);
-  elf_iovecs.reserve(2 * pheaders.size() + 1 + (needs_padding) ? 1 : 0);
+  size_t header_size = sizeof(elf_header) + pheaders.size() * sizeof(elf_phdr);
+  size_t padding = PageAlign(header_size) - header_size;
+  elf_iovecs.reserve(2 * pheaders.size() + 2);
 
-  std::array<std::byte, 4096> padding{std::byte{0}};
-  iovec const iov = {.iov_base = reinterpret_cast<std::byte *>(&hdr),
-                     .iov_len = sizeof(elf_header)};
-  elf_iovecs.push_back(iov);
-  for (auto &pheader : pheaders) {
-    iovec const iov = {.iov_base = reinterpret_cast<std::byte *>(&pheader),
-                       .iov_len = sizeof(elf_phdr)};
-    elf_iovecs.push_back(iov);
+  elf_iovecs.emplace_back(&hdr, sizeof(elf_header));
+  for (auto &pheader : pheaders)
+    elf_iovecs.emplace_back(&pheader, sizeof(elf_phdr));
+
+  std::unique_ptr<char[]> zeros;
+  if (padding) {
+    zeros.reset(new char[padding]);
+    memset(zeros.get(), 0, padding);
+    elf_iovecs.emplace_back(zeros.get(), padding);
   }
 
-  if (needs_padding) {
-    size_t padding_len = AlignUp(header_size, 4096) - header_size;
-    iovec const iov = {.iov_base = padding.data(), .iov_len = padding_len};
-    elf_iovecs.push_back(iov);
-  }
-
-  for (const VMArea &vma : vmas) {
-    size_t mem_region_len = vma.Length();
-    assert(IsPageAligned(mem_region_len));
-
-    if (vma.type == VMType::kFile)
-      mem_region_len =
-          std::min(PageAlign(vma.file->get_size() - vma.offset), vma.Length());
-
-    if (!mem_region_len) continue;
-
-    if (!(vma.prot & PROT_READ)) {
-      auto ret = KernelMProtect(reinterpret_cast<void *>(vma.start),
-                                mem_region_len, vma.prot | PROT_READ);
-      if (!ret) return MakeError(ret);
-    }
-    iovec v = {.iov_base = reinterpret_cast<std::byte *>(vma.start),
-               .iov_len = mem_region_len};
-    elf_iovecs.push_back(v);
-  }
-
+  elf_iovecs.insert(elf_iovecs.end(), iovs.begin(), iovs.end());
   return WritevFull(*elf_file, elf_iovecs);
 }
 
@@ -149,13 +160,33 @@ Status<void> SnapshotMetadata(Process &p, std::string_view metadata_path) {
 
 }  // namespace
 
+static std::unique_ptr<SnapshotContext> cur_context;
+
+SnapshotContext &GetSnapshotContext() {
+  if (unlikely(!cur_context)) throw std::runtime_error("not doing a snapshot");
+  return *cur_context.get();
+}
+
+void StartSnapshotContext() {
+  assert(!cur_context);
+  cur_context.reset(new SnapshotContext);
+}
+
+void EndSnapshotContext() {
+  assert(cur_context);
+  cur_context.release();
+}
+
 Status<void> SnapshotProc(Process *p, std::string_view metadata_path,
                           std::string_view elf_path) {
   LOG(INFO) << "snapshotting proc " << p->get_pid() << " into " << metadata_path
             << " and " << elf_path;
+
+  StartSnapshotContext();
+  auto f = finally([] { EndSnapshotContext(); });
   Status<void> ret = SnapshotMetadata(*p, metadata_path);
   if (!ret) return ret;
-  return SnapshotElf(p->get_mem_map(), elf_path);
+  return SnapshotElf(p->get_mem_map(), GetSnapshotContext(), elf_path);
 }
 
 Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,

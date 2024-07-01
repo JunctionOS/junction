@@ -1,12 +1,25 @@
-// misc.cc - support for miscellaneous inode types
+// memfs.cc - support for memfs inode types
 
+extern "C" {
+#include <sys/mman.h>
+}
+
+#include "junction/base/bitmap.h"
+#include "junction/bindings/log.h"
 #include "junction/fs/memfs/memfs.h"
-
 #include "junction/fs/memfs/memfsfile.h"
+#include "junction/kernel/ksys.h"
 
 namespace junction::memfs {
 
 namespace {
+
+// File descriptor of open memfd used to back memfs files.
+int memfs_extent_fd;
+// Lock protecting @allocated_files_slots.
+rt::Spin file_alloc_lock;
+// Bitmap of allocated slots in the memfd area.
+bitmap<kMaxFiles> allocated_file_slots;
 
 // MemIDevice is an inode type for character and block devices
 class MemIDevice : public Inode {
@@ -50,16 +63,72 @@ class MemIDevice : public Inode {
 
 }  // namespace
 
+MemInode::~MemInode() {
+  // Drop backing pages.
+  if (extent_offset_ != -1) {
+    Status<void> ret = KernelMAdvise(buf_, kMaxSizeBytes, MADV_REMOVE);
+    if (unlikely(!ret))
+      LOG(WARN) << "meminode: failed to remove pages " << ret.error();
+  }
+
+  Status<void> ret = KernelMUnmap(buf_, kMaxSizeBytes);
+  if (unlikely(!ret)) LOG(WARN) << "failed to unmap memfs " << ret.error();
+
+  if (extent_offset_ == -1) return;
+
+  rt::SpinGuard g(file_alloc_lock);
+  allocated_file_slots.clear(extent_offset_);
+}
+
+Status<std::shared_ptr<MemInode>> MemInode::Create(mode_t mode) {
+  size_t off;
+  {
+    rt::SpinGuard g(file_alloc_lock);
+    std::optional<size_t> tmp = allocated_file_slots.find_next_clear(0);
+    if (unlikely(!tmp)) return MakeError(ENOSPC);
+    off = *tmp;
+    allocated_file_slots.set(off);
+  }
+
+  intptr_t ret = ksys_mmap(nullptr, kMaxSizeBytes, PROT_READ | PROT_WRITE,
+                           MAP_SHARED, memfs_extent_fd, off * kMaxSizeBytes);
+  if (unlikely(ret < 0)) return MakeError(-ret);
+  return std::make_shared<MemInode>(Token{}, reinterpret_cast<char *>(ret), off,
+                                    mode);
+}
+
+Status<void *> MemInode::MMap(void *addr, size_t length, int prot, int flags,
+                              off_t off) {
+  // TODO(jf): support mapping restored memfs files.
+  if (extent_offset_ == -1) return MakeError(EINVAL);
+
+  assert(!(flags & MAP_ANONYMOUS));
+  intptr_t ret = ksys_mmap(addr, length, prot, flags, memfs_extent_fd,
+                           extent_offset_ * kMaxSizeBytes + off);
+  if (unlikely(ret < 0)) return MakeError(-ret);
+  return reinterpret_cast<void *>(ret);
+}
+
 Status<void> MemInode::SetSize(size_t newlen) {
   if (unlikely(newlen > kMaxSizeBytes)) return MakeError(EINVAL);
   rt::ScopedLock g_(lock_);
-  buf_.Resize(newlen);
+
+  size_t newlen_p = PageAlign(newlen);
+  size_t oldlen_p = PageAlign(size_);
+  if (newlen_p < oldlen_p) {
+    // Zero dropped blocks.
+    Status<void> ret =
+        KernelMAdvise(buf_ + newlen_p, oldlen_p - newlen_p, MADV_REMOVE);
+    if (unlikely(!ret))
+      LOG(WARN) << "meminode: failed to remove pages " << ret.error();
+  }
+  size_ = newlen;
   return {};
 }
 
 Status<void> MemInode::GetStats(struct stat *buf) const {
   MemInodeToStats(*this, buf);
-  buf->st_size = buf_.size();
+  buf->st_size = size_;
   buf->st_blocks = 0;
   return {};
 }
@@ -74,6 +143,16 @@ std::shared_ptr<ISoftLink> CreateISoftLink(std::string path) {
 
 std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode) {
   return std::make_shared<MemIDevice>(dev, mode);
+}
+
+Status<void> InitMemfs() {
+  memfs_extent_fd = memfd_create("memfs", 0);
+  if (memfs_extent_fd < 0) return MakeError(errno);
+
+  int ret = ftruncate(memfs_extent_fd, kMaxMemfdExtent);
+  if (ret < 0) return MakeError(errno);
+
+  return {};
 }
 
 }  // namespace junction::memfs

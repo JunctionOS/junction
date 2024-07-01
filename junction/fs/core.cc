@@ -715,6 +715,8 @@ Status<void> InitFs(
 
   linux_root.Mount("proc", procfs::MakeProcFS(*tmp));
 
+  if (Status<void> ret = memfs::InitMemfs(); !ret) return ret;
+
   if (Status<void> ret = SetupDevices(*tmp); !ret) return ret;
 
   // Mount any additional linux mountpoints/filesystems.
