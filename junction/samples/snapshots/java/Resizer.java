@@ -44,6 +44,7 @@ class Resizer {
                 resizer.resizeImage(bi, 30, 30);
             }
 
+            System.gc();
             // stop the process for inspection
             c.syscall(62, pid, 19);
 

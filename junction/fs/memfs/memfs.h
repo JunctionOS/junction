@@ -55,6 +55,8 @@ class MemInode : public Inode {
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
     rt::ScopedSharedLock g_(lock_);
     const size_t n = std::min(buf.size(), size_ - *off);
+    if (IsJunctionThread() && unlikely(myproc().get_mem_map().TraceEnabled()))
+      myproc().get_mem_map().RecordHit(buf_ + *off, n, Time::Now());
     std::memcpy(buf.data(), buf_ + *off, n);
     *off += n;
     return n;
@@ -72,6 +74,8 @@ class MemInode : public Inode {
       if (off + buf.size() > size_) size_ = off + buf.size();
       lock_.DowngradeLock();
     }
+    if (IsJunctionThread() && unlikely(myproc().get_mem_map().TraceEnabled()))
+      myproc().get_mem_map().RecordHit(buf_ + off, buf.size(), Time::Now());
     std::memcpy(buf_ + off, buf.data(), buf.size());
     *off_off += buf.size();
     return buf.size();

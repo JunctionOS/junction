@@ -180,6 +180,8 @@ class alignas(kCacheLineSize) MemoryMap {
 
   Status<TracerReport> EndTracing();
 
+  void RecordHit(void *addr, size_t len, Time t);
+
   [[nodiscard]] bool TraceEnabled() const { return !!tracer_; }
 
   // Returns true if this page fault is handled by the MM.

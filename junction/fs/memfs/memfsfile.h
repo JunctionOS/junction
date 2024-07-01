@@ -11,11 +11,6 @@ class MemFSFile : public SeekableFile {
   MemFSFile(unsigned int flags, FileMode mode, std::shared_ptr<MemInode> ino)
       : SeekableFile(FileType::kNormal, flags, mode, std::move(ino)) {}
 
-  Status<void> Truncate(off_t newlen) override {
-    MemInode &ino = static_cast<MemInode &>(get_inode_ref());
-    return ino.SetSize(static_cast<size_t>(newlen));
-  }
-
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
     MemInode &ino = static_cast<MemInode &>(get_inode_ref());
     return ino.Read(buf, off);

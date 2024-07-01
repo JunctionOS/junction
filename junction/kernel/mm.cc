@@ -216,6 +216,14 @@ TracerReport PageAccessTracer::GenerateReport(MemoryMap &mm) const {
   return TracerReport(std::move(accesses), page_cnt, nz_page_cnt);
 }
 
+void MemoryMap::RecordHit(void *addr, size_t len, Time time) {
+  assert(tracer_);
+  uintptr_t page = PageAlignDown(reinterpret_cast<uintptr_t>(addr));
+  uintptr_t end = PageAlign(reinterpret_cast<uintptr_t>(addr) + len);
+  rt::ScopedLock ul(mu_);
+  for (; page < end; page += kPageSize) tracer_->RecordHit(page, time);
+}
+
 bool MemoryMap::HandlePageFault(uintptr_t addr, Time time) {
   if (unlikely(!tracer_)) return false;
 

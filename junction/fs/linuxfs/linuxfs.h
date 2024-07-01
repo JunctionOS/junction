@@ -15,6 +15,8 @@ extern KernelFile linux_root_fd;
 extern struct statfs linux_statfs;
 extern std::set<dev_t> allowed_devs;
 
+__noinline void LinuxFSPanic(std::string_view msg, Error err);
+
 class LinuxISoftLink : public memfs::MemISoftLink {
  public:
   LinuxISoftLink(const struct stat &stat, std::string path)
@@ -47,11 +49,6 @@ class LinuxInode : public Inode {
         size_(stat.st_size) {
     assert(!is_symlink() && !is_dir());
   }
-  // Cereal constructor
-  LinuxInode(mode_t mode, ino_t ino, std::string path, off_t size)
-      : Inode(mode, ino), path_(std::move(path)), size_(size) {
-    assert(!is_symlink() && !is_dir());
-  }
 
   // Open a file for this inode.
   Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override;
@@ -59,7 +56,7 @@ class LinuxInode : public Inode {
   // Get attributes.
   Status<void> GetStats(struct stat *buf) const override {
     InodeToStats(*this, buf);
-    buf->st_size = size_;
+    buf->st_size = get_size();
     buf->st_nlink = 1;
     return {};
   }
@@ -69,27 +66,9 @@ class LinuxInode : public Inode {
     return {};
   }
 
-  [[nodiscard]] off_t get_size() const { return size_; }
+  [[nodiscard]] off_t get_size() const;
   [[nodiscard]] std::string_view get_path() const { return path_; }
   [[nodiscard]] Status<void> SetSize(size_t sz) override;
-
-  template <class Archive>
-  void save(Archive &ar) const {
-    ar(path_, size_, get_mode(), get_inum());
-    ar(cereal::base_class<Inode>(this));
-  }
-
-  template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<LinuxInode> &construct) {
-    std::string path;
-    off_t size;
-    mode_t mode;
-    ino_t inum;
-    ar(path, size, mode, inum);
-    construct(mode, inum, std::move(path), size);
-    ar(cereal::base_class<Inode>(construct.ptr()));
-  }
 
  private:
   const std::string path_;

@@ -140,7 +140,9 @@ class File : public std::enable_shared_from_this<File> {
   virtual Status<size_t> Write(std::span<const std::byte> buf, off_t *off) {
     return MakeError(EINVAL);
   }
-  virtual Status<void> Truncate(off_t newlen) { return MakeError(EINVAL); }
+
+  Status<void> Truncate(off_t newlen);
+
   virtual Status<off_t> Seek(off_t off, SeekFrom origin) {
     return MakeError(ESPIPE);
   }

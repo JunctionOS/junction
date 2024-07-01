@@ -36,8 +36,10 @@ LinuxFile::LinuxFile(KernelFile &&f, int flags, FileMode mode,
 LinuxFile::~LinuxFile() { ksys_close(fd_); }
 
 [[nodiscard]] size_t LinuxFile::get_size() const {
-  const LinuxInode &in = static_cast<const LinuxInode &>(get_inode_ref());
-  return in.get_size();
+  struct stat buf;
+  int ret = ksys_newfstatat(fd_, "", &buf, AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW);
+  if (unlikely(ret < 0)) LinuxFSPanic("bad stat", Error(-ret));
+  return buf.st_size;
 }
 
 void TouchPages(std::span<std::byte> buf) {

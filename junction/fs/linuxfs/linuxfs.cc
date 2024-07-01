@@ -23,9 +23,16 @@ Status<std::shared_ptr<File>> LinuxInode::Open(uint32_t flags, FileMode mode) {
                                      shared_from_base<LinuxInode>());
 }
 
+[[nodiscard]] off_t LinuxInode::get_size() const {
+  if constexpr (!linux_fs_writeable()) return size_;
+  Status<struct stat> stat = linux_root_fd.StatAt(path_);
+  if (unlikely(!stat)) LinuxFSPanic("bad stat", stat.error());
+  return stat->st_size;
+}
+
 Status<void> LinuxInode::SetSize(size_t size) {
   if constexpr (!linux_fs_writeable()) return MakeError(EACCES);
-  long ret = ksyscall(__NR_truncate, path_.data(), 0);
+  long ret = ksyscall(__NR_truncate, path_.data(), size);
   if (ret < 0) return MakeError(-ret);
   return {};
 }
@@ -54,7 +61,6 @@ Status<std::shared_ptr<IDir>> InitLinuxRoot() {
 
 }  // namespace junction::linuxfs
 
-CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxInode);
 CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxIDir);
 CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxWrIDir);
 CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxISoftLink);

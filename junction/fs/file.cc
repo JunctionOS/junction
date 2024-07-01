@@ -236,6 +236,11 @@ ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
   return static_cast<ssize_t>(*ret);
 }
 
+Status<void> File::Truncate(off_t newlen) {
+  if (ino_) return ino_->SetSize(static_cast<size_t>(newlen));
+  return MakeError(EINVAL);
+}
+
 Status<size_t> File::Writev(std::span<const iovec> vec, off_t *off) {
   ssize_t total_bytes = 0;
   Status<size_t> ret;

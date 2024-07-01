@@ -44,6 +44,31 @@ const std::map<int, std::string> open_flags{
     {O_TRUNC, "O_TRUNC"},
 };
 
+const std::map<int, std::string> madvise_hints{
+    {MADV_NORMAL, "MADV_NORMAL"},
+    {MADV_DONTNEED, "MADV_DONTNEED"},
+    {MADV_RANDOM, "MADV_RANDOM"},
+    {MADV_REMOVE, "MADV_REMOVE"},
+    {MADV_SEQUENTIAL, "MADV_SEQUENTIAL"},
+    {MADV_DONTFORK, "MADV_DONTFORK"},
+    {MADV_WILLNEED, "MADV_WILLNEED"},
+    {MADV_DOFORK, "MADV_DOFORK"},
+    {MADV_HUGEPAGE, "MADV_HUGEPAGE"},
+    {MADV_HWPOISON, "MADV_HWPOISON"},
+    {MADV_NOHUGEPAGE, "MADV_NOHUGEPAGE"},
+    {MADV_MERGEABLE, "MADV_MERGEABLE"},
+    {MADV_COLLAPSE, "MADV_COLLAPSE"},
+    {MADV_UNMERGEABLE, "MADV_UNMERGEABLE"},
+    {MADV_DONTDUMP, "MADV_DONTDUMP"},
+    {MADV_DODUMP, "MADV_DODUMP"},
+    {MADV_FREE, "MADV_FREE"},
+    {MADV_WIPEONFORK, "MADV_WIPEONFORK"},
+    {MADV_COLD, "MADV_COLD"},
+    {MADV_PAGEOUT, "MADV_PAGEOUT"},
+    {MADV_POPULATE_READ, "MADV_POPULATE_READ"},
+    {MADV_POPULATE_WRITE, "MADV_POPULATE_WRITE"},
+};
+
 const char *sigmap[] = {
     "SIGHUP",  "SIGINT",    "SIGQUIT", "SIGILL",    "SIGTRAP", "SIGABRT",
     "SIGBUS",  "SIGFPE",    "SIGKILL", "SIGUSR1",   "SIGSEGV", "SIGUSR2",
@@ -51,6 +76,13 @@ const char *sigmap[] = {
     "SIGSTOP", "SIGTSTP",   "SIGTTIN", "SIGTTOU",   "SIGURG",  "SIGXCPU",
     "SIGXFSZ", "SIGVTALRM", "SIGPROF", "SIGWINCH",  "SIGIO",   "SIGPWR",
     "SIGSYS",  "SIGUNUSED"};
+
+void PrintArg(int advice, MAdviseHint, rt::Logger &ss) {
+  if (madvise_hints.count(advice))
+    ss << madvise_hints.at(advice);
+  else
+    ss << advice;
+}
 
 void PrintArg(int signo, SignalNumber, rt::Logger &ss) {
   ss << sigmap[signo - 1];

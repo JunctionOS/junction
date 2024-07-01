@@ -37,6 +37,19 @@ Status<void> RestoreVMAProtections(MemoryMap &mm) {
   return {};
 }
 
+size_t GetMinSize(std::span<const uint64_t> buf) {
+  auto it = std::find_if(buf.rbegin(), buf.rend(),
+                         [](const uint64_t &c) { return c != 0; });
+  return std::distance(buf.begin(), it.base());
+}
+
+size_t GetMinSize(const void *buf, size_t len) {
+  assert(len % sizeof(uint64_t) == 0);
+  return GetMinSize({reinterpret_cast<const uint64_t *>(buf),
+                     len / sizeof(uint64_t)}) *
+         sizeof(uint64_t);
+}
+
 Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetPHDRs(
     MemoryMap &mm, SnapshotContext &ctx) {
   const std::vector<VMArea> vmas = mm.get_vmas();
@@ -56,6 +69,16 @@ Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetPHDRs(
 
     size_t filesz = vma.DataLength();
 
+    // Make memory area readable if needed.
+    if (filesz && !(vma.prot & PROT_READ)) {
+      auto ret = KernelMProtect(reinterpret_cast<void *>(vma.start), filesz,
+                                vma.prot | PROT_READ);
+      if (!ret) return MakeError(ret);
+    }
+
+    // Get rid of trailing zero pages.
+    filesz = PageAlign(GetMinSize(reinterpret_cast<void *>(vma.start), filesz));
+
     elf_phdr phdr = {
         .type = kPTypeLoad,
         .flags = flags,
@@ -66,23 +89,18 @@ Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetPHDRs(
         .memsz = vma.Length(),  // total memory region size
         .align = kPageSize,     // align to page size
     };
+
     phdrs.push_back(phdr);
-    offset += filesz;
 
-    if (!filesz) continue;
-
-    // Make memory area readable if needed.
-    if (!(vma.prot & PROT_READ)) {
-      auto ret = KernelMProtect(reinterpret_cast<void *>(vma.start), filesz,
-                                vma.prot | PROT_READ);
-      if (!ret) return MakeError(ret);
+    if (filesz) {
+      offset += filesz;
+      iovs.emplace_back(reinterpret_cast<void *>(vma.start), filesz);
     }
-
-    iovs.emplace_back(reinterpret_cast<void *>(vma.start), filesz);
   }
 
   for (const FSMemoryArea &area : ctx.mem_areas_) {
-    size_t saved_area = PageAlign(area.in_use_size);
+    size_t saved_area = PageAlign(GetMinSize(area.ptr, area.in_use_size));
+
     elf_phdr phdr = {
         .type = kPTypeLoad,
         .flags = kFlagRead | kFlagWrite,

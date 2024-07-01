@@ -100,6 +100,7 @@ TYPE_ARR.update({
     ("kill", 1): 'static_cast<strace::SignalNumber>',
     ("tgkill", 2): 'static_cast<strace::SignalNumber>',
     ("rt_tgsigqueueinfo", 2): 'static_cast<strace::SignalNumber>',
+    ("madvise", 2): 'static_cast<strace::MAdviseHint>',
 })
 
 SKIP_STRACE_TARGET = ["exit", "exit_group", "vfork", "clone", "clone3", "rt_sigreturn"]
