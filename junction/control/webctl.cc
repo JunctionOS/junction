@@ -62,8 +62,8 @@ bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
 }
 bool HandleSnapshot(ControlConn &c, const ctl_schema::SnapshotRequest *req) {
   LOG(INFO) << "handling snapshot request";
-  auto ret = SnapshotPid(req->pid(), req->snapshot_path()->string_view(),
-                         req->elf_path()->string_view());
+  auto ret = SnapshotPidToELF(req->pid(), req->snapshot_path()->string_view(),
+                              req->elf_path()->string_view());
   if (!ret) {
     std::ostringstream error_msg;
     error_msg << "failed to snapshot(pid=" << req->pid()
@@ -86,7 +86,7 @@ bool HandleSnapshot(ControlConn &c, const ctl_schema::SnapshotRequest *req) {
 }
 bool HandleRestore(ControlConn &c, const ctl_schema::RestoreRequest *req) {
   LOG(INFO) << "handling restore request";
-  Status<std::shared_ptr<Process>> proc = RestoreProcess(
+  Status<std::shared_ptr<Process>> proc = RestoreProcessFromELF(
       req->snapshot_path()->string_view(), req->elf_path()->string_view());
 
   if (!proc) {

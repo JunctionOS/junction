@@ -116,7 +116,7 @@ void JunctionMain(int argc, char *argv[]) {
     }
     LOG(INFO) << "snapshot: restoring from snapshot (elf=" << args[1]
               << ", metadata=" << args[0] << ")";
-    proc = RestoreProcess(args[0], args[1]);
+    proc = RestoreProcessFromELF(args[0], args[1]);
     if (!proc) {
       LOG(ERR) << "Failed to restore proc";
       syscall_exit(-1);
@@ -144,7 +144,7 @@ void JunctionMain(int argc, char *argv[]) {
       std::string mtpath =
           std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
       std::string epath = std::string(GetCfg().get_snapshot_prefix()) + ".elf";
-      auto ret = SnapshotProc(p.get(), mtpath, epath);
+      auto ret = SnapshotProcToELF(p.get(), mtpath, epath);
       if (!ret) {
         LOG(ERR) << "Failed to snapshot: " << ret.error();
         syscall_exit(-1);

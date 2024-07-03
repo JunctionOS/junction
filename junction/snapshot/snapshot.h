@@ -27,6 +27,24 @@ extern "C" {
 
 namespace junction {
 
+namespace {
+inline size_t GetMinSize(std::span<const uint64_t> buf) {
+  auto it = std::find_if(buf.rbegin(), buf.rend(),
+                         [](const uint64_t &c) { return c != 0; });
+  return std::distance(buf.begin(), it.base());
+}
+
+inline size_t GetMinSize(const void *buf, size_t len) {
+  assert(len % sizeof(uint64_t) == 0);
+  return GetMinSize({reinterpret_cast<const uint64_t *>(buf),
+                     len / sizeof(uint64_t)}) *
+         sizeof(uint64_t);
+}
+}  // anonymous namespace
+
+/**
+ * Snapshot Context
+ */
 struct FSMemoryArea {
   char *ptr;
   size_t in_use_size;
@@ -41,11 +59,22 @@ SnapshotContext &GetSnapshotContext();
 void StartSnapshotContext();
 void EndSnapshotContext();
 
-Status<void> SnapshotPid(pid_t pid, std::string_view metadata_path,
-                         std::string_view elf_path);
-Status<void> SnapshotProc(Process *p, std::string_view metadata_path,
-                          std::string_view elf_path);
-Status<std::shared_ptr<Process>> RestoreProcess(std::string_view metadata_path,
-                                                std::string_view elf_path);
+/**
+ * General utilities
+ */
+Status<void> SnapshotMetadata(Process &p, KernelFile &file);
+Status<void> RestoreVMAProtections(MemoryMap &mm);
+
+/**
+ * ELF utilities
+ */
+Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
+                              std::string_view elf_path);
+
+Status<void> SnapshotProcToELF(Process *p, std::string_view metadata_path,
+                               std::string_view elf_path);
+
+Status<std::shared_ptr<Process>> RestoreProcessFromELF(
+    std::string_view metadata_path, std::string_view elf_path);
 
 }  // namespace junction
