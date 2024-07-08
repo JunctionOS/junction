@@ -36,7 +36,7 @@ void StartSnapshotContext() {
 
 void EndSnapshotContext() {
   assert(cur_context);
-  cur_context.release();
+  cur_context.reset();
 }
 Status<void> SnapshotMetadata(Process &p, KernelFile &file) {
   if (Status<void> ret = FSSnapshotPrepare(); !ret) return ret;

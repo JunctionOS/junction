@@ -424,7 +424,7 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
   [[nodiscard]] bool exited() const { return access_once(exited_); }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
-  [[nodiscard]] bool is_stopped() const { return stopped_; }
+  [[nodiscard]] bool is_stopped() const { return stopped_gen_ % 2 == 1; }
   [[nodiscard]] FSRoot &get_fs() { return fs_; }
   [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
 
@@ -521,12 +521,12 @@ class Process : public std::enable_shared_from_this<Process> {
   void ThreadStopWait(Thread &th);
 
   Status<void> WaitForFullStop();
-  Status<void> WaitForResume();
+  Status<void> WaitForNthStop(size_t stopcount);
 
   // mark all threads as ready to run
   void RunThreads() {
     rt::ScopedLock g(child_thread_lock_);
-    stopped_ = false;
+    stopped_gen_ = 2;
     for (const auto &[_pid, th] : thread_map_) th->ThreadReady();
   }
 
@@ -582,7 +582,8 @@ class Process : public std::enable_shared_from_this<Process> {
 
   void SignalStopStart(bool stop) {
     rt::ScopedLock g(child_thread_lock_);
-    stopped_ = stop;
+    if (stop == is_stopped()) return;
+    stopped_gen_ += 1;
     if (!stop) {
       stopped_threads_.WakeAll();
       NotifyParentWait(kWaitableContinued);
@@ -603,7 +604,7 @@ class Process : public std::enable_shared_from_this<Process> {
 
     rt::ScopedLock g(child_thread_lock_);
     if (si.si_signo == SIGKILL) {
-      stopped_ = false;
+      stopped_gen_ = 0;
       stopped_threads_.WakeAll();
       SignalAllThreads();
     } else if (needs_ipi)
@@ -618,7 +619,7 @@ class Process : public std::enable_shared_from_this<Process> {
       : pid_(pid),
         fs_(std::move(root), std::move(cwd)),
         signal_tbl_(DeferInit),
-        stopped_(true) {
+        stopped_gen_(1) {
     RegisterProcess(*this);
 
     // TODO(cereal): add cwd
@@ -631,7 +632,7 @@ class Process : public std::enable_shared_from_this<Process> {
 
   template <class Archive>
   void save(Archive &ar) const {
-    BUG_ON(!stopped_ || stopped_count_ != thread_map_.size());
+    BUG_ON(!is_stopped() || stopped_count_ != thread_map_.size());
     BUG_ON(exited_ || doing_exec_ || exec_waker_ || vfork_waker_ ||
            child_waiters_);
 
@@ -753,7 +754,7 @@ class Process : public std::enable_shared_from_this<Process> {
   // to each Thread.
   rt::WaitQueue stopped_threads_;
   unsigned int stopped_count_{0};
-  bool stopped_{false};
+  size_t stopped_gen_{0};
 
   // Protected by parent_'s shared_sig_q_lock_
   std::shared_ptr<Process> parent_;

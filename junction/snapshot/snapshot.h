@@ -35,9 +35,8 @@ inline size_t GetMinSize(std::span<const uint64_t> buf) {
 }
 
 inline size_t GetMinSize(const void *buf, size_t len) {
-  assert(len % sizeof(uint64_t) == 0);
-  return GetMinSize({reinterpret_cast<const uint64_t *>(buf),
-                     len / sizeof(uint64_t)}) *
+  len = div_up(len, sizeof(uint64_t));
+  return GetMinSize({reinterpret_cast<const uint64_t *>(buf), len}) *
          sizeof(uint64_t);
 }
 }  // anonymous namespace

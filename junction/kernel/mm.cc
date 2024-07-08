@@ -591,7 +591,7 @@ void MemoryMap::LogMappings() {
 intptr_t usys_brk(void *addr) {
   MemoryMap &mm = myproc().get_mem_map();
   Status<uintptr_t> ret = mm.SetBreak(reinterpret_cast<uintptr_t>(addr));
-  if (!ret) return MakeCError(ret);
+  if (!ret) return MakeCErrorRestartSys(ret);
   return *ret;
 }
 
@@ -602,7 +602,7 @@ intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
   // Map anonymous memory.
   if ((flags & MAP_ANONYMOUS) != 0) {
     Status<void *> ret = mm.MMapAnonymous(addr, len, prot, flags);
-    if (!ret) return MakeCError(ret);
+    if (!ret) return MakeCErrorRestartSys(ret);
     return reinterpret_cast<intptr_t>(*ret);
   }
 
@@ -611,28 +611,28 @@ intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
   std::shared_ptr<File> f = ftbl.Dup(fd);
   if (!f) return -EBADF;
   Status<void *> ret = mm.MMap(addr, len, prot, flags, std::move(f), offset);
-  if (!ret) return MakeCError(ret);
+  if (!ret) return MakeCErrorRestartSys(ret);
   return reinterpret_cast<intptr_t>(*ret);
 }
 
 long usys_mprotect(void *addr, size_t len, int prot) {
   MemoryMap &mm = myproc().get_mem_map();
   Status<void> ret = mm.MProtect(addr, len, prot);
-  if (!ret) return MakeCError(ret);
+  if (!ret) return MakeCErrorRestartSys(ret);
   return 0;
 }
 
 long usys_munmap(void *addr, size_t len) {
   MemoryMap &mm = myproc().get_mem_map();
   Status<void> ret = mm.MUnmap(addr, len);
-  if (!ret) return MakeCError(ret);
+  if (!ret) return MakeCErrorRestartSys(ret);
   return 0;
 }
 
 long usys_madvise(void *addr, size_t len, int hint) {
   MemoryMap &mm = myproc().get_mem_map();
   Status<void> ret = mm.MAdvise(addr, len, hint);
-  if (!ret) return MakeCError(ret);
+  if (!ret) return MakeCErrorRestartSys(ret);
   return 0;
 }
 

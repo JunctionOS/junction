@@ -233,10 +233,11 @@ Status<void> Process::WaitForFullStop() {
   return {};
 }
 
-Status<void> Process::WaitForResume() {
+Status<void> Process::WaitForNthStop(size_t stopcount) {
+  stopcount = stopcount * 2 - 1;
   rt::SpinGuard g(child_thread_lock_);
   rt::Wait(child_thread_lock_, stopped_threads_,
-           [&]() { return !stopped_ || exited_; });
+           [&]() { return stopped_gen_ >= stopcount || exited_; });
   if (exited_) return MakeError(ESRCH);
   return {};
 }
@@ -265,7 +266,7 @@ bool Process::ThreadFinish(Thread *th) {
   thread_map_.erase(th->get_tid());
   size_t remaining_threads = thread_map_.size();
   if (remaining_threads == 1) exec_waker_.Wake();
-  if (stopped_ && stopped_count_ == remaining_threads)
+  if (is_stopped() && stopped_count_ == remaining_threads)
     NotifyParentWait(kWaitableStopped);
   return remaining_threads == 0;
 }
@@ -506,7 +507,7 @@ void Process::ThreadStopWait(Thread &th) {
   assert(th.in_kernel());
 
   rt::SpinGuard g(child_thread_lock_);
-  if (!stopped_) return;
+  if (!is_stopped()) return;
 
   if (++stopped_count_ == thread_map_.size()) {
     NotifyParentWait(kWaitableStopped);
@@ -516,7 +517,7 @@ void Process::ThreadStopWait(Thread &th) {
   }
 
   rt::Wait(child_thread_lock_, stopped_threads_,
-           [&]() { return !stopped_ || exited_; });
+           [&]() { return !is_stopped() || exited_; });
   stopped_count_--;
 }
 
