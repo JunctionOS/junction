@@ -29,6 +29,7 @@ namespace {
 // the number of auxiliary vectors used
 inline constexpr size_t kNumAuxVectors = 18;
 inline constexpr size_t kMaxInterpFollow = 4;
+inline constexpr size_t kStackSize = RUNTIME_STACK_SIZE * 16;
 
 size_t VectorBytes(const std::vector<std::string_view> &vec) {
   size_t len = 0;
@@ -182,15 +183,15 @@ Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
       edata->interp ? edata->interp->entry_addr : edata->entry_addr;
 
   // setup a stack
-  Status<void *> guard = mm.MMapAnonymous(
-      nullptr, RUNTIME_GUARD_SIZE + RUNTIME_STACK_SIZE, PROT_NONE, 0);
+  Status<void *> guard =
+      mm.MMapAnonymous(nullptr, kStackSize + kStackSize, PROT_NONE, 0);
   if (!guard) return MakeError(guard);
   void *rsp = reinterpret_cast<void *>(
-      (reinterpret_cast<uintptr_t>(*guard) + RUNTIME_GUARD_SIZE));
-  Status<void *> ret = mm.MMapAnonymous(
-      rsp, RUNTIME_STACK_SIZE, PROT_READ | PROT_WRITE, MAP_FIXED | MAP_STACK);
+      (reinterpret_cast<uintptr_t>(*guard) + kStackSize));
+  Status<void *> ret = mm.MMapAnonymous(rsp, kStackSize, PROT_READ | PROT_WRITE,
+                                        MAP_FIXED | MAP_STACK);
   if (!ret) return MakeError(ret);
-  uint64_t sp = reinterpret_cast<uint64_t>(rsp) + RUNTIME_STACK_SIZE;
+  uint64_t sp = reinterpret_cast<uint64_t>(rsp) + kStackSize;
 
   SetupStack(&sp, argv, envp, *edata);
   return {{sp, entry}};
