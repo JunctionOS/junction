@@ -11,16 +11,15 @@ std::atomic_int ctr = 0;
 
 void *func(void *) {
   printf("[from thread]: started\n");
-  fflush(stdout);
   while (!stop.load()) {
     ctr += 1;
   }
   printf("[from thread]: finished: %d\n", ctr.load());
-  fflush(stdout);
   return NULL;
 }
 
 int main(int argc, char *argv[]) {
+  setvbuf(stdout, NULL, _IONBF, 0); // make stdout unbuffered
   printf("hello, world!\n");
 
   printf("starting thread\n");

@@ -10,6 +10,7 @@
 #define MAX_EVENTS (10)
 
 int main(int argc, char *argv[]) {
+  setvbuf(stdout, NULL, _IONBF, 0); // make stdout unbuffered
   printf("Hello, world!\n");
 
   // Leave a pipe open for testing

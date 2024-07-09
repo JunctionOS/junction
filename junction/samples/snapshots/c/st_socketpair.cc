@@ -8,6 +8,8 @@
 #include <cstring>
 
 int main(int argc, char *argv[]) {
+  setvbuf(stdout, NULL, _IONBF, 0); // make stdout unbuffered
+
   // Leave a pipe open for testing
   int pipe_fds[2];
   if (socketpair(AF_UNIX, SOCK_STREAM, 0, pipe_fds) == -1) {

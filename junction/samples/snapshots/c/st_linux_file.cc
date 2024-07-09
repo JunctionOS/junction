@@ -11,6 +11,7 @@
 constexpr uint8_t ELF_MAGIC[4] = {0x7f, 'E', 'L', 'F'};
 
 int main(int argc, char *argv[]) {
+  setvbuf(stdout, NULL, _IONBF, 0); // make stdout unbuffered
   printf("Hello, world!\n");
 
   int self_fd = open(argv[0], O_RDONLY, 0644);
