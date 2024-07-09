@@ -61,6 +61,10 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   tf.rsp = std::get<0>(*ret);
   tf.rip = std::get<1>(*ret);
 
+  if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
+    (*proc)->get_mem_map().EnableTracing();
+  }
+
   th.mark_enter_kernel();
   entry.MakeUnwinderSysret(th, th.GetCaladanThread()->tf);
   th.ThreadReady();
@@ -122,32 +126,74 @@ void JunctionMain(int argc, char *argv[]) {
       syscall_exit(-1);
     }
     LOG(INFO) << "snapshot: restored process with pid=" << (*proc)->get_pid();
-    rt::WaitForever();
+  } else if (!args.empty()) {
+    auto [_envp_s, envp_view] = BuildEnvp();
+    // Create the first process
+    proc = CreateFirstProcess(args[0], args, envp_view);
+    if (!proc) syscall_exit(-1);
   }
 
-  if (args.empty()) rt::WaitForever();
+  if (proc) {
+    // setup teardown of tracer
+    if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
+      rt::Spawn([p = *proc] mutable {
+        rt::Sleep(Duration(GetCfg().mem_trace_timeout() * kSeconds));
+        LOG(INFO) << "done sleeping, tracer reporting time!";
+        auto trace_report = p->get_mem_map().EndTracing();
+        if (unlikely(!trace_report)) {
+          LOG(WARN) << "failed to collect trace report: "
+                    << trace_report.error();
+          return;
+        }
+        const auto ord_filename = GetCfg().mem_trace_path();
+        std::stringstream ord;
+        for (const auto &[time_us, page_addr, _str] : trace_report->accesses_us)
+          ord << std::dec << time_us << ": 0x" << std::hex << page_addr << "\n";
 
-  auto [envp_s, envp_view] = BuildEnvp();
-  // Create the first process
-  proc = CreateFirstProcess(args[0], args, envp_view);
-  if (!proc) syscall_exit(-1);
+        if (ord_filename.empty()) {
+          LOG(INFO) << "memory trace:\n" << ord.view();
+        } else {
+          Status<KernelFile> ord_file = KernelFile::Open(
+              ord_filename, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
+          if (unlikely(!ord_file)) {
+            LOG(WARN) << "failed to open ord file `" << ord_filename
+                      << "`: " << ord_file.error();
+            return;
+          }
+          auto report = ord.str();
+          const auto ret = WriteFull(
+              *ord_file,
+              std::span(reinterpret_cast<const std::byte *>(report.c_str()),
+                        report.size() + 1));
+          if (unlikely(!ret)) {
+            LOG(WARN) << "failed to write memory trace to `" << ord_filename
+                      << "`: " << ret.error();
+            return;
+          }
 
-  // setup automatic snapshot
-  if (unlikely(GetCfg().snapshot_on_stop())) {
-    rt::Spawn([p = *proc] mutable {
-      p->WaitForNthStop(GetCfg().snapshot_on_stop());
-      std::string mtpath =
-          std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
-      std::string epath = std::string(GetCfg().get_snapshot_prefix()) + ".elf";
-      auto ret = SnapshotProcToELF(p.get(), mtpath, epath);
-      if (!ret) {
-        LOG(ERR) << "Failed to snapshot: " << ret.error();
-        syscall_exit(-1);
-      } else {
-        LOG(INFO) << "snapshot successful!";
-      }
-      p->Signal(SIGCONT);
-    });
+          LOG(INFO) << "done reporting the memory trace";
+        }
+      });
+    }
+
+    // setup automatic snapshot
+    if (unlikely(GetCfg().snapshot_on_stop())) {
+      rt::Spawn([p = *proc] mutable {
+        p->WaitForNthStop(GetCfg().snapshot_on_stop());
+        std::string mtpath =
+            std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
+        std::string epath =
+            std::string(GetCfg().get_snapshot_prefix()) + ".elf";
+        auto ret = SnapshotProcToELF(p.get(), mtpath, epath);
+        if (!ret) {
+          LOG(ERR) << "Failed to snapshot: " << ret.error();
+          syscall_exit(-1);
+        } else {
+          LOG(INFO) << "snapshot successful!";
+        }
+        p->Signal(SIGCONT);
+      });
+    }
   }
 
   // Drop reference so the process can properly destruct itself when done

@@ -34,6 +34,10 @@ class alignas(kCacheLineSize) JunctionCfg {
 
   [[nodiscard]] std::string_view get_ld_path() const { return ld_path; }
 
+  [[nodiscard]] std::string_view mem_trace_path() const {
+    return mem_trace_path_;
+  }
+
   [[nodiscard]] const std::string &get_glibc_path() const { return glibc_path; }
 
   [[nodiscard]] const std::string &get_preload_path() const {
@@ -50,6 +54,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] bool madv_dontneed_remap() const { return madv_remap; }
   [[nodiscard]] bool cache_linux_fs() const { return cache_linux_fs_; }
   [[nodiscard]] int snapshot_on_stop() const { return snapshot_on_stop_; }
+  [[nodiscard]] int mem_trace_timeout() const { return mem_trace_timeout_; }
   [[nodiscard]] uint16_t port() const { return port_; }
 
   [[nodiscard]] std::string_view get_snapshot_prefix() const {
@@ -75,12 +80,14 @@ class alignas(kCacheLineSize) JunctionCfg {
   std::string ld_path;
   std::string preload_path;
   std::vector<std::string> binary_envp;
+  std::string mem_trace_path_;
 
   uint16_t port_;
   bool restore;
   bool stack_switching;
   bool cache_linux_fs_;
   int snapshot_on_stop_;
+  int mem_trace_timeout_;
   std::string snapshot_prefix_;
   static JunctionCfg singleton_;
 };

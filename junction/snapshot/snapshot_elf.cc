@@ -216,6 +216,10 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
             << " metadata: " << (end_metadata - start).Microseconds()
             << " elf: " << (end_elf - end_metadata).Microseconds();
 
+  if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
+    p->get_mem_map().EnableTracing();
+  }
+
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)
   p->RunThreads();
