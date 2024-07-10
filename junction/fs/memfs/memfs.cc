@@ -161,3 +161,4 @@ CEREAL_REGISTER_TYPE(junction::memfs::MemInode);
 CEREAL_REGISTER_TYPE(junction::memfs::MemIDir);
 CEREAL_REGISTER_TYPE(junction::memfs::MemISoftLink);
 CEREAL_REGISTER_TYPE(junction::memfs::MemIDevice);
+CEREAL_REGISTER_TYPE(junction::memfs::MemFSFile);

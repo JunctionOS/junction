@@ -3,6 +3,7 @@
 #pragma once
 
 #include "junction/fs/memfs/memfs.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction::memfs {
 
@@ -40,6 +41,22 @@ class MemFSFile : public SeekableFile {
                       off_t off) override {
     MemInode &ino = static_cast<MemInode &>(get_inode_ref());
     return ino.MMap(addr, length, prot, flags, off);
+  }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(get_mode(), get_inode());
+    ar(cereal::base_class<SeekableFile>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<MemFSFile> &construct) {
+    FileMode mode;
+    std::shared_ptr<Inode> ino;
+    ar(mode, ino);
+    construct(0, mode, std::static_pointer_cast<MemInode>(std::move(ino)));
+    ar(cereal::base_class<SeekableFile>(construct.ptr()));
   }
 };
 
