@@ -10,7 +10,6 @@ Shell: python3 <path_to_this_file>
 
 """
 
-
 from subprocess import check_output
 import sys
 
@@ -32,22 +31,99 @@ def process_file(filename):
             highest_va = max(highest_va, maxaddr)
     return align_down(lowest_va), highest_va
 
-
-def get_offsets(pid):
+def offsets_from_linux_map(pid):
     lines = check_output(f"cat /proc/{pid}/maps", shell=True).splitlines()
-
-    offsets = []
-    open_files_ends = dict()
-
     for l in lines:
         l = l.strip().split()
         if len(l) != 6: continue
         filename = l[5].decode('utf-8')
         if filename[0] != '/': continue
         start_addr = l[0].decode('utf-8').split("-")[0]
+        yield filename, int(start_addr, 16)
 
+# https://github.com/gcc-mirror/gcc/blob/master/libstdc%2B%2B-v3/python/libstdcxx/v6/printers.py#L153
+class RbtreeIterator(object):
+    """
+    Turn an RB-tree-based container (std::map, std::set etc.) into
+    a Python iterable object.
+    """
+
+    def __init__(self, rbtree):
+        self._size = rbtree['_M_t']['_M_impl']['_M_node_count']
+        self._node = rbtree['_M_t']['_M_impl']['_M_header']['_M_left']
+        self._count = 0
+
+    def __iter__(self):
+        return self
+
+    def __len__(self):
+        return int(self._size)
+
+    def __next__(self):
+        if self._count == self._size:
+            raise StopIteration
+        result = self._node
+        self._count = self._count + 1
+        if self._count < self._size:
+            # Compute the next node.
+            node = self._node
+            if node.dereference()['_M_right']:
+                node = node.dereference()['_M_right']
+                while node.dereference()['_M_left']:
+                    node = node.dereference()['_M_left']
+            else:
+                parent = node.dereference()['_M_parent']
+                while node == parent.dereference()['_M_right']:
+                    node = parent
+                    parent = parent.dereference()['_M_parent']
+                if node.dereference()['_M_right'] != parent:
+                    node = parent
+            self._node = node
+        return result
+
+def get_enum_int():
+    enum_type = gdb.lookup_type("junction::VMType")
+    assert enum_type.code == gdb.TYPE_CODE_ENUM
+    enum_values = enum_type.fields()
+    for enum_val in enum_values:
+        if enum_val.name == "junction::VMType::kFile":
+            return int(enum_val.enumval)
+    assert False, "enum for VMType::File not found"
+
+def get_shared_ptr_value(shared_ptr):
+    # Access the internal pointer to the managed object (_M_ptr)
+    managed_object_ptr = shared_ptr['_M_ptr']
+
+    # Convert the managed object pointer to an actual pointer type
+    managed_object_type = managed_object_ptr.type.target()
+    managed_object = managed_object_ptr.cast(managed_object_type.pointer()).dereference()
+
+    return managed_object
+
+def offsets_from_junction_map():
+    map_var = gdb.parse_and_eval("junction::detail::init_proc.get()->mem_map_.get()->vmareas_")
+    filetype = get_enum_int()
+    nodetype = gdb.lookup_type("std::_Rb_tree_node<std::pair<unsigned long const, junction::VMArea> >").pointer()
+    it = RbtreeIterator(map_var)
+    for node in it:
+        node = node.cast(nodetype).dereference()
+        valtype = node.type.template_argument(0)
+        val = node['_M_storage']['_M_storage'].address.cast(valtype.pointer()).dereference()
+        if int(val["second"]["type"]) != filetype:
+            continue
+        sp = get_shared_ptr_value(val["second"]["file"])
+        fn = str(sp["filename_"])[1:-1] # strip quotes
+        if fn.startswith("//"):
+            fn = fn[1:]
+        yield fn, val["second"]["start"]
+
+def get_offsets(gen):
+    offsets = []
+    open_files_ends = dict()
+
+    for filename, start_addr in gen:
         if filename in open_files_ends:
-            if int(start_addr, 16) >= open_files_ends[filename]:
+            if start_addr >= open_files_ends[filename]:
                 del open_files_ends[filename]
 
         if filename not in open_files_ends:
@@ -55,7 +131,7 @@ def get_offsets(pid):
                 start, end = process_file(filename)
             except:
                 continue
-            real_start = int(start_addr, 16) - start
+            real_start = start_addr - start
             offsets.append((filename, real_start))
             open_files_ends[filename] = real_start + end
     return offsets
@@ -81,5 +157,8 @@ if not pid:
         print(e)
         exit(-1)
 
-for filename, real_start in get_offsets(pid):
+for filename, real_start in get_offsets(offsets_from_junction_map()):
     outf(f"add-symbol-file {filename} -o {hex(real_start)}")
+
+# for filename, real_start in get_offsets(offsets_from_linux_map(pid)):
+#     outf(f"add-symbol-file {filename} -o {hex(real_start)}")

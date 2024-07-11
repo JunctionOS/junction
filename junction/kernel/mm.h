@@ -88,6 +88,11 @@ struct VMArea {
   VMType type;
   std::shared_ptr<File> file;
   off_t offset;
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(start, end, prot, type, file, offset);
+  }
 };
 
 std::ostream &operator<<(std::ostream &os, const VMArea &vma);
@@ -231,6 +236,7 @@ class alignas(kCacheLineSize) MemoryMap {
   template <class Archive>
   void save(Archive &ar) const {
     ar(mm_start_, mm_end_ - mm_start_, brk_addr_, binary_path_, cmd_line_);
+    ar(vmareas_);
   }
 
   template <class Archive>
@@ -247,6 +253,7 @@ class alignas(kCacheLineSize) MemoryMap {
 
     construct(*ret, len);
     ar(construct->brk_addr_, construct->binary_path_, construct->cmd_line_);
+    ar(construct->vmareas_);
   }
 
   // Find a free range of memory of size @len, returns the start address of that

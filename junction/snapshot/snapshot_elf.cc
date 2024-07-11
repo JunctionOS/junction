@@ -164,7 +164,6 @@ Status<void> SnapshotProcToELF(Process *p, std::string_view metadata_path,
 
   Status<void> ret = SnapshotMetadata(*p, *metadata_file);
   if (!ret) return ret;
-
   return SnapshotElf(p->get_mem_map(), GetSnapshotContext(), elf_path);
 }
 
@@ -182,7 +181,6 @@ Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
   p->Signal(SIGSTOP);
   p->WaitForFullStop();
   auto f = finally([&] { p->Signal(SIGCONT); });
-
   return SnapshotProcToELF(p.get(), metadata_path, elf_path);
 }
 
@@ -205,7 +203,12 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
   Status<JunctionFile> elf =
       JunctionFile::Open(p->get_fs(), elf_path, 0, FileMode::kRead);
   if (unlikely(!elf)) return MakeError(elf);
-  Status<elf_data> ret = LoadELF(p->get_mem_map(), *elf, p->get_fs(), elf_path);
+
+  // Temporary hack: the elf loader will create entries in this fake map,
+  // allowing the actual memory map to be restored by cereal. Leak this memory
+  // intentionally so it's not destroyed.
+  MemoryMap *mm = new MemoryMap(nullptr, kMemoryMappingSize);
+  Status<elf_data> ret = LoadELF(*mm, *elf, p->get_fs(), elf_path);
   Time end_elf = Time::Now();
   if (unlikely(!ret)) {
     LOG(ERR) << "Elf load failed: " << ret.error();
@@ -216,9 +219,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
             << " metadata: " << (end_metadata - start).Microseconds()
             << " elf: " << (end_elf - end_metadata).Microseconds();
 
-  if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
-    p->get_mem_map().EnableTracing();
-  }
+  if (unlikely(GetCfg().mem_trace_timeout())) p->get_mem_map().EnableTracing();
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)
