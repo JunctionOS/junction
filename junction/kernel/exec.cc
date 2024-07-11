@@ -29,7 +29,7 @@ namespace {
 // the number of auxiliary vectors used
 inline constexpr size_t kNumAuxVectors = 18;
 inline constexpr size_t kMaxInterpFollow = 4;
-inline constexpr size_t kStackSize = RUNTIME_STACK_SIZE * 16;
+inline constexpr size_t kStackSize = RUNTIME_STACK_SIZE * 32;
 
 size_t VectorBytes(const std::vector<std::string_view> &vec) {
   size_t len = 0;
