@@ -20,3 +20,5 @@ endforeach()
 
 add_snapshot_restore_test(python_hello_world "${Python3_EXECUTABLE} ${python_hello_world}")
 add_snapshot_restore_test(python_numpy "${Python3_EXECUTABLE} ${python_numpy}")
+
+add_subdirectory(function_bench)
