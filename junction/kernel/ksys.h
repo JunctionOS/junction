@@ -282,6 +282,7 @@ class KernelFile : public VectoredWriter {
 
   // Seek to a different position in the file.
   void Seek(off_t offset) { off_ = offset; }
+  [[nodiscard]] off_t Tell() const { return off_; }
 
   [[nodiscard]] int GetFd() const { return fd_; }
   void Release() { fd_ = -1; }

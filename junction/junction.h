@@ -50,6 +50,7 @@ class alignas(kCacheLineSize) JunctionCfg {
 
   [[nodiscard]] bool strace_enabled() const { return strace; }
   [[nodiscard]] bool restoring() const { return restore; }
+  [[nodiscard]] bool jif() const { return jif_; }
   [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
   [[nodiscard]] bool madv_dontneed_remap() const { return madv_remap; }
   [[nodiscard]] bool cache_linux_fs() const { return cache_linux_fs_; }
@@ -84,6 +85,7 @@ class alignas(kCacheLineSize) JunctionCfg {
 
   uint16_t port_;
   bool restore;
+  bool jif_;
   bool stack_switching;
   bool cache_linux_fs_;
   int snapshot_on_stop_;

@@ -7,6 +7,7 @@
 
 #include "junction/base/error.h"
 #include "junction/fs/fs.h"
+#include "junction/fs/junction_file.h"
 #include "junction/kernel/mm.h"
 
 namespace junction {
@@ -103,7 +104,6 @@ enum {
   kFlagRead = 4,   // Read permission
 };
 
-class JunctionFile;
 // Load an ELF object file into memory. Returns metadata if successful.
 Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
                          std::string_view path, bool must_be_reloc = false);

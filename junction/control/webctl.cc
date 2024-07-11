@@ -62,13 +62,17 @@ bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
 }
 bool HandleSnapshot(ControlConn &c, const ctl_schema::SnapshotRequest *req) {
   LOG(INFO) << "handling snapshot request";
-  auto ret = SnapshotPidToELF(req->pid(), req->snapshot_path()->string_view(),
-                              req->elf_path()->string_view());
+  auto ret =
+      GetCfg().jif()
+          ? SnapshotPidToJIF(req->pid(), req->snapshot_path()->string_view(),
+                             req->elf_path()->string_view())
+          : SnapshotPidToELF(req->pid(), req->snapshot_path()->string_view(),
+                             req->elf_path()->string_view());
+
   if (!ret) {
     std::ostringstream error_msg;
     error_msg << "failed to snapshot(pid=" << req->pid()
-              << ", snapshot_path=" << req->snapshot_path()->string_view()
-              << ", elf_path=" << req->elf_path()->string_view()
+              << ", jif_path=" << req->snapshot_path()->string_view()
               << "): " << ret.error();
     if (!c.SendError(error_msg.str())) {
       LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
@@ -86,8 +90,12 @@ bool HandleSnapshot(ControlConn &c, const ctl_schema::SnapshotRequest *req) {
 }
 bool HandleRestore(ControlConn &c, const ctl_schema::RestoreRequest *req) {
   LOG(INFO) << "handling restore request";
-  Status<std::shared_ptr<Process>> proc = RestoreProcessFromELF(
-      req->snapshot_path()->string_view(), req->elf_path()->string_view());
+  Status<std::shared_ptr<Process>> proc =
+      GetCfg().jif()
+          ? RestoreProcessFromJIF(req->snapshot_path()->string_view(),
+                                  req->elf_path()->string_view())
+          : RestoreProcessFromELF(req->snapshot_path()->string_view(),
+                                  req->elf_path()->string_view());
 
   if (!proc) {
     std::ostringstream error_msg;

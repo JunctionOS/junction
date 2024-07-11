@@ -118,9 +118,17 @@ void JunctionMain(int argc, char *argv[]) {
       LOG(ERR) << "Too few arguments for restore";
       syscall_exit(-1);
     }
-    LOG(INFO) << "snapshot: restoring from snapshot (elf=" << args[1]
-              << ", metadata=" << args[0] << ")";
-    proc = RestoreProcessFromELF(args[0], args[1]);
+
+    if (GetCfg().jif()) {
+      LOG(INFO) << "snapshot: restoring from snapshot (jif=" << args[1]
+                << ", metadata=" << args[0] << ")";
+      proc = RestoreProcessFromJIF(args[0], args[1]);
+    } else {
+      LOG(INFO) << "snapshot: restoring from snapshot (elf=" << args[1]
+                << ", metadata=" << args[0] << ")";
+      proc = RestoreProcessFromELF(args[0], args[1]);
+    }
+
     if (!proc) {
       LOG(ERR) << "Failed to restore proc";
       syscall_exit(-1);
@@ -170,7 +178,6 @@ void JunctionMain(int argc, char *argv[]) {
                       << "`: " << ret.error();
             return;
           }
-
           LOG(INFO) << "done reporting the memory trace";
         }
       });
@@ -180,11 +187,16 @@ void JunctionMain(int argc, char *argv[]) {
     if (unlikely(GetCfg().snapshot_on_stop())) {
       rt::Spawn([p = *proc] mutable {
         p->WaitForNthStop(GetCfg().snapshot_on_stop());
-        std::string mtpath =
-            std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
         std::string epath =
             std::string(GetCfg().get_snapshot_prefix()) + ".elf";
-        auto ret = SnapshotProcToELF(p.get(), mtpath, epath);
+        std::string jif_path =
+            std::string(GetCfg().get_snapshot_prefix()) + ".jif";
+        std::string metadata_path =
+            std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
+
+        auto ret = (GetCfg().jif())
+                       ? SnapshotPidToJIF(1, metadata_path, jif_path)
+                       : SnapshotPidToELF(1, metadata_path, epath);
         if (!ret) {
           LOG(ERR) << "Failed to snapshot: " << ret.error();
           syscall_exit(-1);

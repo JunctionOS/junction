@@ -76,4 +76,16 @@ Status<void> SnapshotProcToELF(Process *p, std::string_view metadata_path,
 Status<std::shared_ptr<Process>> RestoreProcessFromELF(
     std::string_view metadata_path, std::string_view elf_path);
 
+/**
+ * JIF utilities
+ */
+Status<void> SnapshotPidToJIF(pid_t pid, std::string_view metadata_path,
+                              std::string_view jif_path);
+
+Status<void> SnapshotProcToJIF(Process *p, std::string_view metadata_path,
+                               std::string_view jif_path);
+
+Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
+    std::string_view metadata_path, std::string_view jif_path);
+
 }  // namespace junction

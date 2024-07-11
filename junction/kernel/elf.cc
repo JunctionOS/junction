@@ -12,7 +12,6 @@
 #include "junction/bindings/log.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
-#include "junction/fs/junction_file.h"
 #include "junction/junction.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"

@@ -54,10 +54,13 @@ Status<void> RestoreVMAProtections(MemoryMap &mm) {
   const std::vector<VMArea> vmas = mm.get_vmas();
   for (const VMArea &vma : vmas) {
     if (vma.prot & PROT_READ) continue;
+
     size_t filesz = vma.DataLength();
     if (!filesz) continue;
+
     Status<void> ret =
         KernelMProtect(reinterpret_cast<void *>(vma.start), filesz, vma.prot);
+
     if (!ret) return MakeError(ret);
   }
   return {};
