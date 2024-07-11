@@ -79,12 +79,30 @@ jobs:
         run: |
           ./scripts/build.sh
 
+      - name: Test
+        run: ./scripts/test.sh
+
       - name: Build debug
         run: |
           ./scripts/build.sh -d
 
-      - name: Test
-        run: ./scripts/test.sh
-
       - name: Test debug
         run: ./scripts/test.sh -d
+
+      - name: Install snapshot sample packages
+        run: |
+          sudo apt-get install -y golang-go python3-numpy openjdk-21-jre-headless nodejs python3-pil
+
+      - name: Build snapshot tests
+        run: |
+          ./scripts/build.sh -s
+
+      - name: Test (snapshots)
+        run: ./scripts/test.sh 'snapshot|restore'
+
+      - name: Build snapshot tests (debug)
+        run: |
+          ./scripts/build.sh -d -s
+
+      - name: Test debug (snapshots)
+        run: ./scripts/test.sh -d 'snapshot|restore'
