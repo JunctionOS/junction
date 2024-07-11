@@ -1,6 +1,6 @@
 # Junction CI Pipeline
 
-name: Junction
+name: Main tests
 
 # Controls when the workflow will run
 on:
@@ -22,13 +22,52 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      - name: 'Cleanup build folder'
+        run: |
+          ls -la ./
+          sudo rm -rf ./* || true
+          sudo rm -rf ./.??* || true
+          ls -la ./
+
       # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        name: Checkout submodules
+        with:
+          submodules: recursive
+
+      - name: Extract glibc submodule commit
+        run:  /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
+
+      - name: Extract caladan submodule commit
+        run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        name: Retrieve cached glibc binaries
+        with:
+          path: |
+            bin/glibc
+            lib/.glibc_installed_ver
+          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-glibc-${{ hashFiles('lib/patches/glibc/*') }}
+
+      - uses: actions/cache@v4
+        name: Retrieve cached caladan submodule binaries
+        with:
+          path: |
+            lib/caladan/dpdk/build
+            lib/caladan/rdma-core/build
+            lib/caladan/deps/pcm/build
+            lib/.caladan_installed_ver
+          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
+
+      - uses: actions/cache@v4
+        name: Retrieve cached python venv
+        with:
+          path: |
+            bin/venv
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
 
       - name: Install
         run: |
-          git config --global user.email "abelay@mit.edu"
-          git config --global user.name "Adam Belay"
           sudo apt-get update
           sudo apt-get install -y gcc-12 g++-12
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
@@ -39,5 +78,12 @@ jobs:
         run: |
           ./scripts/build.sh
 
+      - name: Build debug
+        run: |
+          ./scripts/build.sh -d
+
       - name: Test
         run: ./scripts/test.sh
+
+      - name: Test debug
+        run: ./scripts/test.sh -d

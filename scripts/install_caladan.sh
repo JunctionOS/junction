@@ -15,10 +15,16 @@ git submodule update --init --recursive -f caladan
 
 # Apply patches
 cd $CALADAN_DIR/
-git am $CALADAN_PATCHES_DIR/*
+git -c user.name="x" -c user.email="x" am $CALADAN_PATCHES_DIR/*
+
+prev=$(cat "$ROOT_DIR/lib/.caladan_installed_ver" 2>&1 || true)
+cur=$(cat "$CALADAN_PATCHES_DIR"/* | sha256sum)
 
 # Install Caladan
-make submodules
+if [ "$prev" != "$cur" ] || [ ! -f $CALADAN_DIR/deps/pcm/build/src/libpcm.a ]; then
+  make submodules
+fi
+
 (cd ksched && make -j `nproc`)
 
 cat $CALADAN_PATCHES_DIR/* | sha256sum >  $CALADAN_DIR/../.caladan_installed_ver

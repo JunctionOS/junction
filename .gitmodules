@@ -4,7 +4,7 @@
 	ignore = dirty
 [submodule "lib/glibc"]
 	path = lib/glibc
-	url = https://sourceware.org/git/glibc.git
+	url = https://github.com/bminor/glibc.git
 	ignore = dirty
 [submodule "lib/FlameGraph"]
 	path = lib/FlameGraph

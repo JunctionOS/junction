@@ -47,11 +47,12 @@ if [[ -z ${DRY_RUN} ]]; then
     pushd "${CALADAN_DIR}" || exit 255
     (sudo pkill iokerneld && sleep 2) || true
     sudo scripts/setup_machine.sh ${NOUINTR}
-    sudo ./iokerneld ias nobw noht no_hw_qdel -- --allow 00:00.0 --vdev=net_tap0 > /tmp/iokernel.log 2>&1 &
+    sudo ./iokerneld ias nobw noht no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0 > /tmp/iokernel.log 2>&1 &
     while ! grep -q 'running dataplan' /tmp/iokernel.log; do
       sleep 0.3
       # make sure it is still alive
-      pgrep iokerneld > /dev/null
+      pgrep iokerneld > /dev/null || exit 1
+      cat /tmp/iokernel.log
     done
     reset
     popd || exit 255

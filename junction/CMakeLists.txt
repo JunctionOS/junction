@@ -117,11 +117,11 @@ set(fs_test_config_path
 file(WRITE ${fs_test_config_path} ${fs_test_config})
 
 set(CUSTOM_GLIBC_DIR
-  "${CMAKE_SOURCE_DIR}/lib/glibc/build/"
+  "${CMAKE_SOURCE_DIR}/bin/glibc/build/install/lib/"
 )
 
 set(CUSTOM_GLIBC_INTERPRETER_PATH
-  "${CUSTOM_GLIBC_DIR}/elf/ld.so"
+  "${CMAKE_SOURCE_DIR}/bin/glibc/build/install/bin/ld.so"
 )
 
 if(EXISTS ${CUSTOM_GLIBC_INTERPRETER_PATH})

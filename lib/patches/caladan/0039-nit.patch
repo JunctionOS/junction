@@ -1,0 +1,33 @@
+From ceaf1c8ff8a6c63ca02b71fb857967e2137bbd11 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 11 Jul 2024 15:23:11 +0000
+Subject: [PATCH 39/39] nit
+
+---
+ iokernel/sched.c | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/iokernel/sched.c b/iokernel/sched.c
+index db0edbb..089152a 100644
+--- a/iokernel/sched.c
++++ b/iokernel/sched.c
+@@ -993,13 +993,14 @@ int sched_init(void)
+ 	 */
+ 
+ 	for (i = 0; i < cpu_count; i++) {
+-		if (cpu_info_tbl[i].package != managed_numa_node && sched_ops != &numa_ops)
++		if (managed_numa_node != -1 &&
++		    cpu_info_tbl[i].package != managed_numa_node &&
++		    sched_ops != &numa_ops)
+ 			continue;
+ 
+ 		if (allowed_cores_supplied &&
+ 		    !bitmap_test(input_allowed_cores, i))
+ 			continue;
+-
+ 		bitmap_set(sched_allowed_cores, i);
+ 	}
+ 	/* check for minimum number of cores required */
+-- 
+2.43.0
+
