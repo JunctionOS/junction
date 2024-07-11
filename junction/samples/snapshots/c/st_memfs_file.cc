@@ -11,7 +11,7 @@
 constexpr char const *tmp_file = "/file";
 
 int main(int argc, char *argv[]) {
-  setvbuf(stdout, NULL, _IONBF, 0); // make stdout unbuffered
+  setvbuf(stdout, NULL, _IONBF, 0);  // make stdout unbuffered
   printf("Hello, world!\n");
 
   int tmp_fd = open(tmp_file, O_CREAT | O_TRUNC | O_WRONLY, 0644);

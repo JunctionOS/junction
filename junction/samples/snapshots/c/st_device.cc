@@ -8,7 +8,7 @@
 #include <cstdio>
 
 int main(int argc, char *argv[]) {
-  setvbuf(stdout, NULL, _IONBF, 0); // make stdout unbuffered
+  setvbuf(stdout, NULL, _IONBF, 0);  // make stdout unbuffered
   int fd1 = open("/dev/zero", O_RDWR);
   int fd2 = open("/dev/null", O_RDWR);
   int fd3 = open("/dev/random", O_RDWR);

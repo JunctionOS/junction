@@ -16,10 +16,7 @@ parser = argparse.ArgumentParser(prog='resizer',
                                  description='A thumbnail generator'
                                  )
 parser.add_argument('image', help='filename of the image to resize')
-parser.add_argument(
-    '-c',
-    '--check',
-    help='Check that the thumbnail generated is the same as the one in the file provided')
+parser.add_argument('reference', help='filename of an already resized image')
 parser.add_argument(
     '-v',
     '--verbose',
@@ -27,7 +24,6 @@ parser.add_argument(
     action='store_true')
 
 MAX_SIZE = (128, 128)
-
 
 def resize(
         image_path: Path,
@@ -64,7 +60,7 @@ def equal_image(a: Image.Image, b: Image.Image, verbose: bool) -> bool:
     b = b.convert('RGB')
     diff = ImageChops.difference(a, b)
 
-    return bool(diff.getbbox())
+    return not bool(diff.getbbox())
 
 
 def main():
@@ -76,26 +72,28 @@ def main():
 
     thumbnail = resize(image_path, args.verbose)
 
-    if args.check:
+    thumbnail_path = Path("/tmp/") / image_path.name
+    if thumbnail_path.exists():
+        thumbnail_path.unlink()
+
+    if args.verbose:
+        print(
+            '[python-resizer]: saving the thumbnail to {}'.format(thumbnail_path))
+
+    thumbnail.save(thumbnail_path)
+
+    if args.reference:
         if args.verbose:
             print(
-                '[python-resizer]: checking the thumbnail is the same as the one in {}'.format(args.check))
-        input_thumbnail = Image.open(Path(args.check))
+                '[python-resizer]: checking the thumbnail is the same as the one in {}'.format(args.reference))
+        ref = Image.open(Path(args.reference))
+        thumbnail = Image.open(thumbnail_path)
 
-        if equal_image(thumbnail, input_thumbnail, args.verbose):
+        if equal_image(thumbnail, ref, args.verbose):
             print('OK: thumbnails are the same')
         else:
             print('ERR: thumbnails are not the same')
-    else:
-        image_name = image_path.name
-        image_parent = image_path.parents[1]
-        thumbnail_path = image_parent / 'thumbnails' / image_name
-        if args.verbose:
-            print(
-                '[python-resizer]: saving the thumbnail to {}'.format(thumbnail_path))
-
-        thumbnail.save(thumbnail_path)
-
+            exit(-1)
 
 if __name__ == '__main__':
     main()

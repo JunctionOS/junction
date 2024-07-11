@@ -3,7 +3,7 @@
 #include <thread>
 
 int main(int argc, char *argv[]) {
-  setvbuf(stdout, NULL, _IONBF, 0); // make stdout unbuffered
+  setvbuf(stdout, NULL, _IONBF, 0);  // make stdout unbuffered
   using namespace std::chrono_literals;
   printf("Hello, world!\n");
 

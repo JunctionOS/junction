@@ -19,7 +19,7 @@ void *func(void *) {
 }
 
 int main(int argc, char *argv[]) {
-  setvbuf(stdout, NULL, _IONBF, 0); // make stdout unbuffered
+  setvbuf(stdout, NULL, _IONBF, 0);  // make stdout unbuffered
   printf("hello, world!\n");
 
   printf("starting thread\n");

@@ -88,6 +88,7 @@ VOIDP = 'reinterpret_cast<void *>'
 TYPE_ARR.update({
     ("mmap", -1): VOIDP,
     ("brk", -1): VOIDP,
+    ("mbind", 0): VOIDP,
     ("mmap", 2): 'static_cast<strace::ProtFlag>',
     ("mprotect", 2): 'static_cast<strace::ProtFlag>',
     ("pipe", 0): 'reinterpret_cast<strace::FDPair *>',
