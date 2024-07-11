@@ -29,11 +29,9 @@ Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetElfPHDRs(
   const std::vector<VMArea> vmas = mm.get_vmas();
   std::vector<elf_phdr> phdrs;
   std::vector<iovec> iovs;
-
   size_t total_sections = vmas.size() + ctx.mem_areas_.size();
-  phdrs.reserve(total_sections);  // vmas
-  iovs.reserve(total_sections);   // vmas
-
+  phdrs.reserve(total_sections);
+  iovs.reserve(total_sections);
   uint64_t offset = total_sections * sizeof(elf_phdr) + sizeof(elf_header);
   offset = PageAlign(offset);
 
@@ -52,7 +50,7 @@ Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetElfPHDRs(
       if (!ret) return MakeError(ret);
     }
 
-    // Get rid of trailing zero pages
+    // Get rid of trailing zero pages.
     filesz = PageAlign(GetMinSize(reinterpret_cast<void *>(vma.start), filesz));
 
     elf_phdr phdr = {
@@ -65,30 +63,31 @@ Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetElfPHDRs(
         .memsz = vma.Length(),  // total memory region size
         .align = kPageSize,     // align to page size
     };
+
     phdrs.push_back(phdr);
 
-    if (filesz > 0) {
+    if (filesz) {
       offset += filesz;
       iovs.emplace_back(reinterpret_cast<void *>(vma.start), filesz);
     }
+  }
 
-    for (const FSMemoryArea &area : ctx.mem_areas_) {
-      size_t saved_area = PageAlign(GetMinSize(area.ptr, area.in_use_size));
+  for (const FSMemoryArea &area : ctx.mem_areas_) {
+    size_t saved_area = PageAlign(GetMinSize(area.ptr, area.in_use_size));
 
-      elf_phdr phdr = {
-          .type = kPTypeLoad,
-          .flags = kFlagRead | kFlagWrite,
-          .offset = offset,
-          .vaddr = reinterpret_cast<uintptr_t>(area.ptr),
-          .paddr = 0,              // don't care
-          .filesz = saved_area,    // size of data in the file
-          .memsz = area.max_size,  // total memory region size
-          .align = kPageSize,      // align to page size
-      };
-      phdrs.push_back(phdr);
-      offset += saved_area;
-      if (saved_area) iovs.emplace_back(area.ptr, saved_area);
-    }
+    elf_phdr phdr = {
+        .type = kPTypeLoad,
+        .flags = kFlagRead | kFlagWrite,
+        .offset = offset,
+        .vaddr = reinterpret_cast<uintptr_t>(area.ptr),
+        .paddr = 0,              // don't care
+        .filesz = saved_area,    // size of data in the file
+        .memsz = area.max_size,  // total memory region size
+        .align = kPageSize,      // align to page size
+    };
+    phdrs.push_back(phdr);
+    offset += saved_area;
+    if (saved_area) iovs.emplace_back(area.ptr, saved_area);
   }
 
   return std::make_pair(phdrs, iovs);
@@ -99,9 +98,9 @@ Status<void> SnapshotElf(MemoryMap &mm, SnapshotContext &ctx,
   auto ret = GetElfPHDRs(mm, ctx);
   if (!ret) return MakeError(ret);
   auto &[pheaders, iovs] = *ret;
-
-  auto elf_file =
+  Status<KernelFile> elf_file =
       KernelFile::Open(elf_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
+
   if (unlikely(!elf_file)) return MakeError(elf_file);
 
   // write headers
@@ -129,29 +128,42 @@ Status<void> SnapshotElf(MemoryMap &mm, SnapshotContext &ctx,
   hdr.shstrndx = 0;
 
   std::vector<iovec> elf_iovecs;
-  const size_t header_size =
-      sizeof(elf_header) + pheaders.size() * sizeof(elf_phdr);
-  const size_t padding_sz = PageAlign(header_size) - header_size;
-  elf_iovecs.reserve(2 * pheaders.size() + 1 + (padding_sz > 0) ? 1 : 0);
+  size_t header_size = sizeof(elf_header) + pheaders.size() * sizeof(elf_phdr);
+  size_t padding = PageAlign(header_size) - header_size;
   std::array<std::byte, 4096> zeros{std::byte{0}};
+  elf_iovecs.reserve(2 * pheaders.size() + 2);
 
   elf_iovecs.emplace_back(&hdr, sizeof(elf_header));
-  for (auto &pheader : pheaders) {
+  for (auto &pheader : pheaders)
     elf_iovecs.emplace_back(&pheader, sizeof(elf_phdr));
-  }
 
-  if (padding_sz > 0) {
-    elf_iovecs.emplace_back(zeros.data(), padding_sz);
-  }
+  if (padding > 0) elf_iovecs.emplace_back(zeros.data(), padding);
 
   elf_iovecs.insert(elf_iovecs.end(), iovs.begin(), iovs.end());
-  auto write_ret = WritevFull(*elf_file, elf_iovecs);
-  if (!write_ret) return write_ret;
 
+  if (Status<void> ret = WritevFull(*elf_file, elf_iovecs); !ret) return ret;
   return RestoreVMAProtections(mm);
 }
 
 }  // namespace
+
+Status<void> SnapshotProcToELF(Process *p, std::string_view metadata_path,
+                               std::string_view elf_path) {
+  LOG(INFO) << "snapshotting proc " << p->get_pid() << " into " << metadata_path
+            << " and " << elf_path;
+
+  StartSnapshotContext();
+
+  Status<KernelFile> metadata_file = KernelFile::Open(
+      metadata_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
+  if (!metadata_file) return MakeError(metadata_file);
+
+  auto f = finally([] { EndSnapshotContext(); });
+
+  Status<void> ret = SnapshotMetadata(*p, *metadata_file);
+  if (!ret) return ret;
+  return SnapshotElf(p->get_mem_map(), GetSnapshotContext(), elf_path);
+}
 
 Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
                               std::string_view elf_path) {
@@ -166,29 +178,8 @@ Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
   // TODO(snapshot): child procs, if any exist, should also be stopped + waited.
   p->Signal(SIGSTOP);
   p->WaitForFullStop();
-
   auto f = finally([&] { p->Signal(SIGCONT); });
-
   return SnapshotProcToELF(p.get(), metadata_path, elf_path);
-}
-
-Status<void> SnapshotProcToELF(Process *p, std::string_view metadata_path,
-                               std::string_view elf_path) {
-  LOG(INFO) << "snapshotting proc " << p->get_pid() << " into " << metadata_path
-            << " and " << elf_path;
-
-  StartSnapshotContext();
-
-  Status<KernelFile> metadata_file = KernelFile::Open(
-      metadata_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
-  if (unlikely(!metadata_file)) return MakeError(metadata_file);
-
-  auto f = finally([] { EndSnapshotContext(); });
-
-  Status<void> metadata_ret = SnapshotMetadata(*p, *metadata_file);
-  if (!metadata_ret) return metadata_ret;
-
-  return SnapshotElf(p->get_mem_map(), GetSnapshotContext(), elf_path);
 }
 
 Status<std::shared_ptr<Process>> RestoreProcessFromELF(
@@ -199,11 +190,9 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
 
   Status<KernelFile> f = KernelFile::Open(metadata_path, 0, FileMode::kRead);
   if (unlikely(!f)) return MakeError(f);
-
   StreamBufferReader<KernelFile> w(*f);
   std::istream instream(&w);
   cereal::BinaryInputArchive ar(instream);
-
   std::shared_ptr<Process> p;
   ar(p);
 
@@ -211,7 +200,6 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
 
   Status<JunctionFile> elf =
       JunctionFile::Open(p->get_fs(), elf_path, 0, FileMode::kRead);
-
   if (unlikely(!elf)) return MakeError(elf);
 
   // Temporary hack: the elf loader will create entries in this fake map,
@@ -220,7 +208,6 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
   MemoryMap *mm = new MemoryMap(nullptr, kMemoryMappingSize);
   Status<elf_data> ret = LoadELF(*mm, *elf, p->get_fs(), elf_path);
   Time end_elf = Time::Now();
-
   if (unlikely(!ret)) {
     LOG(ERR) << "Elf load failed: " << ret.error();
     return MakeError(ret);

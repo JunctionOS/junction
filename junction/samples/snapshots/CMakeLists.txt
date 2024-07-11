@@ -22,7 +22,7 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_restore
-    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r -- /tmp/${test_name}.metadata /tmp/${test_name}.elf"
+    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r -- /tmp/${test_name}.metadata /tmp/${test_name}.elf && rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf"
   )
 
   set_tests_properties(${test_name}_restore PROPERTIES DEPENDS ${test_name}_snapshot)
