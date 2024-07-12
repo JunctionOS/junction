@@ -1,14 +1,14 @@
-From 30d9bb06e9ff13f28fd1e336ced79ec001f8c8cd Mon Sep 17 00:00:00 2001
+From 30149a79c64965e9416e339a4691c364d3b825d3 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 13 Feb 2023 21:28:53 -0500
-Subject: [PATCH 5/7] cancel cancellation
+Subject: [PATCH 3/5] cancel cancellation
 
 ---
  nptl/cancellation.c | 3 +++
  1 file changed, 3 insertions(+)
 
 diff --git a/nptl/cancellation.c b/nptl/cancellation.c
-index 765511d66d2..de3fb230f37 100644
+index 7ce60e70d0..d4342762e0 100644
 --- a/nptl/cancellation.c
 +++ b/nptl/cancellation.c
 @@ -29,6 +29,7 @@
@@ -29,5 +29,5 @@ index 765511d66d2..de3fb230f37 100644
       anything to do.  */
    if (oldtype & CANCELTYPE_BITMASK)
 -- 
-2.40.1
+2.43.0
 

@@ -1,7 +1,7 @@
-From 1accaebf354d08d94659b0c781b8a25406f196f2 Mon Sep 17 00:00:00 2001
+From d745e0b397235785ded214d69243087cd1856319 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 22 Aug 2023 15:56:03 +0000
-Subject: [PATCH 7/7] switch syscall format
+Subject: [PATCH 5/5] switch syscall format
 
 ---
  .gitignore                               |   1 +
@@ -22,7 +22,7 @@ index 07d4a129e5..168f23a469 100644
  *.pyc
 +build/
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone.S b/sysdeps/unix/sysv/linux/x86_64/clone.S
-index fc493f3585..f1fb69d487 100644
+index ab0ec63944..67ed69559f 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone.S
 @@ -73,14 +73,14 @@ ENTRY (__clone)
@@ -56,7 +56,7 @@ index fc493f3585..f1fb69d487 100644
  
  	cfi_startproc;
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone3.S b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-index 23e40e9dee..50521c4a3e 100644
+index 02fdbaaf65..f2df740d33 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone3.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone3.S
 @@ -55,8 +55,9 @@ ENTRY (__clone3)
@@ -82,7 +82,7 @@ index 23e40e9dee..50521c4a3e 100644
  	cfi_endproc
  
 diff --git a/sysdeps/unix/sysv/linux/x86_64/syscall.S b/sysdeps/unix/sysv/linux/x86_64/syscall.S
-index 24e001cf77..9bd80ece73 100644
+index 8491d74409..076c82360f 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/syscall.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/syscall.S
 @@ -27,25 +27,16 @@
@@ -116,7 +116,7 @@ index 24e001cf77..9bd80ece73 100644
  	cmpq $-4095, %rax	/* Check %rax for error.  */
  	jae SYSCALL_ERROR_LABEL	/* Jump to error handler if error.  */
 diff --git a/sysdeps/unix/sysv/linux/x86_64/sysdep.h b/sysdeps/unix/sysv/linux/x86_64/sysdep.h
-index 2fbf189dd4..e3ff7f1be0 100644
+index 5d041d0c30..d7d1ed3392 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/sysdep.h
 +++ b/sysdeps/unix/sysv/linux/x86_64/sysdep.h
 @@ -33,8 +33,14 @@
@@ -286,7 +286,7 @@ index 2fbf189dd4..e3ff7f1be0 100644
  # define VDSO_NAME  "LINUX_2.6"
  # define VDSO_HASH  61765110
 diff --git a/sysdeps/unix/sysv/linux/x86_64/vfork.S b/sysdeps/unix/sysv/linux/x86_64/vfork.S
-index 20d683f717..4b4c2c7c41 100644
+index 0d8732e374..d39eb2d560 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/vfork.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/vfork.S
 @@ -33,9 +33,8 @@ ENTRY (__vfork)
@@ -302,5 +302,5 @@ index 20d683f717..4b4c2c7c41 100644
  	/* Push back the return PC.  */
  	pushq	%rdi
 -- 
-2.39.2
+2.43.0
 

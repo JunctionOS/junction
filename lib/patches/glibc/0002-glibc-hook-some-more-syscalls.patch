@@ -1,7 +1,7 @@
-From 00ac33f8ed7afa066b2339f46dba9b1a5a165f28 Mon Sep 17 00:00:00 2001
+From 39e71cb9f9f790a96cd3cd45fa070c2805698960 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 23 Nov 2022 17:12:56 -0500
-Subject: [PATCH 3/7] glibc: hook some more syscalls
+Subject: [PATCH 2/5] glibc: hook some more syscalls
 
 ---
  sysdeps/unix/sysv/linux/kernel-features.h |  2 +-
@@ -11,7 +11,7 @@ Subject: [PATCH 3/7] glibc: hook some more syscalls
  4 files changed, 16 insertions(+), 17 deletions(-)
 
 diff --git a/sysdeps/unix/sysv/linux/kernel-features.h b/sysdeps/unix/sysv/linux/kernel-features.h
-index 07b440f4eea..4cbee39ddbe 100644
+index a25cf07e9f..e5a36a0330 100644
 --- a/sysdeps/unix/sysv/linux/kernel-features.h
 +++ b/sysdeps/unix/sysv/linux/kernel-features.h
 @@ -52,7 +52,7 @@
@@ -24,7 +24,7 @@ index 07b440f4eea..4cbee39ddbe 100644
  /* Support for various CLOEXEC and NONBLOCK flags was added in
     2.6.27.  */
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone.S b/sysdeps/unix/sysv/linux/x86_64/clone.S
-index 55e9ac74934..fc493f35856 100644
+index d0adc21c85..ab0ec63944 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone.S
 @@ -78,12 +78,16 @@ ENTRY (__clone)
@@ -46,7 +46,7 @@ index 55e9ac74934..fc493f35856 100644
  
  L(thread_start):
 diff --git a/sysdeps/unix/sysv/linux/x86_64/clone3.S b/sysdeps/unix/sysv/linux/x86_64/clone3.S
-index 802d56cbace..23e40e9dee6 100644
+index 5a2d42234e..02fdbaaf65 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/clone3.S
 +++ b/sysdeps/unix/sysv/linux/x86_64/clone3.S
 @@ -51,18 +51,18 @@ ENTRY (__clone3)
@@ -91,7 +91,7 @@ index 802d56cbace..23e40e9dee6 100644
  
  	cfi_startproc
 diff --git a/sysdeps/x86_64/nptl/tls.h b/sysdeps/x86_64/nptl/tls.h
-index 1403f939f7e..fa704b3c762 100644
+index 876889bed4..c806474098 100644
 --- a/sysdeps/x86_64/nptl/tls.h
 +++ b/sysdeps/x86_64/nptl/tls.h
 @@ -147,14 +147,7 @@ _Static_assert (offsetof (tcbhead_t, __glibc_unused2) == 0x80,
@@ -111,5 +111,5 @@ index 1403f939f7e..fa704b3c762 100644
      _result == 0;							      \
    })
 -- 
-2.40.1
+2.43.0
 

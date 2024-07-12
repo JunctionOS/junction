@@ -1,14 +1,14 @@
-From 4eebec51130f15aa6b660a21edd6c2b9dbdc9bd3 Mon Sep 17 00:00:00 2001
+From dae43566f21b9674f12a1d32c659a3d7885a1287 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 02:55:33 -0400
-Subject: [PATCH 6/7] patch rt_sigreturn
+Subject: [PATCH 4/5] patch rt_sigreturn
 
 ---
  sysdeps/unix/sysv/linux/x86_64/libc_sigaction.c | 4 ++--
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/sysdeps/unix/sysv/linux/x86_64/libc_sigaction.c b/sysdeps/unix/sysv/linux/x86_64/libc_sigaction.c
-index afdce873812..2faf99568b2 100644
+index b39812f81d..c0626206eb 100644
 --- a/sysdeps/unix/sysv/linux/x86_64/libc_sigaction.c
 +++ b/sysdeps/unix/sysv/linux/x86_64/libc_sigaction.c
 @@ -77,8 +77,8 @@ asm									\
@@ -23,5 +23,5 @@ index afdce873812..2faf99568b2 100644
     ".section .eh_frame,\"a\",@progbits\n"				\
     ".LSTARTFRAME_" #name ":\n"						\
 -- 
-2.40.1
+2.43.0
 
