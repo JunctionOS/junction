@@ -13,7 +13,7 @@ sudo -E apt install -y perl libboost-dev libboost-program-options-dev bison gcc-
 sudo -E apt install -y clang-tidy-16 clang-format-16 || true
 
 # Install packages for nbody tests and samples
-sudo -E apt install -y gfortran php-cli golang-go python3-numpy openjdk-21-jre-headless nodejs python3-pil
+sudo -E apt install -y gfortran php-cli golang-go python3-numpy openjdk-21-jre-headless nodejs python3-pil ruby
 
 # Initialize submodules
 git submodule update --init --recursive --jobs=`nproc`
