@@ -1,0 +1,25 @@
+From a77698c06abb6534cd762add8fc1052109b51e53 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Fri, 12 Jul 2024 20:10:42 +0000
+Subject: [PATCH 6/6] increase posix_spawn stack size
+
+---
+ sysdeps/unix/sysv/linux/spawni.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/sysdeps/unix/sysv/linux/spawni.c b/sysdeps/unix/sysv/linux/spawni.c
+index e8ed2bab..04e3bf54 100644
+--- a/sysdeps/unix/sysv/linux/spawni.c
++++ b/sysdeps/unix/sysv/linux/spawni.c
+@@ -359,7 +359,7 @@ __spawnix (int *pid, const char *file,
+      extra pages won't actually be allocated unless they get used.
+      It also acts the slack for spawn_closefrom (including MIPS64 getdents64
+      where it might use about 1k extra stack space).  */
+-  argv_size += (32 * 1024);
++  argv_size += (512 * 1024);
+   size_t stack_size = ALIGN_UP (argv_size, GLRO(dl_pagesize));
+   void *stack = __mmap (NULL, stack_size, prot,
+ 			MAP_PRIVATE | MAP_ANONYMOUS | MAP_STACK, -1, 0);
+-- 
+2.43.0
+

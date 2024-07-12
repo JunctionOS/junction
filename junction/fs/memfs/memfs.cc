@@ -20,6 +20,8 @@ int memfs_extent_fd;
 rt::Spin file_alloc_lock;
 // Bitmap of allocated slots in the memfd area.
 bitmap<kMaxFiles> allocated_file_slots;
+// Temp hack for memfs serialization/loading with elf.
+std::atomic_size_t next_memfs_faddr{0x380000000000};
 
 // MemIDevice is an inode type for character and block devices
 class MemIDevice : public Inode {
@@ -90,8 +92,11 @@ Status<std::shared_ptr<MemInode>> MemInode::Create(mode_t mode) {
     allocated_file_slots.set(off);
   }
 
-  intptr_t ret = ksys_mmap(nullptr, kMaxSizeBytes, PROT_READ | PROT_WRITE,
-                           MAP_SHARED, memfs_extent_fd, off * kMaxSizeBytes);
+  uintptr_t nextp =
+      next_memfs_faddr.fetch_add(kMaxSizeBytes, std::memory_order_relaxed);
+  intptr_t ret = ksys_mmap(reinterpret_cast<void *>(nextp), kMaxSizeBytes,
+                           PROT_READ | PROT_WRITE, MAP_SHARED, memfs_extent_fd,
+                           off * kMaxSizeBytes);
   if (unlikely(ret < 0)) return MakeError(-ret);
   return std::make_shared<MemInode>(Token{}, reinterpret_cast<char *>(ret), off,
                                     mode);
