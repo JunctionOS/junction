@@ -36,7 +36,7 @@ add_executable(nbody_fortran
 )
 
 # Tests
-find_package(Java REQUIRED)
+find_package(Java REQUIRED COMPONENTS Runtime)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 find_package(Perl REQUIRED)
 find_package(Ruby)
