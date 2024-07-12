@@ -22,6 +22,25 @@ target_link_libraries(gtest_shim INTERFACE
   "$<LINK_LIBRARY:WHOLE_ARCHIVE,gtest_main>"
 )
 
+macro(test_bin_junction test_name test_commands)
+  add_test(
+    NAME ${test_name}_junction
+    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -- ${test_commands}"
+  )
+endmacro()
+
+macro(test_bin_native test_name test_commands)
+  add_test(
+    NAME ${test_name}_native
+    COMMAND sh -c "${test_commands}"
+  )
+endmacro()
+
+macro(test_bin test_name test_commands)
+  test_bin_native(${test_name} ${test_commands})
+  test_bin_junction(${test_name} ${test_commands})
+endmacro()
+
 # The worst case of this config is:
 # - 2 hyperthreads for caladan's iokernel
 # - Half the remaining hyperthreads for a client proc

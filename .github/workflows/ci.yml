@@ -89,10 +89,6 @@ jobs:
       - name: Test debug
         run: ./scripts/test.sh -d
 
-      - name: Install snapshot sample packages
-        run: |
-          sudo apt-get install -y golang-go python3-numpy openjdk-21-jre-headless nodejs python3-pil
-
       - name: Build snapshot tests
         run: |
           ./scripts/build.sh -s
