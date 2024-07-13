@@ -1,6 +1,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <utility>
 
 extern "C" {
@@ -53,6 +54,10 @@ Status<std::tuple<jif_data, std::vector<iovec>>> GetJifVmaData(
     size_t filesz = vma.DataLength();
     size_t memsz = vma.Length();
 
+    if (jif.jif_itrees.size() > std::numeric_limits<uint32_t>::max()) {
+      LOG(ERR) << "overflow of interval trees: more than 32bits of nodes";
+      return MakeError(EINVAL);
+    }
     uint32_t itree_idx = jif.jif_itrees.size();
     uint32_t itree_n_nodes = 0;  // itree can be empty if filesz == 0
     size_t n_intervals = 0;
@@ -101,6 +106,10 @@ Status<std::tuple<jif_data, std::vector<iovec>>> GetJifVmaData(
     // later on the post processing can clean this up
     //
     if (vma.type == VMType::kFile && vma.file->get_filename().size() > 0) {
+      if (jif.jif_strings.size() > std::numeric_limits<uint32_t>::max()) {
+        LOG(ERR) << "overflow of strings: more than 32bits of string data";
+        return MakeError(EINVAL);
+      }
       pathname_offset = jif.jif_strings.size();
       const auto &filename = vma.file->get_filename();
       char const *cstr = filename.c_str();
@@ -132,6 +141,10 @@ Status<std::tuple<jif_data, std::vector<iovec>>> GetJifVmaData(
     size_t saved_area = PageAlign(GetMinSize(area.ptr, area.in_use_size));
     size_t memsz = area.max_size;
 
+    if (jif.jif_itrees.size() > std::numeric_limits<uint32_t>::max()) {
+      LOG(ERR) << "overflow of interval trees: more than 32bits of nodes";
+      return MakeError(EINVAL);
+    }
     uint32_t itree_idx = jif.jif_itrees.size();
     uint32_t itree_n_nodes = 0;  // itree can be empty if saved_ares == 0
     size_t n_intervals = 0;
@@ -179,11 +192,26 @@ Status<std::tuple<jif_data, std::vector<iovec>>> GetJifVmaData(
     }
   }
 
-  jif.jif_hdr.jif_n_pheaders = jif.jif_phdrs.size();
-  jif.jif_hdr.jif_strings_size = PageAlign(jif.jif_strings.size());
-  jif.jif_hdr.jif_itrees_size =
+  size_t itrees_size =
       PageAlign(jif.jif_itrees.size() * sizeof(jif_itree_node_t));
-  jif.jif_hdr.jif_ord_size = PageAlign(static_cast<uint64_t>(0));
+  size_t strings_size = PageAlign(jif.jif_strings.size());
+  if (itrees_size > std::numeric_limits<uint32_t>::max()) {
+    LOG(ERR) << "overflow of interval trees: more than 32bits of itree data";
+    return MakeError(EINVAL);
+  }
+  if (strings_size > std::numeric_limits<uint32_t>::max()) {
+    LOG(ERR) << "overflow of strings: more than 32bits of string data";
+    return MakeError(EINVAL);
+  }
+  if (jif.jif_phdrs.size() > std::numeric_limits<uint32_t>::max()) {
+    LOG(ERR) << "overflow of pheaders: more than 32bits of pheaders";
+    return MakeError(EINVAL);
+  }
+
+  jif.jif_hdr.jif_n_pheaders = jif.jif_phdrs.size();
+  jif.jif_hdr.jif_strings_size = strings_size;
+  jif.jif_hdr.jif_itrees_size = itrees_size;
+  jif.jif_hdr.jif_ord_size = PageAlign(static_cast<uint32_t>(0));
 
   size_t data_offset = jif_data_offset(jif.jif_hdr);
   // fix offsets

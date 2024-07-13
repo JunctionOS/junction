@@ -143,8 +143,7 @@ bool CheckITree(const jif_phdr &phdr, std::span<const jif_itree_node_t> tree,
       if (!allow_gaps && last_end != ival->start) {
         // problem: there was a gap in the itree
         LOG(ERR) << "mapping error: needed an interval starting at 0x"
-                 << std::hex << last_end << ", found one at 0x"
-                 << ival->start;
+                 << std::hex << last_end << ", found one at 0x" << ival->start;
         return false;
       }
 
