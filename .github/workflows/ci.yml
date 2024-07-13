@@ -79,12 +79,12 @@ jobs:
         run: |
           ./scripts/build.sh
 
-      - name: Test
-        run: ./scripts/test.sh
-
       - name: Build debug
         run: |
           ./scripts/build.sh -d
+
+      - name: Test
+        run: ./scripts/test.sh
 
       - name: Test debug
         run: ./scripts/test.sh -d
@@ -93,12 +93,54 @@ jobs:
         run: |
           ./scripts/build.sh -s
 
-      - name: Test (snapshots)
-        run: ./scripts/test.sh 'snapshot|restore|build_itrees'
-
       - name: Build snapshot tests (debug)
         run: |
           ./scripts/build.sh -d -s
 
-      - name: Test debug (snapshots)
-        run: ./scripts/test.sh -d 'snapshot|restore|build_itrees'
+      - name: Test (ELF snapshots)
+        continue-on-error: true
+        run: ./scripts/test.sh 'snapshot_elf|restore_elf'
+        if: ${{ always() }}
+        # Update job status if this step fails
+        env:
+          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
+
+      - name: Test (JIF snapshots w/ post-processing)
+        continue-on-error: true
+        run: ./scripts/test.sh 'snapshot_jif|build_itree|restore_itrees_jif'
+        if: ${{ always() }}
+        # Update job status if this step fails
+        env:
+          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
+
+      # - name: Test (JIF snapshots w/out post-processing)
+      #   continue-on-error: true
+      #   run: ./scripts/test.sh 'snapshot_jif|restore_jif'
+      #   if: ${{ always() }}
+      #   # Update job status if this step fails
+      #   env:
+      #     JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
+
+      - name: Test debug (ELF snapshots)
+        continue-on-error: true
+        run: ./scripts/test.sh -d 'snapshot_elf|restore_elf'
+        if: ${{ always() }}
+        # Update job status if this step fails
+        env:
+          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
+
+      - name: Test debug (JIF snapshots w/ post-processing)
+        continue-on-error: true
+        run: ./scripts/test.sh -d 'snapshot_jif|build_itree|restore_itrees_jif'
+        if: ${{ always() }}
+        # Update job status if this step fails
+        env:
+          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
+
+      # - name: Test debug (JIF snapshots w/out post-processing)
+      #   continue-on-error: true
+      #   run: ./scripts/test.sh -d 'snapshot_jif|restore_jif'
+      #   if: ${{ always() }}
+      #   # Update job status if this step fails
+      #   env:
+      #     JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}

@@ -41,14 +41,14 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
   )
 
   add_test(
-    NAME ${test_name}_restore_jif_itrees
+    NAME ${test_name}_restore_itrees_jif
     COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --jif -r -- /tmp/${test_name}_itrees.jm /tmp/${test_name}_itrees.jif && rm -f /tmp/${test_name}_itrees.jm /tmp/${test_name}_itrees.jif"
   )
 
   set_tests_properties(${test_name}_restore_elf PROPERTIES DEPENDS ${test_name}_snapshot_elf)
   set_tests_properties(${test_name}_build_itrees PROPERTIES DEPENDS ${test_name}_snapshot_jif)
   set_tests_properties(${test_name}_restore_jif PROPERTIES DEPENDS ${test_name}_snapshot_jif)
-  set_tests_properties(${test_name}_restore_jif_itrees PROPERTIES DEPENDS ${test_name}_build_itrees)
+  set_tests_properties(${test_name}_restore_itrees_jif PROPERTIES DEPENDS ${test_name}_build_itrees)
 
 endmacro()
 
