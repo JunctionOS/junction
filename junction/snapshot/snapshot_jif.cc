@@ -1,8 +1,4 @@
-#include <cstdio>
-#include <fstream>
 #include <iostream>
-#include <limits>
-#include <utility>
 
 extern "C" {
 #include <fcntl.h>
@@ -12,7 +8,6 @@ extern "C" {
 #include "junction/base/error.h"
 #include "junction/base/finally.h"
 #include "junction/fs/file.h"
-#include "junction/fs/junction_file.h"
 #include "junction/fs/memfs/memfs.h"
 #include "junction/kernel/jif.h"
 #include "junction/kernel/ksys.h"
@@ -23,9 +18,112 @@ extern "C" {
 
 namespace junction {
 
+template <typename T>
+size_t byte_size(const std::vector<T> &vec) {
+  return sizeof(T) * vec.size();
+}
+
+class IOVAccumulator {
+ public:
+  IOVAccumulator() = default;
+
+  [[nodiscard]] size_t DataSize() const { return data_size_; }
+  [[nodiscard]] const std::vector<iovec> &Vec() const { return vec_; }
+  void Reserve(size_t n) { vec_.reserve(n); }
+
+  void Add(void *iov_base, size_t iov_len) {
+    vec_.emplace_back(iov_base, iov_len);
+    data_size_ += iov_len;
+  }
+  void Add(iovec v) { Add(v.iov_base, v.iov_len); }
+
+  template <typename T>
+  void Add(std::vector<T> &vec) {
+    Add(vec.data(), byte_size(vec));
+  }
+
+  void Pad(std::span<std::byte> padding, size_t alignment) {
+    assert(padding.size() >= alignment - 1);
+    if (data_size_ % alignment == 0) return;
+    Add(padding.data(), alignment - (data_size_ % alignment));
+  }
+
+ private:
+  std::vector<iovec> vec_;
+  size_t data_size_{0};
+};
+
+Status<void> jif_data::AddPhdr(IOVAccumulator &iovs, uint8_t prot,
+                               uintptr_t start, size_t filesz, size_t memsz,
+                               size_t ref_offset, std::string_view name) {
+  void *startp = reinterpret_cast<void *>(start);
+
+  // TODO: make JIF use the same bits as the Linux kernel.
+  uint8_t jprot = 0;
+  if (prot & PROT_EXEC) jprot |= kJIFFlagExec;
+  if (prot & PROT_WRITE) jprot |= kJIFFlagWrite;
+  if (prot & PROT_READ) jprot |= kJIFFlagRead;
+
+  // Make memory area readable if needed.
+  if (filesz && !(prot & PROT_READ)) {
+    Status<void> ret = KernelMProtect(startp, filesz, prot | PROT_READ);
+    if (!ret) return MakeError(ret);
+  }
+
+  // Reduce filesz if possible.
+  filesz = PageAlign(GetMinSize(startp, filesz));
+
+  jif_itree_node_t itree;
+  itree.InitEmpty();
+  size_t n_intervals = 0;
+
+  if (filesz) {
+    // store the file data
+    itree.ranges[n_intervals++] = {
+        .start = start,
+        .end = start + filesz,
+        .offset = iovs.DataSize()  // needs fixing
+    };
+  }
+
+  if (memsz > filesz) {
+    // we have a zero filled range
+    itree.ranges[n_intervals++] = {
+        .start = start + filesz,
+        .end = start + memsz,
+        .offset = kUInt64Max,  // zero
+    };
+  }
+
+  uint32_t itree_idx = jif_itrees.size();
+  if (n_intervals) jif_itrees.push_back(itree);
+
+  uint32_t pathname_offset = kUInt32Max;
+  assert((name.size() == 0) == (ref_offset == kUInt64Max));
+  if (name.size()) {
+    pathname_offset = jif_strings.size();
+    jif_strings.insert(
+        jif_strings.end(), name.data(),
+        name.data() + name.size() + 1);  // remember the NULL byte
+  }
+
+  jif_phdrs.push_back({
+      .jifp_vbegin = start,
+      .jifp_vend = start + memsz,
+      .jifp_ref_offset = ref_offset,
+      .jifp_itree_idx = itree_idx,
+      .jifp_itree_n_nodes = static_cast<uint32_t>(n_intervals ? 1 : 0),
+      .jifp_pathname_offset = pathname_offset,
+      .jifp_prot = jprot,
+  });
+
+  if (filesz) iovs.Add(startp, filesz);
+  return {};
+}
+
 namespace {
 
-Status<std::tuple<jif_data, std::vector<iovec>>> GetJifVmaData(
+Status<std::tuple<jif_data, IOVAccumulator>> GetJifVmaData(
     MemoryMap &mm, SnapshotContext &ctx) {
   const std::vector<VMArea> vmas = mm.get_vmas();
   const size_t max_n_pheaders = vmas.size() + ctx.mem_areas_.size();
@@ -37,193 +135,42 @@ Status<std::tuple<jif_data, std::vector<iovec>>> GetJifVmaData(
 
   jif.jif_phdrs.reserve(max_n_pheaders);   // vmas
   jif.jif_itrees.reserve(max_n_pheaders);  // vmas
-  std::vector<iovec> iovs;
-  iovs.reserve(max_n_pheaders);
+  IOVAccumulator iovs;
+  iovs.Reserve(max_n_pheaders);
 
-  uint64_t offset = 0;  // this needs to be fixed after the pheader, itree,
-                        // string and ord sections are put in place.
   for (const VMArea &vma : vmas) {
-    uint8_t prot = 0;
-    if (vma.prot & PROT_EXEC) prot |= kJIFFlagExec;
-    if (vma.prot & PROT_WRITE) prot |= kJIFFlagWrite;
-    if (vma.prot & PROT_READ) prot |= kJIFFlagRead;
-
-    uint32_t pathname_offset = -1;
-    uint64_t ref_offset = -1;
-
-    size_t filesz = vma.DataLength();
-    size_t memsz = vma.Length();
-
-    if (jif.jif_itrees.size() > std::numeric_limits<uint32_t>::max()) {
-      LOG(ERR) << "overflow of interval trees: more than 32bits of nodes";
-      return MakeError(EINVAL);
-    }
-    uint32_t itree_idx = jif.jif_itrees.size();
-    uint32_t itree_n_nodes = 0;  // itree can be empty if filesz == 0
-    size_t n_intervals = 0;
-
-    jif_itree_node_t itree;
-    memset(&itree, 0xff, sizeof(jif_itree_node_t));  // invalidate itree node
-    if (filesz > 0) {
-      // store the file data
-      itree.ranges[n_intervals] = {
-          .start = vma.start,
-          .end = vma.start + filesz,
-          .offset = offset  // needs fixing
-      };
-
-      n_intervals += 1;
-    }
-
-    if (memsz > filesz) {
-      // we have a zero filled range
-
-      itree.ranges[n_intervals] = {
-          .start = vma.start + filesz,
-          .end = vma.end,
-          .offset = static_cast<uint64_t>(-1),  // zero
-      };
-
-      n_intervals += 1;
-    }
-
-    if (n_intervals > 0) {
-      jif.jif_itrees.push_back(itree);
-      itree_n_nodes += 1;
-    }
-
-    // Make memory area readable if needed.
-    if (filesz > 0 && !(vma.prot & PROT_READ)) {
-      auto ret = KernelMProtect(reinterpret_cast<void *>(vma.start), filesz,
-                                vma.prot | PROT_READ);
-      if (!ret) return MakeError(ret);
-    }
-
-    // this creates the info that allows post processing to deduplicate
-    // essentially we create a reference segment which is completely overlayed
-    // by the data segment contents
-    //
-    // later on the post processing can clean this up
-    //
-    if (vma.type == VMType::kFile && vma.file->get_filename().size() > 0) {
-      if (jif.jif_strings.size() > std::numeric_limits<uint32_t>::max()) {
-        LOG(ERR) << "overflow of strings: more than 32bits of string data";
-        return MakeError(EINVAL);
-      }
-      pathname_offset = jif.jif_strings.size();
-      const auto &filename = vma.file->get_filename();
-      char const *cstr = filename.c_str();
-      jif.jif_strings.insert(
-          jif.jif_strings.end(), cstr,
-          cstr + filename.size() + 1);  // remember the NUL byte
-
-      ref_offset = vma.offset;
-    }
-
-    jif_phdr phdr = {
-        .jifp_vbegin = vma.start,
-        .jifp_vend = vma.end,
-        .jifp_ref_offset = ref_offset,
-        .jifp_itree_idx = itree_idx,
-        .jifp_itree_n_nodes = itree_n_nodes,
-        .jifp_pathname_offset = pathname_offset,
-        .jifp_prot = prot,
-    };
-
-    jif.jif_phdrs.push_back(phdr);
-    if (filesz > 0) {
-      offset += filesz;
-      iovs.emplace_back(reinterpret_cast<void *>(vma.start), filesz);
+    if (vma.type == VMType::kFile) {
+      const std::string &name = vma.file->get_filename();
+      // TODO - some files don't have names because they are mmaped'd memfs
+      // segments. We need to handle sharing for these VMAs on restore properly.
+      jif.AddPhdr(iovs, vma.prot, vma.start, vma.DataLength(), vma.Length(),
+                  name.size() ? vma.offset : kUInt64Max, name);
+    } else {
+      jif.AddPhdr(iovs, vma.prot, vma.start, vma.DataLength(), vma.Length(),
+                  kUInt64Max, {});
     }
   }
 
   for (const FSMemoryArea &area : ctx.mem_areas_) {
-    size_t saved_area = PageAlign(GetMinSize(area.ptr, area.in_use_size));
-    size_t memsz = area.max_size;
-
-    if (jif.jif_itrees.size() > std::numeric_limits<uint32_t>::max()) {
-      LOG(ERR) << "overflow of interval trees: more than 32bits of nodes";
-      return MakeError(EINVAL);
-    }
-    uint32_t itree_idx = jif.jif_itrees.size();
-    uint32_t itree_n_nodes = 0;  // itree can be empty if saved_ares == 0
-    size_t n_intervals = 0;
-
-    jif_itree_node_t itree;
-    memset(&itree, 0xff, sizeof(jif_itree_node_t));  // invalidate itree node
-
-    if (saved_area > 0) {
-      itree.ranges[n_intervals] = {
-          .start = reinterpret_cast<uint64_t>(area.ptr),
-          .end = reinterpret_cast<uint64_t>(area.ptr) + saved_area,
-          .offset = offset  // needs fixing
-      };
-      n_intervals += 1;
-    }
-
-    if (memsz > saved_area) {
-      itree.ranges[n_intervals] = {
-          .start = reinterpret_cast<uint64_t>(area.ptr) + saved_area,
-          .end = reinterpret_cast<uint64_t>(area.ptr) + memsz,
-          .offset = static_cast<uint64_t>(-1),  // zero
-      };
-      n_intervals += 1;
-    }
-
-    if (n_intervals > 0) {
-      jif.jif_itrees.push_back(itree);
-      itree_n_nodes += 1;
-    }
-
-    jif_phdr phdr = {
-        .jifp_vbegin = reinterpret_cast<uint64_t>(area.ptr),
-        .jifp_vend = reinterpret_cast<uint64_t>(area.ptr) + memsz,
-        .jifp_ref_offset = static_cast<uint64_t>(-1),
-        .jifp_itree_idx = itree_idx,
-        .jifp_itree_n_nodes = itree_n_nodes,
-        .jifp_pathname_offset = static_cast<uint32_t>(-1),
-        .jifp_prot = kJIFFlagRead | kJIFFlagWrite,  // TODO(bsd): ???
-    };
-
-    jif.jif_phdrs.push_back(phdr);
-    offset += saved_area;
-    if (saved_area > 0) {
-      iovs.emplace_back(area.ptr, saved_area);
-    }
-  }
-
-  size_t itrees_size =
-      PageAlign(jif.jif_itrees.size() * sizeof(jif_itree_node_t));
-  size_t strings_size = PageAlign(jif.jif_strings.size());
-  if (itrees_size > std::numeric_limits<uint32_t>::max()) {
-    LOG(ERR) << "overflow of interval trees: more than 32bits of itree data";
-    return MakeError(EINVAL);
-  }
-  if (strings_size > std::numeric_limits<uint32_t>::max()) {
-    LOG(ERR) << "overflow of strings: more than 32bits of string data";
-    return MakeError(EINVAL);
-  }
-  if (jif.jif_phdrs.size() > std::numeric_limits<uint32_t>::max()) {
-    LOG(ERR) << "overflow of pheaders: more than 32bits of pheaders";
-    return MakeError(EINVAL);
+    jif.AddPhdr(iovs, PROT_READ | PROT_WRITE,
+                reinterpret_cast<uintptr_t>(area.ptr), area.in_use_size,
+                area.max_size, kUInt64Max, {});
   }
 
   jif.jif_hdr.jif_n_pheaders = jif.jif_phdrs.size();
-  jif.jif_hdr.jif_strings_size = strings_size;
-  jif.jif_hdr.jif_itrees_size = itrees_size;
-  jif.jif_hdr.jif_ord_size = PageAlign(static_cast<uint32_t>(0));
+  jif.jif_hdr.jif_strings_size = PageAlign(byte_size(jif.jif_strings));
+  jif.jif_hdr.jif_itrees_size = PageAlign(byte_size(jif.jif_itrees));
+  jif.jif_hdr.jif_ord_size = 0;
 
   size_t data_offset = jif_data_offset(jif.jif_hdr);
-  // fix offsets
+  // Make itree offsets absolute in the JIF file.
   for (auto &itree_node : jif.jif_itrees) {
-    for (size_t idx = 0; idx < FANOUT - 1; idx += 1) {
-      if (itree_node.ranges[idx].offset != static_cast<uint64_t>(-1)) {
-        itree_node.ranges[idx].offset += data_offset;
-      }
+    for (auto &ival : itree_node.ranges) {
+      if (ival.HasOffset()) ival.offset += data_offset;
     }
   }
 
-  return std::make_pair(jif, iovs);
+  return std::make_pair(std::move(jif), std::move(iovs));
 }
 
 Status<void> SnapshotJIF(MemoryMap &mm, SnapshotContext &ctx,
@@ -236,66 +183,45 @@ Status<void> SnapshotJIF(MemoryMap &mm, SnapshotContext &ctx,
       KernelFile::Open(jif_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
   if (unlikely(!jif_file)) return MakeError(jif_file);
 
-  std::array<std::byte, 4096> padding{std::byte{0}};
-  std::array<std::byte, 4096> ones_padding{std::byte{0xff}};
+  std::array<std::byte, kPageSize> padding{std::byte{0}};
+  std::array<std::byte, kPageSize> ones_padding{std::byte{0xff}};
 
-  std::vector<iovec> jif_iovecs;
-  jif_iovecs.reserve(1 /* header */ + 2 /* pheaders + padding */
+  IOVAccumulator jif_iovecs;
+  jif_iovecs.Reserve(1 /* header */ + 2 /* pheaders + padding */
                      + 2                /* string section + padding */
                      + 2                /* itree section + padding */
                      + 2                /* ord section + padding */
   );
 
   // header
-  { jif_iovecs.emplace_back(&jif.jif_hdr, sizeof(jif_header)); }
+  jif_iovecs.Add(&jif.jif_hdr, sizeof(jif_header));
 
   // pheaders
-  {
-    size_t sz = jif.jif_phdrs.size() * sizeof(jif_phdr);
-    jif_iovecs.emplace_back(jif.jif_phdrs.data(), sz);
-
-    size_t total_size = sz + sizeof(jif_header);
-    if (total_size != PageAlign(total_size)) {
-      jif_iovecs.emplace_back(padding.data(),
-                              PageAlign(total_size) - total_size);
-    }
-  }
+  jif_iovecs.Add(jif.jif_phdrs);
+  jif_iovecs.Pad(padding, kPageSize);
 
   // strings
-  {
-    size_t sz = jif.jif_strings.size();
-    jif_iovecs.emplace_back(jif.jif_strings.data(), sz);
-
-    if (sz != jif.jif_hdr.jif_itrees_size) {
-      jif_iovecs.emplace_back(padding.data(),
-                              jif.jif_hdr.jif_strings_size - sz);
-    }
-  }
+  jif_iovecs.Add(jif.jif_strings);
+  jif_iovecs.Pad(padding, kPageSize);
 
   // itrees
-  {
-    size_t sz = jif.jif_itrees.size() * sizeof(jif_itree_node_t);
-    jif_iovecs.emplace_back(jif.jif_itrees.data(), sz);
-
-    if (sz != jif.jif_hdr.jif_itrees_size) {
-      jif_iovecs.emplace_back(ones_padding.data(),
-                              jif.jif_hdr.jif_itrees_size - sz);
-    }
-  }
+  jif_iovecs.Add(jif.jif_itrees);
+  // TODO: This could probably be zero padding too?
+  jif_iovecs.Pad(ones_padding, kPageSize);
 
   // ord
-  {
-    size_t sz = jif.jif_ord.size() * sizeof(jif_ord_chunk_t);
-    jif_iovecs.emplace_back(jif.jif_ord.data(), sz);
+  jif_iovecs.Add(jif.jif_ord);
+  jif_iovecs.Pad(padding, kPageSize);
 
-    if (sz != jif.jif_hdr.jif_ord_size) {
-      jif_iovecs.emplace_back(padding.data(), jif.jif_hdr.jif_ord_size - sz);
-    }
+  if (jif_iovecs.DataSize() > std::numeric_limits<uint32_t>::max()) {
+    LOG(ERR) << "overflow of jif metadata: more than 4GB of data";
+    return MakeError(EINVAL);
   }
 
-  jif_iovecs.insert(jif_iovecs.end(), iovs.begin(), iovs.end());
-  auto write_ret = WritevFull(*jif_file, jif_iovecs);
-  if (!write_ret) return write_ret;
+  if (Status<void> ret = WritevFull(*jif_file, jif_iovecs.Vec()); !ret)
+    return ret;
+
+  if (Status<void> ret = WritevFull(*jif_file, iovs.Vec()); !ret) return ret;
 
   return RestoreVMAProtections(mm);
 }
@@ -371,7 +297,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
 
   Time end_jif = Time::Now();
 
-  if (!ret) {
+  if (unlikely(!ret)) {
     LOG(ERR) << "JIF load failed: " << ret.error();
     return MakeError(ret);
   };
@@ -380,9 +306,8 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
             << " metadata: " << (end_metadata - start).Microseconds()
             << " jif: " << (end_jif - end_metadata).Microseconds();
 
-  if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
-    p->get_mem_map().EnableTracing();
-  }
+  if (unlikely(GetCfg().mem_trace_timeout())) p->get_mem_map().EnableTracing();
+
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)
   p->RunThreads();

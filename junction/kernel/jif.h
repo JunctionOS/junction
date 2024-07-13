@@ -13,7 +13,6 @@ namespace junction {
 
 constexpr size_t kJifMagicLen = 4;
 
-#pragma pack(push, 1)
 struct jif_header {
   // used to detect the file type (expect 0x77 'J' 'I' 'F')
   uint8_t jif_magic[kJifMagicLen];
@@ -25,11 +24,9 @@ struct jif_header {
   uint32_t jif_itrees_size;
   // size of the ordering section in B (page aligned)
   uint32_t jif_ord_size;
-};
-#pragma pack(pop)
+} __packed;
 
 // program header format
-#pragma pack(push, 1)
 struct jif_phdr {
   // start virtual address of the vma (page aligned)
   uint64_t jifp_vbegin;
@@ -54,54 +51,66 @@ struct jif_phdr {
   // VMA protections
   uint8_t jifp_prot;
 
-  bool is_valid() const {
-    if (!IsPageAligned(jifp_vbegin)) {
-      LOG(ERR) << "vbegin";
-      return false;
-    } else if (!IsPageAligned(jifp_vend)) {
-      LOG(ERR) << "vend";
-      return false;
-    } else if (jifp_vbegin > jifp_vend) {
-      LOG(ERR) << "v";
-      return false;
-    } else if (jifp_ref_offset != static_cast<uint64_t>(-1)) {
-      if (!IsPageAligned(jifp_ref_offset)) {
-        LOG(ERR) << "ref_offset not aligned";
-        return false;
-      }
-      if (jifp_pathname_offset == static_cast<uint64_t>(-1)) {
-        LOG(ERR) << "ref_offset exists but pathname offset does not";
-        return false;
-      }
-    }
+  [[nodiscard]] bool HasRefFile() const {
+    return jifp_ref_offset != kUInt64Max;
+  }
+  [[nodiscard]] size_t Len() const { return jifp_vend - jifp_vbegin; }
+  [[nodiscard]] void *Ptr() const {
+    return reinterpret_cast<void *>(jifp_vbegin);
+  }
+  [[nodiscard]] off_t Off() const {
+    assert(HasRefFile());
+    return static_cast<off_t>(jifp_ref_offset);
+  }
 
+  void Print(std::ostream &os) const {
+    os << std::hex << jifp_vbegin << "-" << std::hex << jifp_vend << " "
+       << static_cast<long>(jifp_ref_offset);
+  }
+
+  [[nodiscard]] bool is_valid() const {
+    if (!IsPageAligned(jifp_vbegin) || !IsPageAligned(jifp_vend)) return false;
+    if (jifp_vbegin > jifp_vend) return false;
+    if (HasRefFile()) {
+      if (!IsPageAligned(jifp_ref_offset)) return false;
+      if (jifp_pathname_offset == kUInt32Max) return false;
+    }
     return true;
   }
-};
-#pragma pack(pop)
+} __packed;
 
-constexpr size_t FANOUT = 4;
+inline constexpr size_t FANOUT = 4;
 
-#pragma pack(push, 1)
 struct jif_interval_t {
   uint64_t start;   // virtual addr; == -1 if this is not a valid interval
   uint64_t end;     // virtual addr; == -1 if this i not a valid interval
   uint64_t offset;  // offset into JIF; == -1 if this is a zero segment
-};
-#pragma pack(pop)
+  [[nodiscard]] bool IsValid() const { return start != kUInt64Max; }
+  [[nodiscard]] bool HasOffset() const { return offset != kUInt64Max; }
+  [[nodiscard]] size_t Len() const { return end - start; }
+  [[nodiscard]] void *Ptr() const { return reinterpret_cast<void *>(start); }
+  [[nodiscard]] off_t Off() const {
+    assert(HasOffset());
+    return static_cast<off_t>(offset);
+  }
 
-#pragma pack(push, 1)
+} __packed;
+
 struct jif_itree_node_t {
-  jif_interval_t ranges[FANOUT - 1];
-};
-#pragma pack(pop)
+  std::array<jif_interval_t, FANOUT - 1> ranges;
+  void InitEmpty() { memset(this, 0xff, sizeof(*this)); }
+} __packed;
 
-#pragma pack(push, 1)
 struct jif_ord_chunk_t {
   uint64_t vaddr;
   uint64_t n_pages;
-};
-#pragma pack(pop)
+} __packed;
+
+std::ostream &operator<<(std::ostream &os, const jif_phdr &phdr);
+std::ostream &operator<<(std::ostream &os, const jif_interval_t &ival);
+std::ostream &operator<<(std::ostream &os, const jif_itree_node_t &node);
+
+struct IOVAccumulator;
 
 struct jif_data {
   jif_header jif_hdr;
@@ -109,6 +118,9 @@ struct jif_data {
   std::vector<char> jif_strings;
   std::vector<jif_itree_node_t> jif_itrees;
   std::vector<jif_ord_chunk_t> jif_ord;
+  Status<void> AddPhdr(IOVAccumulator &iovs, uint8_t prot, uintptr_t start,
+                       size_t filesz, size_t memsz, size_t ref_offset,
+                       std::string_view name);
 };
 
 namespace {

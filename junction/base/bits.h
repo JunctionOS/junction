@@ -7,11 +7,14 @@ extern "C" {
 }
 
 #include <bit>
+#include <limits>
 #include <type_traits>
 
 namespace junction {
 
 inline constexpr size_t kBitsPerByte = 8;
+inline constexpr uint64_t kUInt64Max = std::numeric_limits<uint64_t>::max();
+inline constexpr uint32_t kUInt32Max = std::numeric_limits<uint32_t>::max();
 
 // AlignUp aligns the value up to a power of two alignment
 template <typename T>
