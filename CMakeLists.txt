@@ -33,6 +33,11 @@ FetchContent_Declare(
 # Set any global configuration variables such as `Rust_TOOLCHAIN` before this line!
 FetchContent_MakeAvailable(Corrosion)
 
+corrosion_import_crate(MANIFEST_PATH ${CMAKE_SOURCE_DIR}/lib/jiftools/Cargo.toml)
+
+set(READJIF ${CMAKE_BINARY_DIR}/readjif)
+set(JIFTOOL ${CMAKE_BINARY_DIR}/jiftool)
+
 include_directories(
   ${CMAKE_SOURCE_DIR}
   SYSTEM ${CMAKE_SOURCE_DIR}/lib/caladan/inc

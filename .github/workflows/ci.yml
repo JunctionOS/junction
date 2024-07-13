@@ -94,11 +94,11 @@ jobs:
           ./scripts/build.sh -s
 
       - name: Test (snapshots)
-        run: ./scripts/test.sh 'snapshot|restore'
+        run: ./scripts/test.sh 'snapshot|restore|build_itrees'
 
       - name: Build snapshot tests (debug)
         run: |
           ./scripts/build.sh -d -s
 
       - name: Test debug (snapshots)
-        run: ./scripts/test.sh -d 'snapshot|restore'
+        run: ./scripts/test.sh -d 'snapshot|restore|build_itrees'
