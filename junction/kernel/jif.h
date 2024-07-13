@@ -7,7 +7,6 @@
 
 #include "junction/base/error.h"
 #include "junction/fs/fs.h"
-#include "junction/fs/junction_file.h"
 #include "junction/kernel/mm.h"
 
 namespace junction {
@@ -56,23 +55,24 @@ struct jif_phdr {
   uint8_t jifp_prot;
 
   bool is_valid() const {
-    if ((jifp_vbegin & 0xfff) != 0) {
+    if (!IsPageAligned(jifp_vbegin)) {
       LOG(ERR) << "vbegin";
       return false;
-    } else if ((jifp_vend & 0xfff) != 0) {
+    } else if (!IsPageAligned(jifp_vend)) {
       LOG(ERR) << "vend";
       return false;
-    } else if (jifp_vbegin >= jifp_vend) {
+    } else if (jifp_vbegin > jifp_vend) {
       LOG(ERR) << "v";
       return false;
-    } else if (jifp_ref_offset != static_cast<uint64_t>(-1) &&
-               (jifp_ref_offset & 0xfff) != 0) {
-      LOG(ERR) << "ref_offset";
-      return false;
-    } else if (jifp_itree_idx == static_cast<uint64_t>(-1) ||
-               jifp_itree_n_nodes == 0) {
-      LOG(ERR) << "itree";
-      return false;
+    } else if (jifp_ref_offset != static_cast<uint64_t>(-1)) {
+      if (!IsPageAligned(jifp_ref_offset)) {
+        LOG(ERR) << "ref_offset not aligned";
+        return false;
+      }
+      if (jifp_pathname_offset == static_cast<uint64_t>(-1)) {
+        LOG(ERR) << "ref_offset exists but pathname offset does not";
+        return false;
+      }
     }
 
     return true;
@@ -142,6 +142,6 @@ enum {
 };
 
 // Load an JIF object file into memory
-Status<jif_data> LoadJIF(MemoryMap &mm, JunctionFile &jif_file);
+Status<jif_data> LoadJIF(KernelFile &jif_file);
 
 }  // namespace junction

@@ -191,12 +191,14 @@ void JunctionMain(int argc, char *argv[]) {
             std::string(GetCfg().get_snapshot_prefix()) + ".elf";
         std::string jif_path =
             std::string(GetCfg().get_snapshot_prefix()) + ".jif";
-        std::string metadata_path =
+        std::string elf_metadata_path =
             std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
+        std::string jif_metadata_path =
+            std::string(GetCfg().get_snapshot_prefix()) + ".jm";
 
         auto ret = (GetCfg().jif())
-                       ? SnapshotPidToJIF(1, metadata_path, jif_path)
-                       : SnapshotPidToELF(1, metadata_path, epath);
+                       ? SnapshotPidToJIF(1, jif_metadata_path, jif_path)
+                       : SnapshotPidToELF(1, elf_metadata_path, epath);
         if (!ret) {
           LOG(ERR) << "Failed to snapshot: " << ret.error();
           syscall_exit(-1);

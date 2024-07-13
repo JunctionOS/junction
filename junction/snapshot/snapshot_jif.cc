@@ -336,11 +336,10 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
 
   Time end_metadata = Time::Now();
 
-  Status<JunctionFile> jif_file =
-      JunctionFile::Open(p->get_fs(), jif_path, 0, FileMode::kRead);
+  Status<KernelFile> jif_file = KernelFile::Open(jif_path, 0, FileMode::kRead);
   if (!jif_file) return MakeError(jif_file);
 
-  Status<jif_data> ret = ::junction::LoadJIF(p->get_mem_map(), *jif_file);
+  Status<jif_data> ret = ::junction::LoadJIF(*jif_file);
 
   Time end_jif = Time::Now();
 

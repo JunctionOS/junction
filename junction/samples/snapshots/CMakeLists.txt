@@ -16,16 +16,27 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
   # set_tests_properties(${test_name}_restore_st PROPERTIES DEPENDS ${test_name}_snapshot_st)
 
   add_test(
-    NAME ${test_name}_snapshot
+    NAME ${test_name}_snapshot_elf
     COMMAND sh -c "rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands}"
   )
 
   add_test(
-    NAME ${test_name}_restore
+    NAME ${test_name}_restore_elf
     COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r -- /tmp/${test_name}.metadata /tmp/${test_name}.elf && rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf"
   )
 
-  set_tests_properties(${test_name}_restore PROPERTIES DEPENDS ${test_name}_snapshot)
+  add_test(
+    NAME ${test_name}_snapshot_jif
+    COMMAND sh -c "rm -f /tmp/${test_name}.jm /tmp/${test_name}.jif && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --jif -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands}"
+  )
+
+  add_test(
+    NAME ${test_name}_restore_jif
+    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --jif -r -- /tmp/${test_name}.jm /tmp/${test_name}.jif && rm -f /tmp/${test_name}.jm /tmp/${test_name}.jif"
+  )
+
+  set_tests_properties(${test_name}_restore_elf PROPERTIES DEPENDS ${test_name}_snapshot_elf)
+  set_tests_properties(${test_name}_restore_jif PROPERTIES DEPENDS ${test_name}_snapshot_jif)
 
 endmacro()
 
