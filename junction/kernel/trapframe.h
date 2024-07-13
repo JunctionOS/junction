@@ -42,6 +42,7 @@ class Trapframe {
  public:
   // Get the RSP from this trapframe.
   [[nodiscard]] virtual uint64_t GetRsp() const = 0;
+  [[nodiscard]] virtual uint64_t GetRip() const = 0;
 
   // Copy this trapframe to a new stack, returns a reference to the new
   // instance.
@@ -153,6 +154,10 @@ class KernelSignalTf : public SyscallFrame {
     return sigframe.GetRsp();
   }
 
+  [[nodiscard]] inline uint64_t GetRip() const override {
+    return sigframe.GetRip();
+  }
+
   [[noreturn]] void JmpUnwindSysret(Thread &th) override;
 
   void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) override;
@@ -226,6 +231,7 @@ class FunctionCallTf : public SyscallFrame {
   [[nodiscard]] inline thread_tf &GetFrame() { return *tf; }
 
   [[nodiscard]] inline uint64_t GetRsp() const override { return tf->rsp; }
+  [[nodiscard]] inline uint64_t GetRip() const override { return tf->rip; }
 
   void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) override;
 
@@ -331,6 +337,10 @@ class UintrTf : public Trapframe {
 
   [[nodiscard]] inline uint64_t GetRsp() const override {
     return sigframe.GetRsp();
+  }
+
+  [[nodiscard]] inline uint64_t GetRip() const override {
+    return sigframe.GetRip();
   }
 
   UintrTf &CloneTo(uint64_t *rsp) const override {

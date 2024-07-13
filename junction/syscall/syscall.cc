@@ -8,6 +8,43 @@
 
 namespace junction {
 
+struct SyscallTarget {
+  uintptr_t start;
+  uintptr_t postcall;
+  uintptr_t end;
+};
+
+#define DECLARE_TARGET(name)                          \
+  {                                                   \
+    reinterpret_cast<uintptr_t>(name),                \
+        reinterpret_cast<uintptr_t>(name##_postcall), \
+        reinterpret_cast<uintptr_t>(name##_end)       \
+  }
+
+const std::array<SyscallTarget, 10> syscallTargets = {
+    {DECLARE_TARGET(junction_fncall_enter),
+     DECLARE_TARGET(junction_fncall_enter_preserve_regs),
+     DECLARE_TARGET(junction_fncall_stackswitch_enter),
+     DECLARE_TARGET(junction_fncall_stackswitch_enter_uintr),
+     DECLARE_TARGET(junction_fncall_stackswitch_enter_preserve_regs),
+     DECLARE_TARGET(junction_fncall_stackswitch_enter_preserve_regs_uintr),
+     DECLARE_TARGET(__syscall_trap_return),
+     DECLARE_TARGET(__kframe_unwind_loop),
+     DECLARE_TARGET(__fncall_return_exit_loop),
+     DECLARE_TARGET(__fncall_return_exit_loop_uintr)}};
+
+// Determines if an IP is in a Junction function (potentially before or after
+// the syscall flag is set/cleared).
+__noinline FaultStatus CheckFaultIP(uintptr_t rip) {
+  for (const auto &target : syscallTargets) {
+    if (rip >= target.start && rip < target.postcall)
+      return FaultStatus::kInSyscall;
+    else if (rip >= target.postcall && rip < target.end)
+      return FaultStatus::kCompletingSyscall;
+  }
+  return FaultStatus::kNotInSyscall;
+}
+
 static sysfn_t *dst_tbl;
 
 void SyscallForceStackSwitch() {

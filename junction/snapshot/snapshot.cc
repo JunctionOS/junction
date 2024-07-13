@@ -31,6 +31,10 @@ SnapshotContext &GetSnapshotContext() {
 
 void StartSnapshotContext() {
   assert(!cur_context);
+  if (!GetCfg().expecting_snapshot()) {
+    LOG(WARN) << "WARNING: starting snapshot on runtime was not expecting it; "
+                 "consider re-running with the --snapshot_enabled flag";
+  }
   cur_context.reset(new SnapshotContext);
 }
 

@@ -148,6 +148,21 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
   return prev == &restore_wrapper;
 }
 
+// Determine what was interrupted...
+FaultStatus GetFaultStatus(Thread &th, uint64_t fault_sp, uint64_t fault_ip) {
+  if (th.in_kernel()) return FaultStatus::kInSyscall;
+  if (unlikely(th.rsp_on_syscall_stack(fault_sp)))
+    return FaultStatus::kCompletingSyscall;
+  // If we are not going to snapshot, the previous checks are sufficient to
+  // determine fault status. If we are going to snapshot, we have to also make
+  // sure that we don't snapshot any signal frames that point to Junction code.
+  // This can happen when our snapshot stop signal interrupts a system call just
+  // as it is starting or completing (just before/after it sets/clears the
+  // in_kernel flag).
+  if (unlikely(GetCfg().expecting_snapshot())) return CheckFaultIP(fault_ip);
+  return FaultStatus::kNotInSyscall;
+}
+
 // Place UINTR handler logic that follows an xsave here so compiler can
 // inline/use floating point.
 void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
@@ -352,10 +367,10 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
   if (IsJunctionThread()) {
     Thread &myth = Thread::fromCaladanThread(th);
 
-    bool was_in_kernel = myth.in_kernel();
+    FaultStatus fstatus = GetFaultStatus(myth, rsp, sigframe.GetRip());
     myth.mark_enter_kernel();
 
-    if (was_in_kernel) {
+    if (fstatus == FaultStatus::kInSyscall) {
       // Will be yielding/cedeing, set up sigframe restore next time
       // this thread is run. Move sigframe to the syscall stack in case the
       // current stack can't tolerate signals. Despite being marked as
@@ -363,7 +378,7 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
       // about to happen.
       rsp = myth.correct_to_syscall_stack(rsp);
       sigframe.CloneTo(&rsp).MakeUnwinder(out_tf);
-    } else if (unlikely(myth.rsp_on_syscall_stack(rsp))) {
+    } else if (unlikely(fstatus == FaultStatus::kCompletingSyscall)) {
       // Signal was delivered just as the thread is exiting the kernel, rewind
       // the exit and check for signals again.
       myth.GetTrapframe().MakeUnwinderSysret(myth, out_tf);
@@ -479,13 +494,12 @@ void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, Time time) {
   assert(!preempt_enabled());
   assert(myth.rsp_on_syscall_stack());
 
-  bool fault_on_syscall_stack = myth.rsp_on_syscall_stack(frame.GetRsp());
-  bool fault_in_kernel = myth.in_kernel();
+  FaultStatus fstatus = GetFaultStatus(myth, frame.GetRsp(), frame.GetRip());
 
   // We can re-enable preemption after marking this thread in_kernel.
   // Provide this frame as the kernel entry frame unless one already exists.
   myth.mark_enter_kernel();
-  if (!fault_in_kernel && !fault_on_syscall_stack) myth.SetTrapframe(frame);
+  if (fstatus == FaultStatus::kNotInSyscall) myth.SetTrapframe(frame);
 
   // Re-enable preemption after switching off runtime stack.
   preempt_enable();
@@ -496,7 +510,7 @@ void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, Time time) {
 
   if (!fault_handled) {
     // We don't expect faults in the Junction kernel; crash.
-    if (fault_in_kernel || fault_on_syscall_stack)
+    if (fstatus != FaultStatus::kNotInSyscall)
       print_msg_abort("unhandled segfault while in Junction syscall handler");
 
     // Preemption must be disabled before moving data to the syscall stack.
@@ -511,10 +525,10 @@ void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, Time time) {
     std::unreachable();
   }
 
-  if (fault_in_kernel) {
+  if (fstatus == FaultStatus::kInSyscall) {
     // Restore the frame immediately.
     frame.JmpUnwind();
-  } else if (unlikely(fault_on_syscall_stack)) {
+  } else if (unlikely(fstatus == FaultStatus::kCompletingSyscall)) {
     // signal delivered just as we were returning from a system call, rewind the
     // exit and try again.
     myth.GetSyscallFrame().JmpUnwindSysret(myth);
@@ -579,7 +593,8 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   if (unlikely(was_preempt_disabled || IsOnRuntimeStack(uc->GetRsp())))
     print_msg_abort("signal delivered while preemption is disabled");
 
-  if (unlikely(myth.in_kernel() || myth.rsp_on_syscall_stack(uc->GetRsp())))
+  if (unlikely(GetFaultStatus(myth, uc->GetRsp(), uc->GetRip()) !=
+               FaultStatus::kNotInSyscall))
     print_msg_abort("signal delivered while in Junction syscall handler");
 
   FunctionCallTf &tf = FunctionCallTf::CreateOnSyscallStack(myth);

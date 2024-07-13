@@ -98,7 +98,9 @@ po::options_description GetOptions() {
       "madv_remap", po::bool_switch()->default_value(false),
       "zero memory when MADV_DONTNEED is used (intended for profiling)")(
       "cache_linux_fs", po::bool_switch()->default_value(false),
-      "cache directory structure of the linux filesystem");
+      "cache directory structure of the linux filesystem")(
+      "snapshot_enabled", po::bool_switch()->default_value(false),
+      "this runtime may be snapshotted");
   ;
   return desc;
 }
@@ -128,6 +130,10 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 
   if (vm.count("env")) binary_envp = vm["env"].as<std::vector<std::string>>();
 
+  snapshot_on_stop_ = vm["snapshot-on-stop"].as<int>();
+  expecting_snapshot_ = vm["snapshot_enabled"].as<bool>();
+  expecting_snapshot_ |= snapshot_on_stop_;
+
   strace = vm["strace"].as<bool>();
   stack_switching = vm["stackswitch"].as<bool>();
   max_loglevel = vm["loglevel"].as<int>();
@@ -136,7 +142,6 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   jif_ = vm["jif"].as<bool>();
   snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
   cache_linux_fs_ = vm["cache_linux_fs"].as<bool>();
-  snapshot_on_stop_ = vm["snapshot-on-stop"].as<int>();
   port_ = vm["port"].as<int>();
   if (snapshot_on_stop_ && snapshot_prefix_.empty()) {
     std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;

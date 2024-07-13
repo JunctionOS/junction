@@ -118,7 +118,7 @@ runtime_quantum_us 10"
 )
 
 set(caladan_test_config_path_ts_st
-  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_st.config
+  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_st_st.config
 )
 
 file(WRITE ${caladan_test_config_path_ts_st} ${caladan_test_config_ts_st})

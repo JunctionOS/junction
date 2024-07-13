@@ -50,6 +50,7 @@ class alignas(kCacheLineSize) JunctionCfg {
 
   [[nodiscard]] bool strace_enabled() const { return strace; }
   [[nodiscard]] bool restoring() const { return restore; }
+  [[nodiscard]] bool expecting_snapshot() const { return expecting_snapshot_; }
   [[nodiscard]] bool jif() const { return jif_; }
   [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
   [[nodiscard]] bool madv_dontneed_remap() const { return madv_remap; }
@@ -72,6 +73,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   // Hot state
   bool strace;
   bool madv_remap;
+  bool expecting_snapshot_;
 
   // Cold state
   std::string chroot_path;

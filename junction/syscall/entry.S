@@ -61,10 +61,6 @@
 	pushq   %rdi; \
 	movq    %rsp, JUNCTION_TF_PTR_OFF(%r11);
 
-#define SAVETF_STACK_AND_MARK_SYSCALL \
-	SAVETF_STACK; \
-	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
-
 .macro RESTORETF_STACK
 	popq   %rdi
 	popq   %rsi
@@ -93,29 +89,6 @@
 	callq   *(%rax); \
 	movq    %rax, RAX(%rsp); \
 	movq    %rax, %rdi
-
-/**
- * clone_fast_start - routine to start children created with clone
- *
- */
-.align 16
-.globl clone_fast_start
-.type clone_fast_start, @function
-clone_fast_start:
-
-	// find the trapframe
-	movq 	%gs:__perthread___self(%rip), %r11
-	addq    $CALADAN_TF_OFF, %r11
-
-	RESTORETF_CALLER(%r11)
-
-	// Get RIP for function start
-	movq    R11(%r11), %r11
-
-	/* clear return value */
-	xorq    %rax, %rax
-
-	jmpq    *%r11
 
 /*
  * usys_rt_sigreturn_enter - target for system calls to rt_sigreturn
@@ -341,8 +314,9 @@ __switch_and_interrupt_enable:
  * @pre_run_signals and @post_run_signals are hooks that run before/after the
  * signal handler is run. Mainly used to enable/disable interrupts.
  */
-.macro INTERRUPT_CHECK final_unwind pre_run_signals post_run_signals
-1:
+.macro INTERRUPT_CHECK caller_fn final_unwind pre_run_signals post_run_signals
+.globl \caller_fn\()_postcall
+\caller_fn\()_postcall:
 	movq    %gs:__perthread___self(%rip), %r11
 	// Clear in_syscall flag and re-enable interrupts
 	movb    $0, JUNCTION_IN_SYSCALL_OFF(%r11)
@@ -350,17 +324,19 @@ __switch_and_interrupt_enable:
 	// check for interrupts
 	movb    JUNCTION_INT_STATE_OFF(%r11), %cl
 	test    %cl, %cl
-	jg      2f
+	jg      1f
 
 	\final_unwind
 
-2:
+1:
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 	\pre_run_signals
 	call    RunSignals
 	xorq    %rdi, %rdi
 	\post_run_signals
-	jmp     1b
+	jmp     \caller_fn\()_postcall
+.globl \caller_fn\()_end
+\caller_fn\()_end:
 .endm
 
 .macro RT_SIGRETURN
@@ -387,7 +363,7 @@ __syscall_trap_return:
 	// setup return value as 1st argument for RunSignals
 	movq    %rax, %rdi
 
-	INTERRUPT_CHECK RT_SIGRETURN
+	INTERRUPT_CHECK __syscall_trap_return RT_SIGRETURN
 
 /**
  * __kframe_unwind_loop - similar to __syscall_trap_return, but the frame
@@ -403,7 +379,7 @@ __syscall_trap_return:
 __kframe_unwind_loop:
 	xorq    %rdi, %rdi
 
-	INTERRUPT_CHECK RT_SIGRETURN
+	INTERRUPT_CHECK __kframe_unwind_loop RT_SIGRETURN
 
 
 /**
@@ -524,7 +500,8 @@ __kframe_unwind_uiret:
 	// push return IP
 	pushq   %r11
 
-	SAVETF_STACK_AND_MARK_SYSCALL;
+	SAVETF_STACK
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 
 	.cfi_adjust_cfa_offset 152;
 .endm
@@ -606,7 +583,7 @@ junction_fncall_enter:
 	ret
 .endm
 
-	INTERRUPT_CHECK FNCALL_RET_NOSAVE
+	INTERRUPT_CHECK junction_fncall_enter FNCALL_RET_NOSAVE
 
 	.cfi_endproc
 
@@ -634,7 +611,7 @@ junction_fncall_stackswitch_enter:
 	ret
 .endm
 
-	INTERRUPT_CHECK FNCALL_STACKSWITCH_NOSAVE
+	INTERRUPT_CHECK junction_fncall_stackswitch_enter FNCALL_STACKSWITCH_NOSAVE
 
 /*
  * junction_fncall_stackswitch_enter_uintr - entry point for runtimes that
@@ -664,7 +641,7 @@ junction_fncall_stackswitch_enter_uintr:
 	ret
 .endm
 
-	INTERRUPT_CHECK FNCALL_STACKSWITCH_NOSAVE_UINTR stui clui
+	INTERRUPT_CHECK junction_fncall_stackswitch_enter_uintr FNCALL_STACKSWITCH_NOSAVE_UINTR stui clui
 
 
 /*
@@ -687,7 +664,7 @@ junction_fncall_enter_preserve_regs:
 	ret
 .endm
 
-	INTERRUPT_CHECK FNCALL_RET_SAVE
+	INTERRUPT_CHECK junction_fncall_enter_preserve_regs FNCALL_RET_SAVE
 
 	.cfi_endproc
 
@@ -703,7 +680,7 @@ __fncall_return_exit_loop:
 	jmp     *%r11
 .endm
 
-	INTERRUPT_CHECK FNCALL_RET_SAVE_JMP
+	INTERRUPT_CHECK __fncall_return_exit_loop FNCALL_RET_SAVE_JMP
 
 
 .align 16
@@ -721,7 +698,7 @@ __fncall_return_exit_loop_uintr:
 	jmp     *%r11
 .endm
 
-	INTERRUPT_CHECK FNCALL_RET_SAVE_JMP_UINTR stui clui
+	INTERRUPT_CHECK __fncall_return_exit_loop_uintr FNCALL_RET_SAVE_JMP_UINTR stui clui
 
 /*
  * junction_fncall_stackswitch_enter_preserve_regs - variant of
@@ -745,7 +722,7 @@ junction_fncall_stackswitch_enter_preserve_regs:
 	jmp     *%r11
 .endm
 
-	INTERRUPT_CHECK RESTORETF_RET
+	INTERRUPT_CHECK junction_fncall_stackswitch_enter_preserve_regs RESTORETF_RET
 
 /*
  * junction_fncall_stackswitch_enter_preserve_regs_uintr - variant of
@@ -772,4 +749,4 @@ junction_fncall_stackswitch_enter_preserve_regs_uintr:
 	ret
 .endm
 
-	INTERRUPT_CHECK RESTORETF_STUI_RET stui clui
+	INTERRUPT_CHECK junction_fncall_stackswitch_enter_preserve_regs_uintr RESTORETF_STUI_RET stui clui

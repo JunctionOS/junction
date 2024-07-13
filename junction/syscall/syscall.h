@@ -1,5 +1,7 @@
 // syscall.h - support for virtual syscalls.
 
+#pragma once
+
 #include "junction/base/error.h"
 #include "junction/bindings/stack.h"
 #include "junction/bindings/thread.h"
@@ -37,12 +39,25 @@ static_assert(sizeof(thread_tf) == 152);
 unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
                            long arg4, long arg5, long syscall);
 
+enum class FaultStatus : int {
+  kNotInSyscall,  // Fault is not in a syscall target (it is in user code).
+  kInSyscall,     // Fault occured while target is in syscall (or about to enter
+                  // it).
+  kCompletingSyscall,  // Fault occured after a syscall has completed but kernel
+                       // text/stack are still in use.
+};
+
+__noinline FaultStatus CheckFaultIP(uintptr_t rip);
+
 extern "C" {
 
-// Entry point for new threads spawned with clone; restores general purpose
-// registers not restored by Caladan's thread scheduler, zeros %rax, and starts
-// the thread.
-void clone_fast_start(void *rip) __noreturn;
+// Declare a function that enters/exits the junction kernel. Any function that
+// internally manipulates the in_kernel flag must be declared here. This
+// function must also be included in the array of targets in syscall.cc.
+#define SYSENTRY_ASM(name)             \
+  extern const char name##_postcall[]; \
+  extern const char name##_end[];      \
+  long name
 
 // Restart a system call, used when a signal interrupts a system call but the
 // signal is ignored.
@@ -50,42 +65,35 @@ void __jmp_syscall_restart_nosave(struct thread_tf *tf) __noreturn;
 
 // System call entry point for applications that require syscalls to run on an
 // alternate stack (ie Golang).
-long junction_fncall_stackswitch_enter(long arg0, long arg1, long arg2,
-                                       long arg3, long arg4, long arg5,
-                                       long sys_nr);
+SYSENTRY_ASM(junction_fncall_stackswitch_enter)
+(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
 // System call entry point for applications that require syscalls to run on an
 // alternate stack (ie Golang). This variant used when UINTR is enabled.
-long junction_fncall_stackswitch_enter_uintr(long arg0, long arg1, long arg2,
-                                             long arg3, long arg4, long arg5,
-                                             long sys_nr);
+SYSENTRY_ASM(junction_fncall_stackswitch_enter_uintr)
+(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
 // System call entry point for clone/vfork for applications that require
 // syscalls to run on an alternate stack (ie Golang).
-long junction_fncall_stackswitch_enter_preserve_regs(long arg0, long arg1,
-                                                     long arg2, long arg3,
-                                                     long arg4, long arg5,
-                                                     long sys_nr);
+SYSENTRY_ASM(junction_fncall_stackswitch_enter_preserve_regs)
+(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
 // System call entry point for clone/vfork for applications that require
 // syscalls to run on an alternate stack (ie Golang). This variant used when
 // UINTR is enabled.
-long junction_fncall_stackswitch_enter_preserve_regs_uintr(long arg0, long arg1,
-                                                           long arg2, long arg3,
-                                                           long arg4, long arg5,
-                                                           long sys_nr);
+SYSENTRY_ASM(junction_fncall_stackswitch_enter_preserve_regs_uintr)
+(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
 // System call entry point for most applications.
-long junction_fncall_enter(long arg0, long arg1, long arg2, long arg3,
-                           long arg4, long arg5, long sys_nr);
+SYSENTRY_ASM(junction_fncall_enter)
+(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
 // System call entry point for clone/vfork for most applications.
-long junction_fncall_enter_preserve_regs(long arg0, long arg1, long arg2,
-                                         long arg3, long arg4, long arg5,
-                                         long sys_nr);
+SYSENTRY_ASM(junction_fncall_enter_preserve_regs)
+(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
 // Return function for system calls that are delivered by trap.
-void __syscall_trap_return();
+SYSENTRY_ASM(__syscall_trap_return)();
 
 // Variant of __syscall_trap_return for UINTR.
 void __syscall_trap_return_uintr();
@@ -93,18 +101,18 @@ void __syscall_trap_return_uintr();
 // Unwind a kernel signal frame on the system call stack. Checks for pending
 // signals before fully unwinding the frame. Use UintrKFrameLoopReturn when
 // UINTR is enabled.
-void __kframe_unwind_loop(uint64_t rax);
+SYSENTRY_ASM(__kframe_unwind_loop)(uint64_t rax);
 
 // Immediately restore a kernel signal frame using uiret.
 void __kframe_unwind_uiret();
 
 // Unwind a function call frame. Checks for pending signals before fully
 // unwinding the frame.
-void __fncall_return_exit_loop();
+SYSENTRY_ASM(__fncall_return_exit_loop)();
 
 // Unwind a function call frame. Checks for pending signals before fully
 // unwinding the frame. This variant must be used when UINTR is enabled.
-void __fncall_return_exit_loop_uintr();
+SYSENTRY_ASM(__fncall_return_exit_loop_uintr)();
 
 // Entry point for usys_rt_sigreturn, switches stacks and jumps to
 // usys_rt_sigreturn with the sigframe as an argument.

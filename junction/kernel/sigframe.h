@@ -75,6 +75,7 @@ struct k_sigframe {
   }
 
   [[nodiscard]] inline uint64_t GetRsp() const { return uc.uc_mcontext.rsp; }
+  [[nodiscard]] inline uint64_t GetRip() const { return uc.uc_mcontext.rip; }
 
   // The kernel will replace the altstack when we call __rt_sigreturn. Since
   // this call may happen from a different kernel thread then the one that the
@@ -112,6 +113,7 @@ struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
   u_sigframe *CopyToStack(uint64_t *dest_rsp) const;
 
   [[nodiscard]] inline uint64_t GetRsp() const { return rsp; }
+  [[nodiscard]] inline uint64_t GetRip() const { return rip; }
 
   void DoSave(cereal::BinaryOutputArchive &ar) const;
 
