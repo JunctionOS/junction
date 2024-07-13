@@ -5,7 +5,6 @@ set(SOURCES_C_CPP
   exec.cc
   futex.cc
   itimer.cc
-  jif.cc
   misc.cc
   mm.cc
   proc.cc

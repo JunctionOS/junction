@@ -9,11 +9,11 @@ extern "C" {
 #include "junction/base/finally.h"
 #include "junction/fs/file.h"
 #include "junction/fs/memfs/memfs.h"
-#include "junction/kernel/jif.h"
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/snapshot/cereal.h"
+#include "junction/snapshot/jif.h"
 #include "junction/snapshot/snapshot.h"
 
 namespace junction {

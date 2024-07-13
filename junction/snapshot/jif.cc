@@ -1,4 +1,4 @@
-#include "junction/kernel/jif.h"
+#include "junction/snapshot/jif.h"
 
 #include <algorithm>
 #include <bit>
