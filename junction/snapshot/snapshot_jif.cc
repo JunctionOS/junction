@@ -58,11 +58,7 @@ Status<void> jif_data::AddPhdr(IOVAccumulator &iovs, uint8_t prot,
                                size_t ref_offset, std::string_view name) {
   void *startp = reinterpret_cast<void *>(start);
 
-  // TODO: make JIF use the same bits as the Linux kernel.
-  uint8_t jprot = 0;
-  if (prot & PROT_EXEC) jprot |= kJIFFlagExec;
-  if (prot & PROT_WRITE) jprot |= kJIFFlagWrite;
-  if (prot & PROT_READ) jprot |= kJIFFlagRead;
+  uint8_t jprot = LinuxProtToJIFProt(prot);
 
   // Make memory area readable if needed.
   if (filesz && !(prot & PROT_READ)) {
@@ -95,26 +91,25 @@ Status<void> jif_data::AddPhdr(IOVAccumulator &iovs, uint8_t prot,
     };
   }
 
-  uint32_t itree_idx = jif_itrees.size();
-  if (n_intervals) jif_itrees.push_back(itree);
+  uint32_t itree_idx = itrees.size();
+  if (n_intervals) itrees.push_back(itree);
 
   uint32_t pathname_offset = kUInt32Max;
   assert((name.size() == 0) == (ref_offset == kUInt64Max));
   if (name.size()) {
-    pathname_offset = jif_strings.size();
-    jif_strings.insert(
-        jif_strings.end(), name.data(),
-        name.data() + name.size() + 1);  // remember the NULL byte
+    pathname_offset = strings.size();
+    strings.insert(strings.end(), name.data(),
+                   name.data() + name.size() + 1);  // remember the NULL byte
   }
 
-  jif_phdrs.push_back({
-      .jifp_vbegin = start,
-      .jifp_vend = start + memsz,
-      .jifp_ref_offset = ref_offset,
-      .jifp_itree_idx = itree_idx,
-      .jifp_itree_n_nodes = static_cast<uint32_t>(n_intervals ? 1 : 0),
-      .jifp_pathname_offset = pathname_offset,
-      .jifp_prot = jprot,
+  phdrs.push_back({
+      .vbegin = start,
+      .vend = start + memsz,
+      .ref_offset = ref_offset,
+      .itree_idx = itree_idx,
+      .itree_n_nodes = static_cast<uint32_t>(n_intervals ? 1 : 0),
+      .pathname_offset = pathname_offset,
+      .prot = jprot,
   });
 
   if (filesz) iovs.Add(startp, filesz);
@@ -128,13 +123,13 @@ Status<std::tuple<jif_data, IOVAccumulator>> GetJifVmaData(
   const std::vector<VMArea> vmas = mm.get_vmas();
   const size_t max_n_pheaders = vmas.size() + ctx.mem_areas_.size();
   jif_data jif;
-  jif.jif_hdr.jif_magic[0] = 0x77;
-  jif.jif_hdr.jif_magic[1] = 'J';
-  jif.jif_hdr.jif_magic[2] = 'I';
-  jif.jif_hdr.jif_magic[3] = 'F';
+  jif.hdr.magic[0] = 0x77;
+  jif.hdr.magic[1] = 'J';
+  jif.hdr.magic[2] = 'I';
+  jif.hdr.magic[3] = 'F';
 
-  jif.jif_phdrs.reserve(max_n_pheaders);   // vmas
-  jif.jif_itrees.reserve(max_n_pheaders);  // vmas
+  jif.phdrs.reserve(max_n_pheaders);   // vmas
+  jif.itrees.reserve(max_n_pheaders);  // vmas
   IOVAccumulator iovs;
   iovs.Reserve(max_n_pheaders);
 
@@ -157,14 +152,14 @@ Status<std::tuple<jif_data, IOVAccumulator>> GetJifVmaData(
                 area.max_size, kUInt64Max, {});
   }
 
-  jif.jif_hdr.jif_n_pheaders = jif.jif_phdrs.size();
-  jif.jif_hdr.jif_strings_size = PageAlign(byte_size(jif.jif_strings));
-  jif.jif_hdr.jif_itrees_size = PageAlign(byte_size(jif.jif_itrees));
-  jif.jif_hdr.jif_ord_size = 0;
+  jif.hdr.n_pheaders = jif.phdrs.size();
+  jif.hdr.strings_size = PageAlign(byte_size(jif.strings));
+  jif.hdr.itrees_size = PageAlign(byte_size(jif.itrees));
+  jif.hdr.ord_size = 0;
 
-  size_t data_offset = jif_data_offset(jif.jif_hdr);
+  size_t data_offset = jif.hdr.data_offset();
   // Make itree offsets absolute in the JIF file.
-  for (auto &itree_node : jif.jif_itrees) {
+  for (auto &itree_node : jif.itrees) {
     for (auto &ival : itree_node.ranges) {
       if (ival.HasOffset()) ival.offset += data_offset;
     }
@@ -194,23 +189,23 @@ Status<void> SnapshotJIF(MemoryMap &mm, SnapshotContext &ctx,
   );
 
   // header
-  jif_iovecs.Add(&jif.jif_hdr, sizeof(jif_header));
+  jif_iovecs.Add(&jif.hdr, sizeof(jif_header));
 
   // pheaders
-  jif_iovecs.Add(jif.jif_phdrs);
+  jif_iovecs.Add(jif.phdrs);
   jif_iovecs.Pad(padding, kPageSize);
 
   // strings
-  jif_iovecs.Add(jif.jif_strings);
+  jif_iovecs.Add(jif.strings);
   jif_iovecs.Pad(padding, kPageSize);
 
   // itrees
-  jif_iovecs.Add(jif.jif_itrees);
+  jif_iovecs.Add(jif.itrees);
   // TODO: This could probably be zero padding too?
   jif_iovecs.Pad(ones_padding, kPageSize);
 
   // ord
-  jif_iovecs.Add(jif.jif_ord);
+  jif_iovecs.Add(jif.ord);
   jif_iovecs.Pad(padding, kPageSize);
 
   if (jif_iovecs.DataSize() > std::numeric_limits<uint32_t>::max()) {

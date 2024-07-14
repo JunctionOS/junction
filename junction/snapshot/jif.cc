@@ -24,7 +24,7 @@ std::ostream &operator<<(std::ostream &os, const jif_phdr &phdr) {
 }
 
 std::ostream &operator<<(std::ostream &os, const jif_interval_t &ival) {
-  os << "[" << std::hex << ival.start << ", " << std::hex << ival.end
+  os << "[" << std::hex << ival.start << ", " << ival.end
      << "]: " << (long)ival.offset;
   return os;
 }
@@ -40,8 +40,8 @@ std::ostream &operator<<(std::ostream &os, const jif_itree_node_t &node) {
 namespace {
 
 constexpr bool HeaderIsValid(const jif_header &hdr) {
-  return hdr.jif_magic[0] == 0x77 && hdr.jif_magic[1] == 'J' &&
-         hdr.jif_magic[2] == 'I' && hdr.jif_magic[3] == 'F';
+  return hdr.magic[0] == 0x77 && hdr.magic[1] == 'J' && hdr.magic[2] == 'I' &&
+         hdr.magic[3] == 'F';
 }
 
 // ReadHeader reads and validates the header of the JIF file
@@ -58,10 +58,10 @@ Status<jif_header> ReadHeader(KernelFile &f) {
 
 // ReadPHDRs reads a vector of PHDRs from the JIF file
 Status<std::vector<jif_phdr>> ReadPHDRs(KernelFile &f, const jif_header &hdr) {
-  std::vector<jif_phdr> phdrs(hdr.jif_n_pheaders);
+  std::vector<jif_phdr> phdrs(hdr.n_pheaders);
 
   // Read the PHDRs into the vector.
-  f.Seek(jif_pheader_offset(hdr));
+  f.Seek(hdr.pheader_offset());
   Status<void> ret = ReadFull(f, std::as_writable_bytes(std::span(phdrs)));
   if (unlikely(!ret)) return MakeError(ret);
 
@@ -73,10 +73,10 @@ Status<std::vector<jif_phdr>> ReadPHDRs(KernelFile &f, const jif_header &hdr) {
 
 // ReadStrings reads the strings
 Status<std::vector<char>> ReadStrings(KernelFile &f, const jif_header &hdr) {
-  std::vector<char> strings(hdr.jif_strings_size);
+  std::vector<char> strings(hdr.strings_size);
 
   // Read the PHDRs into the vector.
-  f.Seek(jif_strings_offset(hdr));
+  f.Seek(hdr.strings_offset());
   Status<void> ret = ReadFull(f, std::as_writable_bytes(std::span(strings)));
   if (unlikely(!ret)) return MakeError(ret);
 
@@ -86,11 +86,11 @@ Status<std::vector<char>> ReadStrings(KernelFile &f, const jif_header &hdr) {
 // ReadITrees reads the interval trees
 Status<std::vector<jif_itree_node_t>> ReadITrees(KernelFile &f,
                                                  const jif_header &hdr) {
-  std::vector<jif_itree_node_t> itrees(hdr.jif_itrees_size /
+  std::vector<jif_itree_node_t> itrees(hdr.itrees_size /
                                        sizeof(jif_itree_node_t));
 
   // Read the interval trees into the vector.
-  f.Seek(jif_itrees_offset(hdr));
+  f.Seek(hdr.itrees_offset());
   Status<void> ret = ReadFull(f, std::as_writable_bytes(std::span(itrees)));
   if (unlikely(!ret)) return MakeError(ret);
 
@@ -100,18 +100,18 @@ Status<std::vector<jif_itree_node_t>> ReadITrees(KernelFile &f,
 // ReadOrd reads the ord chunks
 Status<std::vector<jif_ord_chunk_t>> ReadOrd(KernelFile &f,
                                              const jif_header &hdr) {
-  std::vector<jif_ord_chunk_t> ords(hdr.jif_ord_size / sizeof(jif_ord_chunk_t));
+  std::vector<jif_ord_chunk_t> ords(hdr.ord_size / sizeof(jif_ord_chunk_t));
 
   // Read the PHDRs into the vector.
-  f.Seek(jif_ord_offset(hdr));
+  f.Seek(hdr.ord_offset());
   Status<void> ret = ReadFull(f, std::as_writable_bytes(std::span(ords)));
   if (unlikely(!ret)) return MakeError(ret);
 
   return ords;
 }
 
-[[nodiscard]] bool ITreeValidAux(std::span<const jif_itree_node_t> tree,
-                                 size_t node_idx, uint64_t min, uint64_t max) {
+[[nodiscard]] bool ITreeValid(std::span<const jif_itree_node_t> tree,
+                              uint64_t min, uint64_t max, size_t node_idx = 0) {
   // base case
   if (node_idx >= tree.size()) return true;
 
@@ -119,44 +119,36 @@ Status<std::vector<jif_ord_chunk_t>> ReadOrd(KernelFile &f,
 
   for (auto &ival : tree[node_idx].ranges) {
     // Check subtree
-    if (!ITreeValidAux(tree, child_idx++, min, ival.start)) return false;
+    if (!ITreeValid(tree, min, ival.start, child_idx++)) return false;
 
     // Check this interval
-    if (ival.start < min || ival.end > max) return false;
+    if (ival.IsValid() && (ival.start < min || ival.end > max)) return false;
 
     // Update minimum allowed value
     min = ival.end;
   }
 
   // Right child
-  return ITreeValidAux(tree, child_idx, min, max);
-}
-
-// in-order traversal of the tree, checking that the construction is valid.
-[[nodiscard]] bool ITreeValid(std::span<const jif_itree_node_t> tree) {
-  return ITreeValidAux(tree, 0, 0, kUInt64Max);
+  return ITreeValid(tree, min, max, child_idx);
 }
 
 // Load a pheader
 Status<void> LoadPhdr(const jif_data &jif, KernelFile &jif_file,
                       const jif_phdr &phdr) {
   // Determine the mapping permissions.
-  unsigned int prot = 0;
-  if (phdr.jifp_prot & kJIFFlagExec) prot |= PROT_EXEC;
-  if (phdr.jifp_prot & kJIFFlagWrite) prot |= PROT_WRITE;
-  if (phdr.jifp_prot & kJIFFlagRead) prot |= PROT_READ;
+  int prot = JIFProtToLinuxProt(phdr.prot);
 
   Status<void> ret;
 
   // Map the backing region, either a file or anonymous memory.
   if (phdr.HasRefFile()) {
     // Open reference file
-    const char *ptr = jif.jif_strings.data() + phdr.jifp_pathname_offset;
+    const char *ptr = jif.strings.data() + phdr.pathname_offset;
     Status<KernelFile> ref_file = KernelFile::Open(ptr, 0, FileMode::kRead);
     if (unlikely(!ref_file)) {
       LOG(ERR) << "failed to open reference file `" << ptr
-               << "` for pheader [0x" << std::hex << phdr.jifp_vbegin << "; 0x"
-               << phdr.jifp_vend << "): " << ref_file.error().ToString();
+               << "` for pheader [0x" << std::hex << phdr.vbegin << "; 0x"
+               << phdr.vend << "): " << ref_file.error();
       return MakeError(ref_file);
     }
     ret = ref_file->MMapFixed(phdr.Ptr(), phdr.Len(), prot, 0, phdr.Off());
@@ -165,17 +157,17 @@ Status<void> LoadPhdr(const jif_data &jif, KernelFile &jif_file,
   }
 
   if (unlikely(!ret)) {
-    LOG(ERR) << "Failed to map phdr backing data";
+    LOG(ERR) << "Failed to map phdr backing data: " << ret.error();
     return ret;
   }
 
-  if (phdr.jifp_itree_n_nodes == 0) return {};
+  if (phdr.itree_n_nodes == 0) return {};
 
-  std::span<const jif_itree_node_t> full_itree{jif.jif_itrees};
+  std::span<const jif_itree_node_t> full_itree{jif.itrees};
   std::span<const jif_itree_node_t> phdr_itree =
-      full_itree.subspan(phdr.jifp_itree_idx, phdr.jifp_itree_n_nodes);
+      full_itree.subspan(phdr.itree_idx, phdr.itree_n_nodes);
 
-  assert(ITreeValid(phdr_itree));
+  assert(ITreeValid(phdr_itree, phdr.vbegin, phdr.vend));
 
   // Overlay intervals on top of the backing region.
   for (const auto &node : phdr_itree) {
@@ -215,22 +207,22 @@ Status<jif_data> ParseJIF(KernelFile &file) {
 
   // Success, return metadata.
   return jif_data{
-      .jif_hdr = *hdr,
-      .jif_phdrs = *phdrs,
-      .jif_strings = *strings,
-      .jif_itrees = *itrees,
-      .jif_ord = *ords,
+      .hdr = std::move(*hdr),
+      .phdrs = std::move(*phdrs),
+      .strings = std::move(*strings),
+      .itrees = std::move(*itrees),
+      .ord = std::move(*ords),
   };
 }
 
 }  // anonymous namespace
 
 Status<jif_data> LoadJIF(KernelFile &jif_file) {
-  auto jif = ParseJIF(jif_file);
+  Status<jif_data> jif = ParseJIF(jif_file);
   if (unlikely(!jif)) return MakeError(jif);
 
   // Load the segments.
-  for (const jif_phdr &phdr : jif->jif_phdrs) {
+  for (const jif_phdr &phdr : jif->phdrs) {
     Status<void> ret = LoadPhdr(*jif, jif_file, phdr);
     if (unlikely(!ret)) return MakeError(ret);
   }
