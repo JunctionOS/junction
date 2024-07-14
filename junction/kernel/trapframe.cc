@@ -183,7 +183,6 @@ uint64_t RewindIndirectSystemCall(uint64_t rip) {
 
 void FunctionCallTf::ResetToSyscallStart() {
   tf->rip = RewindIndirectSystemCall(tf->rip);
-  tf->rax = tf->orig_rax;
 }
 
 [[noreturn]] void FunctionCallTf::JmpRestartSyscall() {

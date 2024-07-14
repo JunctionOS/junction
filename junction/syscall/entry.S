@@ -83,12 +83,20 @@
 .endm
 
 
-#define CALL_SYSCALL_FUNC(sysnr_reg, scratch_reg) \
-	shlq    $3, sysnr_reg; \
-	addq    $0x200000, sysnr_reg; \
-	callq   *(%rax); \
-	movq    %rax, RAX(%rsp); \
-	movq    %rax, %rdi
+/*
+ * CALL_SYSCALL_FUNC - macro to invoke a system call handler
+ *
+ * @sysner_reg: register containing the system call number
+ * @tf: register pointing to a thread_tf into which the result will be saved.
+ * @return_reg: register that will contain the result of the call.
+ */
+.macro CALL_SYSCALL_FUNC sysnr_reg tf return_reg
+	shlq    $3, \sysnr_reg
+	addq    $0x200000, \sysnr_reg
+	callq   *(\sysnr_reg)
+	movq    %rax, RAX(\tf)
+	movq    %rax, \return_reg
+.endm
 
 /*
  * usys_rt_sigreturn_enter - target for system calls to rt_sigreturn
@@ -473,7 +481,10 @@ __kframe_unwind_uiret:
 
 /**
  * Macro for function call syscall entry that does not stack-switching.
- * The system call number is the first stack argument.
+ * The system call number is the first stack argument or in %rax, depending on
+ * the SyscallStackArgument flag. After calling, %r11 is set to thread_self and
+ * %r10 holds the system call number, and a saved thread_tf is on the stack at
+ * %rsp.
  */
 .set SyscallStackArgument, 1
 .macro JUNCTION_FNCALL_PROLOGUE
@@ -482,22 +493,24 @@ __kframe_unwind_uiret:
 	// align stack
 	subq $8, %rsp
 
-	// get return IP
-	movq 8(%rsp), %r11
-
+	// Put system call number in %r10
 	.if SyscallStackArgument
 		// get system call number from stack
-		movq 16(%rsp), %rax
+		movq 16(%rsp), %r10
+	.else
+		// get system call number from %rax
+		movq %rax, %r10
 	.endif
 
-	// save rax to orig_rax
-	pushq %rax
-
-	// push return stack pointer
-	leaq  24(%rsp), %r10
+	// save syscall number to orig_rax
 	pushq %r10
 
+	// push return stack pointer
+	leaq  24(%rsp), %r11
+	pushq %r11
+
 	// push return IP
+	movq 24(%rsp), %r11
 	pushq   %r11
 
 	SAVETF_STACK
@@ -512,10 +525,12 @@ __kframe_unwind_uiret:
 	.set SyscallStackArgument, 1
 .endm
 
-
 /**
  * Macro for function call syscall entry that does stack-switching.
- * The system call number is the first stack argument.
+ * The system call number is the first stack argumentor in %rax, depending on
+ * the SyscallStackArgument flag. After calling, %r11 is set to thread_self and
+ * %r10 holds the system call number, and a saved thread_tf is on the stack at
+ * %rsp.
  */
  .set SyscallStackArgument, 1
 .macro JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
@@ -530,21 +545,25 @@ __kframe_unwind_uiret:
 	// and (B) ensure correct alignment for the next call
 	addq    $(JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 16), %r11;
 
-	.if SyscallStackArgument
-		// get system call number from stack
-		movq   8(%rsp), %rax
-	.endif
-
-	// push orig_rax
-	movq    %rax, -8(%r11);
-
-	// push return stack pointer
+	// save return stack pointer to new stack
 	leaq    8(%rsp), %r10;
 	movq    %r10, -16(%r11);
 
-	// push RIP to new stack
+	// save RIP to new stack
 	movq    (%rsp), %r10;
 	movq    %r10, -24(%r11);
+
+	// Put system call number in %r10
+	.if SyscallStackArgument
+		// get system call number from stack
+		movq    8(%rsp), %r10
+	.else
+		// get system call number from %rax
+		movq    %rax, %r10
+	.endif
+
+	// save syscall number to orig_rax
+	movq    %r10, -8(%r11);
 
 	// switch to new stack
 	leaq    -24(%r11), %rsp;
@@ -574,7 +593,7 @@ __kframe_unwind_uiret:
 junction_fncall_enter:
 	JUNCTION_FNCALL_PROLOGUE
 
-	CALL_SYSCALL_FUNC(%rax, %r11)
+	CALL_SYSCALL_FUNC %r10 %rsp %rdi
 
 .macro FNCALL_RET_NOSAVE
 	movq    RAX(%rsp), %rax
@@ -601,7 +620,7 @@ junction_fncall_stackswitch_enter:
 
 	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
 
-	CALL_SYSCALL_FUNC(%rax, %r11)
+	CALL_SYSCALL_FUNC %r10 %rsp %rdi
 
 .macro FNCALL_STACKSWITCH_NOSAVE
 	// restore stack pointer
@@ -628,7 +647,7 @@ junction_fncall_stackswitch_enter_uintr:
 
 	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
 
-	CALL_SYSCALL_FUNC(%rax, %r11)
+	CALL_SYSCALL_FUNC %r10 %rsp %rdi
 
 .macro FNCALL_STACKSWITCH_NOSAVE_UINTR
 	// restore stack pointer
@@ -655,7 +674,7 @@ junction_fncall_enter_preserve_regs:
 
 	JUNCTION_FNCALL_PROLOGUE_EAX
 
-	CALL_SYSCALL_FUNC(%rax, %r11)
+	CALL_SYSCALL_FUNC %r10 %rsp %rdi
 
 .macro FNCALL_RET_SAVE
 	RESTORETF_STACK
@@ -713,7 +732,7 @@ junction_fncall_stackswitch_enter_preserve_regs:
 
 	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE_EAX
 
-	CALL_SYSCALL_FUNC(%rax, %r11)
+	CALL_SYSCALL_FUNC %r10 %rsp %rdi
 
 .macro RESTORETF_RET
 	RESTORETF_STACK
@@ -737,7 +756,7 @@ junction_fncall_stackswitch_enter_preserve_regs_uintr:
 
 	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE_EAX
 
-	CALL_SYSCALL_FUNC(%rax, %r11)
+	CALL_SYSCALL_FUNC %r10 %rsp %rdi
 
 	clui
 
