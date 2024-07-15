@@ -837,8 +837,9 @@ void CheckRestartSysPostHandler(SyscallFrame &entry, int rax,
 
 // rax is non-zero only if returning from a system call.
 void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
+  assert(&mythread() == &this_thread());
   std::optional<DeliveredSignal> sig;
-  Process &p = this_thread().get_process();
+  Thread &myth = this_thread();
 
   // Check for signals or job control STOPs.
   while (true) {
@@ -848,23 +849,23 @@ void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
     if (sig) break;
 
     // Park the thread here if stopping.
-    if (p.is_stopped()) {
+    if (myth.get_process().is_stopped()) {
       // This thread should already have a non-zero interrupt state, but this
       // clears the prepared flag to allow the thread to block again on the
       // stopped threads WaitQueue.
       set_interrupt_state_interrupted();
-      p.ThreadStopWait(mythread());
+      myth.StopWait(rax);
       continue;
     }
 
     // Check if we need to restart the system call.
     if (!IsRestartSys(rax)) return;
-    this_thread().GetSyscallFrame().JmpRestartSyscall();
+    myth.GetSyscallFrame().JmpRestartSyscall();
     std::unreachable();
   }
 
   if (IsRestartSys(rax))
-    CheckRestartSysPostHandler(this_thread().GetSyscallFrame(), rax, *sig);
+    CheckRestartSysPostHandler(myth.GetSyscallFrame(), rax, *sig);
 
   RunOnSyscallStack([this, d = *sig, entry = &entry]() mutable {
     // HACK: entry might be sitting on top of this RSP, will need a better a
@@ -887,7 +888,7 @@ void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
       if (!d) {
         if (p.is_stopped()) {
           set_interrupt_state_interrupted();
-          p.ThreadStopWait(myth);
+          myth.StopWait(0);
           continue;
         }
         break;

@@ -254,7 +254,7 @@ class Thread {
   void DoSave(Archive &ar) {
     uintptr_t child_tid_ptr = reinterpret_cast<uintptr_t>(cold().child_tid_);
     ar(child_tid_ptr, cold().xstate_, get_sighand());
-    GetTrapframe().DoSave(ar);
+    GetTrapframe().DoSave(ar, cold().stopped_rax_);
 
     bool has_fsbase = GetCaladanThread()->has_fsbase;
     ar(has_fsbase);
@@ -290,6 +290,7 @@ class Thread {
   struct ThreadColdData {
     ThreadColdData(Thread &th) : sighand_(th) {}
     int xstate_;  // exit state
+    int stopped_rax_;
     ThreadSignalHandler sighand_;
     std::atomic<size_t> ref_count_{1};
     // Data for procfs entries for this thread.
@@ -319,6 +320,9 @@ class Thread {
                 sizeof((thread_t *)0)->junction_cold_state_buf);
 
   bool IsStopped() const;
+
+  // Called from the signal handler when responding to a SIGSTOP.
+  void StopWait(int rax);
 
   // Called by a holder of a ThreadRef when the ref count hits 0.
   static void DestroyThread(Thread *th);
@@ -544,7 +548,7 @@ class Process : public std::enable_shared_from_this<Process> {
   // Called by threads to wait for SIGCONT. This call must occur inside of a
   // system call, and GetSyscallFrame() must be contain a trapframe that is
   // ready to be restored.
-  void ThreadStopWait(Thread &th);
+  void ThreadStopWait();
 
   Status<void> WaitForFullStop();
   Status<void> WaitForNthStop(size_t stopcount);

@@ -66,7 +66,7 @@ class Trapframe {
   // stack.
   virtual void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) = 0;
 
-  virtual void DoSave(cereal::BinaryOutputArchive &ar) const = 0;
+  virtual void DoSave(cereal::BinaryOutputArchive &ar, int rax) const = 0;
 };
 
 // Trapframes that are created via system call entry to the Junction kernel.
@@ -77,15 +77,6 @@ class SyscallFrame : virtual public Trapframe {
 
   // Modify the trapframe to repeat the system call when restored.
   virtual void ResetToSyscallStart() = 0;
-
-  // Reset a possible ERESTARTSYS to EINTR.
-  virtual void ResetRestartRax() = 0;
-
-  // Mark this trapframe as a non-syscall trapframe (ie from an interrupt).
-  virtual void ClearSyscallNr() = 0;
-
-  // Check if this trapframe resulted from a system call or interrupt.
-  [[nodiscard]] virtual bool is_from_syscall() const = 0;
 
   // Set the value for RAX in this trapframe.
   virtual void SetRax(uint64_t rax,
@@ -140,16 +131,6 @@ class KernelSignalTf : public SyscallFrame {
     if (rsp) sigframe.uc.uc_mcontext.rsp = *rsp;
   }
 
-  void ResetRestartRax() override;
-
-  [[nodiscard]] bool is_from_syscall() const override {
-    return static_cast<size_t>(sigframe.uc.uc_mcontext.trapno) < 4096;
-  }
-
-  void ClearSyscallNr() override {
-    sigframe.uc.uc_mcontext.trapno = std::numeric_limits<size_t>::max();
-  }
-
   [[nodiscard]] inline uint64_t GetRsp() const override {
     return sigframe.GetRsp();
   }
@@ -189,10 +170,7 @@ class KernelSignalTf : public SyscallFrame {
     unwind_tf.rip = GetUnwinderFunction();
   }
 
-  void DoSave(cereal::BinaryOutputArchive &ar) const override {
-    ar(SigframeType::kKernelSignal);
-    sigframe.DoSave(ar);
-  }
+  void DoSave(cereal::BinaryOutputArchive &ar, int rax) const override;
 
   static KernelSignalTf *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *rsp) {
     KernelSignalTf *tf = AllocateOnStack<KernelSignalTf>(rsp);
@@ -239,15 +217,6 @@ class FunctionCallTf : public SyscallFrame {
 
   [[noreturn]] void JmpRestartSyscall() override;
   void ResetToSyscallStart() override;
-  void ResetRestartRax() override;
-
-  void ClearSyscallNr() override {
-    tf->orig_rax = std::numeric_limits<size_t>::max();
-  }
-
-  [[nodiscard]] bool is_from_syscall() const override {
-    return static_cast<size_t>(tf->orig_rax) < 4096;
-  }
 
   void SetRax(uint64_t rax, std::optional<uint64_t> rsp) override {
     tf->rax = rax;
@@ -278,10 +247,7 @@ class FunctionCallTf : public SyscallFrame {
     return *jframe;
   }
 
-  void DoSave(cereal::BinaryOutputArchive &ar) const override {
-    ar(SigframeType::kJunctionTf);
-    ar(*tf);
-  }
+  void DoSave(cereal::BinaryOutputArchive &ar, int rax) const override;
 
   static FunctionCallTf *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *rsp) {
     FunctionCallTf *fncall_tf = AllocateOnStack<FunctionCallTf>(rsp);
@@ -359,10 +325,7 @@ class UintrTf : public Trapframe {
     return *jframe;
   }
 
-  void DoSave(cereal::BinaryOutputArchive &ar) const override {
-    ar(SigframeType::kJunctionUIPI);
-    sigframe.DoSave(ar);
-  }
+  void DoSave(cereal::BinaryOutputArchive &ar, int rax) const override;
 
   static UintrTf *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *rsp) {
     UintrTf *tf = AllocateOnStack<UintrTf>(rsp);

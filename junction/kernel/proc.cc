@@ -500,13 +500,7 @@ std::pair<idtype_t, id_t> PidtoId(pid_t pid) {
   return {P_PID, pid};
 }
 
-void Process::ThreadStopWait(Thread &th) {
-  // Flag should be set on entry.
-  assert(rt::GetInterruptibleStatus(th.GetCaladanThread()) !=
-         rt::InterruptibleStatus::kNone);
-  assert(!check_prepared(th.GetCaladanThread()));
-  assert(th.in_kernel());
-
+void Process::ThreadStopWait() {
   rt::SpinGuard g(child_thread_lock_);
   if (!is_stopped()) return;
 
@@ -520,6 +514,16 @@ void Process::ThreadStopWait(Thread &th) {
   rt::Wait(child_thread_lock_, stopped_threads_,
            [&]() { return !is_stopped() || exited_; });
   stopped_count_--;
+}
+
+void Thread::StopWait(int rax) {
+  // Flag should be set on entry.
+  assert(rt::GetInterruptibleStatus(GetCaladanThread()) !=
+         rt::InterruptibleStatus::kNone);
+  assert(!check_prepared(GetCaladanThread()));
+  assert(in_kernel());
+  cold().stopped_rax_ = rax;
+  myproc().ThreadStopWait();
 }
 
 long usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru) {

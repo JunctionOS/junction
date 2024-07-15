@@ -78,11 +78,6 @@ extern "C" [[noreturn]] void UintrKFrameLoopReturn(k_sigframe *frame,
   }
 }
 
-void KernelSignalTf::ResetRestartRax() {
-  if (is_from_syscall() && IsRestartSys(sigframe.uc.uc_mcontext.rax))
-    sigframe.uc.uc_mcontext.rax = -EINTR;
-}
-
 void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   th.SetTrapframe(*this);
   if (uintr_enabled) {
@@ -154,10 +149,6 @@ FunctionCallTf &FunctionCallTf::CreateOnSyscallStack(Thread &th) {
   return *stack_wrapper;
 }
 
-void FunctionCallTf::ResetRestartRax() {
-  if (is_from_syscall() && IsRestartSys(tf->rax)) tf->rax = -EINTR;
-}
-
 uint64_t RewindIndirectSystemCall(uint64_t rip) {
   static const uint8_t imm[] = {0xff, 0x14, 0x25};
   const uint8_t *insns = reinterpret_cast<uint8_t *>(rip);
@@ -183,6 +174,7 @@ uint64_t RewindIndirectSystemCall(uint64_t rip) {
 
 void FunctionCallTf::ResetToSyscallStart() {
   tf->rip = RewindIndirectSystemCall(tf->rip);
+  tf->rax = tf->orig_rax;
 }
 
 [[noreturn]] void FunctionCallTf::JmpRestartSyscall() {
@@ -249,26 +241,56 @@ void UintrTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   unwind_tf.rip = reinterpret_cast<uint64_t>(UintrLoopReturn);
 }
 
+void KernelSignalTf::DoSave(cereal::BinaryOutputArchive &ar, int rax) const {
+  ar(SigframeType::kKernelSignal);
+  if (IsRestartSys(rax)) {
+    // Copy the frame, update it to restart the system call. The pointer to the
+    // xstate is still valid, so no need to copy/update that.
+    k_sigframe copy = sigframe;
+    // restore rax
+    copy.uc.uc_mcontext.rax = sigframe.uc.uc_mcontext.trapno;
+    // go back to syscall instruction
+    copy.uc.uc_mcontext.rip -= 2;
+    copy.DoSave(ar);
+  } else {
+    sigframe.DoSave(ar);
+  }
+}
+
+void FunctionCallTf::DoSave(cereal::BinaryOutputArchive &ar, int rax) const {
+  ar(SigframeType::kJunctionTf);
+  if (IsRestartSys(rax)) {
+    thread_tf copy = *tf;
+    copy.rax = tf->orig_rax;
+    copy.rip = RewindIndirectSystemCall(tf->rip);
+    ar(copy);
+  } else {
+    ar(*tf);
+  }
+}
+
+void UintrTf::DoSave(cereal::BinaryOutputArchive &ar, int rax) const {
+  ar(SigframeType::kJunctionUIPI);
+  assert(!IsRestartSys(rax));
+  sigframe.DoSave(ar);
+}
+
 void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th) {
   uint64_t stack_bottom = th->get_syscall_stack_rsp();
   SigframeType trapframe_type;
   ar(trapframe_type);
 
-  KernelSignalTf *ktf;
-  FunctionCallTf *ftf;
   Trapframe *tf;
 
   switch (trapframe_type) {
     case SigframeType::kKernelSignal:
-      tf = ktf = KernelSignalTf::DoLoad(ar, &stack_bottom);
-      ktf->ResetRestartRax();
+      tf = KernelSignalTf::DoLoad(ar, &stack_bottom);
       break;
     case SigframeType::kJunctionUIPI:
       tf = UintrTf::DoLoad(ar, &stack_bottom);
       break;
     case SigframeType::kJunctionTf:
-      tf = ftf = FunctionCallTf::DoLoad(ar, &stack_bottom);
-      ftf->ResetRestartRax();
+      tf = FunctionCallTf::DoLoad(ar, &stack_bottom);
       break;
     default:
       BUG();
