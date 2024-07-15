@@ -503,10 +503,8 @@ bool WaitInterruptible(L &lock, Waker &waker) {
   waker.Arm(th);
   lock.UnlockAndPark();
   lock.Lock();
-  waker.Disarm(th);
-
-  // Check if a signal was delivered while blocked.
-  return GetInterruptibleStatus(th) == InterruptibleStatus::kNone;
+  // If the waker is still armed, a signal woke us up.
+  return !waker.Disarm(th);
 }
 
 // WaitInterruptible blocks the calling thread until the predicate becomes true
@@ -547,14 +545,13 @@ bool WaitInterruptibleNoRecheck(UniqueLock<L> &&lock, Waker &waker) {
   lock.UnlockAndPark();
 
   // Check if a signal was delivered while blocked.
-  InterruptibleStatus status = GetInterruptibleStatus(th);
-  if (unlikely(status != InterruptibleStatus::kNone)) {
+  if (unlikely(GetInterruptibleStatus(th) != InterruptibleStatus::kNone)) {
     // If a signal was delivered, use lock to synchronize with waker thread to
     // ensure that the waker object is disarmed before returning.
     lock.Lock();
-    waker.Disarm(th);
-    lock.Unlock();
-    return false;
+    // A signal delivery may race with a normal wake. If the waker is already
+    // disarmed, then a regular wake has already occured.
+    return !waker.Disarm(th);
   }
 
   return true;
