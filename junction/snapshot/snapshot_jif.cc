@@ -179,7 +179,6 @@ Status<void> SnapshotJIF(MemoryMap &mm, SnapshotContext &ctx,
   if (unlikely(!jif_file)) return MakeError(jif_file);
 
   std::array<std::byte, kPageSize> padding{std::byte{0}};
-  std::array<std::byte, kPageSize> ones_padding{std::byte{0xff}};
 
   IOVAccumulator jif_iovecs;
   jif_iovecs.Reserve(1 /* header */ + 2 /* pheaders + padding */
@@ -201,8 +200,7 @@ Status<void> SnapshotJIF(MemoryMap &mm, SnapshotContext &ctx,
 
   // itrees
   jif_iovecs.Add(jif.itrees);
-  // TODO: This could probably be zero padding too?
-  jif_iovecs.Pad(ones_padding, kPageSize);
+  jif_iovecs.Pad(padding, kPageSize);
 
   // ord
   jif_iovecs.Add(jif.ord);
