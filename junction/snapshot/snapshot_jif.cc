@@ -67,26 +67,26 @@ Status<void> jif_data::AddPhdr(IOVAccumulator &iovs, uint8_t prot,
   }
 
   // Reduce filesz if possible.
-  filesz = PageAlign(GetMinSize(startp, filesz));
+  uint64_t non_zero_sz = PageAlign(GetMinSize(startp, filesz));
 
   jif_itree_node_t itree;
   itree.InitEmpty();
   size_t n_intervals = 0;
 
-  if (filesz) {
+  if (non_zero_sz) {
     // store the file data
     itree.ranges[n_intervals++] = {
         .start = start,
-        .end = start + filesz,
+        .end = start + non_zero_sz,
         .offset = iovs.DataSize()  // needs fixing
     };
   }
 
-  if (memsz > filesz) {
-    // we have a zero filled range
+  if (ref_offset != kUInt64Max && filesz > non_zero_sz) {
+    // we have a zero filled range in a file
     itree.ranges[n_intervals++] = {
-        .start = start + filesz,
-        .end = start + memsz,
+        .start = start + non_zero_sz,
+        .end = start + filesz,
         .offset = kUInt64Max,  // zero
     };
   }
