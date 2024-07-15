@@ -79,8 +79,10 @@ po::options_description GetOptions() {
                                       "port number to setup control port on")(
       "strace,s", po::bool_switch()->default_value(false), "strace mode")(
       "restore,r", po::bool_switch()->default_value(false),
-      "restore from a snapshot")("jif", po::bool_switch()->default_value(false),
-                                 "use a jif")(
+      "restore from a snapshot")("kernel-restore,k",
+                                 po::bool_switch()->default_value(false),
+                                 "restore JIFs through kernel module")(
+      "jif", po::bool_switch()->default_value(false), "use a jif")(
       "loglevel,l", po::value<int>()->default_value(LOG_DEBUG),
       "the maximum log level to print")(
       "mem-trace", po::value<int>()->default_value(0),
@@ -139,6 +141,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   max_loglevel = vm["loglevel"].as<int>();
   madv_remap = vm["madv_remap"].as<bool>();
   restore = vm["restore"].as<bool>();
+  kernel_restoring_ = vm["kernel-restore"].as<bool>();
   jif_ = vm["jif"].as<bool>();
   snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
   cache_linux_fs_ = vm["cache_linux_fs"].as<bool>();

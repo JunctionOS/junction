@@ -288,14 +288,30 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
   Status<KernelFile> jif_file = KernelFile::Open(jif_path, 0, FileMode::kRead);
   if (!jif_file) return MakeError(jif_file);
 
-  Status<jif_data> ret = ::junction::LoadJIF(*jif_file);
+  if (GetCfg().kernel_restoring()) {
+    Status<KernelFile> jifpager_dev =
+        KernelFile::Open("/dev/jif_pager", 0, FileMode::kWrite);
+    if (unlikely(!jifpager_dev)) return MakeError(jifpager_dev);
+
+    std::span<const std::byte> path_bytes = std::span<const std::byte>(
+        reinterpret_cast<std::byte const *>(jif_path.data()), jif_path.size());
+
+    Status<size_t> ret = (*jifpager_dev).Write(path_bytes);
+
+    if (unlikely(!ret)) {
+      LOG(ERR) << "Kernel JIF load failed: " << ret.error();
+      return MakeError(ret);
+    };
+  } else {
+    Status<jif_data> ret = ::junction::LoadJIF(*jif_file);
+
+    if (unlikely(!ret)) {
+      LOG(ERR) << "Userspace JIF load failed: " << ret.error();
+      return MakeError(ret);
+    };
+  }
 
   Time end_jif = Time::Now();
-
-  if (unlikely(!ret)) {
-    LOG(ERR) << "JIF load failed: " << ret.error();
-    return MakeError(ret);
-  };
 
   LOG(INFO) << "restore time " << (end_jif - start).Microseconds()
             << " metadata: " << (end_metadata - start).Microseconds()
