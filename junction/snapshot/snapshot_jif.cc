@@ -112,7 +112,7 @@ Status<void> jif_data::AddPhdr(IOVAccumulator &iovs, uint8_t prot,
       .prot = jprot,
   });
 
-  if (filesz) iovs.Add(startp, filesz);
+  if (non_zero_sz) iovs.Add(startp, non_zero_sz);
   return {};
 }
 
