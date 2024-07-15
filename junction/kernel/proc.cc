@@ -165,7 +165,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
 }  // namespace detail
 
 void Thread::DestroyThread(Thread *th) {
-  assert(th->ref_count_ == 0);
+  assert(th->cold().ref_count_ == 0);
   thread_t *cth = th->GetCaladanThread();
   assert(cth != thread_self());
   th->~Thread();
@@ -186,6 +186,7 @@ Thread::~Thread() {
   bool proc_done = proc_->ThreadFinish(this);
   if (tid_ != proc_->get_pid()) detail::ReleasePid(tid_);
   if (proc_done) proc_->ProcessFinish();
+  DestroyCold();
 }
 
 bool Thread::IsStopped() const { return proc_->is_stopped(); }
@@ -611,8 +612,8 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   Thread *tptr = &mythread();
   tptr->set_xstate(status);
   rt::Preempt::Lock();
-  if (--tptr->ref_count_ <= 0) {
-    assert(tptr->ref_count_ == 0);
+  if (--tptr->cold().ref_count_ <= 0) {
+    assert(tptr->cold().ref_count_ == 0);
     rt::Preempt::Unlock();
     RunOnSyscallStack([tptr]() {
       tptr->~Thread();

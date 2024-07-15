@@ -59,7 +59,9 @@ class ThreadRef;
 class Thread {
  public:
   Thread(std::shared_ptr<Process> proc, pid_t tid)
-      : proc_(std::move(proc)), tid_(tid) {}
+      : proc_(std::move(proc)), tid_(tid) {
+    InitCold();
+  }
   ~Thread();
 
   Thread(Thread &&) = delete;
@@ -69,17 +71,17 @@ class Thread {
 
   [[nodiscard]] pid_t get_tid() const { return tid_; }
   [[nodiscard]] Process &get_process() const { return *proc_; }
-  [[nodiscard]] uint32_t *get_child_tid() const { return child_tid_; }
+  [[nodiscard]] uint32_t *get_child_tid() const { return cold().child_tid_; }
   [[nodiscard]] bool needs_interrupt() const {
     assert(GetCaladanThread() == thread_self());
     return thread_interrupted(GetCaladanThread());
   }
 
-  [[nodiscard]] ThreadSignalHandler &get_sighand() { return sighand_; }
-  [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
+  [[nodiscard]] ThreadSignalHandler &get_sighand() { return cold().sighand_; }
+  [[nodiscard]] procfs::ProcFSData &get_procfs() { return cold().procfs_data_; }
 
-  void set_child_tid(uint32_t *tid) { child_tid_ = tid; }
-  void set_xstate(int xstate) { xstate_ = xstate; }
+  void set_child_tid(uint32_t *tid) { cold().child_tid_ = tid; }
+  void set_xstate(int xstate) { cold().xstate_ = xstate; }
 
   thread_t *GetCaladanThread() {
     auto *ptr =
@@ -105,7 +107,7 @@ class Thread {
   void Kill() {
     siginfo_t info;
     info.si_signo = SIGKILL;
-    if (sighand_.EnqueueSignal(info)) SendIpi();
+    if (get_sighand().EnqueueSignal(info)) SendIpi();
   }
 
   [[nodiscard]] Duration GetRuntime() {
@@ -250,8 +252,8 @@ class Thread {
 
   template <class Archive>
   void DoSave(Archive &ar) {
-    uintptr_t child_tid_ptr = reinterpret_cast<uintptr_t>(child_tid_);
-    ar(child_tid_ptr, xstate_, sighand_);
+    uintptr_t child_tid_ptr = reinterpret_cast<uintptr_t>(cold().child_tid_);
+    ar(child_tid_ptr, cold().xstate_, get_sighand());
     GetTrapframe().DoSave(ar);
 
     bool has_fsbase = GetCaladanThread()->has_fsbase;
@@ -261,10 +263,11 @@ class Thread {
 
   Thread(std::shared_ptr<Process> &&proc, pid_t tid,
          cereal::BinaryInputArchive &ar)
-      : proc_(proc), tid_(tid), sighand_(*this) {
+      : proc_(proc), tid_(tid) {
+    InitCold();
     uintptr_t child_tid_ptr;
-    ar(child_tid_ptr, xstate_, sighand_);
-    child_tid_ = reinterpret_cast<uint32_t *>(child_tid_ptr);
+    ar(child_tid_ptr, cold().xstate_, get_sighand());
+    cold().child_tid_ = reinterpret_cast<uint32_t *>(child_tid_ptr);
 
     mark_enter_kernel();
 
@@ -282,6 +285,38 @@ class Thread {
   friend class Process;
   friend class ThreadRef;
   friend void FinishExit(int status) __noreturn;
+
+  // Cold per-thread data that is stored outside of the Thread class.
+  struct ThreadColdData {
+    ThreadColdData(Thread &th) : sighand_(th) {}
+    int xstate_;  // exit state
+    ThreadSignalHandler sighand_;
+    std::atomic<size_t> ref_count_{1};
+    // Data for procfs entries for this thread.
+    procfs::ProcFSData procfs_data_;
+    uint32_t *child_tid_{nullptr};  // Used for clone3/exit
+  };
+
+  ThreadColdData &cold() {
+    return *reinterpret_cast<ThreadColdData *>(
+        GetCaladanThread()->junction_cold_state_buf);
+  }
+
+  const ThreadColdData &cold() const {
+    return *reinterpret_cast<const ThreadColdData *>(
+        GetCaladanThread()->junction_cold_state_buf);
+  }
+
+  void InitCold() { new (&cold()) ThreadColdData(*this); }
+
+  void DestroyCold() { (&cold())->~ThreadColdData(); }
+
+  // Make sure that Caladan's thread def has enough room for the Thread class
+  static_assert(offsetof(thread_t, junction_cold_state_buf) %
+                    alignof(ThreadColdData) ==
+                0);
+  static_assert(sizeof(ThreadColdData) <=
+                sizeof((thread_t *)0)->junction_cold_state_buf);
 
   bool IsStopped() const;
 
@@ -310,21 +345,11 @@ class Thread {
   // Hot items
   std::shared_ptr<Process> proc_;  // the process this thread is associated with
   const pid_t tid_;                // the thread identifier
-  ThreadSignalHandler sighand_{*this};
 
   Trapframe *cur_trapframe_;
 
-  // Cold items - only accessed at thread exit
-  uint32_t *child_tid_{nullptr};  // Used for clone3/exit
-  int xstate_;                    // exit state
-
   // Wrapper around entry trapframe pointer.
   FunctionCallTf fcall_tf;
-
-  std::atomic<size_t> ref_count_{1};
-
-  // Data for procfs entries for this thread.
-  procfs::ProcFSData procfs_data_;
 };
 
 // Simple shared pointer-like object to allow references to a Thread without
@@ -338,7 +363,7 @@ class ThreadRef {
   explicit operator bool() const noexcept { return th_ != nullptr; }
   ~ThreadRef() {
     if (!th_) return;
-    if (--th_->ref_count_ > 0) return;
+    if (--th_->cold().ref_count_ > 0) return;
     Thread::DestroyThread(th_);
   }
 
@@ -351,24 +376,25 @@ class ThreadRef {
 
   // Allow copy.
   ThreadRef(const ThreadRef &o) : th_(o.th_) {
-    if (th_) th_->ref_count_ += 1;
+    if (th_) th_->cold().ref_count_ += 1;
   }
 
   ThreadRef &operator=(const ThreadRef &o) {
     th_ = o.th_;
-    if (th_) th_->ref_count_ += 1;
+    if (th_) th_->cold().ref_count_ += 1;
     return *this;
   }
 
  private:
   friend class Thread;
-  ThreadRef(Thread *th) : th_(th) { th_->ref_count_ += 1; }
+  ThreadRef(Thread *th) : th_(th) { th_->cold().ref_count_ += 1; }
   Thread *th_;
 };
 
 inline ThreadRef Thread::get_ref() { return ThreadRef(this); }
 
 // Make sure that Caladan's thread def has enough room for the Thread class
+static_assert(offsetof(thread_t, junction_tstate_buf) % alignof(Thread) == 0);
 static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 
 // Process is a UNIX process object.

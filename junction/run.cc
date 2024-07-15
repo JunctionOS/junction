@@ -61,9 +61,8 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   tf.rsp = std::get<0>(*ret);
   tf.rip = std::get<1>(*ret);
 
-  if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
+  if (unlikely(GetCfg().mem_trace_timeout() > 0))
     (*proc)->get_mem_map().EnableTracing();
-  }
 
   th.mark_enter_kernel();
   entry.MakeUnwinderSysret(th, th.GetCaladanThread()->tf);
