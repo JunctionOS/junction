@@ -98,7 +98,6 @@ jobs:
           ./scripts/build.sh -d -s
 
       - name: Test (ELF snapshots)
-        continue-on-error: true
         run: ./scripts/test.sh 'snapshot_elf|restore_elf'
         if: ${{ always() }}
         # Update job status if this step fails
@@ -106,7 +105,6 @@ jobs:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       - name: Test (JIF snapshots w/ post-processing)
-        continue-on-error: true
         run: ./scripts/test.sh 'snapshot_jif|build_itree|restore_itrees_jif'
         if: ${{ always() }}
         # Update job status if this step fails
@@ -114,7 +112,6 @@ jobs:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       # - name: Test (JIF snapshots w/out post-processing)
-      #   continue-on-error: true
       #   run: ./scripts/test.sh 'snapshot_jif|restore_jif'
       #   if: ${{ always() }}
       #   # Update job status if this step fails
@@ -122,7 +119,6 @@ jobs:
       #     JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       - name: Test debug (ELF snapshots)
-        continue-on-error: true
         run: ./scripts/test.sh -d 'snapshot_elf|restore_elf'
         if: ${{ always() }}
         # Update job status if this step fails
@@ -130,7 +126,6 @@ jobs:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       - name: Test debug (JIF snapshots w/ post-processing)
-        continue-on-error: true
         run: ./scripts/test.sh -d 'snapshot_jif|build_itree|restore_itrees_jif'
         if: ${{ always() }}
         # Update job status if this step fails
@@ -138,7 +133,6 @@ jobs:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       # - name: Test debug (JIF snapshots w/out post-processing)
-      #   continue-on-error: true
       #   run: ./scripts/test.sh -d 'snapshot_jif|restore_jif'
       #   if: ${{ always() }}
       #   # Update job status if this step fails
