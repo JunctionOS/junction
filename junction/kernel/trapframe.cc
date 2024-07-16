@@ -159,8 +159,12 @@ uint64_t RewindIndirectSystemCall(uint64_t rip) {
   static_assert(SYSTBL_TRAMPOLINE_LOC >> 16 == 0x20);
   // The 7-byte immediate variant will have a 0x20 at rip - 2 regardless of
   // which entry point was used. The 2-byte register variant will have an 0xff
-  // at this position
+  // at this position.
   bool is_reg_operand = *(insns - 2) == 0xff;
+
+  // NOTE: the register variant is not supported with snapshotting and we are
+  // trying to avoid generating it in glibc.
+  assert(!is_reg_operand);
 
   // check for debug purposes only
   bool is_imm_operand = memcmp(imm, insns - 7, 3) == 0;

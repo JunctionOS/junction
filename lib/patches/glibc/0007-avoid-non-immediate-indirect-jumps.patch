@@ -1,0 +1,72 @@
+From e6550f1ee5ab01fbb46e5d27335c35b3e0c4778f Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Tue, 16 Jul 2024 11:51:55 -0400
+Subject: [PATCH 7/7] avoid non-immediate indirect jumps
+
+---
+ nptl/pthread_kill.c              | 17 ++++++++++++++---
+ sysdeps/unix/sysv/linux/mmap64.c |  6 +++++-
+ 2 files changed, 19 insertions(+), 4 deletions(-)
+
+diff --git a/nptl/pthread_kill.c b/nptl/pthread_kill.c
+index 71e5a7bf5b..251abe95c5 100644
+--- a/nptl/pthread_kill.c
++++ b/nptl/pthread_kill.c
+@@ -21,6 +21,17 @@
+ #include <pthreadP.h>
+ #include <shlib-compat.h>
+ 
++// separate out system call functions to prevent GCC from caching address of
++// junction_fncall_enter.
++static int  __attribute__ ((noinline)) dotgkill(pid_t tgid, pid_t tid, int sig)
++{
++  return INTERNAL_SYSCALL_CALL (tgkill, tgid, tid, sig);
++}
++
++static pid_t __attribute__ ((noinline)) dogettid(void) {
++  return INTERNAL_SYSCALL_CALL (gettid);
++}
++
+ /* Sends SIGNO to THREADID.  If the thread is about to exit or has
+    already exited on the kernel side, return NO_TID.  Otherwise return
+    0 or an error code. */
+@@ -39,8 +50,8 @@ __pthread_kill_implementation (pthread_t threadid, int signo, int no_tid)
+          delivery of all pending signals after unblocking in the code
+          below.  POSIX only guarantees delivery of a single signal,
+          which may not be the right one.)  */
+-      pid_t tid = INTERNAL_SYSCALL_CALL (gettid);
+-      int ret = INTERNAL_SYSCALL_CALL (tgkill, __getpid (), tid, signo);
++      pid_t tid = dogettid();
++      int ret = dotgkill ( __getpid (), tid, signo);
+       return INTERNAL_SYSCALL_ERROR_P (ret) ? INTERNAL_SYSCALL_ERRNO (ret) : 0;
+     }
+ 
+@@ -59,7 +70,7 @@ __pthread_kill_implementation (pthread_t threadid, int signo, int no_tid)
+     ret = no_tid;
+   else
+     {
+-      ret = INTERNAL_SYSCALL_CALL (tgkill, __getpid (), pd->tid, signo);
++      ret = dotgkill ( __getpid (), pd->tid, signo);
+       ret = INTERNAL_SYSCALL_ERROR_P (ret) ? INTERNAL_SYSCALL_ERRNO (ret) : 0;
+     }
+ 
+diff --git a/sysdeps/unix/sysv/linux/mmap64.c b/sysdeps/unix/sysv/linux/mmap64.c
+index f1869fac0c..6201b7c6e1 100644
+--- a/sysdeps/unix/sysv/linux/mmap64.c
++++ b/sysdeps/unix/sysv/linux/mmap64.c
+@@ -50,7 +50,11 @@ __mmap64 (void *addr, size_t len, int prot, int flags, int fd, off64_t offset)
+   if (offset & MMAP_OFF_MASK)
+     return (void *) INLINE_SYSCALL_ERROR_RETURN_VALUE (EINVAL);
+ 
+-  MMAP_PREPARE (addr, len, prot, flags, fd, offset);
++  // On x86, this call potential adds the MAP_32BIT flag which Junction's MM
++  // will not respect. Disabling this check also causes GCC to not cache the
++  // memory location of junction_fncall_enter since there is only one indirect
++  // call to that target now.
++  //MMAP_PREPARE (addr, len, prot, flags, fd, offset);
+ #ifdef __NR_mmap2
+   return (void *) MMAP_CALL (mmap2, addr, len, prot, flags, fd,
+ 			     (off_t) (offset / MMAP2_PAGE_UNIT));
+-- 
+2.43.0
+
