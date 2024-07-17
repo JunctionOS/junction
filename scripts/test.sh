@@ -63,9 +63,9 @@ fi
 pushd "${TEST_DIR}" || exit 255
 export GTEST_COLOR=1
 if [ "${REGEX}" = "" ]; then
-  sudo "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT
+  sudo -E "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT
 else
-  sudo "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT --tests-regex "${REGEX}"
+  sudo -E "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT --tests-regex "${REGEX}"
 fi
 ec=$?
 

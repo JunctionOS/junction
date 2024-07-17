@@ -56,8 +56,10 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] bool stack_switch_enabled() const { return stack_switching; }
   [[nodiscard]] bool madv_dontneed_remap() const { return madv_remap; }
   [[nodiscard]] bool cache_linux_fs() const { return cache_linux_fs_; }
+  [[nodiscard]] bool restore_populate() const { return restore_populate_; }
   [[nodiscard]] int snapshot_on_stop() const { return snapshot_on_stop_; }
   [[nodiscard]] int mem_trace_timeout() const { return mem_trace_timeout_; }
+  [[nodiscard]] bool snapshot_terminate() const { return terminate_after_snapshot_; }
   [[nodiscard]] uint16_t port() const { return port_; }
 
   [[nodiscard]] std::string_view get_snapshot_prefix() const {
@@ -75,6 +77,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   bool strace;
   bool madv_remap;
   bool expecting_snapshot_;
+  bool restore_populate_;
 
   // Cold state
   std::string chroot_path;
@@ -92,6 +95,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   bool jif_;
   bool stack_switching;
   bool cache_linux_fs_;
+  bool terminate_after_snapshot_;
   int snapshot_on_stop_;
   int mem_trace_timeout_;
   std::string snapshot_prefix_;

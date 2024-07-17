@@ -5,29 +5,29 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
   # Uncomment below to have snapshot tests run with a single kthread.
   # add_test(
   #   NAME ${test_name}_snapshot_st
-  #   COMMAND sh -c "rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path_ts_st} -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands}"
+  #   COMMAND sh -c "rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path_ts_st} $EXTRA_JUNCTION_FLAGS -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands}"
   # )
 
   # add_test(
   #   NAME ${test_name}_restore_st
-  #   COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path_ts_st} -r -- /tmp/${test_name}.metadata /tmp/${test_name}.elf"
+  #   COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path_ts_st} $EXTRA_JUNCTION_FLAGS -r -- /tmp/${test_name}.metadata /tmp/${test_name}.elf"
   # )
 
   # set_tests_properties(${test_name}_restore_st PROPERTIES DEPENDS ${test_name}_snapshot_st)
 
   add_test(
     NAME ${test_name}_snapshot_elf
-    COMMAND sh -c "rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands}"
+    COMMAND sh -c "rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands}"
   )
 
   add_test(
     NAME ${test_name}_restore_elf
-    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -r -- /tmp/${test_name}.metadata /tmp/${test_name}.elf && rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf"
+    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS -r -- /tmp/${test_name}.metadata /tmp/${test_name}.elf && rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf"
   )
 
   add_test(
     NAME ${test_name}_snapshot_jif
-    COMMAND sh -c "rm -f /tmp/${test_name}.jm /tmp/${test_name}.jif && $<TARGET_FILE:junction_run> ${caladan_test_config_path} --jif -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands} && ${READJIF} --check /tmp/${test_name}.jif"
+    COMMAND sh -c "rm -f /tmp/${test_name}.jm /tmp/${test_name}.jif && $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --jif -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands} && ${READJIF} --check /tmp/${test_name}.jif"
   )
 
   add_test(
@@ -37,12 +37,12 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_restore_jif
-    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --jif -r -- /tmp/${test_name}.jm /tmp/${test_name}.jif && rm -f /tmp/${test_name}.jm /tmp/${test_name}.jif"
+    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --jif -r -- /tmp/${test_name}.jm /tmp/${test_name}.jif && rm -f /tmp/${test_name}.jm /tmp/${test_name}.jif"
   )
 
   add_test(
     NAME ${test_name}_restore_itrees_jif
-    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} --jif -r -- /tmp/${test_name}_itrees.jm /tmp/${test_name}_itrees.jif && rm -f /tmp/${test_name}_itrees.jm /tmp/${test_name}_itrees.jif"
+    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --jif -r -- /tmp/${test_name}_itrees.jm /tmp/${test_name}_itrees.jif && rm -f /tmp/${test_name}_itrees.jm /tmp/${test_name}_itrees.jif"
   )
 
   set_tests_properties(${test_name}_restore_elf PROPERTIES DEPENDS ${test_name}_snapshot_elf)

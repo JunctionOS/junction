@@ -45,21 +45,29 @@ main = importlib.import_module(f"{prog}.main")
 print("starting")
 sys.stdout.flush()
 
+# warmup iters
+warmups =[]
 for i in range(10):
+    start = time.perf_counter_ns()
     print(f" iter {i} {main.function_handler(json_req)}")
-    sys.stdout.flush()
-start = time.perf_counter_ns()
-main.function_handler(json_req)
-end = time.perf_counter_ns()
-print(f"stopping. one warm iteration takes {(end - start) / 1000.0} us)")
+    end = time.perf_counter_ns()
+    warmups.append((end - start) / 1000.0)
+
+print(f"stopping. one warm iteration takes {warmups[-1]} us)")
 sys.stdout.flush()
+
+# stop for snapshot
 os.kill(os.getpid(), signal.SIGSTOP)
-start = time.perf_counter_ns()
-print(main.function_handler(json_req))
-end = time.perf_counter_ns()
-print(f"done. one cold iteration takes {(end - start) / 1000.0} us)")
-sys.stdout.flush()
-#os.kill(os.getpid(), signal.SIGSTOP)
+
+cold = []
+for i in range(3):
+    start = time.perf_counter_ns()
+    print(main.function_handler(json_req))
+    end = time.perf_counter_ns()
+    cold.append((end - start) / 1000.0)
+
+print(f"done. one cold iteration takes {cold[0]} us)")
+print("DATA ", json.dumps({"warmup": warmups, 'cold': cold, 'program': sys.argv[1]}))
 
 
 

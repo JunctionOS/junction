@@ -145,6 +145,20 @@ class alignas(kCacheLineSize) MemoryMap {
 
   [[nodiscard]] std::vector<VMArea> get_vmas();
 
+  // Run a function for each VMA. Runs with the memory map lock held (shared).
+  template <typename F>
+  void ForEachVMA(F func) {
+    rt::ScopedSharedLock g(mu_);
+    for (auto const &[end, vma] : vmareas_) func(vma);
+  }
+
+  // Drop all VMAs from this memory map without calling KernelMunmap. WARNING -
+  // may leak memory.
+  void ReleaseVMAs() {
+    rt::ScopedLock g(mu_);
+    vmareas_.clear();
+  }
+
   // SetBreak sets the break address (for the heap). It returns the new address
   // on success, the old address on failure, or EINTR if interrupted.
   Status<uintptr_t> SetBreak(uintptr_t brk_addr);

@@ -134,7 +134,7 @@ Status<std::vector<jif_ord_chunk_t>> ReadOrd(KernelFile &f,
 
 // Load a pheader
 Status<void> LoadPhdr(const jif_data &jif, KernelFile &jif_file,
-                      const jif_phdr &phdr) {
+                      const jif_phdr &phdr, int flags = 0) {
   // Determine the mapping permissions.
   int prot = JIFProtToLinuxProt(phdr.prot);
 
@@ -151,9 +151,9 @@ Status<void> LoadPhdr(const jif_data &jif, KernelFile &jif_file,
                << phdr.vend << "): " << ref_file.error();
       return MakeError(ref_file);
     }
-    ret = ref_file->MMapFixed(phdr.Ptr(), phdr.Len(), prot, 0, phdr.Off());
+    ret = ref_file->MMapFixed(phdr.Ptr(), phdr.Len(), prot, flags, phdr.Off());
   } else {
-    ret = KernelMMapFixed(phdr.Ptr(), phdr.Len(), prot, 0);
+    ret = KernelMMapFixed(phdr.Ptr(), phdr.Len(), prot, flags);
   }
 
   if (unlikely(!ret)) {
@@ -174,9 +174,10 @@ Status<void> LoadPhdr(const jif_data &jif, KernelFile &jif_file,
     for (const auto &ival : node.ranges) {
       if (!ival.IsValid()) continue;
       if (ival.HasOffset())
-        ret = jif_file.MMapFixed(ival.Ptr(), ival.Len(), prot, 0, ival.Off());
+        ret =
+            jif_file.MMapFixed(ival.Ptr(), ival.Len(), prot, flags, ival.Off());
       else
-        ret = KernelMMapFixed(ival.Ptr(), ival.Len(), prot, 0);
+        ret = KernelMMapFixed(ival.Ptr(), ival.Len(), prot, flags);
       if (unlikely(!ret)) return ret;
     }
   }
@@ -221,9 +222,11 @@ Status<jif_data> LoadJIF(KernelFile &jif_file) {
   Status<jif_data> jif = ParseJIF(jif_file);
   if (unlikely(!jif)) return MakeError(jif);
 
+  int mmap_flags = GetCfg().restore_populate() ? MAP_POPULATE : 0;
+
   // Load the segments.
   for (const jif_phdr &phdr : jif->phdrs) {
-    Status<void> ret = LoadPhdr(*jif, jif_file, phdr);
+    Status<void> ret = LoadPhdr(*jif, jif_file, phdr, mmap_flags);
     if (unlikely(!ret)) return MakeError(ret);
   }
 

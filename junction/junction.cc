@@ -54,56 +54,61 @@ namespace po = boost::program_options;
 
 po::options_description GetOptions() {
   po::options_description desc("Junction options");
-  desc.add_options()("help,h", "produce help message")(
-      "chroot_path", po::value<std::string>()->default_value("/"),
-      "chroot path to execute the binary from")(
-      "fs_config_path", po::value<std::string>()->default_value(""),
-      "file system configuration path")(
-      "interpreter_path",
-      po::value<std::string>()->implicit_value("")->default_value(
-          CUSTOM_GLIBC_INTERPRETER_PATH),
-      "use this custom interpreter for binaries")(
-      "glibc_path",
-      po::value<std::string>()->implicit_value("")->default_value(
-          CUSTOM_GLIBC_DIR),
-      "path to custom libc")(
-      "ld_path",
-      po::value<std::string>()->implicit_value("")->default_value(""),
-      "a path to include in LD_LIBRARY_PATH")(
-      "ld_preload",
-      po::value<std::string>()->implicit_value("")->default_value(""),
-      "location of ld preload library")(
-      "env,E", po::value<std::vector<std::string>>()->multitoken(),
-      "environment flags for binary")("port,p",
-                                      po::value<int>()->default_value(42),
-                                      "port number to setup control port on")(
-      "strace,s", po::bool_switch()->default_value(false), "strace mode")(
-      "restore,r", po::bool_switch()->default_value(false),
-      "restore from a snapshot")("kernel-restore,k",
-                                 po::bool_switch()->default_value(false),
-                                 "restore JIFs through kernel module")(
-      "jif", po::bool_switch()->default_value(false), "use a jif")(
-      "loglevel,l", po::value<int>()->default_value(LOG_DEBUG),
-      "the maximum log level to print")(
-      "mem-trace", po::value<int>()->default_value(0),
-      "trace the memory addresses (for N seconds)")(
-      "mem-trace-out",
-      po::value<std::string>()->implicit_value("")->default_value(""),
-      "path to store the memory address trace")(
-      "snapshot-on-stop,S",
-      po::value<int>()->default_value(0)->implicit_value(1),
-      "take a snapshot when the main process stops (after N stops)")(
-      "snapshot-prefix", po::value<std::string>()->default_value(""),
-      "snapshot prefix path (will generate <prefix>.metadata and <prefix>.elf")(
-      "stackswitch", po::bool_switch()->default_value(false),
-      "use stack switching syscalls")(
-      "madv_remap", po::bool_switch()->default_value(false),
-      "zero memory when MADV_DONTNEED is used (intended for profiling)")(
-      "cache_linux_fs", po::bool_switch()->default_value(false),
-      "cache directory structure of the linux filesystem")(
-      "snapshot_enabled", po::bool_switch()->default_value(false),
-      "this runtime may be snapshotted");
-  ;
+  desc.add_options()                      //
+      ("help,h", "produce help message")  //
+      ("chroot_path", po::value<std::string>()->default_value("/"),
+       "chroot path to execute the binary from")  //
+      ("fs_config_path", po::value<std::string>()->default_value(""),
+       "file system configuration path")  //
+      ("interpreter_path",
+       po::value<std::string>()->implicit_value("")->default_value(
+           CUSTOM_GLIBC_INTERPRETER_PATH),
+       "use this custom interpreter for binaries")  //
+      ("glibc_path",
+       po::value<std::string>()->implicit_value("")->default_value(
+           CUSTOM_GLIBC_DIR),
+       "path to custom libc")  //
+      ("ld_path",
+       po::value<std::string>()->implicit_value("")->default_value(""),
+       "a path to include in LD_LIBRARY_PATH")  //
+      ("ld_preload",
+       po::value<std::string>()->implicit_value("")->default_value(""),
+       "location of ld preload library")  //
+      ("env,E", po::value<std::vector<std::string>>()->multitoken(),
+       "environment flags for binary")  //
+      ("port,p", po::value<int>()->default_value(42),
+       "port number to setup control port on")                              //
+      ("strace,s", po::bool_switch()->default_value(false), "strace mode")  //
+      ("restore,r", po::bool_switch()->default_value(false),
+       "restore from a snapshot")  //
+      ("kernel-restore,k", po::bool_switch()->default_value(false),
+       "restore JIFs through kernel module")                         //
+      ("jif", po::bool_switch()->default_value(false), "use a jif")  //
+      ("loglevel,l", po::value<int>()->default_value(LOG_DEBUG),
+       "the maximum log level to print")  //
+      ("mem-trace", po::value<int>()->default_value(0),
+       "trace the memory addresses (for N seconds)")  //
+      ("mem-trace-out",
+       po::value<std::string>()->implicit_value("")->default_value(""),
+       "path to store the memory address trace")  //
+      ("snapshot-on-stop,S",
+       po::value<int>()->default_value(0)->implicit_value(1),
+       "take a snapshot when the main process stops (after N stops)")  //
+      ("snapshot-prefix", po::value<std::string>()->default_value(""),
+       "snapshot prefix path (will generate <prefix>.metadata and "
+       "<prefix>.elf")  //
+      ("stackswitch", po::bool_switch()->default_value(false),
+       "use stack switching syscalls")  //
+      ("madv_remap", po::bool_switch()->default_value(false),
+       "zero memory when MADV_DONTNEED is used (intended for profiling)")  //
+      ("cache_linux_fs", po::bool_switch()->default_value(false),
+       "cache directory structure of the linux filesystem")  //
+      ("snapshot_enabled", po::bool_switch()->default_value(false),
+       "this runtime may be snapshotted")  //
+      ("restore_populate", po::bool_switch()->default_value(false),
+       "use MAP_POPULATE on restore") //
+      ("snapshot_terminate", po::bool_switch()->default_value(false),
+        "terminate after snapshot");
   return desc;
 }
 
@@ -151,8 +156,10 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
     return MakeError(EINVAL);
   }
 
+  restore_populate_ = vm["restore_populate"].as<bool>();
   mem_trace_timeout_ = vm["mem-trace"].as<int>();
   mem_trace_path_ = vm["mem-trace-out"].as<std::string>();
+  terminate_after_snapshot_ = vm["snapshot_terminate"].as<bool>();
 
   return {};
 }

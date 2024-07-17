@@ -151,7 +151,7 @@ std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode) {
 }
 
 Status<void> InitMemfs() {
-  memfs_extent_fd = memfd_create("memfs", 0);
+  memfs_extent_fd = memfd_create("memfs", MFD_EXEC);
   if (memfs_extent_fd < 0) return MakeError(errno);
 
   int ret = ftruncate(memfs_extent_fd, kMaxMemfdExtent);

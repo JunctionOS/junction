@@ -178,7 +178,10 @@ Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
   // TODO(snapshot): child procs, if any exist, should also be stopped + waited.
   p->Signal(SIGSTOP);
   p->WaitForFullStop();
-  auto f = finally([&] { p->Signal(SIGCONT); });
+  auto f = finally([&] {
+    if (GetCfg().snapshot_terminate()) p->DoExit(0);
+    else p->Signal(SIGCONT);
+  });
   return SnapshotProcToELF(p.get(), metadata_path, elf_path);
 }
 
@@ -203,10 +206,16 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
   if (unlikely(!elf)) return MakeError(elf);
 
   // Temporary hack: the elf loader will create entries in this fake map,
-  // allowing the actual memory map to be restored by cereal. Leak this memory
-  // intentionally so it's not destroyed.
-  MemoryMap *mm = new MemoryMap(nullptr, kMemoryMappingSize);
-  Status<elf_data> ret = LoadELF(*mm, *elf, p->get_fs(), elf_path);
+  // allowing the actual memory map to be restored by cereal.
+  MemoryMap mm(nullptr, kMemoryMappingSize);
+  Status<elf_data> ret = LoadELF(mm, *elf, p->get_fs(), elf_path);
+  if (GetCfg().restore_populate()) {
+    mm.ForEachVMA([](const VMArea &vma) {
+      if (!(vma.prot & PROT_READ)) return;
+      KernelMAdvise(vma.Addr(), vma.Length(), MADV_POPULATE_READ);
+    });
+  }
+  mm.ReleaseVMAs();
   Time end_elf = Time::Now();
   if (unlikely(!ret)) {
     LOG(ERR) << "Elf load failed: " << ret.error();
@@ -217,7 +226,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
             << " metadata: " << (end_metadata - start).Microseconds()
             << " elf: " << (end_elf - end_metadata).Microseconds();
 
-  if (unlikely(GetCfg().mem_trace_timeout())) p->get_mem_map().EnableTracing();
+  // if (unlikely(GetCfg().mem_trace_timeout())) p->get_mem_map().EnableTracing();
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)
