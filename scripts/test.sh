@@ -17,6 +17,7 @@ for arg in "$@"; do
         '--help'|'-h') usage ;;
         '--debug'|'-d') MODE="Debug" ;;
         '--no-uintr') NOUINTR="nouintr" ;;
+        '--no-remove') REM_FILES="y" ;;
         '-n'|'--dry-run') DRY_RUN="--show-only" ;;
         *)
             if [[ -z ${REGEX} ]]; then
@@ -62,13 +63,16 @@ fi
 # Run tests
 pushd "${TEST_DIR}" || exit 255
 export GTEST_COLOR=1
-if [ "${REGEX}" = "" ]; then
+if [ -z "${REGEX}" ]; then
   sudo -E "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT
 else
   sudo -E "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT --tests-regex "${REGEX}"
 fi
 ec=$?
 
+if [ -z ${REM_FILES} ]; then
+    sudo rm /tmp/*.{jif,elf,jm,metadata}
+fi
 
 # Stop Caladan
 sudo pkill iokerneld
