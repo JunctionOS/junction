@@ -1,7 +1,7 @@
 #!/bin/bash
 
 function usage() {
-    echo "usage: scripts/test.sh [-d|--debug] [-h|--help] [--no-uintr] [-n|--dry-run] [regex]" >&2
+    echo "usage: scripts/test.sh [-d|--debug] [-h|--help] [--no-uintr] [-n|--dry-run] [--no-remove] [regex]" >&2
     exit 255
 }
 
