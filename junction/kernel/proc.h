@@ -426,7 +426,6 @@ class Process : public std::enable_shared_from_this<Process> {
         parent_(std::move(parent)) {
     RegisterProcess(*this);
   }
-  // Constructor for restoring from a snapshot
   ~Process();
 
   Process(Process &&) = delete;

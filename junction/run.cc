@@ -211,7 +211,9 @@ void JunctionMain(int argc, char *argv[]) {
 
   // Drop reference so the process can properly destruct itself when done
   proc->reset();
+  LOG(INFO) << "waiting";
   rt::WaitForever();
+  LOG(INFO) << "done waiting";
 }
 
 }  // namespace junction

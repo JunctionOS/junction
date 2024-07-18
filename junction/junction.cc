@@ -106,9 +106,9 @@ po::options_description GetOptions() {
       ("snapshot_enabled", po::bool_switch()->default_value(false),
        "this runtime may be snapshotted")  //
       ("restore_populate", po::bool_switch()->default_value(false),
-       "use MAP_POPULATE on restore") //
+       "use MAP_POPULATE on restore")  //
       ("snapshot_terminate", po::bool_switch()->default_value(false),
-        "terminate after snapshot");
+       "terminate after snapshot");
   return desc;
 }
 

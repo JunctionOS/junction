@@ -59,7 +59,9 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] bool restore_populate() const { return restore_populate_; }
   [[nodiscard]] int snapshot_on_stop() const { return snapshot_on_stop_; }
   [[nodiscard]] int mem_trace_timeout() const { return mem_trace_timeout_; }
-  [[nodiscard]] bool snapshot_terminate() const { return terminate_after_snapshot_; }
+  [[nodiscard]] bool snapshot_terminate() const {
+    return terminate_after_snapshot_;
+  }
   [[nodiscard]] uint16_t port() const { return port_; }
 
   [[nodiscard]] std::string_view get_snapshot_prefix() const {

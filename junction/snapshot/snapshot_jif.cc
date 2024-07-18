@@ -236,8 +236,10 @@ Status<void> SnapshotPidToJIF(pid_t pid, std::string_view metadata_path,
   p->WaitForFullStop();
 
   auto f = finally([&] {
-    if (GetCfg().snapshot_terminate()) p->DoExit(0);
-    else p->Signal(SIGCONT);
+    if (GetCfg().snapshot_terminate())
+      p->DoExit(0);
+    else
+      p->Signal(SIGCONT);
   });
   return SnapshotProcToJIF(p.get(), metadata_path, jif_path);
 }
@@ -318,7 +320,8 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
             << " metadata: " << (end_metadata - start).Microseconds()
             << " jif: " << (end_jif - end_metadata).Microseconds();
 
-  // if (unlikely(GetCfg().mem_trace_timeout())) p->get_mem_map().EnableTracing();
+  // if (unlikely(GetCfg().mem_trace_timeout()))
+  // p->get_mem_map().EnableTracing();
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)

@@ -179,8 +179,10 @@ Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
   p->Signal(SIGSTOP);
   p->WaitForFullStop();
   auto f = finally([&] {
-    if (GetCfg().snapshot_terminate()) p->DoExit(0);
-    else p->Signal(SIGCONT);
+    if (GetCfg().snapshot_terminate())
+      p->DoExit(0);
+    else
+      p->Signal(SIGCONT);
   });
   return SnapshotProcToELF(p.get(), metadata_path, elf_path);
 }
@@ -226,7 +228,8 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
             << " metadata: " << (end_metadata - start).Microseconds()
             << " elf: " << (end_elf - end_metadata).Microseconds();
 
-  // if (unlikely(GetCfg().mem_trace_timeout())) p->get_mem_map().EnableTracing();
+  // if (unlikely(GetCfg().mem_trace_timeout()))
+  // p->get_mem_map().EnableTracing();
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)
