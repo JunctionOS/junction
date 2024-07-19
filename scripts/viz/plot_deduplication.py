@@ -43,17 +43,17 @@ def get_stats(dir1, dir2, readjif_path):
 
 def dump_stats(values):
     values = sorted(zip(values[0], values[1], values[2], values[3]), key=lambda x: x[1])
-    print('{:50}| Orig N pages | Compressed N pages |  Ratio'.format('Filename'))
+    print('{:50}| Orig N pages | Deduped N pages |  Ratio'.format('Filename'))
     for (name, orig, new, relative) in values:
-        print('{:50}| {:12} | {:18} | {:6.2f}%'.format(name, orig, new, relative))
+        print('{:50}| {:12} | {:15} | {:6.2f}%'.format(name, orig, new, relative))
 
 def plot(values, relative: bool, output_filename):
     plt.scatter(values[1], values[3] if relative else values[2])
     plt.xlabel('Original Size (#pages)')
     if relative:
-        plt.ylabel('Compression Rate (%)')
+        plt.ylabel('Deduplication Rate (%)')
     else:
-        plt.ylabel('Compressed Size (#pages)')
+        plt.ylabel('Deduplicated Size (#pages)')
 
     plt.title('ITree impact on private data size')
     plt.savefig(output_filename)
@@ -61,7 +61,7 @@ def plot(values, relative: bool, output_filename):
 if __name__ == '__main__':
     import os
 
-    parser = argparse.ArgumentParser(prog='plot the effects of compression')
+    parser = argparse.ArgumentParser(prog='plot the effects of deduplication')
     parser.add_argument('orig', type=pathlib.Path, help='the directory of what will be considered the _original_ JIF files')
     parser.add_argument('new', type=pathlib.Path, help='the directory of what will be considered the _new_ JIF files')
     parser.add_argument('output', type=pathlib.Path, help='the file to dump the plot in')
