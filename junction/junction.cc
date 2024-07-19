@@ -87,7 +87,7 @@ po::options_description GetOptions() {
       ("loglevel,l", po::value<int>()->default_value(LOG_DEBUG),
        "the maximum log level to print")  //
       ("mem-trace", po::value<int>()->default_value(0),
-       "trace the memory addresses (for N seconds)")  //
+       "trace the memory addresses (for N milliseconds)")  //
       ("mem-trace-out",
        po::value<std::string>()->implicit_value("")->default_value(""),
        "path to store the memory address trace")  //

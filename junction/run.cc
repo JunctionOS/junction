@@ -144,7 +144,7 @@ void JunctionMain(int argc, char *argv[]) {
     // setup teardown of tracer
     if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
       rt::Spawn([p = *proc] mutable {
-        rt::Sleep(Duration(GetCfg().mem_trace_timeout() * kSeconds));
+        rt::Sleep(Duration(GetCfg().mem_trace_timeout() * kMilliseconds));
         LOG(INFO) << "done sleeping, tracer reporting time!";
         auto trace_report = p->get_mem_map().EndTracing();
         if (unlikely(!trace_report)) {
