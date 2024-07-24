@@ -9,8 +9,11 @@ namespace junction::memfs {
 
 class MemFSFile : public SeekableFile {
  public:
-  MemFSFile(unsigned int flags, FileMode mode, std::shared_ptr<MemInode> ino)
-      : SeekableFile(FileType::kNormal, flags, mode, std::move(ino)) {}
+  MemFSFile(unsigned int flags, FileMode mode,
+            std::shared_ptr<DirectoryEntry> dent)
+      : SeekableFile(FileType::kNormal, flags, mode, std::move(dent)) {
+    assert(dynamic_cast<MemInode *>(&get_dent_ref().get_inode_ref()));
+  }
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
     MemInode &ino = static_cast<MemInode &>(get_inode_ref());
@@ -45,7 +48,7 @@ class MemFSFile : public SeekableFile {
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(get_mode(), get_inode());
+    ar(get_mode(), get_dent());
     ar(cereal::base_class<SeekableFile>(this));
   }
 
@@ -53,9 +56,10 @@ class MemFSFile : public SeekableFile {
   static void load_and_construct(Archive &ar,
                                  cereal::construct<MemFSFile> &construct) {
     FileMode mode;
-    std::shared_ptr<Inode> ino;
-    ar(mode, ino);
-    construct(0, mode, std::static_pointer_cast<MemInode>(std::move(ino)));
+    std::shared_ptr<DirectoryEntry> dent;
+    ar(mode, dent);
+    assert(dent->WillBeSerialized());
+    construct(0, mode, std::move(dent));
     ar(cereal::base_class<SeekableFile>(construct.ptr()));
   }
 };

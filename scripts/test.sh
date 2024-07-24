@@ -71,7 +71,7 @@ fi
 ec=$?
 
 if [ -z ${REM_FILES} ]; then
-    sudo rm /tmp/*.{jif,elf,jm,metadata}
+  sudo find /tmp -type f \( -name "*.jif" -o -name "*.elf" -o -name "*.jm" -o -name "*.metadata" \) -delete 2> /dev/null
 fi
 
 # Stop Caladan

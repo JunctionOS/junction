@@ -134,12 +134,11 @@ Status<std::tuple<jif_data, IOVAccumulator>> GetJifVmaData(
   iovs.Reserve(max_n_pheaders);
 
   for (const VMArea &vma : vmas) {
-    if (vma.type == VMType::kFile) {
+    if (vma.type == VMType::kFile && vma.file->SnapshotShareable()) {
       const std::string &name = vma.file->get_filename();
-      // TODO - some files don't have names because they are mmaped'd memfs
-      // segments. We need to handle sharing for these VMAs on restore properly.
+      assert(name.size());
       jif.AddPhdr(iovs, vma.prot, vma.start, vma.DataLength(), vma.Length(),
-                  name.size() ? vma.offset : kUInt64Max, name);
+                  vma.offset, name);
     } else {
       jif.AddPhdr(iovs, vma.prot, vma.start, vma.DataLength(), vma.Length(),
                   kUInt64Max, {});
@@ -279,12 +278,13 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
   if (!metadata_file) return MakeError(metadata_file);
 
   std::shared_ptr<Process> p;
-  {
-    StreamBufferReader<KernelFile> w(*metadata_file);
-    std::istream instream(&w);
-    cereal::BinaryInputArchive ar(instream);
-    ar(p);
-  }
+  StreamBufferReader<KernelFile> w(*metadata_file);
+  std::istream instream(&w);
+  cereal::BinaryInputArchive ar(instream);
+
+  if (Status<void> ret = FSRestore(ar); unlikely(!ret)) return MakeError(ret);
+  Time end_fs = Time::Now();
+  ar(p);
 
   Time end_metadata = Time::Now();
 
@@ -317,8 +317,9 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
   Time end_jif = Time::Now();
 
   LOG(INFO) << "restore time " << (end_jif - start).Microseconds()
-            << " metadata: " << (end_metadata - start).Microseconds()
-            << " jif: " << (end_jif - end_metadata).Microseconds();
+            << " metadata: " << (end_metadata - end_fs).Microseconds()
+            << " jif: " << (end_jif - end_metadata).Microseconds()
+            << " fs: " << (end_fs - start).Microseconds();
 
   // if (unlikely(GetCfg().mem_trace_timeout()))
   // p->get_mem_map().EnableTracing();

@@ -82,7 +82,9 @@ class MemInode : public Inode {
   }
 
   // Open a file for this inode.
-  Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override;
+  Status<std::shared_ptr<File>> Open(
+      uint32_t flags, FileMode mode,
+      std::shared_ptr<DirectoryEntry> dent) override;
 
   Status<void> GetStatFS(struct statfs *buf) const override {
     StatFs(buf);
@@ -126,15 +128,11 @@ class MemInode : public Inode {
 
 class MemIDir : public IDir {
  public:
-  MemIDir(mode_t mode, std::string name, std::shared_ptr<IDir> parent,
-          ino_t ino = AllocateInodeNumber())
-      : IDir(mode, ino, std::move(name), IDirType::kMem, parent) {}
-  MemIDir(const struct stat &stat, std::string name,
-          std::shared_ptr<IDir> parent)
-      : IDir(stat, std::move(name), IDirType::kMem, parent) {}
+  MemIDir(Token t, mode_t mode, ino_t ino = AllocateInodeNumber())
+      : IDir(t, mode, ino, IDirType::kMem) {}
+  MemIDir(Token t, const struct stat &stat) : IDir(t, stat, IDirType::kMem) {}
 
   // Directory ops
-  Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override;
   Status<void> MkNod(std::string_view name, mode_t mode, dev_t dev) override;
   Status<void> MkDir(std::string_view name, mode_t mode) override;
   Status<void> Unlink(std::string_view name) override;
@@ -154,48 +152,15 @@ class MemIDir : public IDir {
     return {};
   }
 
-  void PruneForSnapshot() override {
-    for (auto &[name, in] : entries_) {
-      if (in->is_dir()) {
-        IDir *id = static_cast<IDir *>(in.get());
-        id->PruneForSnapshot();
-      }
-    }
-  }
-
-  Status<void> Mount(std::string name, std::shared_ptr<Inode> ino) override {
-    rt::ScopedLock g(lock_);
-    InsertLockedNoCheck(name, ino);
-    if (ino->is_dir()) {
-      IDir &dir = static_cast<IDir &>(*ino);
-      dir.SetParent(get_this(), std::move(name));
-    }
-    return {};
-  }
-
-  Status<void> Unmount(std::string_view name) override {
-    rt::ScopedLock g(lock_);
-    auto it = entries_.find(name);
-    if (it == entries_.end()) return MakeError(ENOENT);
-    it->second->dec_nlink();
-    entries_.erase(it);
-    return {};
-  }
-
   template <class Archive>
   void save(Archive &ar) const {
-    if (is_most_derived<MemIDir>(*this))
-      ar(get_mode(), get_inum(), get_parent(), get_name());
-    ar(initialized_, entries_);
-    ar(cereal::base_class<IDir>(this));
-  }
-
-  // Used only by derived classes.
-  template <class Archive>
-  void load(Archive &ar) {
-    assert(!is_most_derived<MemIDir>(*this));
-    ar(initialized_, entries_);
-    ar(cereal::base_class<IDir>(this));
+    assert(is_most_derived<MemIDir>(*this));
+    ar(get_mode(), get_inum());
+    ar(initialized_, cereal::base_class<IDir>(this));
+    const_cast<MemIDir *>(this)->ForEach([&](DirectoryEntry &dent) {
+      if (dent.WillBeSerialized())
+        GetSnapshotContext().dents.emplace_back(dent.shared_from_this());
+    });
   }
 
   // Called when a MemIDir is instantiated.
@@ -204,18 +169,18 @@ class MemIDir : public IDir {
                                  cereal::construct<MemIDir> &construct) {
     mode_t mode;
     ino_t inum;
-    std::shared_ptr<IDir> parent;
-    std::string name_in_parent;
-    ar(mode, inum, parent, name_in_parent);
-    construct(mode, std::move(name_in_parent), std::move(parent), inum);
-    ar(construct->initialized_, construct->entries_);
-    ar(cereal::base_class<IDir>(construct.ptr()));
+    ar(mode, inum);
+    construct(IDir::CerealGetToken(), mode, inum);
+    ar(construct->initialized_, cereal::base_class<IDir>(construct.ptr()));
   }
 
  protected:
   // Subclasses override this to add custom logic run on the first access of
-  // this directory.
+  // this directory (e.g. to populate entries).
   virtual void DoInitialize(){};
+
+  Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(
+      std::string_view name) override;
 
   [[nodiscard]] bool is_initialized() const {
     return load_acquire(&initialized_);
@@ -226,34 +191,24 @@ class MemIDir : public IDir {
   __always_inline void DoInitCheck() {
     if (unlikely(!is_initialized())) RunInitialize();
   }
-  std::map<std::string, std::shared_ptr<Inode>, std::less<>> entries_;
 
-  void InsertLockedNoCheck(std::string_view name, std::shared_ptr<Inode> ino) {
-    assert(lock_.IsHeld());
-    ino->inc_nlink();
-    entries_[std::string(name)] = std::move(ino);
-  }
-
-  [[nodiscard]] Status<void> InsertLocked(std::string name,
-                                          std::shared_ptr<Inode> ino) {
-    assert(lock_.IsHeld());
-    auto [it, okay] = entries_.try_emplace(std::move(name), std::move(ino));
-    if (!okay) return MakeError(EEXIST);
-    it->second->inc_nlink();
-    return {};
+  __always_inline void DoInitCheckLocked() {
+    if (unlikely(!is_initialized())) RunInitializeLocked();
   }
 
   [[nodiscard]] Status<void> Insert(std::string name,
                                     std::shared_ptr<Inode> ino) {
     rt::ScopedLock g(lock_);
-    return InsertLocked(std::move(name), std::move(ino));
+    return AddDentLocked(std::move(name), std::move(ino));
   }
 
  private:
   bool initialized_{false};
-  // Helper routine for renaming.
-  Status<void> DoRename(MemIDir &src, std::string_view src_name,
-                        std::string_view dst_name, bool replace);
+
+  __noinline void RunInitializeLocked() {
+    DoInitialize();
+    MarkInitialized();
+  }
 
   __noinline void RunInitialize() {
     rt::ScopedLock g(lock_);
@@ -286,13 +241,8 @@ class MemISoftLink : public ISoftLink {
 
   template <class Archive>
   void save(Archive &ar) const {
-    if (is_most_derived<MemISoftLink>(*this)) ar(get_inum(), path_);
-    ar(cereal::base_class<ISoftLink>(this));
-  }
-
-  template <class Archive>
-  void load(Archive &ar) {
-    assert(!is_most_derived<MemISoftLink>(*this));
+    assert(is_most_derived<MemISoftLink>(*this));
+    ar(get_inum(), path_);
     ar(cereal::base_class<ISoftLink>(this));
   }
 

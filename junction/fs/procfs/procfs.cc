@@ -12,6 +12,9 @@
 
 namespace junction::procfs {
 
+inline static constexpr std::string_view kTaskDirName = "task";
+inline static constexpr std::string_view kFDDirName = "fd";
+
 std::string GetMemInfo(IDir *) {
   auto free = kMemoryMappingSize - myproc().get_mem_map().VirtualUsage();
   std::stringstream ss;
@@ -36,7 +39,7 @@ std::optional<int> ParseInt(std::string_view s) {
 }
 
 ProcFSData::~ProcFSData() {
-  if (in_) in_->dec_nlink();
+  if (ent_) ent_->get_parent_dir_locked().Unmount(ent_->get_name_locked());
 }
 
 std::string GetPidString(IDir *) { return std::to_string(myproc().get_pid()); }
@@ -46,6 +49,8 @@ class ProcFSLink : public ISoftLink {
  public:
   ProcFSLink(mode_t mode, std::shared_ptr<IDir> parent = {})
       : ISoftLink(mode, AllocateInodeNumber()), parent_(std::move(parent)) {}
+
+  bool SnapshotPrunable() override { return true; }
 
   std::string ReadLink() const override { return Gen(parent_.get()); };
 
@@ -70,9 +75,14 @@ class ProcFSInode : public Inode {
     return {};
   }
 
+  bool SnapshotPrunable() override { return true; }
+
   // Open a file for this inode.
-  Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override {
-    return std::make_shared<SeqFile>(flags, get_this(), Gen(parent_.get()));
+  Status<std::shared_ptr<File>> Open(
+      uint32_t flags, FileMode mode,
+      std::shared_ptr<DirectoryEntry> dent) override {
+    return std::make_shared<SeqFile>(flags, std::move(dent),
+                                     Gen(parent_.get()));
   }
 
  private:
@@ -82,12 +92,12 @@ class ProcFSInode : public Inode {
 // /proc/<pid>/task/<tid>
 class ThreadDir : public memfs::MemIDir {
  public:
-  ThreadDir(Thread &t, std::shared_ptr<IDir> parent)
-      : MemIDir(0555, std::to_string(t.get_tid()), std::move(parent)),
+  ThreadDir(Token token, Thread &t)
+      : MemIDir(token, 0555),
         proc_(t.get_process().weak_from_this()),
         tid_(t.get_tid()) {}
 
-  [[nodiscard]] std::string get_name() const { return get_static_name(); }
+  bool SnapshotPrunable() override { return true; }
 
  protected:
   void DoInitialize() override {}
@@ -97,14 +107,15 @@ class ThreadDir : public memfs::MemIDir {
   pid_t tid_;
 };
 
+#if 0
 // /proc/<pid>/fd
 class FDDir : public memfs::MemIDir {
  public:
-  FDDir(std::shared_ptr<IDir> parent)
-      : MemIDir(0555, std::string(kFDDirName), std::move(parent)) {}
+  FDDir(Token t) : MemIDir(t, 0555) {}
   ~FDDir() override = default;
 
-  Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override {
+  Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(std::string_view name)
+  override {
     Status<std::shared_ptr<Process>> tmp = GetProcess();
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<Process> &proc = *tmp;
@@ -115,7 +126,7 @@ class FDDir : public memfs::MemIDir {
     FileTable &ftbl = proc->get_file_table();
     File *f = ftbl.Get(*fd);
     if (!f) return MakeError(ENOENT);
-    return GetFDLink(*f).get_this();
+    return GetFDLink(*f, *fd).get_this();
   }
 
   std::vector<dir_entry> GetDents() override {
@@ -132,28 +143,29 @@ class FDDir : public memfs::MemIDir {
   }
 
  private:
-  Inode &GetFDLink(File &f) {
+  DirectoryEntry &GetFDLink(File &f, int fd) {
     ProcFSData &data = f.get_procfs();
-    if (!data.in_) {
-      data.in_ = memfs::CreateISoftLink(f.get_filename());
-      data.in_->inc_nlink();
+    if (!data.ent_) {
+      Status<std::shared_ptr<ISoftLink>> ino = memfs::CreateISoftLink(f.get_filename());
+      data.ent_ = InsertLockedNoCheck(std::to_string(fd), std::move(*ino));
     }
-    return *data.in_.get();
+    return *data.ent_.get();
   }
 
   Status<std::shared_ptr<Process>> GetProcess();
-
-  inline static constexpr std::string_view kFDDirName = "fd";
 };
+#endif
 
 // /proc/<pid>/task
 class TaskDir : public memfs::MemIDir {
  public:
-  TaskDir(std::shared_ptr<IDir> parent)
-      : MemIDir(0555, std::string(kTaskDirName), std::move(parent)) {}
+  TaskDir(Token t) : MemIDir(t, 0555) {}
   ~TaskDir() override = default;
 
-  Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override {
+  bool SnapshotPrunable() override { return true; }
+
+  Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(
+      std::string_view name) override {
     Status<std::shared_ptr<Process>> tmp = GetProcess();
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<Process> &proc = *tmp;
@@ -162,10 +174,10 @@ class TaskDir : public memfs::MemIDir {
     if (tid) {
       Status<ThreadRef> th = proc->FindThread(*tid);
       if (!th) return MakeError(ENOENT);
-      return GetThreadDir(***th).get_this();
+      return GetThreadDir(***th).shared_from_this();
     }
-    DoInitCheck();
-    return MemIDir::Lookup(name);
+    DoInitCheckLocked();
+    return MemIDir::LookupMissLocked(name);
   }
 
   std::vector<dir_entry> GetDents() override {
@@ -174,45 +186,38 @@ class TaskDir : public memfs::MemIDir {
     Status<std::shared_ptr<Process>> tmp = GetProcess();
     if (!tmp) return {};
     std::shared_ptr<Process> &proc = *tmp;
-
-    auto result = MemIDir::GetDents();
-
-    rt::ScopedLock g(lock_);
-    proc->ForEachThread([&](Thread &t) {
-      ThreadDir &dir = GetThreadDir(t);
-      result.emplace_back(dir.get_name(), dir.get_inum(), dir.get_type());
-    });
-
-    return result;
+    // Populate dentries.
+    {
+      rt::ScopedLock g(lock_);
+      proc->ForEachThread([&](Thread &t) { GetThreadDir(t); });
+    }
+    return MemIDir::GetDents();
   }
 
  protected:
   void DoInitialize() override {}
 
  private:
-  ThreadDir &GetThreadDir(Thread &t) {
+  DirectoryEntry &GetThreadDir(Thread &t) {
+    assert_locked();
     ProcFSData &data = t.get_procfs();
-    if (!data.in_) {
-      data.in_ = std::make_shared<ThreadDir>(t, get_this());
-      data.in_->inc_nlink();
+    if (!data.ent_) {
+      data.ent_ =
+          AddIDirLockedNoCheck<ThreadDir>(std::to_string(t.get_tid()), t)
+              ->shared_from_this();
     }
-    return *std::static_pointer_cast<ThreadDir>(data.in_).get();
+    return *data.ent_.get();
   }
 
   Status<std::shared_ptr<Process>> GetProcess();
-
-  inline static constexpr std::string_view kTaskDirName = "task";
 };
 
 // /proc/<pid>
 class ProcessDir : public memfs::MemIDir {
  public:
-  ProcessDir(Process &p, std::shared_ptr<IDir> parent)
-      : MemIDir(0555, std::to_string(p.get_pid()), std::move(parent)),
-        proc_(p.weak_from_this()) {}
+  ProcessDir(Token t, Process &p)
+      : MemIDir(t, 0555), proc_(p.weak_from_this()) {}
   ~ProcessDir() override = default;
-
-  [[nodiscard]] std::string get_name() const { return get_static_name(); }
 
   Status<std::shared_ptr<Process>> GetProcess() {
     std::shared_ptr<Process> proc = proc_.lock();
@@ -220,17 +225,19 @@ class ProcessDir : public memfs::MemIDir {
     return std::move(proc);
   }
 
+  bool SnapshotPrunable() override { return true; }
+
   bool is_dead() const { return proc_.use_count() == 0; }
 
  protected:
   void DoInitialize() override {
     if (is_dead()) return;
-    InsertLockedNoCheck("exe",
-                        std::make_shared<ProcFSLink<GetExe>>(0777, get_this()));
-    InsertLockedNoCheck(
+    AddDentLockedNoCheck(
+        "exe", std::make_shared<ProcFSLink<GetExe>>(0777, get_this()));
+    AddDentLockedNoCheck(
         "cmdline", std::make_shared<ProcFSInode<GetCmdLine>>(0444, get_this()));
-    InsertLockedNoCheck("task", std::make_shared<TaskDir>(get_this()));
-    InsertLockedNoCheck("fd", std::make_shared<FDDir>(get_this()));
+    AddIDirLockedNoCheck<TaskDir>(std::string(kTaskDirName));
+    // AddDentLockedNoCheck>(std::string(kFDDirName));
   }
 
  private:
@@ -256,69 +263,74 @@ class ProcessDir : public memfs::MemIDir {
 // /proc
 class ProcRootDir : public memfs::MemIDir {
  public:
-  ProcRootDir(std::shared_ptr<IDir> parent)
-      : MemIDir(0555, std::string{"proc"}, std::move(parent)) {}
+  ProcRootDir(Token t) : MemIDir(t, 0555) {}
 
-  Status<std::shared_ptr<Inode>> Lookup(std::string_view name) override {
+  Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(
+      std::string_view name) override {
     std::optional<int> tmp = ParseInt(name);
 
     if (tmp) {
       std::shared_ptr<Process> proc = Process::Find(*tmp);
       if (!proc) return MakeError(ENOENT);
-
-      rt::ScopedLock g(lock_);
-      return GetProcDir(*proc.get()).get_this();
+      return GetProcDir(*proc.get()).shared_from_this();
     }
 
-    DoInitCheck();
-    return MemIDir::Lookup(name);
+    DoInitCheckLocked();
+    return MemIDir::LookupMissLocked(name);
   }
+
+  bool SnapshotPrunable() override { return true; }
 
   std::vector<dir_entry> GetDents() override {
     DoInitCheck();
-    std::vector<dir_entry> result = MemIDir::GetDents();
-
-    rt::ScopedLock g(lock_);
-    Process::ForEachProcess([&](Process &p) {
-      ProcessDir &dir = GetProcDir(p);
-      result.emplace_back(dir.get_name(), dir.get_inum(), dir.get_type());
-    });
-
-    return result;
+    // Ensure dentries are populated.
+    {
+      rt::ScopedLock g(lock_);
+      Process::ForEachProcess([&](Process &p) { GetProcDir(p); });
+    }
+    return MemIDir::GetDents();
   }
 
  protected:
   void DoInitialize() override {
-    InsertLockedNoCheck("self",
-                        std::make_shared<ProcFSLink<GetPidString>>(0777));
-    InsertLockedNoCheck("stat",
-                        std::make_shared<ProcFSInode<GetMemInfo>>(0444));
+    AddDentLockedNoCheck("self",
+                         std::make_shared<ProcFSLink<GetPidString>>(0777));
+    AddDentLockedNoCheck("stat",
+                         std::make_shared<ProcFSInode<GetMemInfo>>(0444));
   }
 
  private:
-  ProcessDir &GetProcDir(Process &p) {
-    assert(lock_.IsHeld());
+  DirectoryEntry &GetProcDir(Process &p) {
+    assert_locked();
     ProcFSData &data = p.get_procfs();
-    if (!data.in_) {
-      data.in_ = std::make_shared<ProcessDir>(p, get_this());
-      data.in_->inc_nlink();
+    if (!data.ent_) {
+      // TODO make this flow better.
+      data.ent_ =
+          AddIDirLockedNoCheck<ProcessDir>(std::to_string(p.get_pid()), p)
+              ->shared_from_this();
     }
-    return *std::static_pointer_cast<ProcessDir>(data.in_).get();
+    return *data.ent_.get();
   }
 };
 
 Status<std::shared_ptr<Process>> TaskDir::GetProcess() {
-  ProcessDir &dir = static_cast<ProcessDir &>(get_static_parent());
+  ProcessDir &dir =
+      static_cast<ProcessDir &>(get_entry_ref().get_parent_dir_locked());
   return dir.GetProcess();
 }
 
+#if 0
 Status<std::shared_ptr<Process>> FDDir::GetProcess() {
-  ProcessDir &dir = static_cast<ProcessDir &>(get_static_parent());
+  ProcessDir &dir = 
+      static_cast<ProcessDir &>(get_entry_ref().get_parent_dir_locked());
   return dir.GetProcess();
 }
+#endif
 
-std::shared_ptr<Inode> MakeProcFS(std::shared_ptr<IDir> parent) {
-  return std::make_shared<ProcRootDir>(std::move(parent));
+void MakeProcFS(IDir &root, std::string mount_name) {
+  root.AddIDirNoCheck<ProcRootDir>(std::move(mount_name));
 }
 
 }  // namespace junction::procfs
+
+// namespace junction::procfs

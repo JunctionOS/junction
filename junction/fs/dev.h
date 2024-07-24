@@ -22,7 +22,8 @@ constexpr dev_t MakeDevice(dev_t major, dev_t minor) {
 }
 
 // DeviceOpen creates a special file for the inode's device number.
-Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, dev_t dev,
-                                         unsigned int flags, FileMode mode);
+Status<std::shared_ptr<File>> DeviceOpen(std::shared_ptr<DirectoryEntry> dent,
+                                         dev_t dev, unsigned int flags,
+                                         FileMode mode);
 
 }  // namespace junction

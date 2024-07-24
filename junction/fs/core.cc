@@ -11,6 +11,7 @@
 #include "junction/fs/procfs/procfs.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/snapshot/snapshot.h"
 
 namespace junction {
 
@@ -29,51 +30,55 @@ constexpr bool PathIsValid(std::string_view path) {
 
 // WalkPath uses UNIX path resolution to find an inode (if it exists)
 // See the path_resolution(7) manual page for more details.
-Status<std::shared_ptr<Inode>> WalkPath(
+Status<std::shared_ptr<DirectoryEntry>> WalkPath(
     const FSRoot &fs, std::shared_ptr<IDir> dir,
     const std::vector<std::string_view> &path, bool chase_last = true,
     int link_depth = kMaxLinksToChase) {
   if (link_depth <= 0) return MakeError(ELOOP);
 
-  for (auto it = path.begin(); it != path.end(); it++) {
-    const std::string_view &v = *it;
+  std::shared_ptr<DirectoryEntry> curent = dir->get_entry();
+  IDir *curdir = dir.get();
 
+  for (const std::string_view &v : path) {
     if (v.empty() || v == ".") continue;
     if (v == "..") {
-      dir = dir->get_parent();
+      curent = curent->get_parent_ent();
+      curdir = static_cast<IDir *>(&curent->get_inode_ref());
       continue;
     }
 
-    Status<std::shared_ptr<Inode>> ret = dir->Lookup(v);
+    Status<std::shared_ptr<DirectoryEntry>> ret = curdir->LookupDent(v);
     if (!ret) return MakeError(ret);
 
-    Inode *ino = ret->get();
+    Inode *ino = &(*ret)->get_inode_ref();
+    if (ino->is_stale()) return MakeError(ESTALE);
 
-    bool last_component = it + 1 == path.end();
+    bool last_component = &v == &path.back();
 
     if (ino->is_symlink() && (chase_last || !last_component)) {
       auto &link = static_cast<ISoftLink &>(*ino);
       std::string lpath = link.ReadLink();
-      std::shared_ptr<IDir> newroot = lpath[0] == '/' ? fs.get_root() : dir;
+      std::shared_ptr<IDir> newroot =
+          lpath[0] == '/' ? fs.get_root() : curdir->get_this();
       ret = WalkPath(fs, std::move(newroot), split(lpath, '/'), true,
                      link_depth - 1);
       if (!ret) return MakeError(ret);
-      ino = ret->get();
+      ino = &(*ret)->get_inode_ref();
+      if (ino->is_stale()) return MakeError(ESTALE);
     }
 
     // We hit the last inode, return it.
-    if (last_component) {
-      if (ino->is_stale()) return MakeError(ESTALE);
-      return std::move(*ret);
-    }
+    if (last_component) return std::move(*ret);
 
     if (!ino->is_dir()) return MakeError(ENOTDIR);
-    dir = std::static_pointer_cast<IDir>(std::move(*ret));
+
+    curent = std::move(*ret);
+    curdir = static_cast<IDir *>(&curent->get_inode_ref());
   }
 
   // The last component could have been a "..".
-  if (dir->is_stale()) return MakeError(ESTALE);
-  return dir;
+  if (curdir->is_stale()) return MakeError(ESTALE);
+  return std::move(curent);
 }
 
 // SplitPath converts a path into an array of names. @must_be_dir is set if the
@@ -101,7 +106,7 @@ inline Status<std::shared_ptr<Inode>> GetFileInode(int fd,
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (!f) return MakeError(EBADF);
-  return f->get_inode();
+  return f->get_dent_ref().get_inode();
 }
 
 // GetPathDirAt returns the first directory in a path relative to an FD
@@ -117,7 +122,7 @@ Status<std::shared_ptr<IDir>> GetPathDirAt(Process &p, int fd,
   FileTable &ftbl = p.get_file_table();
   File *f = ftbl.Get(fd);
   if (!f) return MakeError(EBADF);
-  std::shared_ptr<Inode> ino = f->get_inode();
+  std::shared_ptr<Inode> ino = f->get_dent_ref().get_inode();
   if (!ino->is_dir()) return MakeError(ENOTDIR);
   return std::static_pointer_cast<IDir>(std::move(ino));
 }
@@ -141,18 +146,21 @@ Status<Entry> LookupEntry(const FSRoot &fs, std::shared_ptr<IDir> pos,
 
   std::string_view name = spath.back();
   spath.pop_back();
-  Status<std::shared_ptr<Inode>> ret = WalkPath(fs, std::move(pos), spath);
+  Status<std::shared_ptr<DirectoryEntry>> ret =
+      WalkPath(fs, std::move(pos), spath);
   if (!ret) return MakeError(ret);
-  if (!(*ret)->is_dir()) return MakeError(ENOTDIR);
+  Inode &ino = (*ret)->get_inode_ref();
+  if (!ino.is_dir()) return MakeError(ENOTDIR);
+  IDir &dir = static_cast<IDir &>(ino);
 
   if (name == "..") {
-    IDir &dir = static_cast<IDir &>(*ret->get());
-    return Entry{dir.get_parent(), {}, true};
+    Status<std::shared_ptr<IDir>> parent = (*ret)->get_parent_dir();
+    if (unlikely(!parent)) return MakeError(parent);
+    return Entry{std::move(*parent), {}, true};
   }
 
   if (name == ".") name = {};
-  return Entry{std::static_pointer_cast<IDir>(std::move(*ret)), name,
-               must_be_dir};
+  return Entry{dir.get_this(), name, must_be_dir};
 }
 
 // LookupEntry finds an entry for a path
@@ -213,27 +221,37 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
   // Special case for "/"
   if (!name.size()) {
     if (flags & kFlagExclusive) return MakeError(EINVAL);
-    return idir->Open(flags, fmode);
+    return idir->get_entry_ref().Open(flags, fmode);
   }
 
   if (flags & kFlagCreate)
     return idir->Create(name, flags, mode & ~fs.get_umask(), fmode);
 
-  Status<std::shared_ptr<Inode>> in = idir->Lookup(name);
+  Status<std::shared_ptr<DirectoryEntry>> in = idir->LookupDent(name);
   if (!in) return MakeError(ENOENT);
 
-  if ((*in)->is_symlink()) {
+  if ((*in)->get_inode_ref().is_symlink()) {
     if (!must_be_dir && (flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
       return MakeError(ELOOP);
     in = WalkPath(fs, std::move(idir), {name}, true);
     if (!in) return MakeError(in);
   }
 
-  if (flags & kFlagTruncate) (*in)->SetSize(0);
+  if (flags & kFlagTruncate) (*in)->get_inode_ref().SetSize(0);
   return (*in)->Open(flags, fmode);
 }
 
 }  // namespace
+
+// LookupInode finds an inode for a path
+Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(const FSRoot &fs,
+                                                       std::string_view path,
+                                                       bool chase_link) {
+  if (!PathIsValid(path)) return MakeError(EINVAL);
+  bool must_be_dir;
+  std::vector<std::string_view> spath = SplitPath(path, &must_be_dir);
+  return WalkPath(fs, GetPathDir(fs, path), spath, chase_link || must_be_dir);
+}
 
 // LookupInode finds an inode for a path
 Status<std::shared_ptr<Inode>> LookupInode(const FSRoot &fs,
@@ -242,7 +260,10 @@ Status<std::shared_ptr<Inode>> LookupInode(const FSRoot &fs,
   if (!PathIsValid(path)) return MakeError(EINVAL);
   bool must_be_dir;
   std::vector<std::string_view> spath = SplitPath(path, &must_be_dir);
-  return WalkPath(fs, GetPathDir(fs, path), spath, chase_link || must_be_dir);
+  auto ret =
+      WalkPath(fs, GetPathDir(fs, path), spath, chase_link || must_be_dir);
+  if (ret) return (*ret)->get_inode();
+  return MakeError(ret);
 }
 
 // LookupInode finds an inode for a path
@@ -254,39 +275,37 @@ Status<std::shared_ptr<Inode>> LookupInode(Process &p, int dirfd,
   if (!pathd) return MakeError(pathd);
   bool must_be_dir;
   std::vector<std::string_view> spath = SplitPath(path, &must_be_dir);
-  return WalkPath(p.get_fs(), std::move(*pathd), spath,
-                  chase_link || must_be_dir);
+  auto ret =
+      WalkPath(p.get_fs(), std::move(*pathd), spath, chase_link || must_be_dir);
+  if (ret) return (*ret)->get_inode();
+  return MakeError(ret);
 }
 
-// Attempts to get the fullpath from the root of the filesystem to this IDir by
+// Opens a file that does nothing.
+Status<std::shared_ptr<File>> ISoftLink::Open(
+    uint32_t flags, FileMode fmode, std::shared_ptr<DirectoryEntry> dent) {
+  assert(dent->get_inode() == Inode::get_this());
+  return std::make_shared<SoftLinkFile>(flags, fmode, std::move(dent));
+}
+
+// Attempts to get the full path from the root of the filesystem to this IDir by
 // traversing the chain of parents. The result is placed in @dst and an updated
 // span is returned.
-Status<std::span<char>> IDir::GetFullPath(const FSRoot &fs,
-                                          std::span<char> dst) {
-  std::shared_ptr<IDir> cur = get_this();
+[[nodiscard]] Status<void> DirectoryEntry::GetFullPath(std::ostream &os) {
+  std::shared_ptr<DirectoryEntry> cur = shared_from_this();
   std::vector<std::string> paths;
   while (true) {
-    ParentPointer p = cur->get_parent_info();
-    if (!p.parent || p.parent.get() == cur.get()) break;
-    paths.emplace_back(std::move(p.name_in_parent));
-    cur = std::move(p.parent);
+    auto [name, parent] = cur->get_info();
+    if (unlikely(!parent)) return MakeError(ESTALE);
+    // TODO - check if the parent is the root instead?
+    if (parent.get() == cur.get()) break;
+    paths.emplace_back(std::move(name));
+    cur = std::move(parent);
   }
 
-  std::ospanstream out(dst);
-  for (auto it = paths.rbegin(); it != paths.rend(); it++) {
-    if (static_cast<size_t>(out.tellp()) + 1 + it->size() >= dst.size())
-      return MakeError(ERANGE);
-    out << "/" << *it;
-  }
-  if (paths.size() == 0) {
-    out << "/";
-  }
-
-  // Check that path is still valid.
-  std::string_view s(out.span().data(), out.span().size());
-  if (!WalkPath(fs, std::move(cur), split(s, '/'))) return MakeError(ESTALE);
-
-  return out.span();
+  for (auto it = paths.rbegin(); it != paths.rend(); it++) os << "/" << *it;
+  if (paths.size() == 0) os << "/";
+  return {};
 }
 
 //
@@ -541,11 +560,13 @@ ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz) {
 
 long usys_getcwd(char *buf, size_t size) {
   FSRoot &fs = myproc().get_fs();
-  Status<std::span<char>> pth =
-      fs.get_cwd()->GetFullPath(fs, std::span<char>(buf, size - 1));
-  if (!pth) return MakeCError(pth);
-  buf[pth->size()] = '\0';
-  return pth->size() + 1;
+  std::ospanstream out(std::span<char>(buf, size - 1));
+  Status<void> pth = fs.get_cwd_ent()->GetFullPath(out);
+  if (unlikely(!pth)) return -ENOENT;
+  if (unlikely(out.fail())) return -ERANGE;
+  size_t sz = out.span().size();
+  buf[sz] = '\0';
+  return sz + 1;
 }
 
 long usys_chdir(const char *pathname) {
@@ -642,11 +663,8 @@ Status<Entry> SetupMountPoint(std::shared_ptr<IDir> pos,
   }
 
   // Insert memfs directories as needed.
-  for (; it != s.end(); it++) {
-    std::shared_ptr<IDir> memfs = memfs::MkFolder();
-    pos->Mount(std::string(*it), memfs);
-    pos = std::move(memfs);
-  }
+  for (; it != s.end(); it++)
+    pos = memfs::MkFolder(*pos.get(), std::string(*it));
 
   return Entry{std::move(pos), name, true};
 }
@@ -656,8 +674,7 @@ Status<void> MemFSMount(std::shared_ptr<IDir> pos, std::string_view mp) {
   Status<Entry> tmp = SetupMountPoint(pos, mp);
   if (!tmp) return MakeError(tmp);
   auto &[dir, name, must_be_dir] = *tmp;
-  std::shared_ptr<IDir> memfs = memfs::MkFolder();
-  dir->Mount(std::string(name), memfs);
+  memfs::MkFolder(*dir.get(), std::string(name));
   return {};
 }
 
@@ -668,15 +685,11 @@ Status<void> LinuxFSMount(std::shared_ptr<IDir> pos,
   Status<Entry> tmp = SetupMountPoint(pos, mount_point);
   if (!tmp) return MakeError(tmp);
   auto &[dir, name, must_be_dir] = *tmp;
-
-  Status<std::shared_ptr<IDir>> mount = linuxfs::MountLinux(host_path);
-  if (!mount) return MakeError(mount);
-  dir->Mount(std::string(name), std::move(*mount));
-  return {};
+  return linuxfs::MountLinux(*dir.get(), std::string(name), host_path);
 }
 
 Status<void> SetupDevices(std::shared_ptr<IDir> root) {
-  std::shared_ptr<IDir> memfs = memfs::MkFolder();
+  std::shared_ptr<IDir> memfs = memfs::MkFolder(*root.get(), "dev");
 
   mode_t mode = kTypeCharacter | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP |
                 S_IROTH | S_IWOTH;
@@ -689,16 +702,108 @@ Status<void> SetupDevices(std::shared_ptr<IDir> root) {
     return ret;
   if (Status<void> ret = memfs->MkNod("urandom", mode, MakeDevice(1, 9)); !ret)
     return ret;
-
-  root->Mount("dev", std::move(memfs));
   return {};
 }
 
-Status<void> FSSnapshotPrepare() {
-  FSRoot &fs = FSRoot::GetGlobalRoot();
-  auto root = fs.get_root();
-  if (Status<void> ret = root->Unmount("proc"); !ret) return ret;
-  root->PruneForSnapshot();
+[[nodiscard]] bool DirectoryEntry::WillBeSerialized() {
+  return !get_inode_ref().SnapshotPrunable();
+}
+
+void DirectoryEntry::save(cereal::BinaryOutputArchive &ar) const {
+  // Any inode that is getting saved will have a corresponding directory entry
+  // for each link. If the parent directory is not getting saved (ie it is a
+  // linux directory whose entry will be recreated prior to snapshot restore),
+  // then we just save a pathname string to that entry so it can be retrieved
+  // and this Entry attached at restore time. If the parent will be restored (ie
+  // it is a MemIDir, etc), then we directly serialize a shared pointer
+  // reference to that object and let cereal restore the connection. The
+  // directory entry may also be a dangling reference to a deleted file, in
+  // which case we save the empty string.
+  std::shared_ptr<DirectoryEntry> p = get_parent_ent();
+  bool has_serialized_parent = p && !p->get_inode_ref().SnapshotPrunable();
+
+  if (has_serialized_parent) {
+    ar(true, name_, get_inode(), get_parent_ent());
+  } else {
+    std::string path;
+    Status<std::string> ret = const_cast<DirectoryEntry *>(this)->GetPathStr();
+    if (ret) path = std::move(*ret);
+    ar(false, path, get_inode());
+  }
+}
+
+void DirectoryEntry::load_and_construct(
+    cereal::BinaryInputArchive &ar,
+    cereal::construct<DirectoryEntry> &construct) {
+  bool has_parent;
+  std::string name;
+  std::shared_ptr<Inode> ino;
+  std::shared_ptr<DirectoryEntry> parent;
+
+  ar(has_parent, name, ino);
+
+  if (has_parent) {
+    ar(parent);
+  } else if (name.size() > 0) {
+    Status<Entry> entry = LookupEntry(FSRoot::GetGlobalRoot(), name);
+    if (unlikely(!entry)) throw std::runtime_error("couldn't find parent");
+    auto &[parentdir, ename, must_be_dir] = *entry;
+    parent = parentdir->get_entry();
+    name = ename;
+  }
+
+  DirectoryEntry *pe = parent.get();
+  construct(std::move(name), std::move(parent), std::move(ino));
+
+  if (pe) {
+    IDir *pdir = static_cast<IDir *>(&pe->get_inode_ref());
+    rt::ScopedLock g(pdir->lock_);
+    pdir->InsertOverwrite(construct.ptr()->shared_from_this());
+  }
+
+  if (construct->inode_->is_dir())
+    static_cast<IDir *>(construct->inode_.get())
+        ->SetParent(construct.ptr()->shared_from_this());
+}
+
+Status<void> FSRestore(cereal::BinaryInputArchive &ar) {
+  size_t nr_overlays;
+  for (ar(nr_overlays); nr_overlays > 0; ar(nr_overlays)) {
+    for (size_t i = 0; i < nr_overlays; i++) {
+      std::shared_ptr<DirectoryEntry> dent;
+      ar(dent);
+      assert(dent.use_count() > 1);
+    }
+  }
+  return {};
+}
+
+Status<void> FSSnapshot(cereal::BinaryOutputArchive &ar) {
+  // Find directory entries that need to be saved that are contained in
+  // directories that won't be retained.
+  std::function<void(DirectoryEntry & cur)> fn([&](DirectoryEntry &cur) {
+    if (!cur.get_inode_ref().SnapshotPrunable() &&
+        cur.get_parent_dir_locked().SnapshotPrunable()) {
+      GetSnapshotContext().dents.push_back(cur.shared_from_this());
+    }
+    if (!cur.get_inode_ref().is_dir()) return;
+    IDir &dir = static_cast<IDir &>(cur.get_inode_ref());
+    dir.ForEach(fn);
+  });
+
+  fn(*FSRoot::GetGlobalRoot().get_root_ent().get());
+
+  // Breadth-first tree traversal of directory entries. Each archive call
+  // serializes the inode pointed to in the dent. For directories, the child
+  // entries are appended to the list in the snapshot context and then handled
+  // in the next iteration.
+  while (GetSnapshotContext().dents.size()) {
+    std::vector<std::shared_ptr<DirectoryEntry>> saves =
+        std::move(GetSnapshotContext().dents);
+    ar(saves.size());
+    for (auto &dent : saves) ar(dent);
+  }
+  ar((size_t)0);
   return {};
 }
 
@@ -709,11 +814,8 @@ Status<void> InitFs(
   Status<std::shared_ptr<IDir>> tmp = linuxfs::InitLinuxRoot();
   if (!tmp) return MakeError(tmp);
   IDir &linux_root = *tmp->get();
-  linux_root.inc_nlink();
-  // root's parent is itself.
-  linux_root.SetParent(*tmp, ".");
 
-  linux_root.Mount("proc", procfs::MakeProcFS(*tmp));
+  procfs::MakeProcFS(linux_root, "proc");
 
   if (Status<void> ret = memfs::InitMemfs(); !ret) return ret;
 
@@ -739,18 +841,19 @@ Status<void> InitFs(
   FSRoot::InitFsRoot(std::move(*tmp));
 
   // Use the current cwd.
-  char buf[PATH_MAX];
-  char *cwd = getcwd(buf, sizeof(buf));
-  if (cwd == nullptr) return MakeError(errno);
+  if (GetCfg().get_chroot_path() == "/") {
+    char buf[PATH_MAX];
+    char *cwd = getcwd(buf, sizeof(buf));
+    if (cwd == nullptr) return MakeError(errno);
 
-  // Get the corresponding inode.
-  Status<std::shared_ptr<Inode>> ino =
-      LookupInode(FSRoot::GetGlobalRoot(), cwd, true);
-  if (!ino) return MakeError(ino);
-  if (!(*ino)->is_dir()) return MakeError(ENOTDIR);
-
-  FSRoot::GetGlobalRoot().SetCwd(
-      std::static_pointer_cast<IDir>(std::move(*ino)));
+    // Get the corresponding inode.
+    Status<std::shared_ptr<Inode>> ino =
+        LookupInode(FSRoot::GetGlobalRoot(), cwd, true);
+    if (!ino) return MakeError(ino);
+    if (!(*ino)->is_dir()) return MakeError(ENOTDIR);
+    FSRoot::GetGlobalRoot().SetCwd(
+        std::static_pointer_cast<IDir>(std::move(*ino)));
+  }
 
   return {};
 }

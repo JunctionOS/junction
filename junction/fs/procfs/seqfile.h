@@ -9,8 +9,9 @@ namespace junction {
 
 class SeqFile : public File {
  public:
-  SeqFile(unsigned int flags, std::shared_ptr<Inode> ino, std::string &&output)
-      : File(FileType::kNormal, flags, FileMode::kRead, std::move(ino)),
+  SeqFile(unsigned int flags, std::shared_ptr<DirectoryEntry> dent,
+          std::string &&output)
+      : File(FileType::kNormal, flags, FileMode::kRead, std::move(dent)),
         output_(std::move(output)) {}
   ~SeqFile() = default;
 
@@ -22,57 +23,29 @@ class SeqFile : public File {
     return to_read;
   }
 
-  Status<void> Stat(struct stat *statbuf) const override {
-    if (get_inode()) return get_inode()->GetStats(statbuf);
-    if (!has_stat_) return MakeError(EINVAL);
-    *statbuf = stat_;
-    return {};
-  }
-
  private:
   friend cereal::access;
-  SeqFile(std::string &&output)
-      : File(FileType::kNormal, 0, FileMode::kRead),
-        output_(std::move(output)) {}
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(output_, cereal::base_class<File>(this));
-    if (has_stat_) {
-      ar(true, stat_);
-      return;
-    }
-
-    if (get_inode()) {
-      struct stat buf;
-      Status<void> ret = get_inode()->GetStats(&buf);
-      if (ret) {
-        ar(true, buf);
-        return;
-      }
-    }
-
-    ar(false);
+    Status<std::string> ret = get_dent_ref().GetPathStr();
+    if (!ret) throw std::runtime_error("seqfile has a stale handle");
+    ar(output_, *ret, cereal::base_class<File>(this));
   }
 
   template <class Archive>
   static void load_and_construct(Archive &ar,
                                  cereal::construct<SeqFile> &construct) {
-    std::string output;
-    ar(output);
-
-    construct(std::move(output));
-    SeqFile &f = *construct.ptr();
-    ar(cereal::base_class<File>(&f), f.has_stat_);
-    if (f.has_stat_) ar(f.stat_);
+    std::string output, path;
+    ar(output, path);
+    auto ret = LookupDirEntry(FSRoot::GetGlobalRoot(), path);
+    if (unlikely(!ret))
+      throw std::runtime_error("bad lookup on seqfile restore");
+    construct(0, std::move(*ret), std::move(output));
+    ar(cereal::base_class<File>(construct.ptr()));
   }
 
- private:
-  friend cereal::access;
-
   const std::string output_;
-  bool has_stat_{false};
-  struct stat stat_;
 };
 
 }  // namespace junction

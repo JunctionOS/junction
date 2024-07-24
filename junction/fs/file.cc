@@ -365,9 +365,27 @@ Status<long> DoDirent(IDir &dir, std::span<std::byte> dirp, off_t &off,
   return dirp.size() - out.size();
 }
 
+File::File(FileType type, unsigned int flags, FileMode mode,
+           std::shared_ptr<DirectoryEntry> ent)
+    : type_(type),
+      flags_(flags),
+      mode_(mode),
+      ino_(&ent->get_inode_ref()),
+      dent_(std::move(ent)) {}
+
+[[nodiscard]] std::string File::get_filename() const {
+  if (!dent_) return "";
+  std::string out;
+  out.reserve(PATH_MAX);
+  std::ostringstream ss(std::move(out));
+  Status<void> ret = dent_->GetFullPath(ss);
+  if (unlikely(!ret)) return "[STALE]";
+  return ss.str();
+}
+
 DirectoryFile::DirectoryFile(unsigned int flags, FileMode mode,
-                             std::shared_ptr<IDir> ino)
-    : File(FileType::kDirectory, flags, mode, std::move(ino)) {}
+                             std::shared_ptr<DirectoryEntry> dent)
+    : File(FileType::kDirectory, flags, mode, std::move(dent)) {}
 
 Status<long> DirectoryFile::GetDents(std::span<std::byte> dirp, off_t *off) {
   IDir &dir = static_cast<IDir &>(get_inode_ref());
@@ -380,8 +398,10 @@ Status<long> DirectoryFile::GetDents64(std::span<std::byte> dirp, off_t *off) {
 }
 
 SoftLinkFile::SoftLinkFile(unsigned int flags, FileMode mode,
-                           std::shared_ptr<ISoftLink> ino)
-    : File(FileType::kSymlink, flags, mode, std::move(ino)) {}
+                           std::shared_ptr<DirectoryEntry> dent)
+    : File(FileType::kSymlink, flags, mode, std::move(dent)) {
+  assert(dent->get_inode_ref().is_symlink());
+}
 
 Status<long> SoftLinkFile::ReadLink(std::span<std::byte> buf) {
   ISoftLink &ino = static_cast<ISoftLink &>(get_inode_ref());

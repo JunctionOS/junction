@@ -4,7 +4,7 @@
 
 namespace junction {
 
-class Inode;
+class DirectoryEntry;
 class IDir;
 
 namespace procfs {
@@ -18,10 +18,10 @@ class ProcFSData {
   friend class ProcRootDir;
   friend class TaskDir;
   friend class FDDir;
-  std::shared_ptr<Inode> in_;
+  std::shared_ptr<DirectoryEntry> ent_;
 };
 
-std::shared_ptr<Inode> MakeProcFS(std::shared_ptr<IDir> parent);
+void MakeProcFS(IDir &root, std::string mount_name);
 
 }  // namespace procfs
 

@@ -43,13 +43,12 @@ void EndSnapshotContext() {
   cur_context.reset();
 }
 Status<void> SnapshotMetadata(Process &p, KernelFile &file) {
-  if (Status<void> ret = FSSnapshotPrepare(); !ret) return ret;
-
   rt::RuntimeLibcGuard guard;
 
   StreamBufferWriter<KernelFile> w(file);
   std::ostream outstream(&w);
   cereal::BinaryOutputArchive ar(outstream);
+  if (Status<void> ret = FSSnapshot(ar); !ret) return ret;
   ar(p.shared_from_this());
   return {};
 }

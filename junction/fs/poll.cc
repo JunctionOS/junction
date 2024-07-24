@@ -7,7 +7,7 @@
 #include <memory>
 
 #include "junction/base/compiler.h"
-#include "junction/base/intrusive_list.h"
+#include "junction/base/intrusive.h"
 #include "junction/fs/file.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"

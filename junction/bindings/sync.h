@@ -317,6 +317,13 @@ class SharedLock {
     owns_ = false;
   }
 
+  UniqueLock<L> Upgrade() {
+    assert(lock_ && owns_);
+    lock_->UpgradeLock();
+    owns_ = false;
+    return UniqueLock<L>(*lock_, AdoptLock);
+  }
+
  private:
   L *lock_;
   bool owns_;

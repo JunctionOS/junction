@@ -13,14 +13,15 @@ std::string linux_root = "/";
 struct statfs linux_statfs;
 std::set<dev_t> allowed_devs;
 
-Status<std::shared_ptr<File>> LinuxInode::Open(uint32_t flags, FileMode mode) {
+Status<std::shared_ptr<File>> LinuxInode::Open(
+    uint32_t flags, FileMode mode, std::shared_ptr<DirectoryEntry> dent) {
   // If we have an Inode for it, it already exists.
   unsigned int linux_flags = flags & ~(kFlagCreate | kFlagExclusive);
   if constexpr (!linux_fs_writeable()) mode = FileMode::kRead;
   Status<KernelFile> f = linux_root_fd.OpenAt(get_path(), linux_flags, mode);
   if (!f) return MakeError(f);
-  return std::make_shared<LinuxFile>(std::move(*f), flags, mode, get_path(),
-                                     shared_from_base<LinuxInode>());
+  return std::make_shared<LinuxFile>(std::move(*f), flags, mode,
+                                     std::move(dent));
 }
 
 [[nodiscard]] off_t LinuxInode::get_size() const {
@@ -37,16 +38,16 @@ Status<void> LinuxInode::SetSize(size_t size) {
   return {};
 }
 
-Status<std::shared_ptr<IDir>> MountLinux(std::string_view path) {
+Status<void> MountLinux(IDir &parent, std::string name, std::string_view path) {
   struct stat buf;
   int ret = ksys_newfstatat(AT_FDCWD, path.data(), &buf, AT_EMPTY_PATH);
   if (ret) return MakeError(-ret);
   allowed_devs.insert(buf.st_dev);
   if constexpr (linux_fs_writeable())
-    return std::make_shared<LinuxWrIDir>(buf, std::string(path), std::string{},
-                                         std::shared_ptr<IDir>{});
-  return std::make_shared<LinuxIDir>(buf, std::string(path), std::string{},
-                                     std::shared_ptr<IDir>{});
+    parent.AddIDirNoCheck<LinuxWrIDir>(std::move(name), buf, std::string(path));
+  else
+    parent.AddIDirNoCheck<LinuxIDir>(std::move(name), buf, std::string(path));
+  return {};
 }
 
 // Setup the linuxfs. Must be called before privileges are dropped.
@@ -56,11 +57,20 @@ Status<std::shared_ptr<IDir>> InitLinuxRoot() {
   linux_root_fd = std::move(*f);
   int ret = statfs(linux_root.data(), &linux_statfs);
   if (ret) return MakeError(-ret);
-  return MountLinux("/");
+
+  Status<struct stat> buf = f->StatAt();
+  std::shared_ptr<IDir> root;
+  if constexpr (linux_fs_writeable())
+    root = std::make_shared<LinuxWrIDir>(IDir::GetInitToken(), *buf,
+                                         std::string{"/"});
+  else
+    root = std::make_shared<LinuxIDir>(IDir::GetInitToken(), *buf,
+                                       std::string{"/"});
+  auto sp = std::make_shared<DirectoryEntry>(
+      std::string{}, std::shared_ptr<DirectoryEntry>{}, root);
+  sp->SetRootEntry();
+  root->SetParent(std::move(sp));
+  return root;
 }
 
 }  // namespace junction::linuxfs
-
-CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxIDir);
-CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxWrIDir);
-CEREAL_REGISTER_TYPE(junction::linuxfs::LinuxISoftLink);

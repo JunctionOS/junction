@@ -17,19 +17,10 @@ extern "C" {
 namespace junction::linuxfs {
 
 LinuxFile::LinuxFile(KernelFile &&f, int flags, FileMode mode,
-                     std::string &&pathname,
-                     std::shared_ptr<LinuxInode> ino) noexcept
-    : SeekableFile(FileType::kNormal, flags, mode, std::move(pathname),
-                   std::move(ino)),
+                     std::shared_ptr<DirectoryEntry> dent) noexcept
+    : SeekableFile(FileType::kNormal, flags, mode, std::move(dent)),
       fd_(f.GetFd()) {
-  f.Release();
-}
-
-LinuxFile::LinuxFile(KernelFile &&f, int flags, FileMode mode,
-                     std::string_view pathname,
-                     std::shared_ptr<LinuxInode> ino) noexcept
-    : SeekableFile(FileType::kNormal, flags, mode, pathname, std::move(ino)),
-      fd_(f.GetFd()) {
+  assert(dynamic_cast<LinuxInode *>(&get_dent_ref().get_inode_ref()));
   f.Release();
 }
 

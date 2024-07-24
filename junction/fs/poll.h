@@ -10,7 +10,7 @@ extern "C" {
 #include <functional>
 
 #include "junction/base/arch.h"
-#include "junction/base/intrusive_list.h"
+#include "junction/base/intrusive.h"
 #include "junction/bindings/sync.h"
 #include "junction/snapshot/cereal.h"
 

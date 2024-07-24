@@ -643,17 +643,21 @@ class Process : public std::enable_shared_from_this<Process> {
   // Constructor for deserialization
   // TODO(cereal): FIX fsroot
   template <class Archive>
-  Process(pid_t pid, Archive &ar, std::shared_ptr<IDir> root,
-          std::shared_ptr<IDir> cwd)
+  Process(pid_t pid, Archive &ar)
       : pid_(pid),
-        fs_(std::move(root), std::move(cwd)),
+        fs_(FSRoot::GetGlobalRoot()),
         signal_tbl_(DeferInit),
         stopped_gen_(1) {
     RegisterProcess(*this);
 
-    // TODO(cereal): add cwd
     ar(pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
        shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
+
+    std::string cwd;
+    ar(cwd);
+    auto ret = LookupDirEntry(FSRoot::GetGlobalRoot(), cwd);
+    if (unlikely(!ret)) throw std::runtime_error("bad lookup for cwd!");
+    fs_.SetCwd(std::move(*ret));
 
     detail::AcquirePid(pid_);
     detail::AcquirePid(pgid_);
@@ -661,13 +665,17 @@ class Process : public std::enable_shared_from_this<Process> {
 
   template <class Archive>
   void save(Archive &ar) const {
-    BUG_ON(!is_stopped() || stopped_count_ != thread_map_.size());
-    BUG_ON(exited_ || doing_exec_ || exec_waker_ || vfork_waker_ ||
-           child_waiters_);
+    if (!is_stopped() || stopped_count_ != thread_map_.size())
+      throw std::runtime_error("save attempted without fully stopped process.");
+    if (exited_ || doing_exec_ || exec_waker_ || vfork_waker_ || child_waiters_)
+      throw std::runtime_error("bad process state for snapshot");
 
-    ar(pid_, fs_.get_root(), fs_.get_cwd(), pgid_, parent_, file_tbl_, mem_map_,
-       limit_nofile_, signal_tbl_, shared_sig_q_, child_procs_, wait_state_,
-       wait_status_, it_real_.get());
+    ar(pid_, pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
+       shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
+
+    Status<std::string> cwd = fs_.get_cwd_ent()->GetPathStr();
+    if (!cwd) throw std::runtime_error("stale cwd during snapshot");
+    ar(*cwd);
 
     ar(thread_map_.size());
     for (const auto &[pid, th] : thread_map_) {
@@ -680,9 +688,8 @@ class Process : public std::enable_shared_from_this<Process> {
   static void load_and_construct(Archive &ar,
                                  cereal::construct<Process> &construct) {
     pid_t pid;
-    std::shared_ptr<IDir> root, cwd;
-    ar(pid, root, cwd);
-    construct(pid, ar, std::move(root), std::move(cwd));
+    ar(pid);
+    construct(pid, ar);
 
     size_t n_threads;
     ar(n_threads);

@@ -111,27 +111,16 @@ enum class SeekFrom : int {
 class Inode;
 class IDir;
 class ISoftLink;
+class DirectoryEntry;
 
 // The base class for UNIX files.
 class File : public std::enable_shared_from_this<File> {
  public:
   File(FileType type, unsigned int flags, FileMode mode,
-       std::shared_ptr<Inode> ino = {})
-      : type_(type), flags_(flags), mode_(mode), ino_(std::move(ino)) {}
-  File(FileType type, unsigned int flags, FileMode mode,
-       std::string_view filename, std::shared_ptr<Inode> ino = {})
-      : type_(type),
-        flags_(flags),
-        mode_(mode),
-        ino_(std::move(ino)),
-        filename_(filename) {}
-  File(FileType type, unsigned int flags, FileMode mode, std::string &&filename,
-       std::shared_ptr<Inode> ino = {})
-      : type_(type),
-        flags_(flags),
-        mode_(mode),
-        ino_(std::move(ino)),
-        filename_(std::move(filename)) {}
+       std::shared_ptr<DirectoryEntry> ent);
+  File(FileType type, unsigned int flags, FileMode mode)
+      : type_(type), flags_(flags), mode_(mode), ino_(nullptr) {}
+
   virtual ~File() = default;
 
   virtual Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
@@ -195,7 +184,7 @@ class File : public std::enable_shared_from_this<File> {
   [[nodiscard]] bool is_nonblocking() const {
     return get_flags() & kFlagNonblock;
   }
-  [[nodiscard]] std::shared_ptr<Inode> get_inode() const { return ino_; }
+  [[nodiscard]] Inode *get_inode() const { return ino_; }
   [[nodiscard]] const Inode &get_inode_ref() const { return *ino_; }
   [[nodiscard]] Inode &get_inode_ref() { return *ino_; }
   [[nodiscard]] PollSource &get_poll_source() {
@@ -206,7 +195,13 @@ class File : public std::enable_shared_from_this<File> {
     return poll_;
   }
 
-  [[nodiscard]] const std::string &get_filename() const { return filename_; }
+  [[nodiscard]] std::shared_ptr<DirectoryEntry> get_dent() const {
+    return dent_;
+  }
+
+  [[nodiscard]] DirectoryEntry &get_dent_ref() const { return *dent_.get(); }
+
+  [[nodiscard]] virtual std::string get_filename() const;
 
   // There is some limitation in cereal's polymorphic type registration that
   // seems to require base/derived classes to both use save/load or serialize.
@@ -232,6 +227,11 @@ class File : public std::enable_shared_from_this<File> {
 
   [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
 
+  // Returns true if this file can be deduplicated in a snapshot, ie it is
+  // visible in the Linux host filesystem. Overriden by subclasses that expose
+  // Linux files.
+  [[nodiscard]] virtual bool SnapshotShareable() const { return false; }
+
  protected:
   [[nodiscard]] bool IsPollSourceSetup() const { return poll_source_setup_; }
 
@@ -248,8 +248,8 @@ class File : public std::enable_shared_from_this<File> {
   off_t off_{0};
   bool poll_source_setup_{false};
   PollSource poll_;
-  const std::shared_ptr<Inode> ino_;
-  const std::string filename_;
+  Inode *const ino_;
+  const std::shared_ptr<DirectoryEntry> dent_;
   procfs::ProcFSData procfs_data_;
 };
 
@@ -283,7 +283,8 @@ class SeekableFile : public File {
 // Class for a directory file, supports getdents and getdents64.
 class DirectoryFile : public File {
  public:
-  DirectoryFile(unsigned int flags, FileMode mode, std::shared_ptr<IDir> ino);
+  DirectoryFile(unsigned int flags, FileMode mode,
+                std::shared_ptr<DirectoryEntry> dent);
   Status<long> GetDents(std::span<std::byte> dirp, off_t *off) override;
   Status<long> GetDents64(std::span<std::byte> dirp, off_t *off) override;
 };
@@ -292,7 +293,7 @@ class DirectoryFile : public File {
 class SoftLinkFile : public File {
  public:
   SoftLinkFile(unsigned int flags, FileMode mode,
-               std::shared_ptr<ISoftLink> ino);
+               std::shared_ptr<DirectoryEntry> dent);
   Status<long> ReadLink(std::span<std::byte> buf) override;
 };
 

@@ -18,8 +18,8 @@ template <Status<size_t> (*Reader)(std::span<std::byte>, bool),
 class SpecialFile : public File {
  public:
   SpecialFile(unsigned int flags, FileMode mode,
-              std::shared_ptr<Inode> ino) noexcept
-      : File(FileType::kSpecial, flags, mode, std::move(ino)) {}
+              std::shared_ptr<DirectoryEntry> dent) noexcept
+      : File(FileType::kSpecial, flags, mode, std::move(dent)) {}
   ~SpecialFile() override = default;
 
   Status<size_t> Read(std::span<std::byte> buf,
@@ -34,7 +34,7 @@ class SpecialFile : public File {
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(get_flags(), get_mode(), get_inode_ref().shared_from_this());
+    ar(get_flags(), get_mode(), get_dent());
     ar(cereal::base_class<File>(this));
   }
 
@@ -44,9 +44,9 @@ class SpecialFile : public File {
       Archive &ar, cereal::construct<SpecialFile<Reader, Writer>> &construct) {
     unsigned int flags;
     FileMode mode;
-    std::shared_ptr<Inode> in;
-    ar(flags, mode, in);
-    construct(flags, mode, std::move(in));
+    std::shared_ptr<DirectoryEntry> dent;
+    ar(flags, mode, dent);
+    construct(flags, mode, std::move(dent));
     ar(cereal::base_class<File>(construct.ptr()));
   }
 };
@@ -98,12 +98,12 @@ using CDevURandomFile = SpecialFile<CDevReadURandom, CDevWriteNull>;
 template <typename T>
   requires(std::derived_from<T, File>)
 std::shared_ptr<File> MakeFile(unsigned int flags, FileMode mode,
-                               std::shared_ptr<Inode> ino) {
-  return std::make_shared<T>(flags, mode, std::move(ino));
+                               std::shared_ptr<DirectoryEntry> dent) {
+  return std::make_shared<T>(flags, mode, std::move(dent));
 }
 
-using FactoryPtr = std::shared_ptr<File> (*)(unsigned int flags, FileMode mode,
-                                             std::shared_ptr<Inode> ino);
+using FactoryPtr = std::shared_ptr<File> (*)(
+    unsigned int flags, FileMode mode, std::shared_ptr<DirectoryEntry> dent);
 
 // Table of supported character devices
 const std::map<dev_t, FactoryPtr> CharacterDevices{
@@ -115,17 +115,19 @@ const std::map<dev_t, FactoryPtr> CharacterDevices{
 
 }  // namespace
 
-Status<std::shared_ptr<File>> DeviceOpen(Inode &ino, dev_t dev,
-                                         unsigned int flags, FileMode mode) {
+Status<std::shared_ptr<File>> DeviceOpen(std::shared_ptr<DirectoryEntry> dent,
+                                         dev_t dev, unsigned int flags,
+                                         FileMode mode) {
   // Only character devices supported so far.
-  if (ino.get_type() != kTypeCharacter) return MakeError(ENODEV);
+  if (dent->get_inode_ref().get_type() != kTypeCharacter)
+    return MakeError(ENODEV);
 
   // Check if we support this type of device.
   auto it = CharacterDevices.find(dev);
   if (it == CharacterDevices.end()) return MakeError(ENODEV);
 
   // Create the file.
-  return it->second(flags, mode, ino.get_this());
+  return it->second(flags, mode, std::move(dent));
 }
 
 }  // namespace junction

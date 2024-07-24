@@ -52,6 +52,7 @@ struct FSMemoryArea {
 
 struct SnapshotContext {
   std::vector<FSMemoryArea> mem_areas_;
+  std::vector<std::shared_ptr<DirectoryEntry>> dents;
 };
 
 SnapshotContext &GetSnapshotContext();

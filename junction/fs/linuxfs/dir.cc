@@ -87,46 +87,48 @@ __noinline void LinuxFSPanic(std::string_view msg, Error err) {
 
 // Produce a LinuxFS Inode from a stat buf and pathname. May return an empty
 // shared ptr with no error if the filetype is not supported.
-Status<std::shared_ptr<Inode>> LinuxIDir::ToInode(const struct stat &stat,
-                                                  std::string abspath,
-                                                  std::string_view entry_name) {
-  if (S_ISREG(stat.st_mode))
-    return std::make_shared<LinuxInode>(stat, std::move(abspath));
+Status<DirectoryEntry *> LinuxIDir::AddInode(const struct stat &stat,
+                                             std::string abspath,
+                                             std::string_view entry_name) {
+  assert_locked();
 
   if (S_ISDIR(stat.st_mode))
     return InstantiateChildDir(stat, std::move(abspath),
                                std::string(entry_name));
 
-  if (S_ISLNK(stat.st_mode)) {
+  std::shared_ptr<Inode> ino;
+
+  if (S_ISREG(stat.st_mode)) {
+    ino = std::make_shared<LinuxInode>(stat, std::move(abspath));
+  } else if (S_ISLNK(stat.st_mode)) {
     char buf[PATH_MAX];
     Status<std::string_view> target = linux_root_fd.ReadLinkAt(abspath, {buf});
     if (!target) return MakeError(target);
-    return std::make_shared<LinuxISoftLink>(stat, std::string(*target));
+    ino = std::make_shared<LinuxISoftLink>(stat, std::string(*target));
   }
 
+  if (ino) return AddDentLockedNoCheck(std::string(entry_name), std::move(ino));
   return {};
 }
 
 Status<void> LinuxIDir::FillEntries() {
-  assert(lock_.IsHeld());
+  assert_locked();
 
   Status<KernelFile> fd = GetLinuxDirFD();
   if (!fd) return MakeError(fd);
 
   DirectoryIterator it(*fd);
-  return it.ForEach(
-      [&](std::string_view name, struct stat &stat) -> Status<void> {
-        if (entries_.count(name) > 0) return {};
-        Status<std::shared_ptr<Inode>> in =
-            ToInode(stat, AppendFileName(name), name);
-        if (!in) return MakeError(in);
-        if (*in) InsertLockedNoCheck(name, std::move(*in));
-        return {};
-      });
+  return it.ForEach([&](std::string_view name,
+                        struct stat &stat) -> Status<void> {
+    if (contains(name)) return {};
+    Status<DirectoryEntry *> ret = AddInode(stat, AppendFileName(name), name);
+    if (!ret) return MakeError(ret);
+    return {};
+  });
 }
 
 void LinuxIDir::DoInitialize() {
-  assert(lock_.IsHeld());
+  assert_locked();
   assert(!is_initialized());
   Status<void> ret = FillEntries();
   if (unlikely(!ret && ret.error() != EACCES))
@@ -146,9 +148,9 @@ Status<void> LinuxWrIDir::MkDir(std::string_view name, mode_t mode) {
 
   Status<struct stat> stat = linux_root_fd.StatAt(abspath.data());
   if (unlikely(!stat)) return MakeError(stat);
-  auto ino = std::make_shared<LinuxWrIDir>(*stat, std::move(abspath),
-                                           std::string(name), get_this());
-  InsertLockedNoCheck(name, std::move(ino));
+
+  AddIDirLockedNoCheck<LinuxWrIDir>(std::string(name), *stat,
+                                    std::move(abspath));
   return {};
 }
 
@@ -157,7 +159,7 @@ Status<void> LinuxWrIDir::Unlink(std::string_view name) {
   rt::ScopedLock g(lock_);
   Status<void> ret = linux_root_fd.UnlinkAt(abspath);
   if (!ret) return ret;
-  if (auto it = entries_.find(name); it != entries_.end()) entries_.erase(it);
+  UnlinkAndDispose(name);
   return {};
 }
 
@@ -166,7 +168,7 @@ Status<void> LinuxWrIDir::RmDir(std::string_view name) {
   rt::ScopedLock g(lock_);
   Status<void> ret = linux_root_fd.UnlinkAt(abspath, AT_REMOVEDIR);
   if (!ret) return ret;
-  if (auto it = entries_.find(name); it != entries_.end()) entries_.erase(it);
+  UnlinkAndDispose(name);
   return {};
 }
 
@@ -180,7 +182,7 @@ Status<void> LinuxWrIDir::SymLink(std::string_view name,
   Status<struct stat> stat = linux_root_fd.StatAt(abspath);
   if (unlikely(!stat)) LinuxFSPanic("stat after SymLink", stat.error());
   auto ino = std::make_shared<LinuxISoftLink>(*stat, std::string(target));
-  InsertLockedNoCheck(name, std::move(ino));
+  AddDentLockedNoCheck(std::string(name), std::move(ino));
   return {};
 }
 
@@ -196,37 +198,16 @@ Status<void> LinuxWrIDir::DoRename(LinuxWrIDir &src, std::string_view src_name,
                                           linux_root_fd, dst_path, replace);
   if (!ret) return ret;
 
-  std::shared_ptr<Inode> ino;
+  if (src.is_initialized()) return MoveFrom(src, src_name, dst_name, replace);
 
-  // Remove inode from source, if present.
-  if (src.is_initialized()) {
-    auto src_it = src.entries_.find(src_name);
-    if (src_it != src.entries_.end()) {
-      ino = std::move(src_it->second);
-      src.entries_.erase(src_it);
-    }
-  }
-
-  // Current directory is not initialized, let's leave it that way.
   if (!is_initialized()) return {};
-
-  // We already have an inode, simply insert it into the entries_ list.
-  if (ino) {
-    if (ino->is_dir()) {
-      IDir &tdir = static_cast<IDir &>(*ino);
-      tdir.SetParent(get_this(), std::string(dst_name));
-    }
-    entries_[std::string(dst_name)] = std::move(ino);
-    return {};
-  }
 
   // Create a new Inode instance for the renamed file.
   Status<struct stat> stat = linux_root_fd.StatAt(dst_path);
   if (unlikely(!stat)) return MakeError(stat);
-  Status<std::shared_ptr<Inode>> in =
-      ToInode(*stat, std::move(dst_path), dst_name);
-  if (!in) return MakeError(in);
-  if (*in) InsertLockedNoCheck(dst_name, std::move(*in));
+  Status<DirectoryEntry *> iret =
+      AddInode(*stat, std::move(dst_path), dst_name);
+  if (unlikely(!iret)) return MakeError(iret);
   return {};
 }
 
@@ -268,14 +249,8 @@ Status<void> LinuxWrIDir::Link(std::string_view name,
   Status<void> ret = KernelFile::LinkAt(linux_root_fd, src_ino->get_path(),
                                         linux_root_fd, abspath);
   if (!ret) return ret;
-  if (is_initialized()) InsertLockedNoCheck(name, std::move(ino));
+  if (is_initialized()) AddDentLockedNoCheck(std::string(name), std::move(ino));
   return {};
-}
-
-inline std::shared_ptr<LinuxInode> CastToLinuxInode(std::shared_ptr<Inode> in) {
-  if constexpr (is_debug_build())
-    return std::dynamic_pointer_cast<LinuxInode>(std::move(in));
-  return std::static_pointer_cast<LinuxInode>(std::move(in));
 }
 
 Status<std::shared_ptr<File>> LinuxWrIDir::Create(std::string_view name,
@@ -288,29 +263,19 @@ Status<std::shared_ptr<File>> LinuxWrIDir::Create(std::string_view name,
   Status<KernelFile> f = linux_root_fd.OpenAt(abspath, flags, fmode, mode);
   if (!f) return MakeError(f);
 
-  if (!is_initialized()) {
-    DoInitialize();
-    MarkInitialized();
-  }
+  Status<std::shared_ptr<DirectoryEntry>> dent = FindShared(name);
+  if (dent)
+    return std::make_shared<LinuxFile>(std::move(*f), flags, fmode,
+                                       std::move(*dent));
 
-  auto it = entries_.find(name);
-  if (it != entries_.end()) {
-    ino = CastToLinuxInode(it->second);
-  } else {
-    Status<struct stat> stat = f->StatAt();
-    if (unlikely(!stat)) LinuxFSPanic("bad stat after O_CREAT", stat.error());
+  Status<struct stat> stat = f->StatAt();
+  if (unlikely(!stat)) LinuxFSPanic("bad stat after O_CREAT", stat.error());
 
-    Status<std::shared_ptr<Inode>> in =
-        ToInode(*stat, std::move(abspath), name);
-    if (unlikely(!in)) LinuxFSPanic("inode create after O_CREAT", in.error());
-    if (!*in) return MakeError(EINVAL);
-
-    InsertLockedNoCheck(name, *in);
-    ino = CastToLinuxInode(std::move(*in));
-  }
-
+  Status<DirectoryEntry *> ret = AddInode(*stat, std::move(abspath), name);
+  if (unlikely(!ret)) LinuxFSPanic("inode create after O_CREAT", ret.error());
+  if (!*ret) return MakeError(EINVAL);
   return std::make_shared<LinuxFile>(std::move(*f), flags, fmode,
-                                     std::move(abspath), std::move(ino));
+                                     (*ret)->shared_from_this());
 }
 
 }  // namespace junction::linuxfs

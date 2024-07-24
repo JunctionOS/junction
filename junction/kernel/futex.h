@@ -8,7 +8,7 @@
 
 #include "junction/base/arch.h"
 #include "junction/base/error.h"
-#include "junction/base/intrusive_list.h"
+#include "junction/base/intrusive.h"
 #include "junction/bindings/sync.h"
 #include "junction/bindings/timer.h"
 #include "junction/kernel/proc.h"

@@ -183,8 +183,8 @@ Status<std::shared_ptr<Process>> CreateTestProc() {
 Status<void> InitChroot() {
   std::string_view chroot_path = GetCfg().get_chroot_path();
   if (chroot_path != "/") {
-    int ret = chroot(chroot_path.data());
-    if (ret) return MakeError(ret);
+    if (chroot(chroot_path.data())) return MakeError(errno);
+    if (chdir("/")) return MakeError(errno);
   }
   return {};
 }

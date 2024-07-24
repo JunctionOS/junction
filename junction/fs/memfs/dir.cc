@@ -8,11 +8,10 @@
 
 namespace junction::memfs {
 
-Status<std::shared_ptr<Inode>> MemIDir::Lookup(std::string_view name) {
-  DoInitCheck();
-  rt::ScopedSharedLock g(lock_);
-  if (auto it = entries_.find(name); it != entries_.end()) return it->second;
-  return MakeError(ENOENT);
+Status<std::shared_ptr<DirectoryEntry>> MemIDir::LookupMissLocked(
+    std::string_view name) {
+  DoInitCheckLocked();
+  return FindShared(name);
 }
 
 Status<void> MemIDir::MkNod(std::string_view name, mode_t mode, dev_t dev) {
@@ -24,73 +23,45 @@ Status<void> MemIDir::MkNod(std::string_view name, mode_t mode, dev_t dev) {
 
 Status<void> MemIDir::MkDir(std::string_view name, mode_t mode) {
   DoInitCheck();
-  auto ino = std::make_shared<MemIDir>(mode, std::string(name), get_this());
-  return Insert(std::string(name), std::move(ino));
+  rt::ScopedLock g(lock_);
+  return AddIDirLocked<MemIDir>(std::string(name), mode);
 }
 
 Status<void> MemIDir::Unlink(std::string_view name) {
   DoInitCheck();
   rt::ScopedLock g(lock_);
-  auto it = entries_.find(name);
-  if (it == entries_.end()) return MakeError(ENOENT);
-  if (it->second->is_dir()) return MakeError(EISDIR);
-  it->second->dec_nlink();
-  entries_.erase(it);
+  Status<DirectoryEntry *> dent = FindRaw(name);
+  if (!dent) return MakeError(ENOENT);
+  Inode &ino = (*dent)->get_inode_ref();
+  if (ino.is_dir()) return MakeError(EISDIR);
+  UnlinkAndDispose(*dent);
   return {};
 }
 
 Status<void> MemIDir::RmDir(std::string_view name) {
   DoInitCheck();
   rt::ScopedLock g(lock_);
-  auto it = entries_.find(name);
-  if (it == entries_.end()) return MakeError(ENOENT);
-  auto *dir = most_derived_cast<MemIDir>(it->second.get());
-  if (!dir) return MakeError(ENOTDIR);
+  Status<DirectoryEntry *> dent = FindRaw(name);
+  if (!dent) return MakeError(ENOENT);
+  Inode &ino = (*dent)->get_inode_ref();
+  if (!ino.is_dir()) return MakeError(ENOTDIR);
+  if (static_cast<IDir &>(ino).get_idir_type() != IDirType::kMem)
+    return MakeError(EXDEV);
 
+  MemIDir &dir = static_cast<MemIDir &>(ino);
   // Confirm the directory is empty
   {
-    rt::ScopedLock g(dir->lock_);
-    if (!dir->entries_.empty()) return MakeError(ENOTEMPTY);
-    dir->dec_nlink();
-    assert(dir->is_stale());
+    rt::ScopedLock g(dir.lock_);
+    if (dir.size()) return MakeError(ENOTEMPTY);
   }
 
-  // Remove it
-  entries_.erase(it);
+  UnlinkAndDispose(*dent);
   return {};
 }
 
 Status<void> MemIDir::SymLink(std::string_view name, std::string_view target) {
   DoInitCheck();
   return Insert(std::string(name), CreateISoftLink(std::string(target)));
-}
-
-Status<void> MemIDir::DoRename(MemIDir &src, std::string_view src_name,
-                               std::string_view dst_name, bool replace) {
-  assert(lock_.IsHeld());
-  assert(src.lock_.IsHeld());
-
-  // find the source inode
-  auto src_it = src.entries_.find(src_name);
-  if (src_it == src.entries_.end()) return MakeError(ENOENT);
-
-  // make sure the destination name doesn't exist already
-  if (!replace) {
-    auto dst_it = entries_.find(dst_name);
-    if (dst_it != entries_.end()) return MakeError(EEXIST);
-  }
-
-  // perform the actual rename
-  std::shared_ptr<Inode> ino = std::move(src_it->second);
-  src.entries_.erase(src_it);
-
-  if (ino->is_dir()) {
-    IDir &tdir = static_cast<IDir &>(*ino);
-    tdir.SetParent(get_this(), std::string(dst_name));
-  }
-
-  entries_[std::string(dst_name)] = std::move(ino);
-  return {};
 }
 
 Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
@@ -102,7 +73,7 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
   // check if rename is in same directory
   if (src_dir == this) {
     rt::ScopedLock g(lock_);
-    return DoRename(*src_dir, src_name, dst_name, replace);
+    return MoveFrom(*src_dir, src_name, dst_name, replace);
   }
 
   // otherwise rename is across different directories (to avoid deadlock)
@@ -117,41 +88,38 @@ Status<void> MemIDir::Rename(IDir &src, std::string_view src_name,
     lock_.Lock();
     src_dir->lock_.Lock();
   }
-  return DoRename(*src_dir, src_name, dst_name, replace);
+  return MoveFrom(*src_dir, src_name, dst_name, replace);
 }
 
 Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
   DoInitCheck();
   rt::ScopedLock g(lock_);
   if (is_stale()) return MakeError(ESTALE);
-  if (Status<void> ret = InsertLocked(std::string(name), std::move(ino)); !ret)
-    return MakeError(ret);
-  return {};
+  return AddDentLocked(std::string(name), std::move(ino));
 }
 
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
                                               mode_t mode, FileMode fmode) {
   DoInitCheck();
   rt::ScopedLock g_(lock_);
-  auto it = entries_.find(name);
-  if (it == entries_.end()) {
-    Status<std::shared_ptr<MemInode>> ino = MemInode::Create(mode);
-    if (unlikely(!ino)) return MakeError(ino);
-    Status<std::shared_ptr<File>> f = (*ino)->Open(flags, fmode);
-    if (likely(f)) InsertLockedNoCheck(name, std::move(*ino));
-    return f;
+  Status<DirectoryEntry *> dent = FindRaw(name);
+  if (dent) {
+    if (flags & kFlagExclusive) return MakeError(EEXIST);
+    return (*dent)->Open(flags, fmode);
   }
 
-  if (flags & kFlagExclusive) return MakeError(EEXIST);
-  return it->second->Open(flags, fmode);
+  Status<std::shared_ptr<MemInode>> ino = MemInode::Create(mode);
+  if (unlikely(!ino)) return MakeError(ino);
+  DirectoryEntry *d = AddDentLockedNoCheck(std::string(name), std::move(*ino));
+  return d->Open(flags, fmode);
 }
 
 std::vector<dir_entry> MemIDir::GetDents() {
   DoInitCheck();
   std::vector<dir_entry> result;
-  rt::ScopedSharedLock g(lock_);
-  for (const auto &[name, ino] : entries_)
-    result.emplace_back(name, ino->get_inum(), ino->get_type());
+  ForEach([&](const DirectoryEntry &dent) {
+    result.emplace_back(dent.entry_info());
+  });
   return result;
 }
 
@@ -161,11 +129,10 @@ Status<void> MemIDir::GetStats(struct stat *buf) const {
 }
 
 // Created a new unattached MemFS folder.
-std::shared_ptr<IDir> MkFolder(mode_t mode, std::string &&name,
-                               std::shared_ptr<IDir> parent) {
-  auto ino =
-      std::make_shared<MemIDir>(mode, std::move(name), std::move(parent));
-  return ino;
+std::shared_ptr<IDir> MkFolder(IDir &parent, std::string name, mode_t mode) {
+  std::shared_ptr<DirectoryEntry> de =
+      parent.AddIDirNoCheck<MemIDir>(std::move(name), mode);
+  return static_cast<IDir &>(de->get_inode_ref()).get_this();
 }
 
 }  // namespace junction::memfs

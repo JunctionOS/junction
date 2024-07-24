@@ -29,8 +29,10 @@ class MemIDevice : public Inode {
   MemIDevice(dev_t dev, mode_t mode, ino_t inum = AllocateInodeNumber())
       : Inode(mode, inum), dev_(dev) {}
 
-  Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override {
-    return DeviceOpen(*this, dev_, flags, mode);
+  Status<std::shared_ptr<File>> Open(
+      uint32_t flags, FileMode mode,
+      std::shared_ptr<DirectoryEntry> dent) override {
+    return DeviceOpen(std::move(dent), dev_, flags, mode);
   }
   Status<void> GetStats(struct stat *buf) const override {
     MemInodeToStats(*this, buf);
@@ -138,8 +140,9 @@ Status<void> MemInode::GetStats(struct stat *buf) const {
   return {};
 }
 
-Status<std::shared_ptr<File>> MemInode::Open(uint32_t flags, FileMode mode) {
-  return std::make_shared<MemFSFile>(flags, mode, shared_from_base<MemInode>());
+Status<std::shared_ptr<File>> MemInode::Open(
+    uint32_t flags, FileMode mode, std::shared_ptr<DirectoryEntry> dent) {
+  return std::make_shared<MemFSFile>(flags, mode, std::move(dent));
 }
 
 std::shared_ptr<ISoftLink> CreateISoftLink(std::string path) {

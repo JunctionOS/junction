@@ -198,6 +198,10 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
   StreamBufferReader<KernelFile> w(*f);
   std::istream instream(&w);
   cereal::BinaryInputArchive ar(instream);
+
+  if (Status<void> ret = FSRestore(ar); unlikely(!ret)) return MakeError(ret);
+  Time end_fs = Time::Now();
+
   std::shared_ptr<Process> p;
   ar(p);
 
@@ -225,8 +229,9 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
   };
 
   LOG(INFO) << "restore time " << (end_elf - start).Microseconds()
-            << " metadata: " << (end_metadata - start).Microseconds()
-            << " elf: " << (end_elf - end_metadata).Microseconds();
+            << " metadata: " << (end_metadata - end_fs).Microseconds()
+            << " elf: " << (end_elf - end_metadata).Microseconds()
+            << " fs: " << (end_fs - start).Microseconds();
 
   // if (unlikely(GetCfg().mem_trace_timeout()))
   // p->get_mem_map().EnableTracing();

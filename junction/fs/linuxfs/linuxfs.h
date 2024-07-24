@@ -23,22 +23,7 @@ class LinuxISoftLink : public memfs::MemISoftLink {
       : MemISoftLink(stat, std::move(path)) {}
   LinuxISoftLink(ino_t ino, std::string path)
       : MemISoftLink(std::move(path), ino) {}
-
-  template <class Archive>
-  void save(Archive &ar) const {
-    ar(ReadLink(), get_inum());
-    ar(cereal::base_class<MemISoftLink>(this));
-  }
-
-  template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<LinuxISoftLink> &construct) {
-    std::string path;
-    ino_t ino;
-    ar(path, ino);
-    construct(ino, std::move(path));
-    ar(cereal::base_class<MemISoftLink>(construct.ptr()));
-  }
+  bool SnapshotPrunable() override { return true; }
 };
 
 class LinuxInode : public Inode {
@@ -51,7 +36,11 @@ class LinuxInode : public Inode {
   }
 
   // Open a file for this inode.
-  Status<std::shared_ptr<File>> Open(uint32_t flags, FileMode mode) override;
+  Status<std::shared_ptr<File>> Open(
+      uint32_t flags, FileMode mode,
+      std::shared_ptr<DirectoryEntry> dent) override;
+
+  bool SnapshotPrunable() override { return true; }
 
   // Get attributes.
   Status<void> GetStats(struct stat *buf) const override {
@@ -77,44 +66,12 @@ class LinuxInode : public Inode {
 
 class LinuxIDir : public memfs::MemIDir {
  public:
-  LinuxIDir(const struct stat &stat, std::string path, std::string name,
-            std::shared_ptr<IDir> parent)
-      : MemIDir(stat, std::string(name), std::move(parent)),
-        path_(std::move(path)) {
-    assert(is_dir());
-  }
-  // Cereal constructor
-  LinuxIDir(mode_t mode, ino_t inum, std::string path, std::string name,
-            std::shared_ptr<IDir> parent)
-      : MemIDir(mode, std::string(name), std::move(parent), inum),
-        path_(std::move(path)) {
+  LinuxIDir(Token t, const struct stat &stat, std::string path)
+      : MemIDir(t, stat), path_(std::move(path)) {
     assert(is_dir());
   }
 
-  void PruneForSnapshot() override {
-    auto it = entries_.begin();
-    while (it != entries_.end()) {
-      std::shared_ptr<Inode> &in = it->second;
-      bool erase;
-      if (in->is_dir()) {
-        IDir *id = static_cast<IDir *>(in.get());
-        id->PruneForSnapshot();
-        LinuxIDir *d = dynamic_cast<LinuxIDir *>(id);
-        erase = d && d->entries_.empty();
-      } else if (in->is_symlink()) {
-        erase = dynamic_cast<LinuxISoftLink *>(in.get()) != nullptr;
-      } else {
-        erase = dynamic_cast<LinuxInode *>(in.get()) != nullptr;
-      }
-      if (erase) {
-        in->dec_nlink();
-        it = entries_.erase(it);
-      } else {
-        it++;
-      }
-    }
-    ClearInitialized();
-  }
+  bool SnapshotPrunable() override { return true; }
 
   // Inode ops
   Status<void> GetStats(struct stat *buf) const override {
@@ -127,47 +84,21 @@ class LinuxIDir : public memfs::MemIDir {
     return {};
   }
 
-  template <class Archive>
-  void save(Archive &ar) const {
-    if (is_most_derived<LinuxIDir>(*this))
-      ar(get_mode(), get_inum(), get_parent(), get_name(), path_);
-    ar(cereal::base_class<MemIDir>(this));
-  }
-
-  // Used only by derived classes.
-  template <class Archive>
-  void load(Archive &ar) {
-    assert(!is_most_derived<LinuxIDir>(*this));
-    ar(cereal::base_class<MemIDir>(this));
-  }
-
-  template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<LinuxIDir> &construct) {
-    mode_t mode;
-    ino_t inum;
-    std::shared_ptr<IDir> parent;
-    std::string name_in_parent, path;
-    ar(mode, inum, parent, name_in_parent, path);
-    construct(mode, inum, std::move(path), std::move(name_in_parent),
-              std::move(parent));
-    ar(cereal::base_class<MemIDir>(construct.ptr()));
-  }
-
  protected:
   // Helper routine to intialize entries_.
   Status<void> FillEntries();
   void DoInitialize() override;
 
-  Status<std::shared_ptr<Inode>> ToInode(const struct stat &stat,
-                                         std::string abspath,
-                                         std::string_view entry_name);
+  Status<DirectoryEntry *> AddInode(const struct stat &stat,
+                                    std::string abspath,
+                                    std::string_view entry_name);
 
-  virtual std::shared_ptr<IDir> InstantiateChildDir(const struct stat &buf,
-                                                    std::string abspath,
-                                                    std::string name) {
-    return std::make_shared<LinuxIDir>(buf, std::move(abspath), std::move(name),
-                                       get_this());
+  virtual DirectoryEntry *InstantiateChildDir(const struct stat &buf,
+                                              std::string abspath,
+                                              std::string name) {
+    assert_locked();
+    return AddIDirLockedNoCheck<LinuxIDir>(std::move(name), buf,
+                                           std::move(abspath));
   }
 
   Status<KernelFile> GetLinuxDirFD() const {
@@ -188,17 +119,8 @@ class LinuxIDir : public memfs::MemIDir {
 
 class LinuxWrIDir : public LinuxIDir {
  public:
-  LinuxWrIDir(const struct stat &stat, std::string path, std::string name,
-              std::shared_ptr<IDir> parent)
-      : LinuxIDir(stat, std::move(path), std::move(name), std::move(parent)) {
-    assert(is_dir());
-  }
-
-  // Cereal constructor.
-  LinuxWrIDir(mode_t mode, ino_t inum, std::string path, std::string name,
-              std::shared_ptr<IDir> parent)
-      : LinuxIDir(mode, inum, std::move(path), std::move(name),
-                  std::move(parent)) {
+  LinuxWrIDir(Token t, const struct stat &stat, std::string path)
+      : LinuxIDir(t, stat, std::move(path)) {
     assert(is_dir());
   }
 
@@ -217,31 +139,13 @@ class LinuxWrIDir : public LinuxIDir {
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                        mode_t mode, FileMode fmode) override;
 
-  template <class Archive>
-  void save(Archive &ar) const {
-    ar(get_mode(), get_inum(), get_parent(), get_name(), path_);
-    ar(cereal::base_class<LinuxIDir>(this));
-  }
-
-  template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<LinuxWrIDir> &construct) {
-    mode_t mode;
-    ino_t inum;
-    std::shared_ptr<IDir> parent;
-    std::string name_in_parent, path;
-    ar(mode, inum, parent, name_in_parent, path);
-    construct(mode, inum, std::move(path), std::move(name_in_parent),
-              std::move(parent));
-    ar(cereal::base_class<LinuxIDir>(construct.ptr()));
-  }
-
  protected:
-  std::shared_ptr<IDir> InstantiateChildDir(const struct stat &buf,
-                                            std::string abspath,
-                                            std::string name) override {
-    return std::make_shared<LinuxWrIDir>(buf, std::move(abspath),
-                                         std::move(name), get_this());
+  DirectoryEntry *InstantiateChildDir(const struct stat &buf,
+                                      std::string abspath,
+                                      std::string name) override {
+    assert_locked();
+    return AddIDirLockedNoCheck<LinuxWrIDir>(std::move(name), buf,
+                                             std::move(abspath));
   }
 
  private:

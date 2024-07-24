@@ -1,16 +1,10 @@
 // linuxfile.h - support for Linux files
-extern "C" {
-#include <sys/stat.h>
-}
-
 #pragma once
 
 #include <memory>
 #include <span>
-#include <string_view>
 
 #include "junction/base/error.h"
-#include "junction/bindings/log.h"
 #include "junction/fs/file.h"
 #include "junction/fs/linuxfs/linuxfs.h"
 #include "junction/kernel/ksys.h"
@@ -20,10 +14,8 @@ namespace junction::linuxfs {
 
 class LinuxFile : public SeekableFile {
  public:
-  LinuxFile(KernelFile &&f, int flags, FileMode mode, std::string &&pathname,
-            std::shared_ptr<LinuxInode> ino) noexcept;
-  LinuxFile(KernelFile &&f, int flags, FileMode mode, std::string_view pathname,
-            std::shared_ptr<LinuxInode> ino) noexcept;
+  LinuxFile(KernelFile &&f, int flags, FileMode mode,
+            std::shared_ptr<DirectoryEntry> dent) noexcept;
   ~LinuxFile() override;
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
@@ -33,45 +25,38 @@ class LinuxFile : public SeekableFile {
 
   [[nodiscard]] size_t get_size() const override;
 
+  [[nodiscard]] bool SnapshotShareable() const override { return true; }
+
  private:
   friend class cereal::access;
   friend class LinuxInode;
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(get_filename(), get_flags(), get_mode());
+    Status<std::string> ret = get_dent_ref().GetPathStr();
+    if (!ret) throw std::runtime_error("stale linuxfile handle");
+    ar(get_flags(), get_mode(), *ret);
     ar(cereal::base_class<SeekableFile>(this));
   }
 
   template <class Archive>
   static void load_and_construct(Archive &ar,
                                  cereal::construct<LinuxFile> &construct) {
-    std::string filename;
     int flags;
     FileMode mode;
-    ar(filename, flags, mode);
+    std::string path;
 
-    Status<std::shared_ptr<Inode>> tmp =
-        LookupInode(FSRoot::GetGlobalRoot(), filename, false);
-    if (unlikely(!tmp)) {
-      LOG(ERR) << "failed to re-open linux file " << filename;
-      BUG();
-    }
+    ar(flags, mode, path);
+    Status<std::shared_ptr<DirectoryEntry>> ret =
+        LookupDirEntry(FSRoot::GetGlobalRoot(), path);
+    if (unlikely(!ret))
+      throw std::runtime_error("bad lookup on linuxfile restore");
 
-    LinuxInode *ino;
-    if constexpr (is_debug_build())
-      ino = dynamic_cast<LinuxInode *>(tmp->get());
-    else
-      ino = reinterpret_cast<LinuxInode *>(tmp->get());
+    LinuxInode *inode = fast_cast<LinuxInode *>(&(*ret)->get_inode_ref());
+    Status<KernelFile> f = linux_root_fd.OpenAt(inode->get_path(), flags, mode);
+    if (unlikely(!f)) throw std::runtime_error("failed to reopen linux file");
 
-    Status<KernelFile> f = linux_root_fd.OpenAt(filename, flags, mode);
-    if (!f) {
-      LOG(ERR) << "failed to open file " << filename << " ret: " << f.error();
-      BUG();
-    }
-
-    construct(std::move(*f), flags, mode, std::move(filename),
-              std::static_pointer_cast<LinuxInode>(std::move(*tmp)));
+    construct(std::move(*f), flags, mode, std::move(*ret));
     ar(cereal::base_class<SeekableFile>(construct.ptr()));
   }
 
