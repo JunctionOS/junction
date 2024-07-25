@@ -63,10 +63,11 @@ fi
 # Run tests
 pushd "${TEST_DIR}" || exit 255
 export GTEST_COLOR=1
+export DROP_PRIV_UID=$UID
 if [ -z "${REGEX}" ]; then
-  sudo -E "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT
+  "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT
 else
-  sudo -E "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT --tests-regex "${REGEX}"
+  "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT --tests-regex "${REGEX}"
 fi
 ec=$?
 

@@ -17,7 +17,7 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_snapshot_elf
-    COMMAND sh -c "rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands} && chmod 666 /tmp/${test_name}.metadata /tmp/${test_name}.elf"
+    COMMAND sh -c "rm -f /tmp/${test_name}.metadata /tmp/${test_name}.elf && $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands}"
   )
 
   add_test(
@@ -27,12 +27,12 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_snapshot_jif
-    COMMAND sh -c "rm -f /tmp/${test_name}.jm /tmp/${test_name}.jif && $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --jif -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands} && ${READJIF} --check /tmp/${test_name}.jif && chmod 666 /tmp/${test_name}.jm /tmp/${test_name}.jif"
+    COMMAND sh -c "rm -f /tmp/${test_name}.jm /tmp/${test_name}.jif && $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --jif -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands} && ${READJIF} --check /tmp/${test_name}.jif"
   )
 
   add_test(
     NAME ${test_name}_build_itrees
-    COMMAND sh -c "${JIFTOOL} /tmp/${test_name}.jif /tmp/${test_name}_itrees.jif build-itrees && ${READJIF} --check /tmp/${test_name}_itrees.jif && cp /tmp/${test_name}.jm /tmp/${test_name}_itrees.jm && chmod 666 /tmp/${test_name}_itrees.jm /tmp/${test_name}_itrees.jif"
+    COMMAND sh -c "${JIFTOOL} /tmp/${test_name}.jif /tmp/${test_name}_itrees.jif build-itrees && ${READJIF} --check /tmp/${test_name}_itrees.jif && cp /tmp/${test_name}.jm /tmp/${test_name}_itrees.jm"
   )
 
   add_test(

@@ -215,6 +215,15 @@ Status<void> init() {
   ret = InitChroot();
   if (unlikely(!ret)) return ret;
 
+  char *dropuid = getenv("DROP_PRIV_UID");
+  if (dropuid) {
+    int uid = atoi(dropuid);
+    if (setgid(uid) != 0 || setuid(uid) != 0) {
+      LOG(ERR) << "failed to drop priveleges " << Error(errno);
+      return MakeError(errno);
+    }
+  }
+
   ret = InitFs(linux_mount_points, GetFsMounts());
   if (unlikely(!ret)) return ret;
 
