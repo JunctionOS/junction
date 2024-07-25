@@ -25,7 +25,7 @@ target_link_libraries(gtest_shim INTERFACE
 macro(test_bin_junction test_name test_commands)
   add_test(
     NAME ${test_name}_junction
-    COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -- ${test_commands}"
+    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS -- ${test_commands}"
   )
 endmacro()
 
@@ -102,7 +102,7 @@ runtime_kthreads ${n_kthreads}
 runtime_spinning_kthreads 0
 runtime_guaranteed_kthreads 0
 runtime_priority lc
-runtime_quantum_us 10"
+runtime_quantum_us 100"
 )
 file(WRITE  ${CMAKE_CURRENT_BINARY_DIR}/caladan_test_ts.config ${caladan_test_config_ts})
 
@@ -114,7 +114,7 @@ runtime_kthreads 1
 runtime_spinning_kthreads 0
 runtime_guaranteed_kthreads 0
 runtime_priority lc
-runtime_quantum_us 10"
+runtime_quantum_us 100"
 )
 
 set(caladan_test_config_path_ts_st

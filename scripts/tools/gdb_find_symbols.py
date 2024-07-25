@@ -90,20 +90,26 @@ def get_enum_int():
             return int(enum_val.enumval)
     assert False, "enum for VMType::File not found"
 
-def get_shared_ptr_value(shared_ptr):
+def get_shared_ptr_ptr(shared_ptr):
     # Access the internal pointer to the managed object (_M_ptr)
-    managed_object_ptr = shared_ptr['_M_ptr']
+    return shared_ptr['_M_ptr']
 
-    # Convert the managed object pointer to an actual pointer type
-    managed_object_type = managed_object_ptr.type.target()
-    managed_object = managed_object_ptr.cast(managed_object_type.pointer()).dereference()
-
-    return managed_object
+def rtti_cast(base_ptr, derived_type):
+    try:
+        derived_ptr = base_ptr.cast(derived_type)
+        # Test if the casted pointer is valid
+        gdb.execute("p *{}".format(derived_ptr), to_string=True)
+        return derived_ptr
+    except gdb.error:
+        return None
 
 def offsets_from_junction_map():
     map_var = gdb.parse_and_eval("'junction::detail::init_proc'.get()->mem_map_.get()->vmareas_")
     filetype = get_enum_int()
     nodetype = gdb.lookup_type("std::_Rb_tree_node<std::pair<unsigned long const, junction::VMArea> >").pointer()
+    ino_type = gdb.lookup_type('junction::linuxfs::LinuxInode').pointer()
+    linuxfile_type = gdb.lookup_type('junction::linuxfs::LinuxFile').pointer()
+
     it = RbtreeIterator(map_var)
     for node in it:
         node = node.cast(nodetype).dereference()
@@ -111,8 +117,13 @@ def offsets_from_junction_map():
         val = node['_M_storage']['_M_storage'].address.cast(valtype.pointer()).dereference()
         if int(val["second"]["type"]) != filetype:
             continue
-        sp = get_shared_ptr_value(val["second"]["file"])
-        fn = str(sp["filename_"])[1:-1] # strip quotes
+        ptr = get_shared_ptr_ptr(val["second"]["file"])
+        derived_ptr = rtti_cast(ptr, linuxfile_type)
+        if not derived_ptr:
+            continue
+        linuxfile = derived_ptr.dereference()
+        linuxinode = derived_ptr.dereference()["ino_"].cast(ino_type).dereference()
+        fn = str(linuxinode["path_"])[1:-1] # strip quotes
         if fn.startswith("//"):
             fn = fn[1:]
         yield fn, val["second"]["start"]
@@ -158,7 +169,7 @@ if not pid:
         exit(-1)
 
 for filename, real_start in get_offsets(offsets_from_junction_map()):
-    outf(f"add-symbol-file {filename} -o {hex(real_start)}")
+   outf(f"add-symbol-file {filename} -o {hex(real_start)}")
 
 # for filename, real_start in get_offsets(offsets_from_linux_map(pid)):
-#     outf(f"add-symbol-file {filename} -o {hex(real_start)}")
+#      outf(f"add-symbol-file {filename} -o {hex(real_start)}")

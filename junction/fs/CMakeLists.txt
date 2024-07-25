@@ -34,6 +34,6 @@ if (WRITEABLE_LINUX_FS)
 else()
 add_test(
   NAME memfs_test_junction
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} -- $<TARGET_FILE:memfs_test>"
+  COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS -- $<TARGET_FILE:memfs_test>"
 )
 endif()

@@ -19,5 +19,7 @@ lib/.jiftools_installed_ver
 *.elf
 *.metadata
 
+chroot/**
+
 junction/control/control_request_generated.h
 junction/control/control_response_generated.h

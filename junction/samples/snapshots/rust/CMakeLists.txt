@@ -10,4 +10,6 @@ corrosion_import_crate(MANIFEST_PATH resize-rs/Cargo.toml)
 
 set(rust_resizer "${CMAKE_CURRENT_BINARY_DIR}/resize-rs")
 
-add_snapshot_restore_test(rust_resizer "${rust_resizer} ${CMAKE_CURRENT_SOURCE_DIR}/../images/IMG_4011.jpg")
+configure_file(${CMAKE_CURRENT_SOURCE_DIR}/../images/IMG_4011.jpg ${CMAKE_CURRENT_BINARY_DIR}/IMG_4011.jpg COPYONLY)
+
+add_snapshot_restore_test(rust_resizer "${rust_resizer} ${CMAKE_CURRENT_BINARY_DIR}/IMG_4011.jpg")

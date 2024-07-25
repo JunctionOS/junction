@@ -1,7 +1,7 @@
 #!/bin/bash
 
 function usage() {
-    echo "usage: scripts/test.sh [-d|--debug] [-h|--help] [--no-uintr] [-n|--dry-run] [--no-remove] [regex]" >&2
+    echo "usage: scripts/test.sh [-d|--debug] [-h|--help] [--no-uintr] [-n|--dry-run] [--no-remove] [--use_chroot] [regex]" >&2
     exit 255
 }
 
@@ -10,6 +10,7 @@ REGEX=""
 DRY_RUN=""
 MODE="Release"
 TIMEOUT=240
+USECHROOT=""
 
 for arg in "$@"; do
     shift
@@ -19,6 +20,7 @@ for arg in "$@"; do
         '--no-uintr') NOUINTR="nouintr" ;;
         '--no-remove') REM_FILES="y" ;;
         '-n'|'--dry-run') DRY_RUN="--show-only" ;;
+        '--use-chroot') USECHROOT=1 ;;
         *)
             if [[ -z ${REGEX} ]]; then
                 REGEX=${arg}
@@ -64,6 +66,25 @@ fi
 pushd "${TEST_DIR}" || exit 255
 export GTEST_COLOR=1
 export DROP_PRIV_UID=$UID
+
+if [[ ! -z ${USECHROOT} ]]; then
+    export CHROOT_DIR="${ROOT_DIR}/chroot/"
+    if [[ ! -d $CHROOT_DIR ]]; then
+        echo "Missing chroot dir."
+        exit 255
+    fi
+    export EXTRA_JUNCTION_FLAGS=" --chroot ${CHROOT_DIR} --cache_linux_fs "
+    sudo mkdir -p ${CHROOT_DIR}/${BIN_DIR} ${CHROOT_DIR}/${BUILD_DIR}
+    sudo mount --bind -o ro ${BIN_DIR} ${CHROOT_DIR}/${BIN_DIR}
+    sudo mount --bind -o ro ${BUILD_DIR} ${CHROOT_DIR}/${BUILD_DIR}
+
+    function cleanup {
+        sudo umount "${CHROOT_DIR}/${BUILD_DIR}" 2> /dev/null
+        sudo umount "${CHROOT_DIR}/${BIN_DIR}" 2> /dev/null
+    }
+    trap cleanup SIGINT SIGTERM EXIT
+fi
+
 if [ -z "${REGEX}" ]; then
   "${CTEST}" ${DRY_RUN} --output-on-failure --verbose --timeout $TIMEOUT
 else

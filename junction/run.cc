@@ -110,7 +110,7 @@ void JunctionMain(int argc, char *argv[]) {
   Status<void> ret = init();
   BUG_ON(!ret);
 
-  Status<std::shared_ptr<Process>> proc;
+  std::shared_ptr<Process> proc;
 
   if (GetCfg().restoring()) {
     if (unlikely(argc < 2)) {
@@ -118,32 +118,38 @@ void JunctionMain(int argc, char *argv[]) {
       syscall_exit(-1);
     }
 
+    Status<std::shared_ptr<Process>> tmp;
+
     if (GetCfg().jif()) {
       LOG(INFO) << "snapshot: restoring from snapshot (jif=" << args[1]
                 << ", metadata=" << args[0] << ")";
-      proc = RestoreProcessFromJIF(args[0], args[1]);
+      tmp = RestoreProcessFromJIF(args[0], args[1]);
     } else {
       LOG(INFO) << "snapshot: restoring from snapshot (elf=" << args[1]
                 << ", metadata=" << args[0] << ")";
-      proc = RestoreProcessFromELF(args[0], args[1]);
+      tmp = RestoreProcessFromELF(args[0], args[1]);
     }
 
-    if (!proc) {
-      LOG(ERR) << "Failed to restore proc";
+    if (unlikely(!tmp)) {
+      LOG(ERR) << "Failed to restore proc: " << tmp.error();
       syscall_exit(-1);
     }
-    LOG(INFO) << "snapshot: restored process with pid=" << (*proc)->get_pid();
+
+    proc = std::move(*tmp);
+    LOG(INFO) << "snapshot: restored process with pid=" << proc->get_pid();
   } else if (!args.empty()) {
     auto [_envp_s, envp_view] = BuildEnvp();
     // Create the first process
-    proc = CreateFirstProcess(args[0], args, envp_view);
-    if (!proc) syscall_exit(-1);
+    Status<std::shared_ptr<Process>> tmp =
+        CreateFirstProcess(args[0], args, envp_view);
+    if (!tmp) syscall_exit(-1);
+    proc = std::move(*tmp);
   }
 
   if (proc) {
     // setup teardown of tracer
     if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
-      rt::Spawn([p = *proc] mutable {
+      rt::Spawn([p = proc] mutable {
         rt::Sleep(Duration(GetCfg().mem_trace_timeout() * kMilliseconds));
         LOG(INFO) << "done sleeping, tracer reporting time!";
         auto trace_report = p->get_mem_map().EndTracing();
@@ -184,7 +190,7 @@ void JunctionMain(int argc, char *argv[]) {
 
     // setup automatic snapshot
     if (unlikely(GetCfg().snapshot_on_stop())) {
-      rt::Spawn([p = *proc] mutable {
+      rt::Spawn([p = proc] mutable {
         p->WaitForNthStop(GetCfg().snapshot_on_stop());
         std::string epath =
             std::string(GetCfg().get_snapshot_prefix()) + ".elf";
@@ -210,10 +216,8 @@ void JunctionMain(int argc, char *argv[]) {
   }
 
   // Drop reference so the process can properly destruct itself when done
-  proc->reset();
-  LOG(INFO) << "waiting";
+  proc.reset();
   rt::WaitForever();
-  LOG(INFO) << "done waiting";
 }
 
 }  // namespace junction

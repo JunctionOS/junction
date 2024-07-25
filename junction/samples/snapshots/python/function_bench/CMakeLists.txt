@@ -18,8 +18,12 @@ set(venv_python
   "${CMAKE_SOURCE_DIR}/bin/venv/bin/python3"
 )
 
+foreach(f IN ITEMS ${CMAKE_CURRENT_SOURCE_DIR}/)
+    file(COPY ${f} DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+endforeach()
+
 set(fb_run
-  "${CMAKE_CURRENT_SOURCE_DIR}/run.py"
+  "${CMAKE_CURRENT_BINARY_DIR}/run.py"
 )
 
 foreach(test ${tests})

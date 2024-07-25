@@ -46,25 +46,25 @@ add_test(
 
 add_test(
   NAME tbench_test_junction_all_optimization
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS -E MEASURE_ROUNDS=${MEASURE_ROUNDS} --ld_preload=$<TARGET_FILE:shim_preload> -- $<TARGET_FILE:tbench_test>"
+  COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS -E MEASURE_ROUNDS=${MEASURE_ROUNDS} --ld_preload=$<TARGET_FILE:shim_preload> -- $<TARGET_FILE:tbench_test>"
 )
 
 add_test(
   NAME tbench_test_junction_no_optimization
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --glibc_path --interpreter_path --ld_preload -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+  COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --glibc_path --interpreter_path --ld_preload -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
 )
 
 add_test(
   NAME tbench_test_junction_plus_custom_libc
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --ld_preload -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+  COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --ld_preload -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
 )
 
 add_test(
   NAME tbench_test_junction_plus_shim
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --glibc_path --interpreter_path --ld_preload=$<TARGET_FILE:shim_preload> -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+  COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --glibc_path --interpreter_path --ld_preload=$<TARGET_FILE:shim_preload> -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
 )
 
 add_test(
   NAME tbench_test_stackswitch
-  COMMAND sh -c "$<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --stackswitch -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
+  COMMAND sh -c "sudo -E  $<TARGET_FILE:junction_run> ${caladan_test_config_path} $EXTRA_JUNCTION_FLAGS --stackswitch -E MEASURE_ROUNDS=${MEASURE_ROUNDS} -- $<TARGET_FILE:tbench_test>"
 )

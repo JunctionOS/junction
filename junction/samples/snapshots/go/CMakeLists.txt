@@ -1,11 +1,6 @@
 execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/go.mod ${CMAKE_CURRENT_BINARY_DIR})
 execute_process(COMMAND cp ${CMAKE_CURRENT_SOURCE_DIR}/go.sum ${CMAKE_CURRENT_BINARY_DIR})
 
-# copy images
-execute_process(
-  COMMAND cp -r ${CMAKE_CURRENT_SOURCE_DIR}/images ${CMAKE_CURRENT_BINARY_DIR}
-)
-
 set(go_hello "${CMAKE_CURRENT_BINARY_DIR}/hello")
 set(go_resizer "${CMAKE_CURRENT_BINARY_DIR}/resizer")
 
