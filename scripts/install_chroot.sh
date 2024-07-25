@@ -8,7 +8,7 @@ CHROOT=${ROOT_DIR}/chroot
 
 if ! mkdir ${CHROOT}; then
  echo "chroot already exists. please remove the directory and run again"
- exit -1
+ exit 0
 fi
 
 export DEBIAN_FRONTEND=noninteractive
