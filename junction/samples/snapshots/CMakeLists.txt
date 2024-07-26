@@ -3,35 +3,45 @@ message(STATUS "Building junction sample: snapshot")
 macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   set(CONFIG ${caladan_test_config_path_ts_st})
+  set(PREFIX /tmp/${test_name})
+
+  set(ELF_METADATA ${PREFIX}.metadata)
+  set(ELF ${PREFIX}.elf)
+
+  set(JIF_METADATA ${PREFIX}.jm)
+  set(JIF ${PREFIX}.jif)
+
+  set(JIF_ITREES_METADATA ${PREFIX}_itrees.jm)
+  set(JIF_ITREES ${PREFIX}_itrees.jif)
 
   add_test(
     NAME ${test_name}_snapshot_elf
-    COMMAND sh -c "rm -f $CHROOT_DIR/tmp/${test_name}.metadata /tmp/${test_name}.elf && sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands}"
+    COMMAND sh -c "rm -f ${CHROOT_DIR}/${ELF_METADATA} ${CHROOT_DIR}/${ELF} && sudo -E $<TARGET_FILE:junction_run> ${CONFIG} ${EXTRA_JUNCTION_FLAGS} -S ${stop_count} --snapshot-prefix ${PREFIX} -- ${test_commands}"
   )
 
   add_test(
     NAME ${test_name}_restore_elf
-    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS -r -- /tmp/${test_name}.metadata /tmp/${test_name}.elf"
+    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} ${EXTRA_JUNCTION_FLAGS} -r -- ${ELF_METADATA} ${ELF}"
   )
 
   add_test(
     NAME ${test_name}_snapshot_jif
-    COMMAND sh -c "rm -f $CHROOT_DIR/tmp/${test_name}.jm /tmp/${test_name}.jif && sudo -E  $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -S ${stop_count} --snapshot-prefix /tmp/${test_name} -- ${test_commands} && ${READJIF} --check $CHROOT_DIR/tmp/${test_name}.jif"
+    COMMAND sh -c "rm -f ${CHROOT_DIR}/${JIF_METADATA} ${CHROOT_DIR}/${JIF} && sudo -E $<TARGET_FILE:junction_run> ${CONFIG} ${EXTRA_JUNCTION_FLAGS} --jif -S ${stop_count} --snapshot-prefix ${PREFIX} -- ${test_commands} && ${READJIF} --check ${CHROOT_DIR}/${JIF}"
   )
 
   add_test(
     NAME ${test_name}_build_itrees
-    COMMAND sh -c "${JIFTOOL} $CHROOT_DIR/tmp/${test_name}.jif $CHROOT_DIR/tmp/${test_name}_itrees.jif build-itrees && ${READJIF} --check $CHROOT_DIR/tmp/${test_name}_itrees.jif && cp $CHROOT_DIR/tmp/${test_name}.jm $CHROOT_DIR/tmp/${test_name}_itrees.jm"
+    COMMAND sh -c "${JIFTOOL} ${CHROOT_DIR}/${JIF} ${CHROOT_DIR}/${JIF_ITREES} build-itrees && ${READJIF} --check ${CHROOT_DIR}/${JIF_ITREES} && cp ${CHROOT_DIR}/${JIF_METADATA} ${CHROOT_DIR}/${JIF_ITREES_METADATA}"
   )
 
   add_test(
     NAME ${test_name}_restore_jif
-    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -r -- /tmp/${test_name}.jm /tmp/${test_name}.jif"
+    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} ${EXTRA_JUNCTION_FLAGS} --jif -r -- ${JIF_METADATA} ${JIF}"
   )
 
   add_test(
     NAME ${test_name}_restore_itrees_jif
-    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -r -- /tmp/${test_name}_itrees.jm /tmp/${test_name}_itrees.jif"
+    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} ${EXTRA_JUNCTION_FLAGS} --jif -r -- ${JIF_ITREES_METADATA} ${JIF_ITREES}"
   )
 
   set_tests_properties(${test_name}_restore_elf PROPERTIES DEPENDS ${test_name}_snapshot_elf)
