@@ -4,6 +4,10 @@ import json
 import os
 import signal
 import time
+import ctypes
+
+libc = ctypes.CDLL(None)
+syscall = libc.syscall
 
 PATH_TO_FBENCH = str(os.path.dirname(os.path.realpath(__file__))) + "/"
 
@@ -69,5 +73,7 @@ for i in range(3):
 print(f"done. one cold iteration takes {cold[0]} us)")
 print("DATA ", json.dumps({"warmup": warmups, 'cold': cold, 'program': sys.argv[1]}))
 
+sys.stdout.flush()
+syscall(231, 0)
 
 
