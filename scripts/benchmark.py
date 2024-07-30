@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import stat
 import os
 import atexit
 import sys
@@ -47,13 +48,28 @@ def run_iok():
 def kill_chroot():
 	run(f"sudo umount {CHROOT_DIR}/{BIN_DIR}")
 	run(f"sudo umount {CHROOT_DIR}/{BUILD_DIR}")
+	run(f"sudo rm {CHROOT_DIR}/dev/jif_pager")
 
 def setup_chroot():
 	if not USE_CHROOT: return
 	run(f"sudo mkdir -p {CHROOT_DIR}/{BIN_DIR} {CHROOT_DIR}/{BUILD_DIR}")
 	run(f"sudo mount --bind -o ro {BIN_DIR} {CHROOT_DIR}/{BIN_DIR}")
 	run(f"sudo mount --bind -o ro {BUILD_DIR} {CHROOT_DIR}/{BUILD_DIR}")
+
+	if jifpager_installed():
+		st = os.stat("/dev/jif_pager")
+		major = os.major(st.st_rdev)
+		minor = os.minor(st.st_rdev)
+
+		run(f"sudo mknod {CHROOT_DIR}/dev/jif_pager c {major} {minor}")
+
 	atexit.register(kill_chroot)
+
+def jifpager_installed():
+	try:
+		return stat.S_ISCHR(os.stat("/dev/jif_pager").st_mode)
+	except:
+		return False
 
 def snapshot_elf(cmd, output_image, output_log, extra_flags = "", stop_count = 1):
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -S {stop_count} --snapshot-prefix {output_image} -- {cmd} 2>&1 >> {output_log}_snapelf")
