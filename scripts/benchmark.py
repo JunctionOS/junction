@@ -24,9 +24,11 @@ CHROOT_DIR=f"{ROOT_DIR}/chroot"
 
 USE_CHROOT = True
 
-FBENCH = ["chameleon", "float_operation", "pyaes", "matmul"] + ["video_processing", "lr_training", "image_processing", "linpack","json_serdes", "rnn_serving"]
+FBENCH = ["chameleon", "float_operation", "pyaes", "matmul", "json_serdes"] # + ["video_processing", "lr_training", "image_processing", "linpack","json_serdes", "rnn_serving"]
 RESIZERS = ["java_resizer", "rust_resizer", "go_resizer", "python_resizer"]
 OTHERS = ["go_hello_world", "node_hello", "python_numpy", "python_hello_world"]
+
+KERNEL_STATS={}
 
 def run(cmd):
 	print(cmd)
@@ -48,7 +50,8 @@ def run_iok():
 def kill_chroot():
 	run(f"sudo umount {CHROOT_DIR}/{BIN_DIR}")
 	run(f"sudo umount {CHROOT_DIR}/{BUILD_DIR}")
-	run(f"sudo rm {CHROOT_DIR}/dev/jif_pager")
+	if jifpager_installed():
+		run(f"sudo rm {CHROOT_DIR}/dev/jif_pager")
 
 def setup_chroot():
 	if not USE_CHROOT: return
@@ -81,7 +84,13 @@ def restore_elf(image, output_log, extra_flags = ""):
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -r -- {image}.metadata {image}.elf 2>&1 >> {output_log}_elf")
 
 def process_itree(output_image, output_log):
-	run(f"{BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif 2>&1 >> {output_log}_builditree")
+	run(f"{BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif build-itrees 2>&1 >> {output_log}_builditree")
+
+def process_fault_order(output_image, output_log):
+	# restore with tracer
+	restore_jif(output_image, output_log, extra_flags=f"--mem-trace 10000 --mem-trace-out {output_image}.ord")
+	# add ordering to jif
+	run(f"{BUILD_DIR}/jiftool {output_image}_itrees.jif {output_image}_itrees_ord.jif add-ord {output_image}.ord")
 
 def restore_jif(image, output_log, extra_flags = ""):
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}.jif 2>&1 >> {output_log}_jif")
@@ -89,10 +98,59 @@ def restore_jif(image, output_log, extra_flags = ""):
 def restore_itrees_jif(image, output_log, extra_flags = ""):
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}_itrees.jif 2>&1 >> {output_log}_itrees_jif")
 
+def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, measure_latency=False, prefault=False, readahead=True, extra_flags = ""):
+	set_fault_around(1 if fault_around else 0)
+	set_prefault(1 if prefault else 0)
+	set_measure_latency(1 if measure_latency else 0)
+	set_readahead(1 if readahead else 0)
+	jifpager_reset()
+
+	if cold:
+		dropcache()
+
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -rk -- {image}.jm {image}_itrees_ord.jif 2>&1 >> {output_log}_itrees_jif_k")
+
+	stats = open("/sys/kernel/jif_pager/stats")
+	stats = json.loads(stats.readlines()[0])
+	print(dict(stats))
+
+	total_pages = stats["sync_pages_read"] + stats["async_pages_read"]
+	total_faults = stats["minor_faults"] + stats["major_faults"] + stats["pre_minor_faults"] + stats["pre_major_faults"]
+
+	if total_pages > 0:
+		overread = float(total_faults / total_pages) * 100.0
+		batch_size = total_pages / stats["sync_readaheads"]
+
+		stats["percent_touched"] = overread
+		stats["batch_size"] = batch_size
+
+	stats["readahead"] = readahead
+	stats["prefault"] = prefault
+	stats["cold"] = cold
+
+	key = image.split("/")[-1]
+	KERNEL_STATS[key].append(dict(stats))
+
+def set_readahead(val):
+	run(f"echo {val} | sudo tee /sys/kernel/jif_pager/readahead")
+
+def set_fault_around(val):
+	run(f"echo {val} | sudo tee /sys/kernel/jif_pager/fault_around")
+
+def set_prefault(val):
+	run(f"echo {val} | sudo tee /sys/kernel/jif_pager/prefault")
+
+def set_measure_latency(val):
+	run(f"echo {val} | sudo tee /sys/kernel/jif_pager/measure_latency")
+
+def jifpager_reset():
+	run("echo 1 | sudo tee /sys/kernel/jif_pager/reset")
+
 def generate_images(cmd, name, logname, stop_count = 1, extra_flags = ""):
 	snapshot_elf(cmd, name, logname, extra_flags, stop_count)
 	snapshot_jif(cmd, name, logname, extra_flags, stop_count)
 	process_itree(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
+	process_fault_order(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
 
 def dropcache():
 	for i in range(3):
@@ -106,6 +164,10 @@ def restore_image(name, logname, extra_flags=""):
 	restore_jif(name, logname, extra_flags)
 	dropcache()
 	restore_itrees_jif(name, logname, extra_flags)
+
+	if jifpager_installed():
+		KERNEL_STATS[name.split("/")[-1]] = []
+		jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=True, readahead=False, prefault=True, cold=True, fault_around=False)
 
 def get_fbench_times(edir):
 	eflags = ""
@@ -155,7 +217,8 @@ def parse_fbench_times(edir):
 			'metadata_restore': d["metadata_restore"],
 			'elf_first_iter': d["cold"][0],
 			'elf_data_restore': d["data_restore"],
-			'fs_restore': d["fs_restore"]
+			'fs_restore': d["fs_restore"],
+			'jifpager_stats_ns': KERNEL_STATS[prog]
 		}
 
 	for prog, d in get_one_log(f"{edir}/restore_images_jif").items():
@@ -190,6 +253,7 @@ def plot_workloads(edir, data):
 	for ax, workload in zip(axes, workloads):
 		categories = data[workload]
 		warm_iter = categories['warm_iter']
+		first_iter = categories['first_iter']
 
 		metadata_restore = categories['metadata_restore']
 		fs_restore = categories['fs_restore']
@@ -199,6 +263,24 @@ def plot_workloads(edir, data):
 
 		jif_data_restore = categories['jif_data_restore']
 		jif_cold_first_iter = categories['jif_cold_first_iter']
+
+		jifpager_stats_ns = categories['jifpager_stats_ns']
+
+                # how do I get needed throughput? in pages/s
+		for x in jifpager_stats_ns:
+                        if not x["readahead"]:
+                                no_readahead = x
+
+                # should only be major faults but just in case
+		total_pages = no_readahead["major_faults"] + no_readahead["minor_faults"]
+		read_latency = no_readahead["average_sync_read_latency"]
+
+		ideal_throughput = int((total_pages / first_iter) * 1000000 * 4096)
+		# bytes per nanosecond
+		actual_throughput = int((4096 / read_latency) * 1000000000)
+
+		print(f"{workload} ideal throughput = {ideal_throughput / 1024 ** 2}MB/s")
+		print(f"{workload} actual throughput = {actual_throughput / 1024 ** 2}MB/s")
 
 		# Creating stacks
 		stack1 = [metadata_restore, fs_restore, elf_data_restore, elf_first_iter]
