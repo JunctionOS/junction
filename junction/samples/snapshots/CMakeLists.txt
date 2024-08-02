@@ -10,8 +10,6 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   set(JIF_METADATA ${PREFIX}.jm)
   set(JIF ${PREFIX}.jif)
-
-  set(JIF_ITREES_METADATA ${PREFIX}_itrees.jm)
   set(JIF_ITREES ${PREFIX}_itrees.jif)
 
   add_test(
@@ -31,7 +29,7 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_build_itrees
-    COMMAND sh -c "${JIFTOOL} $CHROOT_DIR/${JIF} $CHROOT_DIR/${JIF_ITREES} build-itrees && ${READJIF} --check $CHROOT_DIR/${JIF_ITREES} && cp $CHROOT_DIR/${JIF_METADATA} $CHROOT_DIR/${JIF_ITREES_METADATA}"
+    COMMAND sh -c "${JIFTOOL} $CHROOT_DIR/${JIF} $CHROOT_DIR/${JIF_ITREES} build-itrees && ${READJIF} --check $CHROOT_DIR/${JIF_ITREES}"
   )
 
   add_test(
@@ -41,7 +39,7 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_restore_itrees_jif
-    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -r -- ${JIF_ITREES_METADATA} ${JIF_ITREES}"
+    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -r -- ${JIF_METADATA} ${JIF_ITREES}"
   )
 
   set_tests_properties(${test_name}_restore_elf PROPERTIES DEPENDS ${test_name}_snapshot_elf)
