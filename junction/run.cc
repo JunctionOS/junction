@@ -61,8 +61,7 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   tf.rsp = std::get<0>(*ret);
   tf.rip = std::get<1>(*ret);
 
-  if (unlikely(GetCfg().mem_trace_timeout() > 0))
-    (*proc)->get_mem_map().EnableTracing();
+  if (unlikely(GetCfg().mem_trace())) (*proc)->get_mem_map().EnableTracing();
 
   th.mark_enter_kernel();
   entry.MakeUnwinderSysret(th, th.GetCaladanThread()->tf);
@@ -147,47 +146,6 @@ void JunctionMain(int argc, char *argv[]) {
   }
 
   if (proc) {
-    // setup teardown of tracer
-    if (unlikely(GetCfg().mem_trace_timeout() > 0)) {
-      rt::Spawn([p = proc] mutable {
-        rt::Sleep(Duration(GetCfg().mem_trace_timeout() * kMilliseconds));
-        LOG(INFO) << "done sleeping, tracer reporting time!";
-        auto trace_report = p->get_mem_map().EndTracing();
-        if (unlikely(!trace_report)) {
-          LOG(WARN) << "failed to collect trace report: "
-                    << trace_report.error();
-          return;
-        }
-        const auto ord_filename = GetCfg().mem_trace_path();
-        std::stringstream ord;
-        for (const auto &[time_us, page_addr] : trace_report->accesses_us)
-          ord << std::dec << time_us << ": 0x" << std::hex << page_addr << "\n";
-
-        if (ord_filename.empty()) {
-          LOG(INFO) << "memory trace:\n" << ord.view();
-        } else {
-          Status<KernelFile> ord_file = KernelFile::Open(
-              ord_filename, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
-          if (unlikely(!ord_file)) {
-            LOG(WARN) << "failed to open ord file `" << ord_filename
-                      << "`: " << ord_file.error();
-            return;
-          }
-          auto report = ord.str();
-          const auto ret = WriteFull(
-              *ord_file,
-              std::span(reinterpret_cast<const std::byte *>(report.c_str()),
-                        report.size() + 1));
-          if (unlikely(!ret)) {
-            LOG(WARN) << "failed to write memory trace to `" << ord_filename
-                      << "`: " << ret.error();
-            return;
-          }
-          LOG(INFO) << "done reporting the memory trace";
-        }
-      });
-    }
-
     // setup automatic snapshot
     if (unlikely(GetCfg().snapshot_on_stop())) {
       rt::Spawn([p = proc] mutable {

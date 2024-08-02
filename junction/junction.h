@@ -58,7 +58,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] bool cache_linux_fs() const { return cache_linux_fs_; }
   [[nodiscard]] bool restore_populate() const { return restore_populate_; }
   [[nodiscard]] int snapshot_on_stop() const { return snapshot_on_stop_; }
-  [[nodiscard]] int mem_trace_timeout() const { return mem_trace_timeout_; }
+  [[nodiscard]] bool mem_trace() const { return mem_trace_; }
   [[nodiscard]] bool snapshot_terminate() const {
     return terminate_after_snapshot_;
   }
@@ -99,7 +99,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   bool cache_linux_fs_;
   bool terminate_after_snapshot_;
   int snapshot_on_stop_;
-  int mem_trace_timeout_;
+  bool mem_trace_;
   std::string snapshot_prefix_;
   static JunctionCfg singleton_;
 };

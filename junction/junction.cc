@@ -86,8 +86,8 @@ po::options_description GetOptions() {
       ("jif", po::bool_switch()->default_value(false), "use a jif")  //
       ("loglevel,l", po::value<int>()->default_value(LOG_DEBUG),
        "the maximum log level to print")  //
-      ("mem-trace", po::value<int>()->default_value(0),
-       "trace the memory addresses (for N milliseconds)")  //
+      ("mem-trace", po::bool_switch()->default_value(false),
+       "trace the memory addresses")  //
       ("mem-trace-out",
        po::value<std::string>()->implicit_value("")->default_value(""),
        "path to store the memory address trace")  //
@@ -157,7 +157,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   }
 
   restore_populate_ = vm["restore_populate"].as<bool>();
-  mem_trace_timeout_ = vm["mem-trace"].as<int>();
+  mem_trace_ = vm["mem-trace"].as<bool>();
   mem_trace_path_ = vm["mem-trace-out"].as<std::string>();
   terminate_after_snapshot_ = vm["snapshot_terminate"].as<bool>();
 
