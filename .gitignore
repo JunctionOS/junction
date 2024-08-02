@@ -23,3 +23,5 @@ chroot/**
 
 junction/control/control_request_generated.h
 junction/control/control_response_generated.h
+junction-ctl/src/control_request_generated.rs
+junction-ctl/src/control_response_generated.rs
