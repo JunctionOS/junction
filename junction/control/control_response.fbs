@@ -13,12 +13,9 @@ table GetStatsResponse {
 table TracePoint {
     timestamp_us: uint64;
     accessed_location: uint64;
-    type_str: string;
 }
 
 table TraceReport {
-    total_pages: uint64;
-    non_zero_pages: uint64;
     accessed_us: [TracePoint];
 }
 

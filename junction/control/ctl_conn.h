@@ -76,11 +76,10 @@ class ControlConn {
     flatbuffers::FlatBufferBuilder fbb;
     std::vector<flatbuffers::Offset<ctl_schema::TracePoint>> std_accessed;
     std_accessed.reserve(report.accesses_us.size());
-    for (const auto &[time_us, page_addr, str] : report.accesses_us)
-      std_accessed.emplace_back(ctl_schema::CreateTracePointDirect(
-          fbb, time_us, page_addr, str.c_str()));
-    auto inner = ctl_schema::CreateTraceReportDirect(
-        fbb, report.total_pages, report.non_zero_pages, &std_accessed);
+    for (const auto &[time_us, page_addr] : report.accesses_us)
+      std_accessed.emplace_back(
+          ctl_schema::CreateTracePoint(fbb, time_us, page_addr));
+    auto inner = ctl_schema::CreateTraceReportDirect(fbb, &std_accessed);
     auto resp = ctl_schema::CreateResponse(
         fbb, ctl_schema::InnerResponse_traceReport, inner.Union());
     fbb.FinishSizePrefixed(resp);

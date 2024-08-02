@@ -188,32 +188,21 @@ Status<TracerReport> MemoryMap::EndTracing() {
 
   assert(MappingsValid(vmareas_));
 
-  auto report = tracer_->GenerateReport(*this);
+  auto report = tracer_->GenerateReport();
 
   tracer_.reset();
   return report;
 }
 
-TracerReport PageAccessTracer::GenerateReport(MemoryMap &mm) const {
-  std::vector<std::tuple<uint64_t, uintptr_t, std::string>> accesses;
-  uint64_t page_cnt = 0;
-  uint64_t nz_page_cnt = 0;
+TracerReport PageAccessTracer::GenerateReport() const {
+  std::vector<std::tuple<uint64_t, uintptr_t>> accesses;
   accesses.reserve(access_at_.size());
   for (auto const &[page, time] : access_at_) {
-    auto it = mm.Find(page);
-    if (it == mm.vmareas_.end()) {
-      LOG(WARN) << "skipping unknown VMA";
-      continue;
-    }
     accesses.emplace_back(time.Microseconds(),
-                          reinterpret_cast<uintptr_t>(page),
-                          it->second.TypeString());
-
-    page_cnt++;
-    if (non_zero_bytes_.at(page) > 0) nz_page_cnt++;
+                          reinterpret_cast<uintptr_t>(page));
   }
 
-  return TracerReport(std::move(accesses), page_cnt, nz_page_cnt);
+  return TracerReport(std::move(accesses));
 }
 
 void MemoryMap::RecordHit(void *addr, size_t len, Time time) {
@@ -257,11 +246,6 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, Time time) {
     LOG(ERR) << " failed to restore permission to page" << ret.error();
     return false;
   }
-
-  uint8_t cnt = 0;
-  uint8_t *uaddr = reinterpret_cast<uint8_t *>(addr);
-  for (size_t i = 0; i < kPageSize / sizeof(*uaddr); i++) cnt += !!uaddr[i];
-  tracer_->RecordBytes(addr, cnt);
 
   // Remove read permissions if needed.
   if ((vma.prot & PROT_READ) == 0) {

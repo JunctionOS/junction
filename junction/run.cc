@@ -160,7 +160,7 @@ void JunctionMain(int argc, char *argv[]) {
         }
         const auto ord_filename = GetCfg().mem_trace_path();
         std::stringstream ord;
-        for (const auto &[time_us, page_addr, _str] : trace_report->accesses_us)
+        for (const auto &[time_us, page_addr] : trace_report->accesses_us)
           ord << std::dec << time_us << ": 0x" << std::hex << page_addr << "\n";
 
         if (ord_filename.empty()) {

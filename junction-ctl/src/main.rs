@@ -26,22 +26,15 @@ mod control_response_generated;
 struct TracePoint {
     timestamp_us: u64,
     page_addr: usize,
-    type_str: String,
 }
 
 impl std::fmt::Display for TracePoint {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "{:>8}μs: {:#032x} {}",
-            self.timestamp_us, self.page_addr, self.type_str
-        )
+        write!(f, "{:>8}μs: {:#032x}", self.timestamp_us, self.page_addr)
     }
 }
 
 struct TraceReport {
-    total_pages: usize,
-    non_zero_pages: usize,
     trace: Vec<TracePoint>,
 }
 
@@ -184,17 +177,12 @@ fn await_response(mut stream: TcpStream) -> anyhow::Result<GoodResponse> {
                 .map(|tp| TracePoint {
                     timestamp_us: tp.timestamp_us() - min_ts,
                     page_addr: tp.accessed_location() as usize,
-                    type_str: tp.type_str().unwrap_or("").to_string(),
                 })
                 .collect::<Vec<TracePoint>>();
 
             trace.sort_by_key(|tp| tp.timestamp_us);
 
-            Ok(GoodResponse::Trace(TraceReport {
-                total_pages: trace_report.total_pages() as usize,
-                non_zero_pages: trace_report.non_zero_pages() as usize,
-                trace,
-            }))
+            Ok(GoodResponse::Trace(TraceReport { trace }))
         }
         InnerResponse::NONE | _ => Err(anyhow::anyhow!("invalid response")),
     }
@@ -455,17 +443,6 @@ fn stop_trace(uri: &str, pid: u64) -> anyhow::Result<()> {
             for t in report.trace {
                 println!("{}", t);
             }
-            println!("Total pages:      {}", report.total_pages);
-            println!("Non-zero pages:   {}", report.non_zero_pages);
-            println!(
-                "Zero-page %:      {}%",
-                (100 * (report.total_pages - report.non_zero_pages)) as f64
-                    / report.total_pages as f64
-            );
-            println!(
-                "Non-zero-page %:  {}%",
-                (100 * report.non_zero_pages) as f64 / report.total_pages as f64
-            );
             Ok(())
         }
     }

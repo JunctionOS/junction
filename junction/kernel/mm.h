@@ -99,16 +99,10 @@ std::ostream &operator<<(std::ostream &os, const VMArea &vma);
 
 struct TracerReport {
   TracerReport() = default;
-  explicit TracerReport(
-      std::vector<std::tuple<uint64_t, uintptr_t, std::string>> &&accesses,
-      uint64_t total, uint64_t non_zero)
-      : accesses_us(std::move(accesses)),
-        total_pages(total),
-        non_zero_pages(non_zero) {}
+  explicit TracerReport(std::vector<std::tuple<uint64_t, uintptr_t>> &&accesses)
+      : accesses_us(std::move(accesses)) {}
 
-  std::vector<std::tuple<uint64_t, uintptr_t, std::string>> accesses_us;
-  uint64_t total_pages{0};
-  uint64_t non_zero_pages{0};
+  std::vector<std::tuple<uint64_t, uintptr_t>> accesses_us;
 };
 
 class PageAccessTracer {
@@ -122,16 +116,10 @@ class PageAccessTracer {
     return inserted;
   }
 
-  void RecordBytes(uintptr_t page, size_t bytes) {
-    non_zero_bytes_[page] = bytes;
-  }
-
-  TracerReport GenerateReport(MemoryMap &mm) const;
+  TracerReport GenerateReport() const;
 
  private:
-  friend class MemoryMap;
   std::unordered_map<uintptr_t, Time> access_at_;
-  std::unordered_map<uintptr_t, uint64_t> non_zero_bytes_;
 };
 
 // MemoryMap manages memory for a process
