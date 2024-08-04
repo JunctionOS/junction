@@ -107,7 +107,10 @@ void JunctionMain(int argc, char *argv[]) {
 
   // Initialize core junction services
   Status<void> ret = init();
-  BUG_ON(!ret);
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize Junction: " << ret.error();
+    syscall_exit(-1);
+  }
 
   std::shared_ptr<Process> proc;
 

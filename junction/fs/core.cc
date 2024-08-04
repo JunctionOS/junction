@@ -823,8 +823,10 @@ Status<void> InitFs(
 
   // Mount any additional linux mountpoints/filesystems.
   for (const auto &[mount_path, host_path] : linux_mount_points) {
-    if (Status<void> ret = LinuxFSMount(*tmp, mount_path, host_path); !ret)
-      return MakeError(ret);
+    if (Status<void> ret = LinuxFSMount(*tmp, mount_path, host_path); !ret) {
+      DLOG(WARN) << "fs: skipping mount " << mount_path << " (" << ret.error()
+                 << ")";
+    }
   }
 
   // Enumerate all Linux folders to cache dents.

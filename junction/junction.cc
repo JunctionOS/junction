@@ -27,6 +27,7 @@ const std::vector<std::pair<std::string, std::string>> linux_mount_points = {
     {"/tmp", "/tmp"},
     {"/home", "/home"},
     {"/dev/shm", "/dev/shm"},
+    {"/fast", "/fast"},
 };
 
 pid_t linux_pid;

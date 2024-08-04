@@ -38,7 +38,7 @@ def kill_iok():
 def run_iok():
 	if os.system("pgrep iok > /dev/null") == 0:
 		return
-	run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh")
+	run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh --no-uintr")
 	run(f"sudo {CALADAN_DIR}/iokerneld ias nobw noht no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0 > /tmp/iokernel.log 2>&1 &")
 	while os.system("grep -q 'running dataplan' /tmp/iokernel.log") != 0:
 		time.sleep(0.3)
