@@ -321,7 +321,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
             << " jif: " << (end_jif - end_metadata).Microseconds()
             << " fs: " << (end_fs - start).Microseconds();
 
-  // if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing();
+  if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing();
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)

@@ -75,6 +75,25 @@ constexpr SignalAction ParseAction(const k_sigaction &act, int sig) {
   return SignalAction::kTerminate;
 }
 
+// ref:
+// https://github.com/torvalds/linux/blob/master/arch/x86/include/asm/trap_pf.h
+constexpr int kPfInstruction = 1 << 4;
+constexpr int kPfWrite = 1 << 1;
+
+// When a SIGSEGV occurs, the type of access (read/write/execute)
+// is stored inside the sigcontext at `uc_mcontext`.
+//
+// This function translates that information into the required
+// protection for the VMA to have, which is needed by the tracer fault handler
+int sigsegv_sigcontext_to_prot(const struct sigcontext &context) {
+  if ((context.err & kPfWrite) != 0) {
+    return PROT_WRITE;
+  } else if ((context.err & kPfInstruction) != 0) {
+    return PROT_EXEC;
+  }
+  return PROT_READ;
+}
+
 // A signal handler that can be injected into a program to cleanly kill it
 extern "C" void SigKillHandler(int signo, siginfo_t *info, void *c) {
   junction_fncall_enter(128 + signo, 0, 0, 0, 0, 0, __NR_exit_group);
@@ -487,7 +506,8 @@ void ThreadSignalHandler::DeliverKernelSigToUser(int signo,
 }
 
 // Handle a page fault for a program. Must be called on the syscall stack.
-void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, Time time) {
+void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, int required_prot,
+                                   Time time) {
   Thread &myth = mythread();
   const siginfo_t &info = frame.GetFrame().info;
 
@@ -506,7 +526,7 @@ void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, Time time) {
 
   // Give the memory map the first chance to see the page fault.
   bool fault_handled = myth.get_process().get_mem_map().HandlePageFault(
-      reinterpret_cast<uintptr_t>(info.si_addr), time);
+      reinterpret_cast<uintptr_t>(info.si_addr), required_prot, time);
 
   if (!fault_handled) {
     // We don't expect faults in the Junction kernel; crash.
@@ -569,10 +589,13 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
     // Record fault time in case the tracer needs it.
     Time time = Time::Now();
 
+    int prot = sigsegv_sigcontext_to_prot(uc->uc.uc_mcontext);
+
     // We might have segfaulted with preemption disabled in the Junction kernel.
     // Not great, but if the page fault handler can fix it, we can keep going.
     if (was_preempt_disabled) {
-      if (mm.HandlePageFault(reinterpret_cast<uintptr_t>(info->si_addr), time))
+      if (mm.HandlePageFault(reinterpret_cast<uintptr_t>(info->si_addr), prot,
+                             time))
         return;
       print_msg_abort("signal delivered while preemption is disabled");
     }
@@ -585,7 +608,7 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
     KernelSignalTf &tf = KernelSignalTf(uc).CloneTo(&rsp);
 
     RunOnStackAt(rsp, [=, tf = &tf] mutable {
-      HandlePageFaultOnSyscallStack(*tf, time);
+      HandlePageFaultOnSyscallStack(*tf, prot, time);
     });
     std::unreachable();
   }

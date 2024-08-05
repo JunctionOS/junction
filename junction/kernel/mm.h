@@ -109,6 +109,10 @@ class PageAccessTracer {
  public:
   PageAccessTracer() = default;
 
+  // Record a new page being accessed
+  // Only records if the page had not been recorded before
+  //
+  // Returns true if this is the first access being recorded
   bool RecordHit(uintptr_t page, Time t) {
     assert(IsPageAligned(page));
     auto [it, inserted] = access_at_.try_emplace(page, t);
@@ -187,12 +191,14 @@ class alignas(kCacheLineSize) MemoryMap {
 
   Status<TracerReport> EndTracing();
 
+  void DumpTracerReport();
+
   void RecordHit(void *addr, size_t len, Time t);
 
   [[nodiscard]] bool TraceEnabled() const { return !!tracer_; }
 
   // Returns true if this page fault is handled by the MM.
-  bool HandlePageFault(uintptr_t addr, Time time);
+  bool HandlePageFault(uintptr_t addr, int required_prot, Time time);
 
   [[nodiscard]] std::string_view get_bin_path() const { return binary_path_; }
 

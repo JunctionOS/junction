@@ -194,13 +194,50 @@ Status<TracerReport> MemoryMap::EndTracing() {
   return report;
 }
 
+void MemoryMap::DumpTracerReport() {
+  auto report = EndTracing();
+  if (!report) {
+    if (unlikely(report.error().code() != ENODATA)) {
+      LOG(WARN) << "failed to collect trace report: " << report.error();
+    }
+    return;
+  }
+
+  if (GetCfg().mem_trace_path().empty()) {
+    LOG(INFO) << "memory trace:";
+    for (const auto &[time_us, page_addr] : report->accesses_us)
+      LOG(INFO) << std::dec << time_us << ": 0x" << std::hex << page_addr
+                << "\n";
+  } else {
+    LOG(INFO) << "dumping memory trace to " << GetCfg().mem_trace_path();
+    Status<KernelFile> ord_file = KernelFile::Open(
+        GetCfg().mem_trace_path(), O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
+    if (unlikely(!ord_file)) {
+      LOG(WARN) << "failed to open ord file `" << GetCfg().mem_trace_path()
+                << "`: " << ord_file.error();
+      return;
+    }
+    for (const auto &[time_us, page_addr] : report->accesses_us) {
+      std::stringstream ord;
+      ord << std::dec << time_us << ": 0x" << std::hex << page_addr << "\n";
+      auto str = ord.str();
+      const auto ret = WriteFull(
+          *ord_file, std::span(reinterpret_cast<const std::byte *>(str.data()),
+                               str.size()));
+      if (unlikely(!ret)) {
+        LOG(WARN) << "failed to write memory trace to `"
+                  << GetCfg().mem_trace_path() << "`: " << ret.error();
+        return;
+      }
+    }
+  }
+}
+
 TracerReport PageAccessTracer::GenerateReport() const {
   std::vector<std::tuple<uint64_t, uintptr_t>> accesses;
   accesses.reserve(access_at_.size());
-  for (auto const &[page, time] : access_at_) {
-    accesses.emplace_back(time.Microseconds(),
-                          reinterpret_cast<uintptr_t>(page));
-  }
+  for (auto const &[page, time] : access_at_)
+    accesses.emplace_back(time.Microseconds(), page);
 
   return TracerReport(std::move(accesses));
 }
@@ -213,9 +250,12 @@ void MemoryMap::RecordHit(void *addr, size_t len, Time time) {
   for (; page < end; page += kPageSize) tracer_->RecordHit(page, time);
 }
 
-bool MemoryMap::HandlePageFault(uintptr_t addr, Time time) {
-  if (unlikely(!tracer_)) return false;
-
+// This function is called when there is a SIGSEGV and
+// the tracer is detected to be running
+//
+// Note: the tracer is implemented by mapping all regions as PROT_NONE
+// and subsequently intercepting the SIGSEGVs
+bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
   addr = PageAlignDown(addr);
 
   rt::UniqueLock ul(mu_, rt::DeferLock);
@@ -226,7 +266,6 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, Time time) {
     while (!ul.TryLock()) CPURelax();
   }
 
-  // Return if we've already hit this page.
   rt::RuntimeLibcGuard guard;
 
   auto it = Find(addr);
@@ -236,22 +275,48 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, Time time) {
   }
 
   VMArea &vma = it->second;
-  if (!vma.traced) return false;
-  if (!tracer_->RecordHit(addr, time)) return true;
-  if (unlikely(vma.prot == PROT_NONE)) return false;
+  // Checks if the type of access (conveyed by required_prot) is legal for this
+  // VMA.
+  //
+  // Actually acting on this is delayed to allow for recording the access
+  bool legal_access = (vma.prot & required_prot) != 0;
 
-  Status<void> ret = KernelMProtect(reinterpret_cast<void *>(addr), kPageSize,
-                                    vma.prot | PROT_READ);
-  if (unlikely(!ret)) {
-    LOG(ERR) << " failed to restore permission to page" << ret.error();
+  // There is a opportunistic race between this code and EndTracing
+  // The code (in signal.cc) that intercepts SIGSEGVs checks whether the tracer
+  // is running, and afterwards calls this code.
+  //
+  // However, by the time we get here
+  // the tracer might be gone. As such, we need to handle that (note that here
+  // the tracer is already locked by mu_)
+  if (likely(tracer_)) {
+    // If the VMA is not being traced, it is surely a segfault
+    if (!vma.traced) {
+      DLOG(WARN) << "vma is not being traced: " << vma;
+      return false;
+    }
+
+    // Note: RecordHit returns true if this was the first recorded hit
+    // If the page has already been recorded, and RecordHit returns false, we
+    // have already remapped the page, no need to remap it again
+    if (!tracer_->RecordHit(addr, time)) return legal_access;
+  }
+
+  if (unlikely(!legal_access)) {
+    char protection_char = '?';
+    if (required_prot == PROT_READ) protection_char = 'r';
+    if (required_prot == PROT_WRITE) protection_char = 'w';
+    if (required_prot == PROT_EXEC) protection_char = 'x';
+
+    DLOG(WARN) << "vma was could not satisfy access: " << protection_char
+               << " -- vma: " << vma;
     return false;
   }
 
-  // Remove read permissions if needed.
-  if ((vma.prot & PROT_READ) == 0) {
-    ret = KernelMProtect(reinterpret_cast<void *>(addr), kPageSize, vma.prot);
-    if (unlikely(!ret))
-      LOG(ERR) << " failed to restore permission to page" << ret.error();
+  Status<void> ret =
+      KernelMProtect(reinterpret_cast<void *>(addr), kPageSize, vma.prot);
+  if (unlikely(!ret)) {
+    LOG(ERR) << " failed to restore permission to page" << ret.error();
+    return false;
   }
 
   return true;

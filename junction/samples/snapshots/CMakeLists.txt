@@ -11,6 +11,9 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
   set(JIF_METADATA ${PREFIX}.jm)
   set(JIF ${PREFIX}.jif)
   set(JIF_ITREES ${PREFIX}_itrees.jif)
+  set(JIF_ITREES_ORD ${PREFIX}_itrees_ord.jif)
+
+  set(ORD ${PREFIX}.ord)
 
   add_test(
     NAME ${test_name}_snapshot_elf
@@ -34,18 +37,25 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_restore_jif
-    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -r -- ${JIF_METADATA} ${JIF}"
+    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif --mem-trace --mem-trace-out ${ORD} -r -- ${JIF_METADATA} ${JIF}"
   )
 
   add_test(
-    NAME ${test_name}_restore_itrees_jif
-    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -r -- ${JIF_METADATA} ${JIF_ITREES}"
+    NAME ${test_name}_add_ord
+    COMMAND sh -c "${JIFTOOL} $CHROOT_DIR/${JIF_ITREES} $CHROOT_DIR/${JIF_ITREES_ORD} add-ord $CHROOT_DIR/${ORD} && ${READJIF} --check $CHROOT_DIR/${JIF_ITREES_ORD}"
+  )
+
+  add_test(
+    NAME ${test_name}_restore_itrees_ord_jif
+    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -r -- ${JIF_METADATA} ${JIF_ITREES_ORD}"
   )
 
   set_tests_properties(${test_name}_restore_elf PROPERTIES DEPENDS ${test_name}_snapshot_elf)
   set_tests_properties(${test_name}_build_itrees PROPERTIES DEPENDS ${test_name}_snapshot_jif)
   set_tests_properties(${test_name}_restore_jif PROPERTIES DEPENDS ${test_name}_snapshot_jif)
-  set_tests_properties(${test_name}_restore_itrees_jif PROPERTIES DEPENDS ${test_name}_build_itrees)
+  set_tests_properties(${test_name}_add_ord PROPERTIES DEPENDS ${test_name}_restore_jif)
+  set_tests_properties(${test_name}_restore_itrees_ord_jif PROPERTIES DEPENDS ${test_name}_build_itrees)
+  set_tests_properties(${test_name}_restore_itrees_ord_jif PROPERTIES DEPENDS ${test_name}_add_ord)
 endmacro()
 
 macro(add_snapshot_restore_test test_name test_commands)
