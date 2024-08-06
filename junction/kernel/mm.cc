@@ -289,6 +289,14 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
 void __attribute__((cold)) TracerModifyProt(VMArea &vma, int new_prot) {
   int old_prot = std::exchange(vma.prot, new_prot);
 
+  // Non traced VMAs should be updated immediately.
+  if (!vma.traced) {
+    Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), new_prot);
+    if (unlikely(!ret))
+      LOG(WARN) << "tracer could not mprotect " << ret.error() << " " << vma;
+    return;
+  }
+
   // check if old protections have bits that are not present in the new
   // protections. If we are not modifying the protection or only adding
   // protection bits, then we will rely on the fault handler to apply those
