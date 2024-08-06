@@ -93,3 +93,35 @@ nosave_switch_setui:
 
 	/* jump to fn */
 	jmpq    *%rdi
+
+/*
+ * _stack_switch_link - runs a function on a different stack
+ * @arg0: an argument to pass to @fn (%rdi)
+ * @stack: the start of the runtime stack (%rsi)
+ * @fn: the function pointer to call (%rdx)
+ *
+ */
+.align 16
+.globl _stack_switch_link
+.type _stack_switch_link, @function
+_stack_switch_link:
+	.cfi_startproc
+	pushq    %r15 # save r15
+	.cfi_adjust_cfa_offset 8      # Adjust CFA to account for pushed r15
+	.cfi_rel_offset %r15, 0       # The value of r15 is at sp(0)
+
+	movq    %rsp, %r15
+	.cfi_def_cfa_register %r15    # r15 contains the frame location
+
+	movq    %rsi, %rsp
+	subq    $8, %rsp
+	callq   *%rdx
+	movq    %r15, %rsp
+	.cfi_def_cfa_register %rsp    # rsp contains the frame location
+
+	popq    %r15
+	.cfi_restore r15              # Restore r15 from its saved location
+	.cfi_adjust_cfa_offset -8     # Adjust CFA to account for popped r15
+
+	ret
+	.cfi_endproc

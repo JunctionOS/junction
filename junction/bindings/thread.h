@@ -34,18 +34,52 @@ struct join_data {
 };
 
 template <typename Data, typename Callable, typename... Args>
-class Wrapper : public Data {
+class WrapperBase : public Data {
  public:
-  Wrapper(Callable&& func, Args&&... args) noexcept
+  WrapperBase(Callable&& func, Args&&... args) noexcept
       : func_(std::forward<Callable>(func)),
-        args_{std::forward<Args>(args)...} {}
-  ~Wrapper() override = default;
+        args_(std::forward<Args>(args)...) {}
+  ~WrapperBase() override = default;
 
-  void Run() override { std::apply(func_, args_); }
-
- private:
+ protected:
   std::decay_t<Callable> func_;
   std::tuple<std::decay_t<Args>...> args_;
+};
+
+template <typename Callable, typename... Args>
+concept InvokesVoid = std::is_void_v<std::invoke_result_t<Callable, Args...>>;
+
+// Primary template (not defined)
+template <typename Data, typename Callable, typename... Args>
+class Wrapper;
+
+template <typename Data, typename Callable, typename... Args>
+  requires(InvokesVoid<Callable, Args...>)
+class Wrapper<Data, Callable, Args...>
+    : public WrapperBase<Data, Callable, Args...> {
+ public:
+  using WrapperBase<Data, Callable, Args...>::WrapperBase;
+  static_assert(std::is_void_v<std::invoke_result_t<Callable, Args...>>,
+                "Callable must return void for this specialization.");
+
+  void Run() override { std::apply(this->func_, this->args_); }
+  void GetReturn() {}
+};
+
+template <typename Data, typename Callable, typename... Args>
+  requires(!InvokesVoid<Callable, Args...>)
+class Wrapper<Data, Callable, Args...>
+    : public WrapperBase<Data, Callable, Args...> {
+ public:
+  using WrapperBase<Data, Callable, Args...>::WrapperBase;
+
+  using ReturnType = std::invoke_result_t<Callable, Args...>;
+
+  void Run() override { ret_ = std::apply(this->func_, this->args_); }
+  ReturnType GetReturn() { return std::move(ret_); }
+
+ private:
+  ReturnType ret_;
 };
 
 class AsyncBase {

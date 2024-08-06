@@ -21,6 +21,9 @@ extern "C" [[noreturn]] void nosave_switch_preempt_enable(thread_fn_t fn,
 
 extern "C" [[noreturn]] void nosave_switch_setui(void (*fn)(void), void* stack);
 
+extern "C" void _stack_switch_link(uint64_t arg0, uint64_t stack,
+                                   thread_fn_t fn);
+
 namespace junction {
 
 inline uint64_t GetRsp() {
@@ -166,6 +169,33 @@ __noreturn void RunOnStack(stack& stack, size_t reserved, Callable&& func,
 }
 
 template <typename Callable, typename... Args>
+auto CallOnStack(stack& stack, size_t reserved, Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
+  // Just run the function if we're already on the stack
+  if (IsOnStack(stack))
+    return std::forward<Callable>(func)(std::forward<Args>(args)...);
+
+  size_t offset = STACK_PTR_SIZE -
+                  (align_up(reserved, sizeof(uintptr_t)) / sizeof(uintptr_t));
+  uint64_t rsp = reinterpret_cast<uint64_t>(&stack.usable[offset]);
+
+  using Data = rt::thread_internal::basic_data;
+  using Wrapper = rt::thread_internal::Wrapper<Data, Callable, Args...>;
+
+  Wrapper w(std::forward<Callable>(func), std::forward<Args>(args)...);
+  rsp = AlignDown(rsp, 16) - 8;
+
+  auto f = [](void* arg) {
+    Wrapper* w = reinterpret_cast<Wrapper*>(arg);
+    w->Run();
+  };
+
+  _stack_switch_link(reinterpret_cast<uint64_t>(&w), rsp, f);
+  return w.GetReturn();
+}
+
+template <typename Callable, typename... Args>
 __noreturn void RunOnStack(stack& stack, Callable&& func, Args&&... args)
   requires std::invocable<Callable, Args...>
 {
@@ -180,6 +210,23 @@ __noreturn void RunOnSyscallStack(Callable&& func, Args&&... args)
 {
   RunOnStack(GetSyscallStack(), XSAVE_AREA_SIZE, std::forward<Callable>(func),
              std::forward<Args>(args)...);
+}
+
+template <typename Callable, typename... Args>
+auto CallOnStack(stack& stack, Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
+  assert(&stack != &GetSyscallStack());
+  return CallOnStack(stack, 0, std::forward<Callable>(func),
+                     std::forward<Args>(args)...);
+}
+
+template <typename Callable, typename... Args>
+auto CallOnSyscallStack(Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
+  return CallOnStack(GetSyscallStack(), XSAVE_AREA_SIZE,
+                     std::forward<Callable>(func), std::forward<Args>(args)...);
 }
 
 }  // namespace junction
