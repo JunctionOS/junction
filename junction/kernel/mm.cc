@@ -166,7 +166,7 @@ void MemoryMap::EnableTracing() {
   }
 }
 
-Status<TracerReport> MemoryMap::EndTracing() {
+Status<PageAccessTracer> MemoryMap::EndTracing() {
   rt::ScopedLock g(mu_);
   if (!tracer_) return MakeError(ENODATA);
 
@@ -186,28 +186,18 @@ Status<TracerReport> MemoryMap::EndTracing() {
     TryMergeRight(prev_it, vma);
   }
 
-  assert(MappingsValid(vmareas_));
-
-  auto report = tracer_->GenerateReport();
-
+  PageAccessTracer pt = std::move(*tracer_);
   tracer_.reset();
-  return report;
+  assert(MappingsValid(vmareas_));
+  return std::move(pt);
 }
 
-void MemoryMap::DumpTracerReport() {
-  auto report = EndTracing();
-  if (!report) {
-    if (unlikely(report.error().code() != ENODATA)) {
-      LOG(WARN) << "failed to collect trace report: " << report.error();
-    }
-    return;
-  }
+Status<void> MemoryMap::DumpTracerReport() {
+  Status<PageAccessTracer> report = EndTracing();
+  if (likely(!report)) return {};
 
   if (GetCfg().mem_trace_path().empty()) {
-    LOG(INFO) << "memory trace:";
-    for (const auto &[time_us, page_addr] : report->accesses_us)
-      LOG(INFO) << std::dec << time_us << ": 0x" << std::hex << page_addr
-                << "\n";
+    LOG(INFO) << "memory trace:\n" << *report;
   } else {
     LOG(INFO) << "dumping memory trace to " << GetCfg().mem_trace_path();
     Status<KernelFile> ord_file = KernelFile::Open(
@@ -215,31 +205,20 @@ void MemoryMap::DumpTracerReport() {
     if (unlikely(!ord_file)) {
       LOG(WARN) << "failed to open ord file `" << GetCfg().mem_trace_path()
                 << "`: " << ord_file.error();
-      return;
+      return MakeError(ord_file);
     }
-    for (const auto &[time_us, page_addr] : report->accesses_us) {
-      std::stringstream ord;
-      ord << std::dec << time_us << ": 0x" << std::hex << page_addr << "\n";
-      auto str = ord.str();
-      const auto ret = WriteFull(
-          *ord_file, std::span(reinterpret_cast<const std::byte *>(str.data()),
-                               str.size()));
-      if (unlikely(!ret)) {
-        LOG(WARN) << "failed to write memory trace to `"
-                  << GetCfg().mem_trace_path() << "`: " << ret.error();
-        return;
-      }
+
+    std::stringstream ord;
+    ord << *report;
+    std::string ordstr = ord.str();
+    Status<void> ret = WriteFull(*ord_file, std::as_bytes(std::span{ordstr}));
+    if (unlikely(!ret)) {
+      LOG(WARN) << "failed to write memory trace to `"
+                << GetCfg().mem_trace_path() << "`: " << ret.error();
+      return MakeError(ret);
     }
   }
-}
-
-TracerReport PageAccessTracer::GenerateReport() const {
-  std::vector<std::tuple<uint64_t, uintptr_t>> accesses;
-  accesses.reserve(access_at_.size());
-  for (auto const &[page, time] : access_at_)
-    accesses.emplace_back(time.Microseconds(), page);
-
-  return TracerReport(std::move(accesses));
+  return {};
 }
 
 void MemoryMap::RecordHit(void *addr, size_t len, Time time) {

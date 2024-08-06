@@ -97,14 +97,6 @@ struct VMArea {
 
 std::ostream &operator<<(std::ostream &os, const VMArea &vma);
 
-struct TracerReport {
-  TracerReport() = default;
-  explicit TracerReport(std::vector<std::tuple<uint64_t, uintptr_t>> &&accesses)
-      : accesses_us(std::move(accesses)) {}
-
-  std::vector<std::tuple<uint64_t, uintptr_t>> accesses_us;
-};
-
 class PageAccessTracer {
  public:
   PageAccessTracer() = default;
@@ -117,11 +109,25 @@ class PageAccessTracer {
     it->second = std::min(it->second, t);
   }
 
-  TracerReport GenerateReport() const;
+  const std::unordered_map<uintptr_t, Time> &get_trace() const {
+    return access_at_;
+  }
+
+  void Dump(std::ostream &os) const {
+    for (const auto &[page_addr, time] : access_at_)
+      os << std::dec << time.Microseconds() << ": 0x" << std::hex << page_addr
+         << "\n";
+  }
 
  private:
   std::unordered_map<uintptr_t, Time> access_at_;
 };
+
+inline std::ostream &operator<<(std::ostream &os,
+                                const PageAccessTracer &tracer) {
+  tracer.Dump(os);
+  return os;
+}
 
 // MemoryMap manages memory for a process
 class alignas(kCacheLineSize) MemoryMap {
@@ -183,16 +189,23 @@ class alignas(kCacheLineSize) MemoryMap {
   void LogMappings();
 
   // Start a tracer on this memory map. Sets all permissions in the kernel to
-  // PROT_NONE and updates permissions when page faults occur.
+  // PROT_NONE and updates permissions when page faults occur. All threads must
+  // be stopped.
   void EnableTracing();
 
-  Status<TracerReport> EndTracing();
+  // End tracing. All threads must be stopped or the process must be exiting.
+  Status<PageAccessTracer> EndTracing();
 
-  void DumpTracerReport();
+  [[nodiscard]] Status<void> DumpTracerReport();
 
   void RecordHit(void *addr, size_t len, Time t);
 
   [[nodiscard]] bool TraceEnabled() const { return !!tracer_; }
+
+  [[nodiscard]] PageAccessTracer &get_tracer() {
+    assert(TraceEnabled());
+    return *tracer_.get();
+  }
 
   // Returns true if this page fault is handled by the MM.
   bool HandlePageFault(uintptr_t addr, int required_prot, Time time);

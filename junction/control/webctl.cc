@@ -130,7 +130,7 @@ bool HandleStartTrace(ControlConn &c,
       return true;
     }
     return false;
-  } else if (!proc->is_stopped()) {
+  } else if (!proc->is_fully_stopped()) {
     std::ostringstream error_msg;
     error_msg << "failed to stop_trace(pid=" << req->pid()
               << "): process is not stopped";
@@ -172,7 +172,7 @@ bool HandleStopTrace(ControlConn &c, const ctl_schema::StopTraceRequest *req) {
     return false;
   }
 
-  auto report = proc->get_mem_map().EndTracing();
+  Status<PageAccessTracer> report = proc->get_mem_map().EndTracing();
   if (!report) {
     std::ostringstream error_msg;
     error_msg << "failed to stop_trace(pid=" << req->pid()
@@ -184,7 +184,7 @@ bool HandleStopTrace(ControlConn &c, const ctl_schema::StopTraceRequest *req) {
     return false;
   }
 
-  if (!c.SendReport(std::move(*report))) {
+  if (!c.SendReport(*report)) {
     LOG(WARN) << "ctl: failed to send success";
     return true;
   }

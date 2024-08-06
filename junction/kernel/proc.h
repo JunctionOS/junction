@@ -454,6 +454,9 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] bool exited() const { return access_once(exited_); }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
   [[nodiscard]] bool is_stopped() const { return stopped_gen_ % 2 == 1; }
+  [[nodiscard]] bool is_fully_stopped() const {
+    return is_stopped() && stopped_count_ == thread_map_.size();
+  }
   [[nodiscard]] FSRoot &get_fs() { return fs_; }
   [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
 

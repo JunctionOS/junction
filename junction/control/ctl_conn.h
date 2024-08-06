@@ -72,13 +72,14 @@ class ControlConn {
     return Send(std::move(fbb));
   }
 
-  Status<void> SendReport(const TracerReport &report) {
+  Status<void> SendReport(const PageAccessTracer &report) {
     flatbuffers::FlatBufferBuilder fbb;
     std::vector<flatbuffers::Offset<ctl_schema::TracePoint>> std_accessed;
-    std_accessed.reserve(report.accesses_us.size());
-    for (const auto &[time_us, page_addr] : report.accesses_us)
+    const std::unordered_map<uintptr_t, Time> &trace = report.get_trace();
+    std_accessed.reserve(trace.size());
+    for (const auto &[page_addr, time] : trace)
       std_accessed.emplace_back(
-          ctl_schema::CreateTracePoint(fbb, time_us, page_addr));
+          ctl_schema::CreateTracePoint(fbb, time.Microseconds(), page_addr));
     auto inner = ctl_schema::CreateTraceReportDirect(fbb, &std_accessed);
     auto resp = ctl_schema::CreateResponse(
         fbb, ctl_schema::InnerResponse_traceReport, inner.Union());

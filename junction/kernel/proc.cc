@@ -192,7 +192,10 @@ Thread::~Thread() {
 bool Thread::IsStopped() const { return proc_->is_stopped(); }
 
 void Process::ProcessFinish() {
-  mem_map_->DumpTracerReport();
+  if (unlikely(!mem_map_->DumpTracerReport())) {
+    LOG(ERR) << "Failed to dump memory trace";
+    syscall_exit(-1);
+  }
   // Check if init has died
   if (unlikely(get_pid() == 1)) {
     syscall_exit(xstate_);
