@@ -258,13 +258,16 @@ void MemoryMap::RecordHit(void *addr, size_t len, Time time) {
 bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
   addr = PageAlignDown(addr);
 
-  rt::UniqueLock ul(mu_, rt::DeferLock);
-  if (likely(preempt_enabled())) {
-    ul.Lock();
-  } else {
-    // We can't block when preemption is disabled.
-    while (!ul.TryLock()) CPURelax();
-  }
+  rt::SpinGuard g(mm_lock_);
+  // In tracer mode, holding the global MM spin lock implies ownership of the
+  // shared mutex.
+  assert(!mu_.IsHeld());
+  // Acquire the shared mutex anyways, so that we don't fail debug asserts.
+  rt::ScopedLock l(mu_);
+
+  // No race condition with beginning/ending tracing since the process is always
+  // fully stopped during these operations.
+  assert(tracer_);
 
   rt::RuntimeLibcGuard guard;
 
@@ -275,42 +278,18 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
   }
 
   VMArea &vma = it->second;
-  // Checks if the type of access (conveyed by required_prot) is legal for this
-  // VMA.
-  //
-  // Actually acting on this is delayed to allow for recording the access
-  bool legal_access = (vma.prot & required_prot) != 0;
 
-  // There is a opportunistic race between this code and EndTracing
-  // The code (in signal.cc) that intercepts SIGSEGVs checks whether the tracer
-  // is running, and afterwards calls this code.
-  //
-  // However, by the time we get here
-  // the tracer might be gone. As such, we need to handle that (note that here
-  // the tracer is already locked by mu_)
-  if (likely(tracer_)) {
-    // If the VMA is not being traced, it is surely a segfault
-    if (!vma.traced) {
-      DLOG(WARN) << "vma is not being traced: " << vma;
-      return false;
-    }
+  // Checks if the type of access (@required_prot) is legal for this VMA. If the
+  // access is invalid, don't record it since no data is accessed.
+  if ((vma.prot & required_prot) == 0) return false;
 
-    // Note: RecordHit returns true if this was the first recorded hit
-    // If the page has already been recorded, and RecordHit returns false, we
-    // have already remapped the page, no need to remap it again
-    if (!tracer_->RecordHit(addr, time)) return legal_access;
-  }
+  // This access should have succeeded but is failing - it must be because we
+  // are tracing it.
+  assert(!!vma.traced);
 
-  if (unlikely(!legal_access)) {
-    char protection_char = '?';
-    if (required_prot == PROT_READ) protection_char = 'r';
-    if (required_prot == PROT_WRITE) protection_char = 'w';
-    if (required_prot == PROT_EXEC) protection_char = 'x';
-
-    DLOG(WARN) << "vma was could not satisfy access: " << protection_char
-               << " -- vma: " << vma;
-    return false;
-  }
+  // An mprotect may have forced us to remap an already touched page as
+  // PROT_NONE. Record the hit regardless and restore permissions.
+  tracer_->RecordHit(addr, time);
 
   Status<void> ret =
       KernelMProtect(reinterpret_cast<void *>(addr), kPageSize, vma.prot);
@@ -320,6 +299,26 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
   }
 
   return true;
+}
+
+// An mprotect during tracing may downgrade the permissions of a region. We need
+// to immediately remove those permissions from all pages in the region,
+// however, we don't want to effectively add back any permissions to pages that
+// are marked as PROT_NONE because they haven't been accessed yet. Instead we
+// just mark the entire region PROT_NONE, potentially allowing pages that have
+// already been faulted in to fault again.
+void __attribute__((cold)) TracerModifyProt(VMArea &vma, int new_prot) {
+  int old_prot = std::exchange(vma.prot, new_prot);
+
+  // check if old protections have bits that are not present in the new
+  // protections. If we are not modifying the protection or only adding
+  // protection bits, then we will rely on the fault handler to apply those
+  // permissions page-wise.
+  if ((old_prot & ~new_prot) == 0) return;
+
+  Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), PROT_NONE);
+  if (unlikely(!ret))
+    LOG(WARN) << "tracer could not mprotect " << ret.error() << " " << vma;
 }
 
 void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
@@ -351,7 +350,10 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
     if (end < vma.end) {
       VMArea left = vma;
       TrimTail(left, end);
-      left.prot = prot;
+      if (unlikely(TraceEnabled()))
+        TracerModifyProt(left, prot);
+      else
+        left.prot = prot;
       TryMergeRight(prev_it, left);
       vmareas_.insert(it, std::pair(end, std::move(left)));
       TrimHead(vma, end);
@@ -359,7 +361,10 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
     }
 
     // If we're here we know [start, end) surrounds [vma.start, vma.end)
-    vma.prot = prot;
+    if (unlikely(TraceEnabled()))
+      TracerModifyProt(vma, prot);
+    else
+      vma.prot = prot;
     TryMergeRight(prev_it, vma);
   }
 
@@ -517,8 +522,13 @@ Status<void> MemoryMap::MProtect(void *addr, size_t len, int prot) {
   // change protections
   rt::UniqueLock ul(mu_, rt::InterruptOrLock);
   if (!ul) return MakeError(EINTR);
-  Status<void> ret = KernelMProtect(addr, len, prot);
-  if (!ret) return MakeError(ret);
+
+  // Modify() will make KernelMProtect calls if the tracer is on.
+  if (likely(!TraceEnabled())) {
+    Status<void> ret = KernelMProtect(addr, len, prot);
+    if (!ret) return MakeError(ret);
+  }
+
   auto [start, end] = AddressToBounds(addr, len);
   Modify(start, end, prot);
   return {};
@@ -637,9 +647,31 @@ void MemoryMap::LogMappings() {
   for (auto const &[end, vma] : vmareas_) LOG(INFO) << vma;
 }
 
+template <typename Callable, typename... Args>
+auto __attribute__((cold)) TracerGuardMMDoCall(Callable &&func, Args &&...args)
+  requires std::invocable<Callable, Args...>
+{
+  return CallOnSyscallStack([&] {
+    rt::SpinGuard g(MemoryMap::global_lock());
+    return std::forward<Callable>(func)(std::forward<Args>(args)...);
+  });
+}
+
+template <typename Callable, typename... Args>
+inline auto TracerGuardCheck(MemoryMap &mm, Callable &&func, Args &&...args)
+  requires std::invocable<Callable, Args...>
+{
+  if (likely(!mm.TraceEnabled()))
+    return std::forward<Callable>(func)(std::forward<Args>(args)...);
+
+  return TracerGuardMMDoCall(std::forward<Callable>(func),
+                             std::forward<Args>(args)...);
+}
+
 intptr_t usys_brk(void *addr) {
   MemoryMap &mm = myproc().get_mem_map();
-  Status<uintptr_t> ret = mm.SetBreak(reinterpret_cast<uintptr_t>(addr));
+  Status<uintptr_t> ret = TracerGuardCheck(
+      mm, [&] { return mm.SetBreak(reinterpret_cast<uintptr_t>(addr)); });
   if (!ret) return MakeCErrorRestartSys(ret);
   return *ret;
 }
@@ -650,7 +682,8 @@ intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
 
   // Map anonymous memory.
   if ((flags & MAP_ANONYMOUS) != 0) {
-    Status<void *> ret = mm.MMapAnonymous(addr, len, prot, flags);
+    Status<void *> ret = TracerGuardCheck(
+        mm, [&] { return mm.MMapAnonymous(addr, len, prot, flags); });
     if (!ret) return MakeCErrorRestartSys(ret);
     return reinterpret_cast<intptr_t>(*ret);
   }
@@ -659,28 +692,32 @@ intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
   FileTable &ftbl = myproc().get_file_table();
   std::shared_ptr<File> f = ftbl.Dup(fd);
   if (!f) return -EBADF;
-  Status<void *> ret = mm.MMap(addr, len, prot, flags, std::move(f), offset);
+  Status<void *> ret = TracerGuardCheck(mm, [&] {
+    return mm.MMap(addr, len, prot, flags, std::move(f), offset);
+  });
   if (!ret) return MakeCErrorRestartSys(ret);
   return reinterpret_cast<intptr_t>(*ret);
 }
 
 long usys_mprotect(void *addr, size_t len, int prot) {
   MemoryMap &mm = myproc().get_mem_map();
-  Status<void> ret = mm.MProtect(addr, len, prot);
+  Status<void> ret =
+      TracerGuardCheck(mm, [&] { return mm.MProtect(addr, len, prot); });
   if (!ret) return MakeCErrorRestartSys(ret);
   return 0;
 }
 
 long usys_munmap(void *addr, size_t len) {
   MemoryMap &mm = myproc().get_mem_map();
-  Status<void> ret = mm.MUnmap(addr, len);
+  Status<void> ret = TracerGuardCheck(mm, [&] { return mm.MUnmap(addr, len); });
   if (!ret) return MakeCErrorRestartSys(ret);
   return 0;
 }
 
 long usys_madvise(void *addr, size_t len, int hint) {
   MemoryMap &mm = myproc().get_mem_map();
-  Status<void> ret = mm.MAdvise(addr, len, hint);
+  Status<void> ret =
+      TracerGuardCheck(mm, [&] { return mm.MAdvise(addr, len, hint); });
   if (!ret) return MakeCErrorRestartSys(ret);
   return 0;
 }

@@ -110,14 +110,11 @@ class PageAccessTracer {
   PageAccessTracer() = default;
 
   // Record a new page being accessed
-  // Only records if the page had not been recorded before
-  //
-  // Returns true if this is the first access being recorded
-  bool RecordHit(uintptr_t page, Time t) {
+  // Updates the hit time to the earliest time if an existing hit exists.
+  void RecordHit(uintptr_t page, Time t) {
     assert(IsPageAligned(page));
     auto [it, inserted] = access_at_.try_emplace(page, t);
     it->second = std::min(it->second, t);
-    return inserted;
   }
 
   TracerReport GenerateReport() const;
@@ -237,6 +234,8 @@ class alignas(kCacheLineSize) MemoryMap {
   }
 
   [[nodiscard]] static size_t get_nr_non_reloc() { return nr_non_reloc_maps_; }
+
+  static rt::Spin &global_lock() { return mm_lock_; };
 
  private:
   friend class cereal::access;
