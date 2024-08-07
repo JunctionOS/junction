@@ -24,11 +24,19 @@ CHROOT_DIR=f"{ROOT_DIR}/chroot"
 
 USE_CHROOT = True
 
-FBENCH = ["chameleon", "float_operation", "pyaes", "matmul", "json_serdes"] # + ["video_processing", "lr_training", "image_processing", "linpack","json_serdes", "rnn_serving"]
-RESIZERS = ["java_resizer", "rust_resizer", "go_resizer", "python_resizer"]
-OTHERS = ["go_hello_world", "node_hello", "python_numpy", "python_hello_world"]
+FBENCH = ["chameleon", "float_operation", "pyaes", "matmul", "json_serdes", "video_processing"] 
+FBENCH += ["lr_training", "image_processing", "linpack"]
 
-KERNEL_STATS={}
+RESIZERS = [
+	("java", f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jna-5.14.0.jar {ROOT_DIR}/build/junction/samples/snapshots/java/Resizer.java"),
+	("rust", f"{ROOT_DIR}/build/junction/samples/snapshots/rust/resize-rs"),
+	("go", f"{ROOT_DIR}/build/junction/samples/snapshots/go/resizer"),
+]
+
+IMAGES = [
+	("large", f"{ROOT_DIR}/build/junction/samples/snapshots/images/IMG_4011.jpg"),
+	("tiny", f"{ROOT_DIR}/build/junction/samples/snapshots/thumbnails/IMG_4011.jpg"),
+]
 
 def run(cmd):
 	print(cmd)
@@ -41,9 +49,9 @@ def kill_iok():
 def run_iok():
 	if os.system("pgrep iok > /dev/null") == 0:
 		return
-	run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh --no-uintr")
-	run(f"sudo {CALADAN_DIR}/iokerneld ias nobw noht no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0 > /tmp/iokernel.log 2>&1 &")
-	while os.system("grep -q 'running dataplan' /tmp/iokernel.log") != 0:
+	run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh nouintr")
+	run(f"sudo {CALADAN_DIR}/iokerneld ias nobw noht no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0 > /tmp/iokernel0.log 2>&1 &")
+	while os.system("grep -q 'running dataplan' /tmp/iokernel0.log") != 0:
 		time.sleep(0.3)
 		run("pgrep iokerneld > /dev/null")
 
@@ -64,7 +72,7 @@ def setup_chroot():
 		major = os.major(st.st_rdev)
 		minor = os.minor(st.st_rdev)
 
-		run(f"sudo mknod {CHROOT_DIR}/dev/jif_pager c {major} {minor}")
+		run(f"sudo mknod -m 666 {CHROOT_DIR}/dev/jif_pager c {major} {minor} || true")
 
 	atexit.register(kill_chroot)
 
@@ -87,8 +95,6 @@ def process_itree(output_image, output_log):
 	run(f"{BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif build-itrees 2>&1 >> {output_log}_builditree")
 
 def process_fault_order(output_image, output_log):
-	# restore with tracer
-	restore_jif(output_image, output_log, extra_flags=f"--mem-trace 10000 --mem-trace-out {output_image}.ord")
 	# add ordering to jif
 	run(f"{BUILD_DIR}/jiftool {output_image}_itrees.jif {output_image}_itrees_ord.jif add-ord {output_image}.ord")
 
@@ -129,7 +135,10 @@ def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, me
 	stats["cold"] = cold
 
 	key = image.split("/")[-1]
-	KERNEL_STATS[key].append(dict(stats))
+	stats['key'] = key
+	with open(f"{output_log}_kstats", "a") as f:
+		f.write(json.dumps(stats))
+		f.write('\n')
 
 def set_readahead(val):
 	run(f"echo {val} | sudo tee /sys/kernel/jif_pager/readahead")
@@ -150,32 +159,47 @@ def generate_images(cmd, name, logname, stop_count = 1, extra_flags = ""):
 	snapshot_elf(cmd, name, logname, extra_flags, stop_count)
 	snapshot_jif(cmd, name, logname, extra_flags, stop_count)
 	process_itree(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
+
+	# generate ord with tracer
+	restore_jif(name, f"{logname}_buildord", extra_flags=f" {extra_flags} --mem-trace 10000 --mem-trace-out {name}.ord")
+
 	process_fault_order(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
 
 def dropcache():
-	for i in range(3):
+	for i in range(5):
 		run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
-		time.sleep(0.3)
+		time.sleep(5)
+	time.sleep(15)
+	for i in range(5):
+		run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
+		time.sleep(5)
 
 def restore_image(name, logname, extra_flags=""):
 	dropcache()
 	restore_elf(name, logname, extra_flags)
 	dropcache()
-	restore_jif(name, logname, extra_flags)
-	dropcache()
 	restore_itrees_jif(name, logname, extra_flags)
 
 	if jifpager_installed():
-		KERNEL_STATS[name.split("/")[-1]] = []
-		jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=True, readahead=False, prefault=True, cold=True, fault_around=False)
+		# KERNEL_STATS[name.split("/")[-1]] = []
+		jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=True, cold=True, fault_around=False)
+
+def do_image(edir, cmd, name, eflags, stop_count = 1):
+	generate_images(cmd, f"/tmp/{name}", f"{edir}/generate_images", stop_count=stop_count, extra_flags=eflags)
+	restore_image(f"/tmp/{name}", f"{edir}/restore_images", extra_flags=eflags)
 
 def get_fbench_times(edir):
 	eflags = ""
 	if USE_CHROOT:
-		eflags = f" --chroot={CHROOT_DIR}  "
+		eflags += f" --chroot={CHROOT_DIR}  --cache_linux_fs "
 	for fn in FBENCH:
-		generate_images(f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/run.py {fn}", f"/tmp/{fn}", f"{edir}/generate_images", extra_flags=eflags)
-		restore_image(f"/tmp/{fn}", f"{edir}/restore_images", extra_flags=eflags)
+		cmd = f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/run.py {fn}"
+		do_image(edir, cmd, fn, eflags)
+	for name, cmd in RESIZERS:
+		for image, path in IMAGES:
+			stop_count = 2 if "java" in name else 1
+			nm = f"{name}_resizer_{image}"
+			do_image(edir, f"{cmd} {path} {nm}", nm, eflags, stop_count = stop_count)
 
 def get_one_log(name):
 	try:
@@ -215,19 +239,24 @@ def parse_fbench_times(edir):
 			'first_iter': d['warmup'][0],
 			'warm_iter': d['warmup'][-1],
 			'metadata_restore': d["metadata_restore"],
-			'elf_first_iter': d["cold"][0],
+			'elf_cold_first_iter': d["cold"][0],
 			'elf_data_restore': d["data_restore"],
 			'fs_restore': d["fs_restore"],
-			'jifpager_stats_ns': KERNEL_STATS[prog]
 		}
 
-	for prog, d in get_one_log(f"{edir}/restore_images_jif").items():
+	with open(f"{edir}/restore_images_kstats", "r") as f:
+		for line in f.readlines():
+			jx = json.loads(line)
+			print(out)
+			out[jx['key']]['jifpager_stats_ns'] = jx
+
+	for prog, d in get_one_log(f"{edir}/restore_images_itrees_jif").items():
 		out[prog]['jif_cold_first_iter'] = d["cold"][0]
 		out[prog]['jif_data_restore'] = d["data_restore"]
 
-	for prog, d in get_one_log(f"{edir}/restore_images_itrees_jif").items():
-		out[prog]['itrees_jif_cold_first_iter'] = d["cold"][0]
-		out[prog]['itrees_jif_data_restore'] = d["data_restore"]
+	for prog, d in get_one_log(f"{edir}/restore_images_itrees_jif_k").items():
+		out[prog]['jif_k_cold_first_iter'] = d["cold"][0]
+		out[prog]['jif_k_data_restore'] = d["data_restore"]
 
 	pprint(out)
 	return out
@@ -240,73 +269,91 @@ def plot_workloads(edir, data):
 	if num_workloads == 1:
 		axes = [axes]
 
-	colors = {
-		'metadata_restore': 'tab:blue',
-		'elf_data_restore': 'tab:orange',
-		'elf_first_iter': 'tab:green',
-		'jif_data_restore': 'tab:red',
-		'jif_cold_first_iter': 'tab:purple',
-		'warm_iter': 'tab:gray',
-		'fs_restore': 'tab:cyan'
-	}
+	def get_colors(cat):
+		return {
+			'function': 'tab:blue',
+			'metadata': 'tab:orange',
+			'fs': 'tab:green',
+			'data': 'tab:red',
+		}.get(cat)
 
 	for ax, workload in zip(axes, workloads):
 		categories = data[workload]
-		warm_iter = categories['warm_iter']
-		first_iter = categories['first_iter']
 
-		metadata_restore = categories['metadata_restore']
-		fs_restore = categories['fs_restore']
+		# jifpager_stats_ns = categories['jifpager_stats_ns']
 
-		elf_data_restore = categories['elf_data_restore']
-		elf_first_iter = categories['elf_first_iter']
+		# how do I get needed throughput? in pages/s
+		# for x in jifpager_stats_ns:
+		# 	print(x)
+		# if not jifpager_stats_ns.get("readahead", False):
+		# 	no_readahead = jifpager_stats_ns
 
-		jif_data_restore = categories['jif_data_restore']
-		jif_cold_first_iter = categories['jif_cold_first_iter']
+		# should only be major faults but just in case
+		# total_pages = no_readahead["major_faults"] + no_readahead["minor_faults"]
+		# read_latency = no_readahead["average_sync_read_latency"]
 
-		jifpager_stats_ns = categories['jifpager_stats_ns']
-
-                # how do I get needed throughput? in pages/s
-		for x in jifpager_stats_ns:
-                        if not x["readahead"]:
-                                no_readahead = x
-
-                # should only be major faults but just in case
-		total_pages = no_readahead["major_faults"] + no_readahead["minor_faults"]
-		read_latency = no_readahead["average_sync_read_latency"]
-
-		ideal_throughput = int((total_pages / first_iter) * 1000000 * 4096)
+		# ideal_throughput = int((total_pages / first_iter) * 1000000 * 4096)
 		# bytes per nanosecond
-		actual_throughput = int((4096 / read_latency) * 1000000000)
+		# actual_throughput = int((4096 / read_latency) * 1000000000)
 
-		print(f"{workload} ideal throughput = {ideal_throughput / 1024 ** 2}MB/s")
-		print(f"{workload} actual throughput = {actual_throughput / 1024 ** 2}MB/s")
+		# print(f"{workload} ideal throughput = {ideal_throughput / 1024 ** 2}MB/s")
+		# print(f"{workload} actual throughput = {actual_throughput / 1024 ** 2}MB/s")
 
-		# Creating stacks
-		stack1 = [metadata_restore, fs_restore, elf_data_restore, elf_first_iter]
-		stack2 = [metadata_restore, fs_restore, jif_data_restore, jif_cold_first_iter]
+		stack1 = [
+			('warm_iter', 'function')
+		]
 
-		# Plotting warm_iter
-		ax.bar('warm_iter', warm_iter, color=colors['warm_iter'], label='Warm Iter')
+		stack2 = [
+			("metadata_restore", "metadata"),
+			("fs_restore", "fs"),
+			("elf_data_restore", "data"),
+			("elf_cold_first_iter", "function"),
+		]
+
+		stack3 = [
+			("metadata_restore", "metadata"),
+			("fs_restore", "fs"),
+			("jif_data_restore", "data"),
+			("jif_cold_first_iter", "function"),
+		]
+
+		stack4 = [
+			("metadata_restore", "metadata"),
+			("fs_restore", "fs"),
+			("jif_k_data_restore", "data"),
+			("jif_k_cold_first_iter", "function"),
+		]
+
+		stacks = [
+			(stack1, "Warm"),
+			(stack2, "ELF restore"),
+			(stack3, "JIF restore (userspace)"),
+			(stack4, "JIF kernel restore\n(w/ prefetch)"),
+		]
+
 
 		seen = set()
 
 		def get_lbl(label):
 			if label in seen: return None
 			seen.add(label)
-			return label
+			return {
+				'function': 'Function',
+				'metadata': 'Cereal restore',
+				'fs': 'MemFS restore',
+				'data': 'VMA restore'
+			}.get(label, label)
 
-		# Plotting stack1
-		bottom_stack1 = 0
-		for component, label in zip(stack1, ['metadata_restore', 'fs_restore', 'elf_data_restore', 'elf_first_iter']):
-			ax.bar('ELF', component, bottom=bottom_stack1, color=colors[label], label=get_lbl(label))
-			bottom_stack1 += component
+		for stack, label in stacks:
+			bottom = 0
+			for component, category in stack:
+				ax.bar(label, categories[component], bottom=bottom, color=get_colors(category), label=get_lbl(category))
+				bottom += categories[component]
 
-		# Plotting stack2
-		bottom_stack2 = 0
-		for component, label in zip(stack2, ['metadata_restore', 'fs_restore', 'jif_data_restore', 'jif_cold_first_iter']):
-			ax.bar('JIF', component, bottom=bottom_stack2, color=colors[label], label=get_lbl(label))
-			bottom_stack2 += component
+		ax.set_ylabel("Microseconds")
+		# ax.set_yscale('log')
+		if workload in FBENCH:
+			workload = "function_bench: " + workload
 		ax.set_title(workload)
 		ax.legend()
 
