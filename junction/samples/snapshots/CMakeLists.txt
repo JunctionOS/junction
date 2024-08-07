@@ -63,6 +63,10 @@ macro(add_snapshot_restore_test test_name test_commands)
 endmacro()
 
 file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/images" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/thumbnails" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+
+set(image_dir "${CMAKE_CURRENT_BINARY_DIR}/images")
+set(thumb_dir "${CMAKE_CURRENT_BINARY_DIR}/thumbnails")
 
 add_subdirectory(c)
 add_subdirectory(go)

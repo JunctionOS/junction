@@ -13,7 +13,7 @@ add_custom_command(
 add_custom_command(
   OUTPUT resizer
   COMMAND go build -o ${go_resizer} ${CMAKE_CURRENT_SOURCE_DIR}/resizer.go
-  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/hello.go
+  DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/resizer.go
 )
 
 add_custom_target(go_hello_world ALL

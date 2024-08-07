@@ -8,24 +8,20 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/numpy_test.py ${CMAKE_CURRENT_BINARY_
 set(python_hello_world "${CMAKE_CURRENT_BINARY_DIR}/hello.py")
 set(python_resizer "${CMAKE_CURRENT_BINARY_DIR}/python_resizer.py")
 set(python_numpy "${CMAKE_CURRENT_BINARY_DIR}/numpy_test.py")
-set(images_path "${CMAKE_CURRENT_SOURCE_DIR}/../images")
-set(thumbnails "${CMAKE_CURRENT_SOURCE_DIR}/thumbnails")
 
 set(venv_python
   "${CMAKE_SOURCE_DIR}/bin/venv/bin/python3"
 )
 
 file(
- GLOB images "${images_path}/*"
+ GLOB images "${image_dir}/*"
 )
 foreach(
  image ${images}
 )
 get_filename_component(image_name ${image} NAME)
 
-configure_file(${thumbnails}/${image_name} ${CMAKE_CURRENT_BINARY_DIR}/thumb_${image_name} COPYONLY)
-
-add_snapshot_restore_test(python_resizer_${image_name} "${venv_python} ${python_resizer} ${CMAKE_CURRENT_BINARY_DIR}/../images/${image_name} ${CMAKE_CURRENT_BINARY_DIR}/thumb_${image_name}")
+add_snapshot_restore_test(python_resizer_${image_name} "${venv_python} ${python_resizer} ${image_dir}/${image_name} ${thumb_dir}/${image_name}")
 endforeach()
 
 add_snapshot_restore_test(python_hello_world "${venv_python} ${python_hello_world}")

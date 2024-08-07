@@ -1,29 +1,28 @@
 package main
 
-import "C"
-
 import (
-	"bytes"
 	"flag"
 	"image"
-	"image/gif"
-	"image/jpeg"
 	"image/png"
-	"io/ioutil"
+	"image/jpeg"
 	"log/slog"
 	"os"
 	"syscall"
 	"strings"
+	"time"
+	"image/color"
+	"fmt"
 
 	"github.com/nfnt/resize"
 	//	"unsafe"
 )
 
-const MAX_WIDTH = 128
-const MAX_HEIGHT = 128
+const MAX_WIDTH = 64
+const MAX_HEIGHT = 64
 
 func load_img(file string) (image.Image, error) {
 	f, err := os.Open(file)
+
 	if err != nil {
 		return nil, err
 	}
@@ -36,48 +35,21 @@ func load_img(file string) (image.Image, error) {
 	return img, nil
 }
 
-func resize_img(file string) (image.Image, error) {
-	img, err := load_img(file)
-	if err != nil {
-		return nil, err
-	}
-
+func resize_img(img image.Image) (image.Image, error) {
 	m := resize.Thumbnail(MAX_WIDTH, MAX_HEIGHT, img, resize.Lanczos3)
 	return m, nil
-}
-
-func img_equal(a image.Image, b string) (bool, error) {
-	split := strings.Split(b, "/")
-	name := split[len(split)-1]
-	tmp_path := strings.Join([]string{"/tmp", name}, "/")
-
-	err := save_img(a, tmp_path)
-	if err != nil {
-		return false, err
-	}
-
-	abytes, err := ioutil.ReadFile(tmp_path)
-	if err != nil {
-		return false, err
-	}
-	bbytes, err := ioutil.ReadFile(b)
-	if err != nil {
-		return false, err
-	}
-
-	return bytes.Equal(abytes, bbytes), nil
 }
 
 func save_img(img image.Image, path string) error {
 	out, err := os.Create(path)
 	if err != nil {
-		slog.Error("failed to create file", "err", err, "path", path)
+		slog.Error("failed to create file" ,"err", err, "path", path)
 		return nil
 	}
 	defer out.Close()
 
 	split := strings.Split(path, ".")
-	ext := split[len(split)-1]
+	ext := split[len(split) - 1]
 	if ext == "jpg" || ext == "jpeg" || ext == "JPG" || ext == "JPEG" {
 		err := jpeg.Encode(out, img, nil)
 		if err != nil {
@@ -90,12 +62,6 @@ func save_img(img image.Image, path string) error {
 			slog.Error("failed to encode png", "err", err)
 			return nil
 		}
-	} else if ext == "gif" || ext == "GIF" {
-		err := gif.Encode(out, img, nil)
-		if err != nil {
-			slog.Error("failed to encode gif", "err", err)
-			return nil
-		}
 	} else {
 		slog.Error("unkown extension", "ext", ext)
 		return nil
@@ -105,60 +71,78 @@ func save_img(img image.Image, path string) error {
 }
 
 func main() {
-	var check string
-	var verbose bool
-
-	flag.StringVar(&check, "check", "", "filepath of the thumbnail to check against")
-	flag.BoolVar(&verbose, "verbose", false, "verbose logging")
-
 	flag.Parse()
-	if verbose {
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelDebug}))
-		slog.SetDefault(logger)
-	} else {
-		logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-		slog.SetDefault(logger)
-	}
-
-	if len(flag.Args()) != 1 {
+	if len(flag.Args()) < 1 {
 		slog.Error("Failed get image pathname")
 		return
 	}
 
 	image_path := flag.Args()[0]
+	img, err := load_img(image_path)
+	if err != nil {
+		slog.Error("failed to load image", "err", err, "filename", image_path)
+		return
+	}
 
-	// wait for snapshot
-	syscall.Kill(syscall.Getpid(), syscall.SIGSTOP)
+	prog_name := "go_resizer"
+	if len(flag.Args()) > 1 {
+		prog_name = flag.Args()[1]
+	}
 
-	thumbnail, err := resize_img(image_path)
+	var durations []time.Duration
+	var colors []color.Color
+
+	// warm up the function
+	for i := 1; i < 10; i++ {
+		start := time.Now()
+		thumbnail, err := resize_img(img)
+		elapsed := time.Since(start)
+		if err != nil {
+			slog.Error("failed to resize image", "err", err, "filename", image_path)
+			return
+		}
+		durations = append(durations, elapsed)
+		colors = append(colors, thumbnail.At(1,1))
+	}
+
+	pid := os.Getpid()
+
+	// stop the process for initializing profiling
+	syscall.Kill(pid, syscall.SIGSTOP)
+
+	start := time.Now()
+
+	// run the function one more time
+	thumbnail, err := resize_img(img)
 	if err != nil {
 		slog.Error("failed to resize image", "err", err, "filename", image_path)
 		return
 	}
 
-	if len(check) != 0 {
-		slog.Debug("comparing thumbnail", "filename", check)
+	elapsed := time.Since(start)
 
-		eq, err := img_equal(thumbnail, check)
-		if err != nil {
-			slog.Error("failed to check image equality", "err", err, "filename", check)
-			return
-		}
-		if eq {
-			slog.Info("OK: thumbnails are the same")
-		} else {
-			slog.Warn("ERR: thumbnails are not the same")
-		}
-	} else {
-		split := strings.Split(image_path, "/")
-		name := split[len(split)-1]
-		path_components := append(split[:len(split)-2], []string{"thumbnails", name}...)
-		thumbnail_path := strings.Join(path_components, "/")
-		slog.Info("saving thumbnail", "thumbnail_path", thumbnail_path)
+	var result strings.Builder
+	result.WriteString("DATA  {\"warmup\": [")
 
-		err := save_img(thumbnail, thumbnail_path)
-		if err != nil {
-			slog.Info("failed to save image", "err", err)
+	for i, warmup := range durations {
+		if i > 0 {
+			result.WriteString(", ")
 		}
+		result.WriteString(fmt.Sprintf("%d", warmup.Microseconds()))
 	}
+
+	result.WriteString("], \"cold\": [")
+	result.WriteString(fmt.Sprintf("%d", elapsed.Microseconds()))
+	result.WriteString("], \"program\": \"")
+	result.WriteString(prog_name)
+	result.WriteString("\"}")
+
+	fmt.Println(result.String())
+
+	os.Stdout.Sync()
+
+	syscall.RawSyscall(syscall.SYS_EXIT_GROUP, 0, 0, 0)
+
+	slog.Info("colors ", colors)
+	slog.Info("colors ", thumbnail.At(1,1))
 }
