@@ -191,6 +191,30 @@ Thread::~Thread() {
 
 bool Thread::IsStopped() const { return proc_->is_stopped(); }
 
+Status<void> Thread::DropUnusedStack() {
+  return {};
+  assert(get_process().is_fully_stopped());
+  // If the thread has indicated that signals cannot be delivered on it then we
+  // shouldn't assume that we can clobber above rsp.
+  if (get_sighand().has_altstack()) return {};
+
+  // Check if the rsp is on a known stack.
+  uint64_t rsp = GetTrapframe().GetRsp();
+  MemoryMap &mm = get_process().get_mem_map();
+  std::optional<void *> top = mm.GetStackTop(rsp);
+  if (!top) return {};
+
+  // Check if the syscall is performed on top of the rsp.
+  uint64_t resume_rsp = GetCaladanThread()->tf.rsp;
+  std::optional<void *> resume_top = mm.GetStackTop(resume_rsp);
+  if (resume_top && *resume_top == *top) rsp = resume_rsp;
+
+  // Drop pages above the redzone.
+  rsp = PageAlignDown(rsp - kRedzoneSize);
+  uint64_t len = rsp - reinterpret_cast<uintptr_t>(*top);
+  return KernelMAdvise(*top, len, MADV_DONTNEED);
+}
+
 void Process::ProcessFinish() {
   if (unlikely(!mem_map_->DumpTracerReport())) {
     LOG(ERR) << "Failed to dump memory trace";

@@ -250,11 +250,21 @@ class Thread {
     access_once(GetCaladanThread()->in_syscall) = false;
   }
 
+  // Zeros memory (using madvise) above the current RSP for a stopped thread, if
+  // it is safe to do so.
+  Status<void> DropUnusedStack();
+
   template <class Archive>
   void DoSave(Archive &ar) {
     uintptr_t child_tid_ptr = reinterpret_cast<uintptr_t>(cold().child_tid_);
     ar(child_tid_ptr, cold().xstate_, get_sighand());
     GetTrapframe().DoSave(ar, cold().stopped_rax_);
+
+    Status<void> ret = DropUnusedStack();
+    if (unlikely(!ret)) {
+      LOG(ERR) << "Failed to trim stack: " << ret.error();
+      syscall_exit(-1);
+    }
 
     bool has_fsbase = GetCaladanThread()->has_fsbase;
     ar(has_fsbase);

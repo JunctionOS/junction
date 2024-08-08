@@ -250,6 +250,17 @@ class alignas(kCacheLineSize) MemoryMap {
 
   static rt::Spin &global_lock() { return mm_lock_; };
 
+  // Returns the top of the stack that rsp is from if the corresponding VMA was
+  // created with MAP_STACK.
+  std::optional<void *> GetStackTop(uint64_t rsp) {
+    rt::SharedMutexGuard g(mu_);
+    auto it = Find(rsp);
+    if (it == vmareas_.end()) return std::nullopt;
+    const VMArea &vma = it->second;
+    if (vma.type == VMType::kStack) return vma.Addr();
+    return std::nullopt;
+  }
+
  private:
   friend class cereal::access;
   friend class PageAccessTracer;
