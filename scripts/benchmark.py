@@ -24,7 +24,7 @@ CHROOT_DIR=f"{ROOT_DIR}/chroot"
 
 USE_CHROOT = True
 
-FBENCH = ["chameleon", "float_operation", "pyaes", "matmul", "json_serdes", "video_processing"] 
+FBENCH = ["chameleon", "float_operation", "pyaes", "matmul", "json_serdes", "video_processing"]
 FBENCH += ["lr_training", "image_processing", "linpack"]
 
 RESIZERS = [
@@ -161,18 +161,14 @@ def generate_images(cmd, name, logname, stop_count = 1, extra_flags = ""):
 	process_itree(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
 
 	# generate ord with tracer
-	restore_jif(name, f"{logname}_buildord", extra_flags=f" {extra_flags} --mem-trace 10000 --mem-trace-out {name}.ord")
+	restore_jif(name, f"{logname}_buildord", extra_flags=f" {extra_flags} --stackswitch --mem-trace --mem-trace-out {name}.ord")
 
 	process_fault_order(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
 
 def dropcache():
 	for i in range(5):
 		run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
-		time.sleep(5)
-	time.sleep(15)
-	for i in range(5):
-		run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
-		time.sleep(5)
+		time.sleep(10)
 
 def restore_image(name, logname, extra_flags=""):
 	dropcache()
@@ -181,7 +177,6 @@ def restore_image(name, logname, extra_flags=""):
 	restore_itrees_jif(name, logname, extra_flags)
 
 	if jifpager_installed():
-		# KERNEL_STATS[name.split("/")[-1]] = []
 		jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=True, cold=True, fault_around=False)
 
 def do_image(edir, cmd, name, eflags, stop_count = 1):
@@ -304,24 +299,24 @@ def plot_workloads(edir, data):
 		]
 
 		stack2 = [
+			("elf_cold_first_iter", "function"),
 			("metadata_restore", "metadata"),
 			("fs_restore", "fs"),
 			("elf_data_restore", "data"),
-			("elf_cold_first_iter", "function"),
 		]
 
 		stack3 = [
+			("jif_cold_first_iter", "function"),
 			("metadata_restore", "metadata"),
 			("fs_restore", "fs"),
 			("jif_data_restore", "data"),
-			("jif_cold_first_iter", "function"),
 		]
 
 		stack4 = [
+			("jif_k_cold_first_iter", "function"),
 			("metadata_restore", "metadata"),
 			("fs_restore", "fs"),
 			("jif_k_data_restore", "data"),
-			("jif_k_cold_first_iter", "function"),
 		]
 
 		stacks = [
