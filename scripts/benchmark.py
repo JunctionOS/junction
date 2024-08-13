@@ -5,6 +5,7 @@ import os
 import atexit
 import sys
 from datetime import datetime
+from collections import defaultdict
 import json
 import subprocess
 import time
@@ -23,6 +24,14 @@ CALADAN_DIR = f"{ROOT_DIR}/lib/caladan"
 CHROOT_DIR=f"{ROOT_DIR}/chroot"
 
 USE_CHROOT = True
+ENABLE_ELF_BASELINE = True
+ENABLE_JIF_USERSPACE_BASELINE = True
+DO_KERNEL_EXPS = True
+DO_KERNEL_NO_PREFETCH_EXP = True
+DO_KERNEL_PREFETCH_EXP = True
+DO_KERNEL_PREFETCH_REORDER_EXP = True
+REDO_SNAPSHOT = True
+DROPCACHE = 3
 
 FBENCH = ["chameleon", "float_operation", "pyaes", "matmul", "json_serdes", "video_processing"]
 FBENCH += ["lr_training", "image_processing", "linpack"]
@@ -78,33 +87,34 @@ def setup_chroot():
 
 def jifpager_installed():
 	try:
-		return stat.S_ISCHR(os.stat("/dev/jif_pager").st_mode)
+		return DO_KERNEL_EXPS and stat.S_ISCHR(os.stat("/dev/jif_pager").st_mode)
 	except:
 		return False
 
 def snapshot_elf(cmd, output_image, output_log, extra_flags = "", stop_count = 1):
-	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -S {stop_count} --snapshot-prefix {output_image} -- {cmd} 2>&1 >> {output_log}_snapelf")
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -S {stop_count} --snapshot-prefix {output_image} -- {cmd} >> {output_log}_snapelf 2>&1")
 
 def snapshot_jif(cmd, output_image, output_log, extra_flags = "", stop_count = 1):
-	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -S {stop_count} --snapshot-prefix {output_image} -- {cmd} 2>&1 >> {output_log}_snapjif")
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -S {stop_count} --snapshot-prefix {output_image} -- {cmd} >> {output_log}_snapjif 2>&1")
 
 def restore_elf(image, output_log, extra_flags = ""):
-	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -r -- {image}.metadata {image}.elf 2>&1 >> {output_log}_elf")
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -r -- {image}.metadata {image}.elf >> {output_log}_elf 2>&1")
 
 def process_itree(output_image, output_log):
-	run(f"{BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif build-itrees 2>&1 >> {output_log}_builditree")
+	run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif build-itrees >> {output_log}_builditree 2>&1")
 
 def process_fault_order(output_image, output_log):
 	# add ordering to jif
-	run(f"{BUILD_DIR}/jiftool {output_image}_itrees.jif {output_image}_itrees_ord.jif add-ord {output_image}.ord")
+	run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}_itrees.jif {output_image}_itrees_ord_reorder.jif add-ord --setup-prefetch {output_image}.ord >> {output_log}_addord 2>&1 ")
+	run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}_itrees.jif {output_image}_itrees_ord.jif add-ord {output_image}.ord >> {output_log}_addord 2>&1 ")
 
 def restore_jif(image, output_log, extra_flags = ""):
-	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}.jif 2>&1 >> {output_log}_jif")
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}.jif >> {output_log}_jif 2>&1")
 
 def restore_itrees_jif(image, output_log, extra_flags = ""):
-	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}_itrees.jif 2>&1 >> {output_log}_itrees_jif")
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}_itrees.jif >> {output_log}_itrees_jif 2>&1")
 
-def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, measure_latency=False, prefault=False, readahead=True, extra_flags = ""):
+def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, measure_latency=False, prefault=False, readahead=True, extra_flags = "", reorder=False):
 	set_fault_around(1 if fault_around else 0)
 	set_prefault(1 if prefault else 0)
 	set_measure_latency(1 if measure_latency else 0)
@@ -114,7 +124,7 @@ def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, me
 	if cold:
 		dropcache()
 
-	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -rk -- {image}.jm {image}_itrees_ord.jif 2>&1 >> {output_log}_itrees_jif_k")
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -rk -- {image}.jm {image}_itrees_ord{"_reorder" if reorder else ""}.jif >> {output_log}_itrees_jif_k  2>&1")
 
 	stats = open("/sys/kernel/jif_pager/stats")
 	stats = json.loads(stats.readlines()[0])
@@ -156,7 +166,8 @@ def jifpager_reset():
 	run("echo 1 | sudo tee /sys/kernel/jif_pager/reset")
 
 def generate_images(cmd, name, logname, stop_count = 1, extra_flags = ""):
-	snapshot_elf(cmd, name, logname, extra_flags, stop_count)
+	if ENABLE_ELF_BASELINE:
+		snapshot_elf(cmd, name, logname, extra_flags, stop_count)
 	snapshot_jif(cmd, name, logname, extra_flags, stop_count)
 	process_itree(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
 
@@ -166,22 +177,33 @@ def generate_images(cmd, name, logname, stop_count = 1, extra_flags = ""):
 	process_fault_order(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
 
 def dropcache():
-	for i in range(5):
+	for i in range(DROPCACHE):
+		if i > 0: time.sleep(5)
 		run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
-		time.sleep(10)
 
 def restore_image(name, logname, extra_flags=""):
-	dropcache()
-	restore_elf(name, logname, extra_flags)
-	dropcache()
-	restore_itrees_jif(name, logname, extra_flags)
+	if ENABLE_ELF_BASELINE:
+		dropcache()
+		restore_elf(name, logname, extra_flags)
+	if ENABLE_JIF_USERSPACE_BASELINE:
+		dropcache()
+		restore_itrees_jif(name, logname, extra_flags)
 
 	if jifpager_installed():
-		jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=True, cold=True, fault_around=False)
+		if DO_KERNEL_NO_PREFETCH_EXP:
+			jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=False, cold=True, fault_around=False)
+		if DO_KERNEL_PREFETCH_EXP:
+			jifpager_restore_itrees(name, f"{logname}_prefault", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=True, cold=True, fault_around=False)
+		if DO_KERNEL_PREFETCH_REORDER_EXP:
+			jifpager_restore_itrees(name, f"{logname}_prefault_reorder", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=True, cold=True, fault_around=False, reorder=True)
 
 def do_image(edir, cmd, name, eflags, stop_count = 1):
-	generate_images(cmd, f"/tmp/{name}", f"{edir}/generate_images", stop_count=stop_count, extra_flags=eflags)
-	restore_image(f"/tmp/{name}", f"{edir}/restore_images", extra_flags=eflags)
+	try:
+		if REDO_SNAPSHOT:
+			generate_images(cmd, f"/tmp/{name}", f"{edir}/generate_images", stop_count=stop_count, extra_flags=eflags)
+		restore_image(f"/tmp/{name}", f"{edir}/restore_images", extra_flags=eflags)
+	except:
+		pass
 
 def get_fbench_times(edir):
 	eflags = ""
@@ -201,7 +223,7 @@ def get_one_log(name):
 		with open(name) as x:
 			dat = x.read().splitlines()
 	except:
-		return None
+		return {}
 
 	progs = {}
 	prev_restore = None
@@ -225,33 +247,46 @@ def get_one_log(name):
 
 	return progs
 
+def getstats(d):
+	return {
+		'cold_first_iter': d["cold"][0],
+		'data_restore': d["data_restore"],
+		'first_iter': d['warmup'][0],
+		'warm_iter': d['warmup'][-1],
+		'metadata_restore': d["metadata_restore"],
+		'fs_restore': d["fs_restore"],
+	}
+
+def get_kstats(fn, data, expn):
+	try:
+		with open(fn, "r") as f:
+			for line in f.readlines():
+				jx = json.loads(line)
+				data[jx['key']][expn]['jifpager_stats_ns'] = jx
+	except:
+		pass
+
 def parse_fbench_times(edir):
 	from pprint import pprint
 
-	out = {}
+	out = defaultdict(dict)
 	for prog, d in get_one_log(f"{edir}/restore_images_elf").items():
-		out[prog] = {
-			'first_iter': d['warmup'][0],
-			'warm_iter': d['warmup'][-1],
-			'metadata_restore': d["metadata_restore"],
-			'elf_cold_first_iter': d["cold"][0],
-			'elf_data_restore': d["data_restore"],
-			'fs_restore': d["fs_restore"],
-		}
-
-	with open(f"{edir}/restore_images_kstats", "r") as f:
-		for line in f.readlines():
-			jx = json.loads(line)
-			print(out)
-			out[jx['key']]['jifpager_stats_ns'] = jx
-
-	for prog, d in get_one_log(f"{edir}/restore_images_itrees_jif").items():
-		out[prog]['jif_cold_first_iter'] = d["cold"][0]
-		out[prog]['jif_data_restore'] = d["data_restore"]
+		out[prog]["elf"] = getstats(d)
 
 	for prog, d in get_one_log(f"{edir}/restore_images_itrees_jif_k").items():
-		out[prog]['jif_k_cold_first_iter'] = d["cold"][0]
-		out[prog]['jif_k_data_restore'] = d["data_restore"]
+		out[prog]["jif_k"] =  getstats(d)
+	get_kstats(f"{edir}/restore_images_kstats", out, "jif_k")
+
+	for prog, d in get_one_log(f"{edir}/restore_images_prefault_itrees_jif_k").items():
+		out[prog]["jif_k_prefault"] = getstats(d)
+	get_kstats(f"{edir}/restore_images_prefault_kstats", out, "jif_k_prefault")
+
+	for prog, d in get_one_log(f"{edir}/restore_images_prefault_reorder_itrees_jif_k").items():
+		out[prog]["jif_k_prefault_reorder"] = getstats(d)
+	get_kstats(f"{edir}/restore_images_prefault_reorder_kstats", out, 'jif_k_prefault_reorder')
+
+	for prog, d in get_one_log(f"{edir}/restore_images_itrees_jif").items():
+		out[prog]["jif"] = getstats(d)
 
 	pprint(out)
 	return out
@@ -295,37 +330,23 @@ def plot_workloads(edir, data):
 		# print(f"{workload} actual throughput = {actual_throughput / 1024 ** 2}MB/s")
 
 		stack1 = [
-			('warm_iter', 'function')
+			(list(categories.items())[0][1]["warm_iter"], 'function')
 		]
 
-		stack2 = [
-			("elf_cold_first_iter", "function"),
-			("metadata_restore", "metadata"),
-			("fs_restore", "fs"),
-			("elf_data_restore", "data"),
-		]
+		stacks = [(stack1, "Warm", None)]
 
-		stack3 = [
-			("jif_cold_first_iter", "function"),
-			("metadata_restore", "metadata"),
-			("fs_restore", "fs"),
-			("jif_data_restore", "data"),
-		]
-
-		stack4 = [
-			("jif_k_cold_first_iter", "function"),
-			("metadata_restore", "metadata"),
-			("fs_restore", "fs"),
-			("jif_k_data_restore", "data"),
-		]
-
-		stacks = [
-			(stack1, "Warm"),
-			(stack2, "ELF restore"),
-			(stack3, "JIF restore (userspace)"),
-			(stack4, "JIF kernel restore\n(w/ prefetch)"),
-		]
-
+		for exp, ename in [("elf", "ELF restore"), ("jif", "JIF restore (userspace)"), ("jif_k", "JIF kernel restore"), ("jif_k_prefault", "JIF kernel restore\n(w/ prefetch)"), ("jif_k_prefault_reorder", "JIF kernel restore\n(w/ prefetch + reorder)")]:
+			if exp not in categories:
+				continue
+			jpstats = None
+			if 'jifpager_stats_ns' in categories[exp]:
+				jpstats = categories[exp]['jifpager_stats_ns']
+			stacks.append(([
+				(categories[exp]["cold_first_iter"], "function"),
+				(categories[exp]["metadata_restore"], "metadata"),
+				(categories[exp]["fs_restore"], "fs"),
+				(categories[exp]["data_restore"], "data"),
+			], ename, jpstats))
 
 		seen = set()
 
@@ -339,11 +360,27 @@ def plot_workloads(edir, data):
 				'data': 'VMA restore'
 			}.get(label, label)
 
-		for stack, label in stacks:
+		for stack, label, jpstat in stacks:
 			bottom = 0
-			for component, category in stack:
-				ax.bar(label, categories[component], bottom=bottom, color=get_colors(category), label=get_lbl(category))
-				bottom += categories[component]
+			for val, category in stack:
+				ax.bar(label, val, bottom=bottom, color=get_colors(category), label=get_lbl(category))
+				bottom += val
+			if jpstat is None:
+				continue
+			txt = f"Major: {jpstat['major_faults']}"
+			txt += f"\n  Pre-major: {jpstat['pre_major_faults']}"
+			txt += f"\n Minor: {jpstat['minor_faults']}"
+			txt += f"\n  Pre-minor: {jpstat['pre_minor_faults']}"
+			ax.text(
+                x=label,
+                y=stack[0][0] / 2,
+                s=txt,
+                ha='center',
+                va='center',
+                color='white',
+                fontsize=8,
+                fontweight='bold'
+            )
 
 		ax.set_ylabel("Microseconds")
 		# ax.set_yscale('log')

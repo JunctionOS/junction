@@ -127,6 +127,7 @@ Status<std::tuple<jif_data, IOVAccumulator>> GetJifVmaData(
   jif.hdr.magic[1] = 'J';
   jif.hdr.magic[2] = 'I';
   jif.hdr.magic[3] = 'F';
+  jif.hdr.version = kJifVersion;
 
   jif.phdrs.reserve(max_n_pheaders);   // vmas
   jif.itrees.reserve(max_n_pheaders);  // vmas
@@ -155,6 +156,7 @@ Status<std::tuple<jif_data, IOVAccumulator>> GetJifVmaData(
   jif.hdr.strings_size = PageAlign(byte_size(jif.strings));
   jif.hdr.itrees_size = PageAlign(byte_size(jif.itrees));
   jif.hdr.ord_size = 0;
+  jif.hdr.n_prefetch = 0;
 
   size_t data_offset = jif.hdr.data_offset();
   // Make itree offsets absolute in the JIF file.

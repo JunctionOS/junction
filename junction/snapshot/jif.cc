@@ -41,7 +41,7 @@ namespace {
 
 constexpr bool HeaderIsValid(const jif_header &hdr) {
   return hdr.magic[0] == 0x77 && hdr.magic[1] == 'J' && hdr.magic[2] == 'I' &&
-         hdr.magic[3] == 'F';
+         hdr.magic[3] == 'F' && hdr.version == kJifVersion;
 }
 
 // ReadHeader reads and validates the header of the JIF file
