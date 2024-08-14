@@ -34,6 +34,12 @@ fn resize(img: &image::DynamicImage) -> anyhow::Result<DynamicImage> {
     Ok(res)
 }
 
+fn trim_memory(pad: usize) {
+    unsafe {
+        libc::malloc_trim(pad);
+    }
+}
+
 fn main() -> anyhow::Result<()> {
     let args = Args::parse();
     if args.verbose {
@@ -70,6 +76,8 @@ fn main() -> anyhow::Result<()> {
         times.push(duration);
         sizes.push(thumbnail.width());
     }
+
+    trim_memory(0);
 
     raise(Signal::SIGSTOP).unwrap();
 

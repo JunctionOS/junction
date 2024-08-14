@@ -95,7 +95,7 @@ def snapshot_elf(cmd, output_image, output_log, extra_flags = "", stop_count = 1
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -S {stop_count} --snapshot-prefix {output_image} -- {cmd} >> {output_log}_snapelf 2>&1")
 
 def snapshot_jif(cmd, output_image, output_log, extra_flags = "", stop_count = 1):
-	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -S {stop_count} --snapshot-prefix {output_image} -- {cmd} >> {output_log}_snapjif 2>&1")
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -S {stop_count} --madv_remap --snapshot-prefix {output_image} -- {cmd} >> {output_log}_snapjif 2>&1")
 
 def restore_elf(image, output_log, extra_flags = ""):
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -r -- {image}.metadata {image}.elf >> {output_log}_elf 2>&1")
@@ -191,7 +191,7 @@ def restore_image(name, logname, extra_flags=""):
 
 	if jifpager_installed():
 		if DO_KERNEL_NO_PREFETCH_EXP:
-			jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=False, cold=True, fault_around=False)
+			jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, fault_around=False)
 		if DO_KERNEL_PREFETCH_EXP:
 			jifpager_restore_itrees(name, f"{logname}_prefault", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=True, cold=True, fault_around=False)
 		if DO_KERNEL_PREFETCH_REORDER_EXP:

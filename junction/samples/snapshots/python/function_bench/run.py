@@ -5,6 +5,7 @@ import os
 import signal
 import time
 import ctypes
+import gc
 
 libc = ctypes.CDLL(None)
 syscall = libc.syscall
@@ -59,6 +60,9 @@ for i in range(10):
 
 print(f"stopping. one warm iteration takes {warmups[-1]} us)")
 sys.stdout.flush()
+for i in range(3):
+    gc.collect()
+libc.malloc_trim(0)
 
 # stop for snapshot
 os.kill(os.getpid(), signal.SIGSTOP)

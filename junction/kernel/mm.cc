@@ -541,32 +541,8 @@ Status<void> MemoryMap::MAdvise(void *addr, size_t len, int hint) {
   // check length and alignment
   if (!AddressValid(addr, len)) return MakeError(EINVAL);
 
-  // If enabled, MADV_DONTNEED explicitly drops pages by mapping a new region
-  // over the existing one. This allows the page tracer to accurately account
-  // for these pages.
-  if (hint == MADV_DONTNEED && GetCfg().madv_dontneed_remap()) {
-    rt::UniqueLock ul(mu_, rt::InterruptOrLock);
-    if (!ul) return MakeError(EINTR);
-
-    auto [start, end] = AddressToBounds(addr, len);
-    auto it = vmareas_.upper_bound(start);
-    for (; it != vmareas_.end() && it->second.start < end; it++) {
-      VMArea &vma = it->second;
-
-      // The contents of file-backed mappings are unchanged by MADV_DONTNEED.
-      if (vma.type == VMType::kFile) continue;
-
-      uintptr_t begin = std::max(start, vma.start);
-      Status<void> ret =
-          KernelMMapFixed(reinterpret_cast<void *>(begin),
-                          std::min(end, vma.end) - begin, vma.prot, 0);
-      if (unlikely(!ret)) {
-        LOG(ERR) << "failed to remap for MADV_DONTNEED " << ret.error();
-      }
-    }
-
-    return {};
-  }
+  // Translate MADV_FREEs to MADV_DONTNEED to immediately zero a page.
+  if (hint == MADV_FREE && GetCfg().madv_dontneed_remap()) hint = MADV_DONTNEED;
 
   // provide mapping hints
   rt::SharedLock ul(mu_, rt::InterruptOrLock);

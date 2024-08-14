@@ -101,7 +101,7 @@ po::options_description GetOptions() {
       ("stackswitch", po::bool_switch()->default_value(false),
        "use stack switching syscalls")  //
       ("madv_remap", po::bool_switch()->default_value(false),
-       "zero memory when MADV_DONTNEED is used (intended for profiling)")  //
+       "zero memory when MADV_FREE is used (intended for profiling)")  //
       ("cache_linux_fs", po::bool_switch()->default_value(false),
        "cache directory structure of the linux filesystem")  //
       ("snapshot_enabled", po::bool_switch()->default_value(false),

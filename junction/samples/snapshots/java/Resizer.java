@@ -66,7 +66,10 @@ class Resizer {
                 sizes[i] = getImageWidth(x);
             }
 
-            System.gc();
+            for (int i = 0; i < 3; i++) {
+                System.gc();
+                Runtime.getRuntime().gc();
+            }
             // stop the process for inspection
             c.syscall(62, pid, 19);
 

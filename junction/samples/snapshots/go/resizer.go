@@ -12,6 +12,8 @@ import (
 	"time"
 	"image/color"
 	"fmt"
+	"runtime"
+	"runtime/debug"
 
 	"github.com/nfnt/resize"
 	//	"unsafe"
@@ -106,6 +108,11 @@ func main() {
 	}
 
 	pid := os.Getpid()
+
+	for i := 1; i < 10; i++ {
+		runtime.GC()
+		debug.FreeOSMemory()
+	}
 
 	// stop the process for initializing profiling
 	syscall.Kill(pid, syscall.SIGSTOP)
