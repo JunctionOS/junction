@@ -119,9 +119,10 @@ def restore_jif(image, output_log, extra_flags = ""):
 def restore_itrees_jif(image, output_log, extra_flags = "", reorder=False):
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}_itrees{"_ord_reorder" if reorder else ""}.jif >> {output_log}_itrees_jif 2>&1")
 
-def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, measure_latency=False, prefault=False, readahead=True, extra_flags = "", reorder=True, second_app=None):
+def jifpager_restore_itrees(image, output_log, cold=False, minor=False, fault_around=True, measure_latency=False, prefault=False, readahead=True, extra_flags = "", reorder=True, second_app=None):
 	set_fault_around(1 if fault_around else 0)
 	set_prefault(1 if prefault else 0)
+	set_prefault_minor(1 if minor else 0)
 	set_measure_latency(1 if measure_latency else 0)
 	set_readahead(1 if readahead else 0)
 	jifpager_reset()
@@ -166,6 +167,9 @@ def set_fault_around(val):
 
 def set_prefault(val):
 	run(f"echo {val} | sudo tee /sys/kernel/jif_pager/prefault")
+
+def set_prefault_minor(val):
+	run(f"echo {val} | sudo tee /sys/kernel/jif_pager/prefault_minor")
 
 def set_measure_latency(val):
 	run(f"echo {val} | sudo tee /sys/kernel/jif_pager/measure_latency")
@@ -407,7 +411,7 @@ def plot_workloads(edir, data):
 			txt = f"Major: {jpstat['major_faults']}"
 			txt += f"\n  Pre-major: {jpstat['pre_major_faults']}"
 			txt += f"\n Minor: {jpstat['minor_faults']}"
-			# txt += f"\n  Pre-minor: {jpstat['pre_minor_faults']}"
+			txt += f"\n  Pre-minor: {jpstat['pre_minor_faults']}"
 			ax.text(
                 x=label,
                 y=stack[0][0] / 2,
