@@ -31,7 +31,7 @@ DO_KERNEL_NO_PREFETCH_EXP = True
 DO_KERNEL_PREFETCH_EXP = True
 DO_KERNEL_PREFETCH_REORDER_EXP = True
 REDO_SNAPSHOT = True
-DROPCACHE = 3
+DROPCACHE = 4
 
 FBENCH = ["chameleon", "float_operation", "pyaes", "matmul", "json_serdes", "video_processing"]
 FBENCH += ["lr_training", "image_processing", "linpack"]
@@ -51,6 +51,11 @@ def run(cmd):
 	print(cmd)
 	sys.stdout.flush()
 	subprocess.check_output(cmd, shell=True)
+
+def run_async(cmd):
+	print(cmd)
+	sys.stdout.flush()
+	return subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
 
 def kill_iok():
 	run("sudo pkill iokerneld || true")
@@ -111,10 +116,10 @@ def process_fault_order(output_image, output_log):
 def restore_jif(image, output_log, extra_flags = ""):
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}.jif >> {output_log}_jif 2>&1")
 
-def restore_itrees_jif(image, output_log, extra_flags = ""):
-	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}_itrees.jif >> {output_log}_itrees_jif 2>&1")
+def restore_itrees_jif(image, output_log, extra_flags = "", reorder=False):
+	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r -- {image}.jm {image}_itrees{"_ord_reorder" if reorder else ""}.jif >> {output_log}_itrees_jif 2>&1")
 
-def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, measure_latency=False, prefault=False, readahead=True, extra_flags = "", reorder=False):
+def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, measure_latency=False, prefault=False, readahead=True, extra_flags = "", reorder=True, second_app=None):
 	set_fault_around(1 if fault_around else 0)
 	set_prefault(1 if prefault else 0)
 	set_measure_latency(1 if measure_latency else 0)
@@ -123,6 +128,9 @@ def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, me
 
 	if cold:
 		dropcache()
+
+	if second_app is not None:
+		run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -rk -- {second_app}.jm {second_app}_itrees_ord_reorder.jif >> {output_log}_itrees_jif_k_second_app 2>&1")
 
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -rk -- {image}.jm {image}_itrees_ord{"_reorder" if reorder else ""}.jif >> {output_log}_itrees_jif_k  2>&1")
 
@@ -146,7 +154,7 @@ def jifpager_restore_itrees(image, output_log, cold=False, fault_around=True, me
 
 	key = image.split("/")[-1]
 	stats['key'] = key
-	with open(f"{output_log}_kstats", "a") as f:
+	with open(f"{output_log}_itrees_jif_k_kstats", "a") as f:
 		f.write(json.dumps(stats))
 		f.write('\n')
 
@@ -181,6 +189,24 @@ def dropcache():
 		if i > 0: time.sleep(5)
 		run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
 
+RESTORE_CONFIG_SET = [
+	("elf", "ELF"),
+	("itrees_jif", "JIF\nuserspace"),
+	("reorder_itrees_jif", "JIF\nuserspace\nReordered"),
+	("itrees_jif_k", "JIF\nkernel"),
+	("nora_itrees_jif_k", "JIF\nkernel\nNo RA"),
+	("nora_reorder_itrees_jif_k", "JIF\nkernel\nNo RA\nReorder"),
+	("reorder_itrees_jif_k", "JIF\nkernel\nReorder"),
+	("prefault_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)"),
+	("nora_prefault_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\nNo RA"),
+	("prefault_reorder_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)"),
+	("prefault_reorder_simple_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\n(float op)"),
+	("prefault_reorder_self_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\n(self)"),
+	("reorder_simple_itrees_jif_k", "JIF\nkernel\n(w/ reorder)\n(float op)"),
+	("reorder_self_itrees_jif_k", "JIF\nkernel\n(w/ reorder)\n(self)"),
+	("nora_prefault_reorder_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\nNoRA"),
+]
+
 def restore_image(name, logname, extra_flags=""):
 	if ENABLE_ELF_BASELINE:
 		dropcache()
@@ -189,13 +215,35 @@ def restore_image(name, logname, extra_flags=""):
 		dropcache()
 		restore_itrees_jif(name, logname, extra_flags)
 
+	# use the reorder file with userspace restore (increases VMA setup costs)
+	if False:
+		dropcache()
+		restore_itrees_jif(name, f"{logname}_reorder", extra_flags, reorder=True)
+
 	if jifpager_installed():
 		if DO_KERNEL_NO_PREFETCH_EXP:
-			jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, fault_around=False)
+
+			# Kernel module restore (no prefetching)
+			jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, fault_around=False, reorder=False)
+
+			# Kernel module restore using reorder file, with/without readahead
+			if False:
+				jifpager_restore_itrees(name, f"{logname}_reorder", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, fault_around=False, reorder=True)
+				jifpager_restore_itrees(name, f"{logname}_nora", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=False, cold=True, fault_around=False, reorder=False)
+				jifpager_restore_itrees(name, f"{logname}_nora_reorder", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=False, cold=True, fault_around=False, reorder=True)
+
 		if DO_KERNEL_PREFETCH_EXP:
-			jifpager_restore_itrees(name, f"{logname}_prefault", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=True, cold=True, fault_around=False)
+			# Prefault pages
+			jifpager_restore_itrees(name, f"{logname}_prefault", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, fault_around=False, reorder=False)
 		if DO_KERNEL_PREFETCH_REORDER_EXP:
-			jifpager_restore_itrees(name, f"{logname}_prefault_reorder", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=True, cold=True, fault_around=False, reorder=True)
+			# Prefault pages with reordered contiguous data section
+			jifpager_restore_itrees(name, f"{logname}_prefault_reorder", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, fault_around=False, reorder=True)
+
+		if False:
+			# try warming things with one image restore before the main one
+			for tag, f in [("simple", "/tmp/float_operation"), ("self", name)]:
+				jifpager_restore_itrees(name, f"{logname}_prefault_reorder_{tag}", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, fault_around=False, reorder=True, second_app=f)
+				jifpager_restore_itrees(name, f"{logname}_reorder_{tag}", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, fault_around=False, reorder=True, second_app=f)
 
 def do_image(edir, cmd, name, eflags, stop_count = 1):
 	try:
@@ -203,6 +251,7 @@ def do_image(edir, cmd, name, eflags, stop_count = 1):
 			generate_images(cmd, f"/tmp/{name}", f"{edir}/generate_images", stop_count=stop_count, extra_flags=eflags)
 		restore_image(f"/tmp/{name}", f"{edir}/restore_images", extra_flags=eflags)
 	except:
+		raise
 		pass
 
 def get_fbench_times(edir):
@@ -270,23 +319,11 @@ def parse_fbench_times(edir):
 	from pprint import pprint
 
 	out = defaultdict(dict)
-	for prog, d in get_one_log(f"{edir}/restore_images_elf").items():
-		out[prog]["elf"] = getstats(d)
 
-	for prog, d in get_one_log(f"{edir}/restore_images_itrees_jif_k").items():
-		out[prog]["jif_k"] =  getstats(d)
-	get_kstats(f"{edir}/restore_images_kstats", out, "jif_k")
-
-	for prog, d in get_one_log(f"{edir}/restore_images_prefault_itrees_jif_k").items():
-		out[prog]["jif_k_prefault"] = getstats(d)
-	get_kstats(f"{edir}/restore_images_prefault_kstats", out, "jif_k_prefault")
-
-	for prog, d in get_one_log(f"{edir}/restore_images_prefault_reorder_itrees_jif_k").items():
-		out[prog]["jif_k_prefault_reorder"] = getstats(d)
-	get_kstats(f"{edir}/restore_images_prefault_reorder_kstats", out, 'jif_k_prefault_reorder')
-
-	for prog, d in get_one_log(f"{edir}/restore_images_itrees_jif").items():
-		out[prog]["jif"] = getstats(d)
+	for tag, name in RESTORE_CONFIG_SET:
+		for prog, d in get_one_log(f"{edir}/restore_images_{tag}").items():
+			out[prog][tag] = getstats(d)
+		get_kstats(f"{edir}/restore_images_{tag}_kstats", out, tag)
 
 	pprint(out)
 	return out
@@ -335,7 +372,7 @@ def plot_workloads(edir, data):
 
 		stacks = [(stack1, "Warm", None)]
 
-		for exp, ename in [("elf", "ELF restore"), ("jif", "JIF restore (userspace)"), ("jif_k", "JIF kernel restore"), ("jif_k_prefault", "JIF kernel restore\n(w/ prefetch)"), ("jif_k_prefault_reorder", "JIF kernel restore\n(w/ prefetch + reorder)")]:
+		for exp, ename in RESTORE_CONFIG_SET:
 			if exp not in categories:
 				continue
 			jpstats = None
@@ -370,7 +407,7 @@ def plot_workloads(edir, data):
 			txt = f"Major: {jpstat['major_faults']}"
 			txt += f"\n  Pre-major: {jpstat['pre_major_faults']}"
 			txt += f"\n Minor: {jpstat['minor_faults']}"
-			txt += f"\n  Pre-minor: {jpstat['pre_minor_faults']}"
+			# txt += f"\n  Pre-minor: {jpstat['pre_minor_faults']}"
 			ax.text(
                 x=label,
                 y=stack[0][0] / 2,

@@ -102,6 +102,7 @@ class KernelSignalTf : public SyscallFrame {
 
   // Returns a reference to the underlying sigframe.
   [[nodiscard]] inline k_sigframe &GetFrame() { return sigframe; }
+  [[nodiscard]] inline const k_sigframe &GetFrame() const { return sigframe; }
 
   void CopyRegs(thread_tf &dest_tf) const override;
 
@@ -137,6 +138,10 @@ class KernelSignalTf : public SyscallFrame {
 
   [[nodiscard]] inline uint64_t GetRip() const override {
     return sigframe.GetRip();
+  }
+
+  [[nodiscard]] inline uint64_t GetFaultAddr() const {
+    return reinterpret_cast<uint64_t>(GetFrame().info.si_addr);
   }
 
   [[noreturn]] void JmpUnwindSysret(Thread &th) override;

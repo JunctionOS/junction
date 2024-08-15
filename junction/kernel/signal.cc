@@ -479,6 +479,10 @@ void ThreadSignalHandler::DeliverKernelSigToUser(int signo,
   if (act.wants_altstack() && has_altstack() && !IsOnStack(rsp, ss))
     rsp = reinterpret_cast<uint64_t>(ss.ss_sp) + ss.ss_size;
 
+  // Check if we are pushing to an address that was the source of the fault.
+  if (unlikely(sigframe.GetFaultAddr() == rsp + kRedzoneSize))
+    print_msg_abort("user fault on stack");
+
   // transfer the frame
   k_sigframe *new_frame = sigframe.PushUserVisibleFrame(&rsp);
 
