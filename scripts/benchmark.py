@@ -196,14 +196,18 @@ def dropcache():
 RESTORE_CONFIG_SET = [
 	("elf", "ELF"),
 	("itrees_jif", "JIF\nuserspace"),
-	("reorder_itrees_jif", "JIF\nuserspace\nReordered"),
 	("itrees_jif_k", "JIF\nkernel"),
-	("nora_itrees_jif_k", "JIF\nkernel\nNo RA"),
-	("nora_reorder_itrees_jif_k", "JIF\nkernel\nNo RA\nReorder"),
 	("reorder_itrees_jif_k", "JIF\nkernel\nReorder"),
 	("prefault_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)"),
-	("nora_prefault_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\nNo RA"),
+	("prefault_minor_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\nprefault minor"),
 	("prefault_reorder_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)"),
+	("prefault_reorder_minor_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\nprefault minor"),
+
+	# Not commonly used ones
+	("reorder_itrees_jif", "JIF\nuserspace\nReordered"),
+	("nora_itrees_jif_k", "JIF\nkernel\nNo RA"),
+	("nora_reorder_itrees_jif_k", "JIF\nkernel\nNo RA\nReorder"),
+	("nora_prefault_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\nNo RA"),
 	("prefault_reorder_simple_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\n(float op)"),
 	("prefault_reorder_self_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\n(self)"),
 	("reorder_simple_itrees_jif_k", "JIF\nkernel\n(w/ reorder)\n(float op)"),
@@ -228,26 +232,28 @@ def restore_image(name, logname, extra_flags=""):
 		if DO_KERNEL_NO_PREFETCH_EXP:
 
 			# Kernel module restore (no prefetching)
-			jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, fault_around=False, reorder=False)
+			jifpager_restore_itrees(name, logname, extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, reorder=False)
 
 			# Kernel module restore using reorder file, with/without readahead
 			if False:
-				jifpager_restore_itrees(name, f"{logname}_reorder", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, fault_around=False, reorder=True)
-				jifpager_restore_itrees(name, f"{logname}_nora", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=False, cold=True, fault_around=False, reorder=False)
-				jifpager_restore_itrees(name, f"{logname}_nora_reorder", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=False, cold=True, fault_around=False, reorder=True)
+				jifpager_restore_itrees(name, f"{logname}_reorder", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, reorder=True)
+				jifpager_restore_itrees(name, f"{logname}_nora", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=False, cold=True, reorder=False)
+				jifpager_restore_itrees(name, f"{logname}_nora_reorder", extra_flags=extra_flags, measure_latency=False, readahead=False, prefault=False, cold=True, reorder=True)
 
 		if DO_KERNEL_PREFETCH_EXP:
 			# Prefault pages
-			jifpager_restore_itrees(name, f"{logname}_prefault", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, fault_around=False, reorder=False)
+			jifpager_restore_itrees(name, f"{logname}_prefault", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, reorder=False)
+			jifpager_restore_itrees(name, f"{logname}_prefault_minor", extra_flags=extra_flags, minor=True, measure_latency=False, readahead=True, prefault=True, cold=True, reorder=False)
 		if DO_KERNEL_PREFETCH_REORDER_EXP:
 			# Prefault pages with reordered contiguous data section
-			jifpager_restore_itrees(name, f"{logname}_prefault_reorder", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, fault_around=False, reorder=True)
+			jifpager_restore_itrees(name, f"{logname}_prefault_reorder", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, reorder=True)
+			jifpager_restore_itrees(name, f"{logname}_prefault_reorder_minor", extra_flags=extra_flags, minor=True, measure_latency=False, readahead=True, prefault=True, cold=True, reorder=True)
 
 		if False:
 			# try warming things with one image restore before the main one
 			for tag, f in [("simple", "/tmp/float_operation"), ("self", name)]:
-				jifpager_restore_itrees(name, f"{logname}_prefault_reorder_{tag}", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, fault_around=False, reorder=True, second_app=f)
-				jifpager_restore_itrees(name, f"{logname}_reorder_{tag}", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, fault_around=False, reorder=True, second_app=f)
+				jifpager_restore_itrees(name, f"{logname}_prefault_reorder_{tag}", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=True, cold=True, reorder=True, second_app=f)
+				jifpager_restore_itrees(name, f"{logname}_reorder_{tag}", extra_flags=extra_flags, measure_latency=False, readahead=True, prefault=False, cold=True, reorder=True, second_app=f)
 
 def do_image(edir, cmd, name, eflags, stop_count = 1):
 	try:
