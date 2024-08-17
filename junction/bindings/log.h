@@ -19,6 +19,7 @@ class Logger {
  public:
   explicit Logger(int level) noexcept {
     uint64_t us = microtime();
+    RuntimeLibcGuard guard_;
     buf_ << "[" << std::setw(3) << (int)(us / ONE_SECOND) << "." << std::setw(6)
          << std::setfill('0') << (int)(us % ONE_SECOND) << "] CPU "
          << std::setw(2) << std::setfill('0') << sched_getcpu() << "| <"
@@ -28,12 +29,12 @@ class Logger {
 
   template <typename T>
   Logger &operator<<(T const &value) {
+    RuntimeLibcGuard guard_;
     buf_ << value;
     return *this;
   }
 
  private:
-  RuntimeLibcGuard guard_;
   std::array<char, kMaxLogBuf> storage_;
   std::ospanstream buf_{storage_};
 };
