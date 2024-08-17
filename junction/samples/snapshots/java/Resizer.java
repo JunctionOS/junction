@@ -47,6 +47,8 @@ class Resizer {
         long[] warmups = new long[5];
         int[] sizes = new int[5];
 
+        Boolean dont_stop = System.getenv("DONTSTOP") != null;
+
         BufferedImage bi;
         Process p;
         Image x;
@@ -71,7 +73,9 @@ class Resizer {
                 Runtime.getRuntime().gc();
             }
             // stop the process for inspection
-            c.syscall(62, pid, 19);
+            if (!dont_stop) {
+                c.syscall(62, pid, 19);
+            }
 
             long startTime = System.nanoTime();
 

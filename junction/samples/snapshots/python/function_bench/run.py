@@ -30,6 +30,8 @@ if len(sys.argv) < 2:
     print("usage: run.py <program-name> <optional: json>")
     exit()
 
+DONT_STOP = os.getenv("DONTSTOP", False)
+
 prog = sys.argv[1]
 
 if prog not in default_jsons:
@@ -65,7 +67,8 @@ for i in range(3):
 libc.malloc_trim(0)
 
 # stop for snapshot
-os.kill(os.getpid(), signal.SIGSTOP)
+if not DONT_STOP:
+    os.kill(os.getpid(), signal.SIGSTOP)
 
 cold = []
 for i in range(3):

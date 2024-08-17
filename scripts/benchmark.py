@@ -23,6 +23,7 @@ CONFIG = f"{BUILD_DIR}/junction/caladan_test_ts_st.config"
 CALADAN_DIR = f"{ROOT_DIR}/lib/caladan"
 CHROOT_DIR=f"{ROOT_DIR}/chroot"
 
+LINUX_BASELINE = True
 USE_CHROOT = True
 ENABLE_ELF_BASELINE = True
 ENABLE_JIF_USERSPACE_BASELINE = True
@@ -188,12 +189,16 @@ def generate_images(cmd, name, logname, stop_count = 1, extra_flags = ""):
 
 	process_fault_order(f"{CHROOT_DIR}/{name}" if USE_CHROOT else name, logname)
 
+def get_baseline(cmd, edir):
+	run(f"DONTSTOP=1 {cmd} >> {edir}/restore_images_linux 2>&1")
+
 def dropcache():
 	for i in range(DROPCACHE):
 		if i > 0: time.sleep(5)
 		run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
 
 RESTORE_CONFIG_SET = [
+	("linux", "Linux warm"),
 	("elf", "ELF"),
 	("itrees_jif", "JIF\nuserspace"),
 	("itrees_jif_k", "JIF\nkernel"),
@@ -270,12 +275,15 @@ def get_fbench_times(edir):
 		eflags += f" --chroot={CHROOT_DIR}  --cache_linux_fs "
 	for fn in FBENCH:
 		cmd = f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/run.py {fn}"
+		if LINUX_BASELINE: get_baseline(cmd, edir)
 		do_image(edir, cmd, fn, eflags)
 	for name, cmd in RESIZERS:
 		for image, path in IMAGES:
 			stop_count = 2 if "java" in name else 1
 			nm = f"{name}_resizer_{image}"
-			do_image(edir, f"{cmd} {path} {nm}", nm, eflags, stop_count = stop_count)
+			fullcmd = f"{cmd} {path} {nm}"
+			do_image(edir, fullcmd, nm, eflags, stop_count = stop_count)
+			if LINUX_BASELINE: get_baseline(fullcmd, edir)
 
 def get_one_log(name):
 	try:
@@ -309,11 +317,11 @@ def get_one_log(name):
 def getstats(d):
 	return {
 		'cold_first_iter': d["cold"][0],
-		'data_restore': d["data_restore"],
+		'data_restore': d.get("data_restore"),
 		'first_iter': d['warmup'][0],
 		'warm_iter': d['warmup'][-1],
-		'metadata_restore': d["metadata_restore"],
-		'fs_restore': d["fs_restore"],
+		'metadata_restore': d.get("metadata_restore"),
+		'fs_restore': d.get("fs_restore"),
 	}
 
 def get_kstats(fn, data, expn):
@@ -352,6 +360,7 @@ def plot_workloads(edir, data):
 			'metadata': 'tab:orange',
 			'fs': 'tab:green',
 			'data': 'tab:red',
+			'slowdown': 'tab:blue',
 		}.get(cat)
 
 	for ax, workload in zip(axes, workloads):
@@ -376,11 +385,17 @@ def plot_workloads(edir, data):
 		# print(f"{workload} ideal throughput = {ideal_throughput / 1024 ** 2}MB/s")
 		# print(f"{workload} actual throughput = {actual_throughput / 1024 ** 2}MB/s")
 
+		WARM_ITER = list(categories.items())[0][1]["warm_iter"]
 		stack1 = [
-			(list(categories.items())[0][1]["warm_iter"], 'function')
+			(WARM_ITER, 'function')
 		]
 
-		stacks = [(stack1, "Warm", None)]
+		SLOWDOWN = False
+		FUNCTION_ONLY = False
+		SUM = False
+		stacks = []
+		if not SLOWDOWN:
+			stacks.append((stack1, "Warm", None))
 
 		for exp, ename in RESTORE_CONFIG_SET:
 			if exp not in categories:
@@ -409,9 +424,20 @@ def plot_workloads(edir, data):
 
 		for stack, label, jpstat in stacks:
 			bottom = 0
-			for val, category in stack:
-				ax.bar(label, val, bottom=bottom, color=get_colors(category), label=get_lbl(category))
-				bottom += val
+			if SUM or SLOWDOWN:
+				if FUNCTION_ONLY:
+					sm = next(l[0] for l in stack if l[1] == "function")
+				else:
+					sm = sum(l[0] for l in stack if l[0] is not None)
+				if SLOWDOWN:
+					sm /= WARM_ITER
+				ax.bar(label, sm, color=get_colors('slowdown'))
+			else:
+				for val, category in stack:
+					if val is None:
+						continue
+					ax.bar(label, val, bottom=bottom, color=get_colors(category), label=get_lbl(category))
+					bottom += val
 			if jpstat is None:
 				continue
 			txt = f"Major: {jpstat['major_faults']}"
@@ -420,7 +446,7 @@ def plot_workloads(edir, data):
 			txt += f"\n  Pre-minor: {jpstat['pre_minor_faults']}"
 			ax.text(
                 x=label,
-                y=stack[0][0] / 2,
+                y=sm / 2 if SLOWDOWN or SUM else stack[0][0] / 2,
                 s=txt,
                 ha='center',
                 va='center',
@@ -429,10 +455,12 @@ def plot_workloads(edir, data):
                 fontweight='bold'
             )
 
-		ax.set_ylabel("Microseconds")
+		ax.set_ylabel("Microseconds" if not SLOWDOWN else "Slowdown")
 		# ax.set_yscale('log')
 		if workload in FBENCH:
 			workload = "function_bench: " + workload
+		if SLOWDOWN:
+			workload += f" - {WARM_ITER / 1000} ms warm iter"
 		ax.set_title(workload)
 		ax.legend()
 

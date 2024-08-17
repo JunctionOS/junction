@@ -94,6 +94,9 @@ func main() {
 	var durations []time.Duration
 	var colors []color.Color
 
+	value, dontstop := os.LookupEnv("DONTSTOP")
+	_ = value
+
 	// warm up the function
 	for i := 1; i < 10; i++ {
 		start := time.Now()
@@ -115,7 +118,9 @@ func main() {
 	}
 
 	// stop the process for initializing profiling
-	syscall.Kill(pid, syscall.SIGSTOP)
+	if !dontstop {
+		syscall.Kill(pid, syscall.SIGSTOP)
+	}
 
 	start := time.Now()
 

@@ -3,6 +3,7 @@
 // use std::io::Read;
 // use std::path::PathBuf;
 
+use std::env;
 use nix::sys::signal::{Signal, raise};
 
 use anyhow::Context;
@@ -52,6 +53,7 @@ fn main() -> anyhow::Result<()> {
             .init();
     }
 
+    let dont_stop = env::var("DONTSTOP").is_ok();
     let mut prog_name = String::from("rust_resizer");
     if args.prog_name.len() > 0 {
         prog_name = args.prog_name;
@@ -79,7 +81,9 @@ fn main() -> anyhow::Result<()> {
 
     trim_memory(0);
 
-    raise(Signal::SIGSTOP).unwrap();
+    if !dont_stop {
+        raise(Signal::SIGSTOP).unwrap();
+    }
 
     let start = Instant::now();
 
