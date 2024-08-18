@@ -1,0 +1,71 @@
+From 2ebb740d65388cb4658773331f6d096f0500c6f4 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sun, 18 Aug 2024 18:15:11 +0000
+Subject: [PATCH 8/8] build ldconfig
+
+---
+ Makefile     | 30 +++++++++++++++---------------
+ elf/Makefile |  6 +++---
+ 2 files changed, 18 insertions(+), 18 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index 7052b46df83..f78b81608b5 100644
+--- a/Makefile
++++ b/Makefile
+@@ -107,21 +107,21 @@ elf/ldso_install:
+ 
+ # Create links for shared libraries using the `ldconfig' program if possible.
+ # Ignore the error if we cannot update /etc/ld.so.cache.
+-ifeq (no,$(cross-compiling))
+-ifeq (yes,$(build-shared))
+-install:
+-	-test ! -x $(elf-objpfx)ldconfig || LC_ALL=C \
+-	  $(elf-objpfx)ldconfig $(addprefix -r ,$(install_root)) \
+-				$(slibdir) $(libdir)
+-ifneq (no,$(PERL))
+-ifeq (/usr,$(prefix))
+-ifeq (,$(install_root))
+-	LD_SO=$(ld.so-version) CC="$(CC)" $(PERL) scripts/test-installation.pl $(common-objpfx)
+-endif
+-endif
+-endif
+-endif
+-endif
++#ifeq (no,$(cross-compiling))
++#ifeq (yes,$(build-shared))
++#install:
++#	-test ! -x $(elf-objpfx)ldconfig || LC_ALL=C 
++#	  $(elf-objpfx)ldconfig $(addprefix -r ,$(install_root)) \
++#				$(slibdir) $(libdir)
++#ifneq (no,$(PERL))
++#ifeq (/usr,$(prefix))
++#ifeq (,$(install_root))
++#	LD_SO=$(ld.so-version) CC="$(CC)" $(PERL) scripts/test-installation.pl $(common-objpfx)
++#endif
++#endif
++#endif
++#endif
++#endif
+ 
+ # Build subdirectory lib objects.
+ lib-noranlib: subdir_lib
+diff --git a/elf/Makefile b/elf/Makefile
+index 13830d6f09c..5d78b659ce8 100644
+--- a/elf/Makefile
++++ b/elf/Makefile
+@@ -215,9 +215,9 @@ extra-objs	+= $(sln-modules:=.o)
+ 
+ ifeq (yes,$(use-ldconfig))
+ ifeq (yes,$(build-shared))
+-#others-static	+= ldconfig
+-#others		+= ldconfig
+-#install-rootsbin += ldconfig
++others-static	+= ldconfig
++others		+= ldconfig
++install-rootsbin += ldconfig
+ 
+ ldconfig-modules := \
+   cache \
+-- 
+2.43.0
+

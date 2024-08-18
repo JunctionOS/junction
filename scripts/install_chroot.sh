@@ -26,3 +26,5 @@ apt install -y nodejs libgl1 gfortran ruby php-cli python3-pil openjdk-21-jre-he
 EOT
 
 sudo umount ${CHROOT}/proc
+
+sudo cp ${ROOT_DIR}/bin/glibc/build/install/sbin/ldconfig ${CHROOT}/sbin/
