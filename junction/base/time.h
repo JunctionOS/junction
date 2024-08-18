@@ -140,6 +140,9 @@ class Time {
     return FromUnixTime(detail::timeval_to_us(tv));
   }
 
+  // IsZero checks if the time is zero.
+  constexpr bool IsZero() const { return time_ == 0; }
+
   // Now gets the current time.
   static Time Now() { return Time(detail::MicroTime()); }
 

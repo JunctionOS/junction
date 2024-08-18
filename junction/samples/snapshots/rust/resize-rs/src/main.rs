@@ -5,15 +5,17 @@
 
 use std::env;
 use nix::sys::signal::{Signal, raise};
-
+use std::path::Path;
+use std::fs::{File, OpenOptions};
 use anyhow::Context;
 use clap::Parser;
 use image::DynamicImage;
+use image::ImageOutputFormat;
 use tracing::{debug};
 const MAX_SIZE: (u32, u32) = (128, 128);
 
 use nix::libc;
-use std::io::{self, Write};
+use std::io::{self, Write, BufRead, BufReader};
 use std::time::Instant;
 
 /// A thumbnail generator
@@ -21,13 +23,17 @@ use std::time::Instant;
 #[command(author, version, about, long_about)]
 struct Args {
     /// filename of the image to resize
-    image: std::path::PathBuf,
+    image: Option<std::path::PathBuf>,
 
-    prog_name: String,
+    prog_name: Option<String>,
 
     /// verbose logging
     #[arg(short, long)]
     verbose: bool,
+
+    /// Flag for the new version operation
+    #[arg(long)]
+    new_version: bool,
 }
 
 fn resize(img: &image::DynamicImage) -> anyhow::Result<DynamicImage> {
@@ -39,6 +45,38 @@ fn trim_memory(pad: usize) {
     unsafe {
         libc::malloc_trim(pad);
     }
+}
+
+fn new_version() -> std::io::Result<()> {
+    let path = Path::new("/serverless/chan0");
+
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)?;
+
+    let mut reader = BufReader::new(file);
+    let mut line = String::new();
+
+    while reader.read_line(&mut line)? > 0 {
+        let cmd = line.trim().to_string();
+
+        if cmd == "SNAPSHOT_PREPARE" {
+            trim_memory(0);
+            reader.get_mut().write("OK".as_bytes())?;
+            line.clear();
+            continue;
+        }
+
+        let img = image::io::Reader::open(cmd).unwrap().decode().unwrap();
+        let thumbnail = resize(&img).unwrap();
+        let mut output_file = File::create("/tmp/img.png")?;
+        thumbnail.write_to(&mut output_file, ImageOutputFormat::Png).unwrap();
+        reader.get_mut().write("OK".as_bytes())?;
+        line.clear();
+    }
+
+    Ok(())
 }
 
 fn main() -> anyhow::Result<()> {
@@ -53,13 +91,20 @@ fn main() -> anyhow::Result<()> {
             .init();
     }
 
-    let dont_stop = env::var("DONTSTOP").is_ok();
-    let mut prog_name = String::from("rust_resizer");
-    if args.prog_name.len() > 0 {
-        prog_name = args.prog_name;
+    if args.new_version {
+        new_version().unwrap();
+        return Ok(());
     }
 
-    let image_path: &_ = &args.image;
+    let dont_stop = env::var("DONTSTOP").is_ok();
+    let mut prog_name = String::from("rust_resizer");
+    if let Some(pname) = args.prog_name {
+        if pname.len() > 0 {
+            prog_name = pname;
+        }
+    }
+
+    let image_path: &_ = &args.image.unwrap();
     debug!("opening file {}", image_path.display());
     let img = image::io::Reader::open(image_path)
         .context("failed to load image")?

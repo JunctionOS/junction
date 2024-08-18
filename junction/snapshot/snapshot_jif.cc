@@ -270,8 +270,6 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
     std::string_view metadata_path, std::string_view jif_path) {
   rt::RuntimeLibcGuard guard;
 
-  Time start = Time::Now();
-
   DLOG(INFO) << "jif: loading Junction kernel from " << metadata_path
              << " and JIF object file '" << jif_path << "'";
 
@@ -285,10 +283,9 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
   cereal::BinaryInputArchive ar(instream);
 
   if (Status<void> ret = FSRestore(ar); unlikely(!ret)) return MakeError(ret);
-  Time end_fs = Time::Now();
+  timings().restore_metadata_start = Time::Now();
   ar(p);
-
-  Time end_metadata = Time::Now();
+  timings().restore_data_start = Time::Now();
 
   Status<KernelFile> jif_file = KernelFile::Open(jif_path, 0, FileMode::kRead);
   if (!jif_file) return MakeError(jif_file);
@@ -315,13 +312,6 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
       return MakeError(ret);
     };
   }
-
-  Time end_jif = Time::Now();
-
-  LOG(INFO) << "restore time " << (end_jif - start).Microseconds()
-            << " metadata: " << (end_metadata - end_fs).Microseconds()
-            << " jif: " << (end_jif - end_metadata).Microseconds()
-            << " fs: " << (end_fs - start).Microseconds();
 
   if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing();
 

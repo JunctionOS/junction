@@ -196,14 +196,15 @@ Status<void> MemoryMap::DumpTracerReport() {
   Status<PageAccessTracer> report = EndTracing();
   if (likely(!report)) return {};
 
-  if (GetCfg().mem_trace_path().empty()) {
+  std::string pth = GetCfg().GetArg("mem-trace-out");
+  if (pth.empty()) {
     LOG(INFO) << "memory trace:\n" << *report;
   } else {
-    LOG(INFO) << "dumping memory trace to " << GetCfg().mem_trace_path();
-    Status<KernelFile> ord_file = KernelFile::Open(
-        GetCfg().mem_trace_path(), O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
+    LOG(INFO) << "dumping memory trace to " << pth;
+    Status<KernelFile> ord_file =
+        KernelFile::Open(pth, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
     if (unlikely(!ord_file)) {
-      LOG(WARN) << "failed to open ord file `" << GetCfg().mem_trace_path()
+      LOG(WARN) << "failed to open ord file `" << pth
                 << "`: " << ord_file.error();
       return MakeError(ord_file);
     }
@@ -213,8 +214,7 @@ Status<void> MemoryMap::DumpTracerReport() {
     std::string ordstr = ord.str();
     Status<void> ret = WriteFull(*ord_file, std::as_bytes(std::span{ordstr}));
     if (unlikely(!ret)) {
-      LOG(WARN) << "failed to write memory trace to `"
-                << GetCfg().mem_trace_path() << "`: " << ret.error();
+      LOG(WARN) << "failed to write memory trace: " << ret.error();
       return MakeError(ret);
     }
   }

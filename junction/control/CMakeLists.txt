@@ -1,6 +1,7 @@
 message(STATUS "Building junction control server")
 
 set(SOURCES_C_CPP
+  serverless.cc
   webctl.cc
 )
 

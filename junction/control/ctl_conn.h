@@ -63,6 +63,16 @@ class ControlConn {
     return Send(std::move(fbb));
   }
 
+  Status<void> InvokeResponse(const std::string &result) {
+    flatbuffers::FlatBufferBuilder fbb;
+    auto msg = fbb.CreateString(result);
+    auto inner = ctl_schema::CreateInvokeResponse(fbb, msg);
+    auto resp = ctl_schema::CreateResponse(
+        fbb, ctl_schema::InnerResponse_invokeResponse, inner.Union());
+    fbb.FinishSizePrefixed(resp);
+    return Send(std::move(fbb));
+  }
+
   Status<void> SendStats() {
     flatbuffers::FlatBufferBuilder fbb;
     auto inner = ctl_schema::CreateGetStatsResponse(fbb);

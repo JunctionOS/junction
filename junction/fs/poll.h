@@ -134,6 +134,34 @@ class alignas(kCacheLineSize) PollSource {
   IntrusiveList<PollObserver, &PollObserver::node_> epoll_observers_;
 };
 
+class PollSourceSet {
+ public:
+  void Attach(PollSource *p) {
+    assert(std::count(sources_.begin(), sources_.end(), p) == 0);
+    sources_.push_back(p);
+  }
+
+  // May be called multiple times.
+  void Detach(PollSource *p) {
+    sources_.erase(std::remove(sources_.begin(), sources_.end(), p));
+  }
+
+  // Sets a mask of events and notifies (must be synchronized by caller).
+  void Set(unsigned int event_mask) {
+    for (auto &ps : sources_) ps->Set(event_mask);
+  }
+
+  // Clears a mask of events and notifies (must be synchronized by caller).
+  void Clear(unsigned int event_mask) {
+    for (auto &ps : sources_) ps->Clear(event_mask);
+  }
+
+  [[nodiscard]] size_t size() const { return sources_.size(); }
+
+ private:
+  std::vector<PollSource *> sources_;
+};
+
 inline void PollSource::Set(unsigned int event_mask) {
   unsigned int cur = event_mask_;
   if ((cur & event_mask) == event_mask) return;

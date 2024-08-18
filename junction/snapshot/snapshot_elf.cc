@@ -191,8 +191,6 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
     std::string_view metadata_path, std::string_view elf_path) {
   rt::RuntimeLibcGuard guard;
 
-  Time start = Time::Now();
-
   Status<KernelFile> f = KernelFile::Open(metadata_path, 0, FileMode::kRead);
   if (unlikely(!f)) return MakeError(f);
   StreamBufferReader<KernelFile> w(*f);
@@ -200,12 +198,12 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
   cereal::BinaryInputArchive ar(instream);
 
   if (Status<void> ret = FSRestore(ar); unlikely(!ret)) return MakeError(ret);
-  Time end_fs = Time::Now();
+  timings().restore_metadata_start = Time::Now();
 
   std::shared_ptr<Process> p;
   ar(p);
 
-  Time end_metadata = Time::Now();
+  timings().restore_data_start = Time::Now();
 
   Status<JunctionFile> elf =
       JunctionFile::Open(p->get_fs(), elf_path, 0, FileMode::kRead);
@@ -222,16 +220,11 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
     });
   }
   mm.ReleaseVMAs();
-  Time end_elf = Time::Now();
+
   if (unlikely(!ret)) {
     LOG(ERR) << "Elf load failed: " << ret.error();
     return MakeError(ret);
   };
-
-  LOG(INFO) << "restore time " << (end_elf - start).Microseconds()
-            << " metadata: " << (end_metadata - end_fs).Microseconds()
-            << " elf: " << (end_elf - end_metadata).Microseconds()
-            << " fs: " << (end_fs - start).Microseconds();
 
   if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing();
 

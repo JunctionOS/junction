@@ -5,6 +5,7 @@
 #include "junction/bindings/net.h"
 #include "junction/bindings/thread.h"
 #include "junction/control/ctl_conn.h"
+#include "junction/control/serverless.h"
 #include "junction/kernel/proc.h"
 #include "junction/run.h"
 #include "junction/snapshot/snapshot.h"
@@ -105,6 +106,16 @@ bool HandleRestore(ControlConn &c, const ctl_schema::RestoreRequest *req) {
               << proc.error();
     if (!c.SendError(error_msg.str())) {
       LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
+      return true;
+    }
+    return false;
+  }
+
+  std::string_view args = req->argument()->string_view();
+  if (!args.empty()) {
+    std::string result = InvokeChan(req->chan(), std::string{args});
+    if (!c.InvokeResponse(result)) {
+      LOG(WARN) << "failed to send invocation response";
       return true;
     }
     return false;

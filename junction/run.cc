@@ -5,6 +5,7 @@
 #include "junction/base/error.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/runtime.h"
+#include "junction/control/serverless.h"
 #include "junction/fs/stdiofile.h"
 #include "junction/junction.h"
 #include "junction/kernel/exec.h"
@@ -99,6 +100,7 @@ std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
 }
 
 void JunctionMain(int argc, char *argv[]) {
+  timings().junction_main_start = Time::Now();
   MarkRuntimeReady();
 
   std::vector<std::string_view> args;
@@ -113,6 +115,7 @@ void JunctionMain(int argc, char *argv[]) {
   }
 
   std::shared_ptr<Process> proc;
+  std::string function_arg = GetCfg().GetArg("function_arg");
 
   if (GetCfg().restoring()) {
     if (unlikely(argc < 2)) {
@@ -122,15 +125,13 @@ void JunctionMain(int argc, char *argv[]) {
 
     Status<std::shared_ptr<Process>> tmp;
 
-    if (GetCfg().jif()) {
-      LOG(INFO) << "snapshot: restoring from snapshot (jif=" << args[1]
-                << ", metadata=" << args[0] << ")";
+    LOG(INFO) << "snapshot: restoring from snapshot (data=" << args[1]
+              << ", metadata=" << args[0] << ")";
+    timings().restore_start = Time::Now();
+    if (GetCfg().jif())
       tmp = RestoreProcessFromJIF(args[0], args[1]);
-    } else {
-      LOG(INFO) << "snapshot: restoring from snapshot (elf=" << args[1]
-                << ", metadata=" << args[0] << ")";
+    else
       tmp = RestoreProcessFromELF(args[0], args[1]);
-    }
 
     if (unlikely(!tmp)) {
       LOG(ERR) << "Failed to restore proc: " << tmp.error();
@@ -140,6 +141,16 @@ void JunctionMain(int argc, char *argv[]) {
     proc = std::move(*tmp);
     LOG(INFO) << "snapshot: restored process with pid=" << proc->get_pid();
   } else if (!args.empty()) {
+    if (!function_arg.empty()) {
+      Status<void> ret = SetupServerlessChannel(0);
+      if (unlikely(!ret)) {
+        LOG(ERR) << "failed to setup channel";
+        syscall_exit(-1);
+      }
+    }
+
+    timings().exec_start = Time::Now();
+
     auto [_envp_s, envp_view] = BuildEnvp();
     // Create the first process
     Status<std::shared_ptr<Process>> tmp =
@@ -149,22 +160,17 @@ void JunctionMain(int argc, char *argv[]) {
   }
 
   if (proc) {
-    // setup automatic snapshot
-    if (unlikely(GetCfg().snapshot_on_stop())) {
+    if (!function_arg.empty()) {
+      rt::Spawn([p = proc, arg = std::move(function_arg)] mutable {
+        if (GetCfg().restoring())
+          RunRestored(std::move(p), 0, arg);
+        else
+          WarmupAndSnapshot(std::move(p), 0, arg);
+      });
+    } else if (unlikely(GetCfg().snapshot_on_stop())) {
       rt::Spawn([p = proc] mutable {
         p->WaitForNthStop(GetCfg().snapshot_on_stop());
-        std::string epath =
-            std::string(GetCfg().get_snapshot_prefix()) + ".elf";
-        std::string jif_path =
-            std::string(GetCfg().get_snapshot_prefix()) + ".jif";
-        std::string elf_metadata_path =
-            std::string(GetCfg().get_snapshot_prefix()) + ".metadata";
-        std::string jif_metadata_path =
-            std::string(GetCfg().get_snapshot_prefix()) + ".jm";
-
-        auto ret = (GetCfg().jif())
-                       ? SnapshotPidToJIF(1, jif_metadata_path, jif_path)
-                       : SnapshotPidToELF(1, elf_metadata_path, epath);
+        Status<void> ret = TakeSnapshot(p.get());
         if (!ret) {
           LOG(ERR) << "Failed to snapshot: " << ret.error();
           syscall_exit(-1);

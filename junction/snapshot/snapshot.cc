@@ -23,6 +23,9 @@ extern "C" {
 namespace junction {
 
 static std::unique_ptr<SnapshotContext> cur_context;
+static StartupTimings startup_timings;
+
+StartupTimings &timings() { return startup_timings; }
 
 SnapshotContext &GetSnapshotContext() {
   if (unlikely(!cur_context)) throw std::runtime_error("not doing a snapshot");
@@ -67,6 +70,13 @@ Status<void> RestoreVMAProtections(MemoryMap &mm) {
     if (!ret) return MakeError(ret);
   }
   return {};
+}
+
+Status<void> TakeSnapshot(Process *p) {
+  const std::string &prefix = GetCfg().get_snapshot_prefix();
+  if (GetCfg().jif())
+    return SnapshotProcToJIF(p, prefix + ".jm", prefix + ".jif");
+  return SnapshotProcToELF(p, prefix + ".metadata", prefix + ".elf");
 }
 
 }  // namespace junction

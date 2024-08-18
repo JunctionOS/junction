@@ -10,6 +10,10 @@ table GetStatsResponse {
     // TODO(control): figure out response format
 }
 
+table InvokeResponse {
+    message: string;
+}
+
 table TracePoint {
     timestamp_us: uint64;
     accessed_location: uint64;
@@ -23,7 +27,8 @@ union InnerResponse {
     error: ErrorResponse,
     genericSuccess: SuccessResponse,
     getStats: GetStatsResponse,
-    traceReport: TraceReport
+    traceReport: TraceReport,
+    invokeResponse: InvokeResponse
 }
 
 table Response {

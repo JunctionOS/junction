@@ -41,6 +41,63 @@ inline size_t GetMinSize(const void *buf, size_t len) {
 }
 }  // anonymous namespace
 
+struct StartupTimings {
+  std::optional<Time> junction_main_start;
+  std::optional<Time> restore_start;
+  std::optional<Time> exec_start;
+  std::optional<Time> restore_metadata_start;
+  std::optional<Time> restore_data_start;
+  std::optional<Time> first_function_start;
+  std::optional<Time> first_function_end;
+
+  Duration CaladanStartTime() {
+    assert(junction_main_start);
+    return *junction_main_start - Time(0);
+  }
+
+  Duration JunctionInitTime() {
+    assert(junction_main_start);
+    if (exec_start) {
+      return *exec_start - *junction_main_start;
+    } else {
+      assert(restore_start);
+      return *restore_start - *junction_main_start;
+    }
+  }
+
+  Duration ApplicationInitTime() {
+    assert(first_function_start && exec_start);
+    return *first_function_start - *exec_start;
+  }
+
+  Duration FSRestoreTime() {
+    assert(restore_metadata_start && restore_start);
+    return *restore_metadata_start - *restore_start;
+  }
+
+  Duration MetadataRestoreTime() {
+    assert(restore_data_start && restore_metadata_start);
+    return *restore_data_start - *restore_metadata_start;
+  }
+
+  Duration DataRestoreTime() {
+    assert(first_function_start && restore_data_start);
+    return *first_function_start - *restore_data_start;
+  }
+
+  Duration FirstIterTime() {
+    assert(first_function_end && first_function_start);
+    return *first_function_end - *first_function_start;
+  }
+
+  Duration TotalRestoreTime() {
+    assert(first_function_start && restore_start);
+    return *first_function_start - *restore_start;
+  }
+};
+
+StartupTimings &timings();
+
 /**
  * Snapshot Context
  */
@@ -64,6 +121,7 @@ void EndSnapshotContext();
  */
 Status<void> SnapshotMetadata(Process &p, KernelFile &file);
 Status<void> RestoreVMAProtections(MemoryMap &mm);
+Status<void> TakeSnapshot(Process *p);
 
 /**
  * ELF utilities

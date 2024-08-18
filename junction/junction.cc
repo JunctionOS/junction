@@ -109,15 +109,29 @@ po::options_description GetOptions() {
       ("restore_populate", po::bool_switch()->default_value(false),
        "use MAP_POPULATE on restore")  //
       ("snapshot_terminate", po::bool_switch()->default_value(false),
-       "terminate after snapshot");
+       "terminate after snapshot")  //
+      ("function_arg", po::value<std::string>()->default_value(""),
+       "argument provided to serverless function")  //
+      ("function_name", po::value<std::string>()->default_value("func"),
+       "name of function being run")(
+          "keep_alive", po::bool_switch()->default_value(false), "");
   return desc;
 }
 
 void JunctionCfg::PrintOptions() { std::cerr << GetOptions(); }
 
+po::variables_map vm;
+
+std::string JunctionCfg::GetArg(const std::string &name) {
+  return vm[name].as<std::string>();
+}
+
+bool JunctionCfg::GetBool(const std::string &name) {
+  return vm[name].as<bool>();
+}
+
 Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   po::options_description desc = GetOptions();
-  po::variables_map vm;
 
   try {
     po::store(po::parse_command_line(argc, argv, desc), vm);
@@ -138,15 +152,17 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 
   if (vm.count("env")) binary_envp = vm["env"].as<std::vector<std::string>>();
 
+  restore = vm["restore"].as<bool>();
+
   snapshot_on_stop_ = vm["snapshot-on-stop"].as<int>();
   expecting_snapshot_ = vm["snapshot_enabled"].as<bool>();
   expecting_snapshot_ |= snapshot_on_stop_;
+  expecting_snapshot_ |= vm.count("function_arg") && !restore;
 
   strace = vm["strace"].as<bool>();
   stack_switching = vm["stackswitch"].as<bool>();
   max_loglevel = vm["loglevel"].as<int>();
   madv_remap = vm["madv_remap"].as<bool>();
-  restore = vm["restore"].as<bool>();
   kernel_restoring_ = vm["kernel-restore"].as<bool>();
   jif_ = vm["jif"].as<bool>();
   snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
@@ -159,7 +175,6 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 
   restore_populate_ = vm["restore_populate"].as<bool>();
   mem_trace_ = vm["mem-trace"].as<bool>();
-  mem_trace_path_ = vm["mem-trace-out"].as<std::string>();
   terminate_after_snapshot_ = vm["snapshot_terminate"].as<bool>();
 
   return {};

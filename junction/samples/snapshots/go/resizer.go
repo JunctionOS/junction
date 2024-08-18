@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"flag"
 	"image"
 	"image/png"
@@ -46,7 +47,7 @@ func save_img(img image.Image, path string) error {
 	out, err := os.Create(path)
 	if err != nil {
 		slog.Error("failed to create file" ,"err", err, "path", path)
-		return nil
+		return err
 	}
 	defer out.Close()
 
@@ -56,24 +57,97 @@ func save_img(img image.Image, path string) error {
 		err := jpeg.Encode(out, img, nil)
 		if err != nil {
 			slog.Error("failed to encode jpg", "err", err)
-			return nil
+			return err
 		}
 	} else if ext == "png" || ext == "PNG" {
 		err := png.Encode(out, img)
 		if err != nil {
 			slog.Error("failed to encode png", "err", err)
-			return nil
+			return err
 		}
 	} else {
 		slog.Error("unkown extension", "ext", ext)
-		return nil
+		return err
 	}
 
 	return nil
 }
 
+func writeResp(file *os.File, resp string) {
+	_, err := file.WriteString(resp)
+	if err != nil {
+		fmt.Println("Error writing response:", err)
+	}
+}
+
+func NewVersion() {
+	file, err := os.OpenFile("/serverless/chan0", os.O_RDWR, 0644)
+	if err != nil {
+		fmt.Println("Error opening file:", err)
+		return
+	}
+	defer file.Close()
+
+	reader := bufio.NewReader(file)
+
+	for {
+		cmd, err := reader.ReadString('\n')
+		if err != nil {
+			if err.Error() != "EOF" {
+				fmt.Println("Error reading line:", err)
+			}
+			break
+		}
+
+		cmd = strings.TrimSpace(cmd)
+
+		if cmd == "SNAPSHOT_PREPARE" {
+			for i := 1; i < 10; i++ {
+				runtime.GC()
+				debug.FreeOSMemory()
+			}
+			writeResp(file, "OK")
+			continue
+		}
+
+		img, err := load_img(cmd)
+		if err != nil {
+			slog.Error("failed to load image", "err", err, "filename", cmd)
+			return
+		}
+
+		thumbnail, err := resize_img(img)
+		if err != nil {
+			slog.Error("failed to resize image", "err", err)
+			return
+		}
+
+		r, g, b, a := thumbnail.At(10, 10).RGBA()
+		if r * g * b * a == 0xdeadbeef {
+			slog.Error("what a surprise!");
+		}
+
+
+		// err = save_img(thumbnail, "/tmp/image.png")
+		// if err != nil {
+		// 	slog.Error("failed to save img", "err", err)
+		// 	return
+		// }
+
+		writeResp(file, "OK")
+	}
+}
+
+var newVersion = flag.Bool("new_version", false, "Flag to trigger new version")
+
 func main() {
 	flag.Parse()
+
+	if *newVersion {
+		NewVersion()
+		return
+	}
+
 	if len(flag.Args()) < 1 {
 		slog.Error("Failed get image pathname")
 		return

@@ -34,10 +34,6 @@ class alignas(kCacheLineSize) JunctionCfg {
 
   [[nodiscard]] std::string_view get_ld_path() const { return ld_path; }
 
-  [[nodiscard]] std::string_view mem_trace_path() const {
-    return mem_trace_path_;
-  }
-
   [[nodiscard]] const std::string &get_glibc_path() const { return glibc_path; }
 
   [[nodiscard]] const std::string &get_preload_path() const {
@@ -64,7 +60,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   }
   [[nodiscard]] uint16_t port() const { return port_; }
 
-  [[nodiscard]] std::string_view get_snapshot_prefix() const {
+  [[nodiscard]] const std::string &get_snapshot_prefix() const {
     return snapshot_prefix_;
   }
 
@@ -73,6 +69,8 @@ class alignas(kCacheLineSize) JunctionCfg {
   void Print();
 
   static JunctionCfg &get() { return singleton_; };
+  std::string GetArg(const std::string &arg);
+  bool GetBool(const std::string &name);
 
  private:
   // Hot state
@@ -89,7 +87,6 @@ class alignas(kCacheLineSize) JunctionCfg {
   std::string ld_path;
   std::string preload_path;
   std::vector<std::string> binary_envp;
-  std::string mem_trace_path_;
 
   uint16_t port_;
   bool restore;

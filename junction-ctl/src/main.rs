@@ -42,6 +42,7 @@ enum GoodResponse {
     Ok,
     Stats,
     Trace(TraceReport),
+    InvocationResult(String),
 }
 
 fn parse_signal(s: &str) -> Result<u64, String> {
@@ -115,6 +116,7 @@ enum Command {
     Restore {
         snapshot_path: String,
         elf_path: String,
+        args: String,
     },
     StartTrace {
         pid: u64,
@@ -184,6 +186,14 @@ fn await_response(mut stream: TcpStream) -> anyhow::Result<GoodResponse> {
 
             Ok(GoodResponse::Trace(TraceReport { trace }))
         }
+        InnerResponse::invokeResponse => {
+            let result = resp
+                .inner_as_invoke_response()
+                .expect("we checked already")
+                .message()
+                .unwrap_or("<error message not found>");
+            Ok(GoodResponse::InvocationResult(result.to_string()))
+        }
         InnerResponse::NONE | _ => Err(anyhow::anyhow!("invalid response")),
     }
 }
@@ -215,8 +225,8 @@ fn cli(uri: &str) -> anyhow::Result<()> {
             "restore",
             command! {
                 "restore a process",
-                (snapshot_path: String, elf_path: String) => |snapshot_path: String, elf_path: String| {
-                    restore(uri, snapshot_path.as_str(), elf_path.as_str())?;
+                (snapshot_path: String, elf_path: String, args: String) => |snapshot_path: String, elf_path: String, args: String| {
+                    restore(uri, snapshot_path.as_str(), elf_path.as_str(), args.as_str())?;
                     Ok(CommandStatus::Done)
                 }
             },
@@ -302,11 +312,8 @@ fn run(uri: &str, argv: &[&str]) -> anyhow::Result<()> {
 
     match await_response(stream)? {
         GoodResponse::Ok => Ok(()),
-        GoodResponse::Stats => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got GetStatsResponse)"
-        )),
-        GoodResponse::Trace(_) => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got Trace)"
+        _ => Err(anyhow::anyhow!(
+            "mismatched response (expected SuccessResponse)"
         )),
     }
 }
@@ -340,24 +347,24 @@ fn snapshot(uri: &str, pid: u64, snapshot_path: &str, elf_path: &str) -> anyhow:
 
     match await_response(stream)? {
         GoodResponse::Ok => Ok(()),
-        GoodResponse::Stats => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got GetStatsResponse)"
-        )),
-        GoodResponse::Trace(_) => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got Trace)"
+        _ => Err(anyhow::anyhow!(
+            "mismatched response (expected SuccessResponse)"
         )),
     }
 }
 
-fn restore(uri: &str, snapshot_path: &str, elf_path: &str) -> anyhow::Result<()> {
+fn restore(uri: &str, snapshot_path: &str, elf_path: &str, args: &str) -> anyhow::Result<()> {
     let mut fbb = FlatBufferBuilder::new();
     let snapshot_path = Some(fbb.create_string(snapshot_path));
     let elf_path = Some(fbb.create_string(elf_path));
+    let argument = Some(fbb.create_string(args));
     let restore_req = RestoreRequest::create(
         &mut fbb,
         &RestoreRequestArgs {
             snapshot_path,
             elf_path,
+            chan: 0,
+            argument,
         },
     );
 
@@ -377,11 +384,12 @@ fn restore(uri: &str, snapshot_path: &str, elf_path: &str) -> anyhow::Result<()>
 
     match await_response(stream)? {
         GoodResponse::Ok => Ok(()),
-        GoodResponse::Stats => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got GetStatsResponse)"
-        )),
-        GoodResponse::Trace(_) => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got Trace)"
+        GoodResponse::InvocationResult(s) => {
+            println!("Got response {}", s);
+            Ok(())
+        }
+        _ => Err(anyhow::anyhow!(
+            "mismatched response (expected SuccessResponse)"
         )),
     }
 }
@@ -406,11 +414,8 @@ fn start_trace(uri: &str, pid: u64) -> anyhow::Result<()> {
 
     match await_response(stream)? {
         GoodResponse::Ok => Ok(()),
-        GoodResponse::Stats => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got GetStatsResponse)"
-        )),
-        GoodResponse::Trace(_) => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got Trace)"
+        _ => Err(anyhow::anyhow!(
+            "mismatched response (expected SuccessResponse)"
         )),
     }
 }
@@ -436,15 +441,15 @@ fn stop_trace(uri: &str, pid: u64) -> anyhow::Result<()> {
         GoodResponse::Ok => Err(anyhow::anyhow!(
             "mismatched response (expected Trace, got SuccessResponse)"
         )),
-        GoodResponse::Stats => Err(anyhow::anyhow!(
-            "mismatched response (expected Trace, got GetStatsResponse)"
-        )),
         GoodResponse::Trace(report) => {
             for t in report.trace {
                 println!("{}", t);
             }
             Ok(())
         }
+        _ => Err(anyhow::anyhow!(
+            "mismatched response (expected SuccessResponse or Trace)"
+        )),
     }
 }
 fn signal(uri: &str, pid: u64, signo: u64) -> anyhow::Result<()> {
@@ -467,11 +472,8 @@ fn signal(uri: &str, pid: u64, signo: u64) -> anyhow::Result<()> {
 
     match await_response(stream)? {
         GoodResponse::Ok => Ok(()),
-        GoodResponse::Stats => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got GetStatsResponse)"
-        )),
-        GoodResponse::Trace(_) => Err(anyhow::anyhow!(
-            "mismatched response (expected SuccessResponse, got Trace)"
+        _ => Err(anyhow::anyhow!(
+            "mismatched response (expected SuccessResponse)"
         )),
     }
 }
@@ -494,12 +496,9 @@ fn get_stats(uri: &str) -> anyhow::Result<()> {
         .context("failed to write snapshot request")?;
 
     match await_response(stream)? {
-        GoodResponse::Ok => Err(anyhow::anyhow!(
-            "mismatched response (expected GetStatsResponse, got SuccessResponse)"
-        )),
         GoodResponse::Stats => Ok(()),
-        GoodResponse::Trace(_) => Err(anyhow::anyhow!(
-            "mismatched response (expected GetStatsResponse, got Trace)"
+        _ => Err(anyhow::anyhow!(
+            "mismatched response (expected GetStatsResponse)"
         )),
     }
 }
@@ -526,7 +525,13 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Restore {
             snapshot_path,
             elf_path,
-        }) => restore(uri.as_str(), snapshot_path.as_str(), elf_path.as_str()),
+            args,
+        }) => restore(
+            uri.as_str(),
+            snapshot_path.as_str(),
+            elf_path.as_str(),
+            args.as_str(),
+        ),
         Some(Command::StartTrace { pid }) => start_trace(uri.as_str(), pid),
         Some(Command::StopTrace { pid }) => stop_trace(uri.as_str(), pid),
         Some(Command::Signal { pid, signal: signo }) => signal(uri.as_str(), pid, signo),
