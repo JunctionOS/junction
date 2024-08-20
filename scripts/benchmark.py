@@ -50,7 +50,7 @@ default_jsons = {
     "image_processing": '{"path": "' + PATH_TO_FBENCH + 'dataset/image/animal-dog.jpg"}',
     "rnn_serving": '{"language": "Scottish", "start_letters": "ABCDEFGHIJKLMNOP",  "parameter_path": "' + PATH_TO_FBENCH + 'dataset/model/rnn_params.pkl", "model_path": "' + PATH_TO_FBENCH + 'dataset/model/rnn_model.pth"}',
     "json_serdes": '{"json_path": "' + PATH_TO_FBENCH + 'json_serdes/2.json"}',
-    "video_processing": '{"input_path": "' + 'dataset/video/SampleVideo_1280x720_10mb.mp4"}',
+    "video_processing": '{"input_path": "' + PATH_TO_FBENCH + 'dataset/video/SampleVideo_1280x720_10mb.mp4"}',
     "lr_training": '{"dataset_path": "' + PATH_TO_FBENCH + 'dataset/amzn_fine_food_reviews/reviews10mb.csv"}',
     "cnn_serving": '{"img_path": "' + PATH_TO_FBENCH + 'dataset/image/animal-dog.jpg", "model_path": "' + PATH_TO_FBENCH + 'dataset/model/squeezenet_weights_tf_dim_ordering_tf_kernels.h5"}'
 }

@@ -19,7 +19,7 @@ def video_processing(file_path):
 
         if ret:
             gray_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            #im = cv2.imwrite('/tmp/frame.jpg', gray_frame) NOTE: junction fails here with permission denied
+            im = cv2.imwrite('/tmp/frame.jpg', gray_frame) #NOTE: junction fails here with permission denied
             gray_frame = cv2.imread('/tmp/frame.jpg')
             out.write(gray_frame)
         else:

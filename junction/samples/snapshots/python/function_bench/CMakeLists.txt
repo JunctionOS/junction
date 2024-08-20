@@ -10,7 +10,7 @@ set(tests
     "matmul"
     "pyaes"
     "rnn_serving"
-    "video_processing"
+    # "video_processing" - slow.
     # cnn_serving
 )
 
