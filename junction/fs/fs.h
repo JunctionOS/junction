@@ -563,6 +563,9 @@ class IDir : public Inode, protected DentryMap<IDir> {
     return Token{};
   }
 
+  // Snapshot should traverse this directory to find inodes.
+  virtual bool SnapshotRecurse() { return true; }
+
   // Should only be used during snapshot restore.
   static Token CerealGetToken() { return Token{}; }
 

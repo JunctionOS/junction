@@ -788,6 +788,7 @@ Status<void> FSSnapshot(cereal::BinaryOutputArchive &ar) {
     }
     if (!cur.get_inode_ref().is_dir()) return;
     IDir &dir = static_cast<IDir &>(cur.get_inode_ref());
+    if (!dir.SnapshotRecurse()) return;
     dir.ForEach(fn);
   });
 

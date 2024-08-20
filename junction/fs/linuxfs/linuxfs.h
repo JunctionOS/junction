@@ -75,6 +75,7 @@ class LinuxIDir : public memfs::MemIDir {
   }
 
   bool SnapshotPrunable() override { return true; }
+  bool SnapshotRecurse() override { return path_ != "/tmp"; }
 
   // Inode ops
   Status<void> GetStats(struct stat *buf) const override {
