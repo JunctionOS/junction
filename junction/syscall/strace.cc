@@ -41,7 +41,8 @@ const std::map<int, std::string> open_flags{
     {O_NOCTTY, "O_NOCTTY"},       {O_NOFOLLOW, "O_NOFOLLOW"},
     {O_NONBLOCK, "O_NONBLOCK"},   {O_PATH, "O_PATH"},
     {O_SYNC, "O_SYNC"},           {O_TMPFILE, "O_TMPFILE"},
-    {O_TRUNC, "O_TRUNC"},
+    {O_TRUNC, "O_TRUNC"},         {O_WRONLY, "O_WRONLY"},
+    {O_RDWR, "O_RDWR"},
 };
 
 const std::map<int, std::string> madvise_hints{
@@ -99,17 +100,18 @@ void PrintArg(int fd, AtFD, rt::Logger &ss) {
     ss << fd;
 }
 
-void PrintArr(const std::map<int, std::string> &map, int flags,
+bool PrintArr(const std::map<int, std::string> &map, int flags,
               rt::Logger &ss) {
-  bool first = false;
+  bool done_one = false;
   for (const auto &[flag, name] : map) {
     if (!(flags & flag)) continue;
-    if (!first)
-      first = true;
+    if (!done_one)
+      done_one = true;
     else
       ss << "|";
     ss << name;
   }
+  return done_one;
 }
 
 void PrintArg(int prot, ProtFlag, rt::Logger &ss) {
@@ -125,7 +127,11 @@ void PrintArg(int flags, MMapFlag, rt::Logger &ss) {
 }
 
 void PrintArg(int flags, OpenFlag, rt::Logger &ss) {
-  PrintArr(open_flags, flags, ss);
+  bool done_one = PrintArr(open_flags, flags, ss);
+  if ((flags & (O_WRONLY | O_RDWR)) == 0) {
+    if (done_one) ss << "|";
+    ss << "O_RDONLY";
+  }
 }
 
 void PrintArg(int *fds, FDPair *, rt::Logger &ss) {
