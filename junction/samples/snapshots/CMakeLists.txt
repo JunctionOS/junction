@@ -37,7 +37,7 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_restore_jif
-    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif --mem-trace --mem-trace-out ${ORD} -r -- ${JIF_METADATA} ${JIF}"
+    COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif --stackswitch --mem-trace --mem-trace-out ${ORD} -r -- ${JIF_METADATA} ${JIF}"
   )
 
   add_test(

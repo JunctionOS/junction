@@ -177,6 +177,11 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   mem_trace_ = vm["mem-trace"].as<bool>();
   terminate_after_snapshot_ = vm["snapshot_terminate"].as<bool>();
 
+  if (mem_trace_ && !stack_switching) {
+    LOG(WARN) << "Enabling stack switching for memory tracing";
+    stack_switching = true;
+  }
+
   return {};
 }
 
