@@ -2,6 +2,8 @@
 
 #pragma once
 
+#include <map>
+
 #include "junction/base/slab_list.h"
 #include "junction/fs/dev.h"
 #include "junction/fs/file.h"
@@ -27,6 +29,10 @@ inline void MemInodeToStats(const Inode &ino, struct stat *buf) {
   InodeToStats(ino, buf);
   buf->st_blksize = kPageSize;
   buf->st_dev = MakeDevice(8, 0);  // fake SCSI device
+}
+
+inline bool NeedsTrace() {
+  return IsJunctionThread() && unlikely(myproc().get_mem_map().TraceEnabled());
 }
 
 // Create a soft link inode.
@@ -55,8 +61,16 @@ class MemInode : public Inode {
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) {
     rt::ScopedSharedLock g_(lock_);
     const size_t n = std::min(buf.size(), size_ - *off);
-    if (IsJunctionThread() && unlikely(myproc().get_mem_map().TraceEnabled()))
-      myproc().get_mem_map().RecordHit(buf_ + *off, n, Time::Now());
+    if (unlikely(NeedsTrace())) {
+      auto it = traced_inodes_.find(get_inum());
+      size_t off_s = static_cast<size_t>(*off);
+      // Only record accesses to parts of the file that existed when tracing
+      // started.
+      if (it != traced_inodes_.end() && off_s < it->second) {
+        myproc().get_mem_map().RecordHit(
+            buf_ + off_s, std::min(n, it->second - off_s), Time::Now());
+      }
+    }
     std::memcpy(buf.data(), buf_ + *off, n);
     *off += n;
     return n;
@@ -74,8 +88,15 @@ class MemInode : public Inode {
       if (off + buf.size() > size_) size_ = off + buf.size();
       lock_.DowngradeLock();
     }
-    if (IsJunctionThread() && unlikely(myproc().get_mem_map().TraceEnabled()))
-      myproc().get_mem_map().RecordHit(buf_ + off, buf.size(), Time::Now());
+    if (unlikely(NeedsTrace())) {
+      auto it = traced_inodes_.find(get_inum());
+      // Only record accesses to parts of the file that existed when tracing
+      // started.
+      if (it != traced_inodes_.end() && off < it->second) {
+        myproc().get_mem_map().RecordHit(
+            buf_ + off, std::min(buf.size(), it->second - off), Time::Now());
+      }
+    }
     std::memcpy(buf_ + off, buf.data(), buf.size());
     *off_off += buf.size();
     return buf.size();
@@ -116,6 +137,13 @@ class MemInode : public Inode {
     ar(cereal::base_class<Inode>(construct.ptr()));
   }
 
+  void RegisterInodeForTracing() {
+    auto [_it, inserted] = traced_inodes_.try_emplace(get_inum(), size_);
+    assert(inserted);
+  }
+
+  static void ClearTracedMap() { traced_inodes_.clear(); }
+
  private:
   // Protects modifications to buf_. A reader lock holder can read/write to buf_
   // but a writer lock must be used to resize buf_.
@@ -124,6 +152,9 @@ class MemInode : public Inode {
   char *const buf_;
   size_t size_{0};
   const off_t extent_offset_;
+
+  // Snapshot of MemFS data present at beginning of memory access tracing.
+  static std::map<ino_t, size_t> traced_inodes_;
 };
 
 class MemIDir : public IDir {

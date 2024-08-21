@@ -163,6 +163,21 @@ Status<void> InitMemfs() {
   return {};
 }
 
+std::map<ino_t, size_t> MemInode::traced_inodes_;
+
+void MemFSStartTracer(IDir &root) {
+  std::function<void(DirectoryEntry & cur)> fn([&](DirectoryEntry &cur) {
+    MemInode *ino = dynamic_cast<MemInode *>(&cur.get_inode_ref());
+    if (ino) ino->RegisterInodeForTracing();
+    if (!cur.get_inode_ref().is_dir()) return;
+    IDir &dir = static_cast<IDir &>(cur.get_inode_ref());
+    dir.ForEach(fn);
+  });
+  root.ForEach(fn);
+}
+
+void MemFSEndTracer() { MemInode::ClearTracedMap(); }
+
 }  // namespace junction::memfs
 
 CEREAL_REGISTER_TYPE(junction::memfs::MemInode);

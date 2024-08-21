@@ -164,11 +164,15 @@ void MemoryMap::EnableTracing() {
     if (unlikely(!ret))
       LOG(WARN) << "tracer could not mprotect " << ret.error() << " " << vma;
   }
+
+  memfs::MemFSStartTracer(*FSRoot::GetGlobalRoot().get_root().get());
 }
 
 Status<PageAccessTracer> MemoryMap::EndTracing() {
   rt::ScopedLock g(mu_);
   if (!tracer_) return MakeError(ENODATA);
+
+  memfs::MemFSEndTracer();
 
   // Restore all VMAs
   auto prev_it = vmareas_.begin();

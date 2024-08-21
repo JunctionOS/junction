@@ -723,6 +723,8 @@ namespace memfs {
 std::shared_ptr<IDir> MkFolder(IDir &parent, std::string name,
                                mode_t mode = S_IRWXU);
 Status<void> InitMemfs();
+void MemFSStartTracer(IDir &root);
+void MemFSEndTracer();
 }  // namespace memfs
 
 Status<void> FSSnapshot(cereal::BinaryOutputArchive &ar);
