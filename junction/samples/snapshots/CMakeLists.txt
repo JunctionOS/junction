@@ -32,7 +32,7 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
 
   add_test(
     NAME ${test_name}_build_itrees
-    COMMAND sh -c "${JIFTOOL} $CHROOT_DIR/${JIF} $CHROOT_DIR/${JIF_ITREES} build-itrees && ${READJIF} --check $CHROOT_DIR/${JIF_ITREES}"
+    COMMAND sh -c "${JIFTOOL} $CHROOT_DIR/${JIF} $CHROOT_DIR/${JIF_ITREES} build-itrees $CHROOT_DIR && ${READJIF} --check $CHROOT_DIR/${JIF_ITREES}"
   )
 
   add_test(

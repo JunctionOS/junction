@@ -129,7 +129,7 @@ def restore_elf(image, output_log, extra_flags = "", arg="", name="func"):
 	run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -r {verarg} -- {image}.metadata {image}.elf >> {output_log}_elf 2>&1")
 
 def process_itree(output_image, output_log):
-	run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif build-itrees >> {output_log}_builditree 2>&1")
+	run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif build-itrees {CHROOT_DIR if USE_CHROOT else ""} >> {output_log}_builditree 2>&1")
 
 def process_fault_order(output_image, output_log):
 	# add ordering to jif
