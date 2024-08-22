@@ -36,12 +36,26 @@ DROPCACHE = 4
 
 NEW_VERSION = True
 
-FBENCH = ["chameleon", "float_operation", "pyaes", "matmul", "json_serdes", "video_processing"]
-FBENCH += ["lr_training", "image_processing", "linpack"]
+FBENCH = [
+        ("node", "hello"),
+        ("python", "chameleon")
+        ("python", "float_operation"),
+        ("python", "pyaes"),
+        ("python", "matmul"),
+        ("python", "json_serdes"),
+        ("python", "video_processing"),
+]
+
+FBENCH += [
+        ("python", "lr_training"),
+        ("python", "image_processing"),
+        ("python", "linpack")
+]
 
 PATH_TO_FBENCH = f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/"
 
 default_jsons = {
+    "hello": '{"test": "Hello, world!"}',
     "chameleon": '{"num_of_rows": 3, "num_of_cols": 4}',
     "float_operation": '{"N": 300}',
     "linpack": '{"N": 300}',
@@ -305,14 +319,24 @@ def restore_image(image, logname, extra_flags="", name="", arg="", second_app=[]
 		jifpager_restore_itrees(image, f"{logname}_self", extra_flags=extra_flags, minor=False, prefault=False, cold=True, reorder=False, name=name, arg=arg, second_app=second_app)
 
 
+def get_cmd(lang, fn):
+        if lang == "python":
+                script = "new_runner.py" if NEW_VERSION else "run.py"
+                return f"{ROOT_DIR}/bin/venv/bin/python3 " + \
+                        f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/" + \
+                        f"{script} {fn}"
+        if lang == "node":
+                return f"/usr/bin/node --jitless --expose-gc " + \
+                        f"{ROOT_DIR}/build/junction/samples/snapshots/node/" + \
+                        f"function_bench/run.js {fn}"
 
 def get_fbench_times(edir):
 	eflags = ""
 	if USE_CHROOT:
 		eflags += f" --chroot={CHROOT_DIR}  --cache_linux_fs "
 	if REDO_SNAPSHOT:
-		for fn in FBENCH:
-			cmd = f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/new_runner.py {fn}"
+		for lang, fn in FBENCH:
+			cmd = get_cmd(lang, fn)
 			generate_images(cmd, f"/tmp/{fn}", f"{edir}/generate_images", extra_flags=eflags, name=fn, arg=default_jsons[fn])
 		for name, cmd in RESIZERS:
 			for image, path in IMAGES:
@@ -320,15 +344,11 @@ def get_fbench_times(edir):
 				nm = f"{name}_resizer_{image}"
 				generate_images(fullcmd, f"/tmp/{nm}", f"{edir}/generate_images", extra_flags=eflags, name=nm, arg=path)
 
-	for fn in FBENCH:
-		if NEW_VERSION:
-			cmd = f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/new_runner.py {fn}"
-		else:
-			cmd = f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/run.py {fn}"
-
+	for lang, fn in FBENCH:
+		cmd = get_cmd(lang, fn)
 		second_app = []
-		for fn2 in FBENCH:
-			if fn == fn2:
+		for lang2, fn2 in FBENCH:
+			if fn == fn2 or lang2 != lang:
 				continue
 			second_app.append((fn2, default_jsons[fn2], f"/tmp/{fn2}"))
 		restore_image(f"/tmp/{fn}", f"{edir}/restore_images", extra_flags=eflags, name=fn, arg=default_jsons[fn], second_app=second_app)
