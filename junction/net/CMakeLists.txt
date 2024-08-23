@@ -3,6 +3,7 @@ message(STATUS "Building junction net")
 # Library
 add_library(net
   net.cc
+  netlink.cc
   caladan_poll.cc
 )
 

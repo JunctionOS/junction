@@ -27,10 +27,12 @@ class TCPSocket : public Socket {
 
   ~TCPSocket() override = default;
 
-  Status<void> Bind(netaddr addr) override {
+  Status<void> Bind(const SockAddrPtr addr) override {
     // TODO(jsf): this should in theory reserve a port in the socket table
     if (unlikely(state_ != SocketState::kSockUnbound)) return MakeError(EINVAL);
-    addr_ = addr;
+    Status<netaddr> na = addr.ToNetAddr();
+    if (unlikely(!na)) return MakeError(na);
+    addr_ = *na;
     state_ = SocketState::kSockBound;
     return {};
   }
@@ -46,7 +48,7 @@ class TCPSocket : public Socket {
     return {};
   }
 
-  Status<void> Connect(netaddr addr) override {
+  Status<void> Connect(const SockAddrPtr addr) override {
     // Some applications probe the nonblocking socket by calling connect()
     if (state_ == SocketState::kSockConnected) {
       if (!is_nonblocking()) return MakeError(EISCONN);
@@ -56,11 +58,13 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockUnbound &&
                  state_ != SocketState::kSockBound))
       return MakeError(EINVAL);
+    Status<netaddr> na = addr.ToNetAddr();
+    if (unlikely(!na)) return MakeError(na);
     Status<rt::TCPConn> ret;
     if (is_nonblocking())
-      ret = rt::TCPConn::DialNonBlocking(addr_, addr);
+      ret = rt::TCPConn::DialNonBlocking(addr_, *na);
     else
-      ret = rt::TCPConn::Dial(addr_, addr);
+      ret = rt::TCPConn::Dial(addr_, *na);
     if (unlikely(!ret)) return MakeError(ret);
     v_ = std::move(*ret);
     state_ = SocketState::kSockConnected;
@@ -69,12 +73,13 @@ class TCPSocket : public Socket {
     return {};
   }
 
-  Status<std::shared_ptr<Socket>> Accept(int flags) override {
+  Status<std::shared_ptr<Socket>> Accept(SockAddrPtr addr, int flags) override {
     if (unlikely(state_ != SocketState::kSockListening))
       return MakeError(EINVAL);
     Status<rt::TCPConn> ret = TcpQueue().Accept();
     if (unlikely(!ret)) return MakeError(ret);
     if (flags & kFlagNonblock) ret->SetNonBlocking(true);
+    if (addr) addr.FromNetAddr(ret->RemoteAddr());
     return std::make_shared<TCPSocket>(std::move(*ret), flags);
   }
 
@@ -91,24 +96,31 @@ class TCPSocket : public Socket {
     return MakeError(ENOTCONN);
   }
 
-  Status<netaddr> RemoteAddr() const override {
+  Status<void> RemoteAddr(SockAddrPtr ptr) const override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(ENOTCONN);
-    return TcpConn().RemoteAddr();
+    if (unlikely(!ptr)) return MakeError(EINVAL);
+    ptr.FromNetAddr(TcpConn().RemoteAddr());
+    return {};
   }
 
-  Status<netaddr> LocalAddr() const override {
+  Status<void> LocalAddr(SockAddrPtr ptr) const override {
+    if (unlikely(!ptr)) return MakeError(EINVAL);
     switch (state_) {
       case SocketState::kSockUnbound:
       case SocketState::kSockBound:
-        return addr_;
+        ptr.FromNetAddr(addr_);
+        break;
       case SocketState::kSockConnected:
-        return TcpConn().LocalAddr();
+        ptr.FromNetAddr(TcpConn().LocalAddr());
+        break;
       case SocketState::kSockListening:
-        return TcpQueue().LocalAddr();
+        ptr.FromNetAddr(TcpQueue().LocalAddr());
+        break;
       default:
         std::unreachable();
     }
+    return {};
   }
 
   Status<size_t> Read(std::span<std::byte> buf,
@@ -125,17 +137,17 @@ class TCPSocket : public Socket {
     return TcpConn().Write(buf);
   }
 
-  virtual Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
+  virtual Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
                                   bool peek) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
-    if (raddr) *raddr = TcpConn().RemoteAddr();
+    if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
     if (peek) return TcpConn().ReadPeek(buf);
     return TcpConn().Read(buf);
   }
 
   virtual Status<size_t> WriteTo(std::span<const std::byte> buf,
-                                 const netaddr *raddr) override {
+                                 const SockAddrPtr raddr) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
@@ -143,7 +155,7 @@ class TCPSocket : public Socket {
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov,
-                          const netaddr *raddr) override {
+                          const SockAddrPtr raddr) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);

@@ -18,9 +18,12 @@ class UDPSocket : public Socket {
   UDPSocket(int flags = 0) noexcept : Socket(flags) {}
   ~UDPSocket() override = default;
 
-  Status<void> Bind(netaddr addr) override {
+  Status<void> Bind(const SockAddrPtr addr) override {
+    assert(addr);
     if (unlikely(conn_.is_valid())) return MakeError(EINVAL);
-    Status<rt::UDPConn> ret = rt::UDPConn::Listen(addr);
+    Status<netaddr> na = addr.ToNetAddr();
+    if (unlikely(!na)) return MakeError(na);
+    Status<rt::UDPConn> ret = rt::UDPConn::Listen(*na);
     if (unlikely(!ret)) return MakeError(ret);
     conn_ = std::move(*ret);
     if (is_nonblocking()) conn_.SetNonBlocking(true);
@@ -28,7 +31,7 @@ class UDPSocket : public Socket {
     return {};
   }
 
-  Status<void> Connect(netaddr addr) override {
+  Status<void> Connect(const SockAddrPtr addr) override {
     netaddr laddr;
     if (conn_.is_valid()) {
       netaddr remote = conn_.RemoteAddr();
@@ -37,7 +40,9 @@ class UDPSocket : public Socket {
     } else {
       laddr = {0, 0};
     }
-    Status<rt::UDPConn> ret = rt::UDPConn::Dial(laddr, addr);
+    Status<netaddr> raddr = addr.ToNetAddr();
+    if (unlikely(!raddr)) return MakeError(raddr);
+    Status<rt::UDPConn> ret = rt::UDPConn::Dial(laddr, *raddr);
     if (unlikely(!ret)) return MakeError(ret);
     ReplaceConn(std::move(*ret));
     return {};
@@ -55,20 +60,29 @@ class UDPSocket : public Socket {
     return conn_.Write(buf);
   }
 
-  Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
+  Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
                           bool peek) override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
-    return conn_.ReadFrom(buf, raddr, peek);
+    netaddr ra;
+    Status<size_t> ret = conn_.ReadFrom(buf, raddr ? &ra : nullptr, peek);
+    if (unlikely(!ret)) return ret;
+    if (raddr) raddr.FromNetAddr(ra);
+    return ret;
   }
 
   Status<size_t> WriteTo(std::span<const std::byte> buf,
-                         const netaddr *raddr) override {
+                         const SockAddrPtr raddr) override {
     if (!conn_.is_valid()) {
       Status<rt::UDPConn> ret = rt::UDPConn::Listen({0, 0});
       if (unlikely(!ret)) return MakeError(ret);
       ReplaceConn(std::move(*ret));
     }
-    return conn_.WriteTo(buf, raddr);
+    if (raddr) {
+      Status<netaddr> ra = raddr.ToNetAddr();
+      if (unlikely(!ra)) return MakeError(ra);
+      return conn_.WriteTo(buf, &*ra);
+    }
+    return conn_.WriteTo(buf, nullptr);
   }
 
   Status<void> Shutdown([[maybe_unused]] int how) override {
@@ -78,14 +92,22 @@ class UDPSocket : public Socket {
     return {};
   }
 
-  Status<netaddr> RemoteAddr() const override {
+  Status<void> RemoteAddr(SockAddrPtr raddr) const override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
-    return conn_.RemoteAddr();
+    assert(raddr);
+    Status<netaddr> ret = conn_.RemoteAddr();
+    if (unlikely(!ret)) return MakeError(ret);
+    raddr.FromNetAddr(*ret);
+    return {};
   }
 
-  Status<netaddr> LocalAddr() const override {
+  Status<void> LocalAddr(SockAddrPtr laddr) const override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
-    return conn_.LocalAddr();
+    assert(laddr);
+    Status<netaddr> ret = conn_.RemoteAddr();
+    if (unlikely(!ret)) return MakeError(ret);
+    laddr.FromNetAddr(*ret);
+    return {};
   }
 
   Status<int> GetSockOpt(int level, int optname) const override {

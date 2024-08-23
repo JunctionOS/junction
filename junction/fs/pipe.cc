@@ -321,19 +321,19 @@ class PipeSocketFile : public Socket {
     return {};
   }
 
-  Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
+  Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
                           bool peek = false) override {
-    if (raddr) *raddr = {MAKE_IP_ADDR(127, 0, 0, 1), 0};
+    if (raddr) raddr.FromNetAddr({MAKE_IP_ADDR(127, 0, 0, 1), 0});
     return rx_->Read(buf, is_nonblocking(), peek);
   }
 
   Status<size_t> WriteTo(std::span<const std::byte> buf,
-                         const netaddr *raddr) override {
+                         const SockAddrPtr raddr) override {
     return tx_->Write(buf, is_nonblocking());
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov,
-                          const netaddr *raddr) override {
+                          const SockAddrPtr raddr) override {
     off_t off;
     return File::Writev(iov, &off);
   }
