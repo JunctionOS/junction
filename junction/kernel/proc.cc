@@ -626,6 +626,8 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   clone_args cl_args;
   memset(&cl_args, 0, sizeof(cl_args));
 
+  if (!newsp) newsp = mythread().GetSyscallFrame().GetRsp();
+
   cl_args.flags = clone_flags;
   cl_args.child_tid = child_tidptr;
   cl_args.parent_tid = parent_tidptr;

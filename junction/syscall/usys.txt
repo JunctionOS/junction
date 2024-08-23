@@ -34,6 +34,7 @@ pread64
 sendfile
 lseek
 fsync
+fdatasync
 close
 close_range
 futex

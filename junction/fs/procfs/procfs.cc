@@ -31,6 +31,10 @@ std::string GetMemInfo(IDir *) {
   return ss.str();
 }
 
+std::string GetMounts(IDir *) {
+  return "tmpfs / tmpfs rw,nosuid,nodev,inode64 0 0\n";
+}
+
 std::optional<int> ParseInt(std::string_view s) {
   int result;
   if (std::from_chars(s.data(), s.data() + s.size(), result).ec == std::errc{})
@@ -297,6 +301,8 @@ class ProcRootDir : public memfs::MemIDir {
                          std::make_shared<ProcFSLink<GetPidString>>(0777));
     AddDentLockedNoCheck("stat",
                          std::make_shared<ProcFSInode<GetMemInfo>>(0444));
+    AddDentLockedNoCheck("mounts",
+                         std::make_shared<ProcFSInode<GetMounts>>(0444));
   }
 
  private:

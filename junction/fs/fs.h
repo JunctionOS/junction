@@ -339,7 +339,7 @@ class DentryMap {
     assert(src.getdir().lock_.IsHeld());
 
     auto src_it = src.dents_.find(src_name, StrViewComp());
-    if (!src_it) return MakeError(ENOENT);
+    if (src_it == src.dents_.end()) return MakeError(ENOENT);
 
     DirectoryEntry *dent = &*src_it;
 
