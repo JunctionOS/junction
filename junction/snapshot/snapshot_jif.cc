@@ -120,7 +120,9 @@ namespace {
 
 Status<std::tuple<jif_data, IOVAccumulator>> GetJifVmaData(
     MemoryMap &mm, SnapshotContext &ctx) {
-  const std::vector<VMArea> vmas = mm.get_vmas();
+  std::vector<VMArea> vmas = mm.get_vmas();
+  std::sort(vmas.begin(), vmas.end(),
+            [](VMArea a, VMArea b) { return a.start < b.start; });
   const size_t max_n_pheaders = vmas.size() + ctx.mem_areas_.size();
   jif_data jif;
   jif.hdr.magic[0] = 0x77;
