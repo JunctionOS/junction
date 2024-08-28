@@ -1,5 +1,6 @@
 #!/usr/bin/python3
 
+import matplotlib.pyplot as plt
 import stat
 import os
 import atexit
@@ -12,18 +13,17 @@ import time
 
 import matplotlib as mpl
 mpl.use('Agg')
-import matplotlib.pyplot as plt
 
 SCRIPT_DIR = os.path.split(os.path.realpath(__file__))[0]
-ROOT_DIR = os.path.split(SCRIPT_DIR)[0] #f"{SCRIPT_DIR}/.."
+ROOT_DIR = os.path.split(SCRIPT_DIR)[0]  # f"{SCRIPT_DIR}/.."
 BUILD_DIR = f"{ROOT_DIR}/build"
 BIN_DIR = f"{ROOT_DIR}/bin"
 JRUN = f"{BUILD_DIR}/junction/junction_run"
 CONFIG = f"{BUILD_DIR}/junction/caladan_test_ts_st.config"
 CALADAN_DIR = f"{ROOT_DIR}/lib/caladan"
-CHROOT_DIR=f"{ROOT_DIR}/chroot"
-RESULT_DIR=f"{ROOT_DIR}/results"
-RESULT_LINK=f"{ROOT_DIR}/results/run.recent"
+CHROOT_DIR = f"{ROOT_DIR}/chroot"
+RESULT_DIR = f"{ROOT_DIR}/results"
+RESULT_LINK = f"{ROOT_DIR}/results/run.recent"
 
 # LINUX_BASELINE = False
 USE_CHROOT = True
@@ -52,7 +52,8 @@ FBENCH = [
     ("java", "jmatmul"),
 ]
 
-PATH_TO_FBENCH = f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/"
+PATH_TO_FBENCH = f"{
+    ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/"
 
 default_jsons = {
     "hello": '{"test": "Hello, world!"}',
@@ -62,13 +63,28 @@ default_jsons = {
     "matmul": '{"N": 300}',
     "jmatmul": '{"N": 300}',
     "pyaes": '{"length_of_message": 20, "num_of_iterations": 3}',
-    "image_processing": '{"path": "' + PATH_TO_FBENCH + 'dataset/image/animal-dog.jpg"}',
-    "rnn_serving": '{"language": "Scottish", "start_letters": "ABCDEFGHIJKLMNOP",  "parameter_path": "' + PATH_TO_FBENCH + 'dataset/model/rnn_params.pkl", "model_path": "' + PATH_TO_FBENCH + 'dataset/model/rnn_model.pth"}',
-    "json_serdes": '{"json_path": "' + PATH_TO_FBENCH + 'json_serdes/2.json"}',
-    "video_processing": '{"input_path": "' + PATH_TO_FBENCH + 'dataset/video/SampleVideo_1280x720_10mb.mp4"}',
-    "lr_training": '{"dataset_path": "' + PATH_TO_FBENCH + 'dataset/amzn_fine_food_reviews/reviews10mb.csv"}',
-    "cnn_serving": '{"img_path": "' + PATH_TO_FBENCH + 'dataset/image/animal-dog.jpg", "model_path": "' + PATH_TO_FBENCH + 'dataset/model/squeezenet_weights_tf_dim_ordering_tf_kernels.h5"}'
-}
+    "image_processing": '{"path": "' +
+    PATH_TO_FBENCH +
+    'dataset/image/animal-dog.jpg"}',
+    "rnn_serving": '{"language": "Scottish", "start_letters": "ABCDEFGHIJKLMNOP",  "parameter_path": "' +
+    PATH_TO_FBENCH +
+    'dataset/model/rnn_params.pkl", "model_path": "' +
+    PATH_TO_FBENCH +
+    'dataset/model/rnn_model.pth"}',
+    "json_serdes": '{"json_path": "' +
+    PATH_TO_FBENCH +
+    'json_serdes/2.json"}',
+    "video_processing": '{"input_path": "' +
+    PATH_TO_FBENCH +
+    'dataset/video/SampleVideo_1280x720_10mb.mp4"}',
+    "lr_training": '{"dataset_path": "' +
+    PATH_TO_FBENCH +
+    'dataset/amzn_fine_food_reviews/reviews10mb.csv"}',
+    "cnn_serving": '{"img_path": "' +
+    PATH_TO_FBENCH +
+    'dataset/image/animal-dog.jpg", "model_path": "' +
+    PATH_TO_FBENCH +
+    'dataset/model/squeezenet_weights_tf_dim_ordering_tf_kernels.h5"}'}
 
 
 RESIZERS = [
@@ -82,18 +98,22 @@ IMAGES = [
     ("tiny", f"{ROOT_DIR}/build/junction/samples/snapshots/thumbnails/IMG_4011.jpg"),
 ]
 
+
 def run(cmd):
     print(cmd)
     sys.stdout.flush()
     subprocess.check_output(cmd, shell=True)
+
 
 def run_async(cmd):
     print(cmd)
     sys.stdout.flush()
     return subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
 
+
 def kill_iok():
     run("sudo pkill iokerneld || true")
+
 
 def run_iok():
     if os.system("pgrep iok > /dev/null") == 0:
@@ -104,14 +124,17 @@ def run_iok():
         time.sleep(0.3)
         run("pgrep iokerneld > /dev/null")
 
+
 def kill_chroot():
     run(f"sudo umount {CHROOT_DIR}/{BIN_DIR}")
     run(f"sudo umount {CHROOT_DIR}/{BUILD_DIR}")
     if jifpager_installed():
         run(f"sudo rm {CHROOT_DIR}/dev/jif_pager")
 
+
 def setup_chroot():
-    if not USE_CHROOT: return
+    if not USE_CHROOT:
+        return
     run(f"sudo mkdir -p {CHROOT_DIR}/{BIN_DIR} {CHROOT_DIR}/{BUILD_DIR}")
     run(f"sudo mount --bind -o ro {BIN_DIR} {CHROOT_DIR}/{BIN_DIR}")
     run(f"sudo mount --bind -o ro {BUILD_DIR} {CHROOT_DIR}/{BUILD_DIR}")
@@ -125,41 +148,98 @@ def setup_chroot():
 
     atexit.register(kill_chroot)
 
+
 def jifpager_installed():
     try:
-        return DO_KERNEL_EXPS and stat.S_ISCHR(os.stat("/dev/jif_pager").st_mode)
-    except:
+        return DO_KERNEL_EXPS and stat.S_ISCHR(
+            os.stat("/dev/jif_pager").st_mode)
+    except BaseException:
         return False
 
-def snapshot_elf(cmd, output_image, output_log, extra_flags = "", stop_count = 1, arg = "", name="func"):
-    verarg = f"--function_arg '{arg}' --function_name {name}" if NEW_VERSION else f"-S {stop_count}"
-    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} {verarg} --snapshot-prefix {output_image} -- {cmd} >> {output_log}_snapelf 2>&1")
 
-def snapshot_jif(cmd, output_image, output_log, extra_flags = "", stop_count = 1, arg = "", name="func"):
-    verarg = f"--function_arg '{arg}' --function_name {name}" if NEW_VERSION else f"-S {stop_count}"
-    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif {verarg} --madv_remap --snapshot-prefix {output_image} -- {cmd} >> {output_log}_snapjif 2>&1")
+def snapshot_elf(
+        cmd,
+        output_image,
+        output_log,
+        extra_flags="",
+        stop_count=1,
+        arg="",
+        name="func"):
+    verarg = f"--function_arg '{arg}' --function_name {
+        name}" if NEW_VERSION else f"-S {stop_count}"
+    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} {verarg} --snapshot-prefix {
+        output_image} -- {cmd} >> {output_log}_snapelf 2>&1")
 
-def restore_elf(image, output_log, extra_flags = "", arg="", name="func"):
-    verarg = f"--function_arg '{arg}' --function_name {name} " if NEW_VERSION else ""
-    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -r {verarg} -- {image}.metadata {image}.elf >> {output_log}_elf 2>&1")
+
+def snapshot_jif(
+        cmd,
+        output_image,
+        output_log,
+        extra_flags="",
+        stop_count=1,
+        arg="",
+        name="func"):
+    verarg = f"--function_arg '{arg}' --function_name {
+        name}" if NEW_VERSION else f"-S {stop_count}"
+    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif {verarg} --madv_remap --snapshot-prefix {
+        output_image} -- {cmd} >> {output_log}_snapjif 2>&1")
+
+
+def restore_elf(image, output_log, extra_flags="", arg="", name="func"):
+    verarg = f"--function_arg '{arg}' --function_name {
+        name} " if NEW_VERSION else ""
+    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} -r {verarg} -- {
+        image}.metadata {image}.elf >> {output_log}_elf 2>&1")
+
 
 def process_itree(output_image, output_log):
-    run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif build-itrees {CHROOT_DIR if USE_CHROOT else ""} >> {output_log}_builditree 2>&1")
+    run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}.jif {output_image}_itrees.jif build-itrees {
+        CHROOT_DIR if USE_CHROOT else ""} >> {output_log}_builditree 2>&1")
+
 
 def process_fault_order(output_image, output_log):
     # add ordering to jif
-    run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}_itrees.jif {output_image}_itrees_ord_reorder.jif add-ord --setup-prefetch {output_image}.ord >> {output_log}_addord 2>&1 ")
-    run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}_itrees.jif {output_image}_itrees_ord.jif add-ord {output_image}.ord >> {output_log}_addord 2>&1 ")
+    run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}_itrees.jif {
+        output_image}_itrees_ord_reorder.jif add-ord --setup-prefetch {output_image}.ord >> {output_log}_addord 2>&1 ")
+    run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {output_image}_itrees.jif {
+        output_image}_itrees_ord.jif add-ord {output_image}.ord >> {output_log}_addord 2>&1 ")
 
-def restore_jif(image, output_log, extra_flags = "", arg = "", name="func"):
-    verarg = f"--function_arg '{arg}' --function_name {name}" if NEW_VERSION else ""
-    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r {verarg} -- {image}.jm {image}.jif >> {output_log}_jif 2>&1")
 
-def restore_itrees_jif(image, output_log, extra_flags = "", reorder=False, arg = "", name="func"):
-    verarg = f"--function_arg '{arg}' --function_name {name}" if NEW_VERSION else ""
-    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r {verarg} -- {image}.jm {image}_itrees{"_ord_reorder" if reorder else ""}.jif >> {output_log}_itrees_jif 2>&1")
+def restore_jif(image, output_log, extra_flags="", arg="", name="func"):
+    verarg = f"--function_arg '{arg}' --function_name {
+        name}" if NEW_VERSION else ""
+    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r {
+        verarg} -- {image}.jm {image}.jif >> {output_log}_jif 2>&1")
 
-def jifpager_restore_itrees(image, output_log, cold=False, minor=False, fault_around=True, measure_latency=False, prefault=False, readahead=True, extra_flags = "", reorder=True, second_app=[], arg = "", name="func"):
+
+def restore_itrees_jif(
+        image,
+        output_log,
+        extra_flags="",
+        reorder=False,
+        arg="",
+        name="func"):
+    verarg = f"--function_arg '{arg}' --function_name {
+        name}" if NEW_VERSION else ""
+    suffix = "_ord_reorder" if reorder else ""
+    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} --jif -r {verarg} -- {
+        image}.jm {image}_itrees{suffix}.jif >> {output_log}_itrees_jif 2>&1")
+
+
+def jifpager_restore_itrees(
+        image,
+        output_log,
+        cold=False,
+        minor=False,
+        fault_around=True,
+        measure_latency=False,
+        prefault=False,
+        readahead=True,
+        extra_flags="",
+        reorder=True,
+        second_app=[],
+        arg="",
+        name="func"):
     set_fault_around(1 if fault_around else 0)
     set_prefault(1 if prefault else 0)
     set_prefault_minor(1 if minor else 0)
@@ -171,25 +251,31 @@ def jifpager_restore_itrees(image, output_log, cold=False, minor=False, fault_ar
         dropcache()
 
     procs = []
+    suffix = "_reorder" if reorder else ""
     for sname, sarg, simage in second_app:
-        procs.append(run_async(f"sudo -E {JRUN} {CONFIG} {extra_flags} --function_arg '{sarg}' --function_name {sname} --jif -rk -- {simage}.jm {simage}_itrees_ord{"_reorder" if reorder else ""}.jif >> {output_log}_itrees_jif_k_second_app_{sname} 2>&1"))
+        procs.append(run_async(f"sudo -E {JRUN} {CONFIG} {extra_flags} --function_arg '{sarg}' --function_name {
+                     sname} --jif -rk -- {simage}.jm {simage}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k_second_app_{sname} 2>&1"))
 
     for proc in procs:
         proc.wait()
         assert proc.returncode == 0
 
     jifpager_reset()
-    verarg = f"--function_arg '{arg}' --function_name {name}" if NEW_VERSION else ""
-    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} {verarg} --jif -rk -- {image}.jm {image}_itrees_ord{"_reorder" if reorder else ""}.jif >> {output_log}_itrees_jif_k  2>&1")
+    verarg = f"--function_arg '{arg}' --function_name {
+        name}" if NEW_VERSION else ""
+    run(f"sudo -E {JRUN} {CONFIG} {extra_flags} {verarg} --jif -rk -- {image}.jm {
+        image}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k  2>&1")
 
-    if second_app: os.system("pkill junction")
+    if second_app:
+        os.system("pkill junction")
 
     stats = open("/sys/kernel/jif_pager/stats")
     stats = json.loads(stats.readlines()[0])
     print(dict(stats))
 
     total_pages = stats["sync_pages_read"] + stats["async_pages_read"]
-    total_faults = stats["minor_faults"] + stats["major_faults"] + stats["pre_minor_faults"] + stats["pre_major_faults"]
+    total_faults = stats["minor_faults"] + stats["major_faults"] + \
+        stats["pre_minor_faults"] + stats["pre_major_faults"]
 
     if total_pages > 0:
         overread = float(total_faults / total_pages) * 100.0
@@ -208,42 +294,83 @@ def jifpager_restore_itrees(image, output_log, cold=False, minor=False, fault_ar
         f.write(json.dumps(stats))
         f.write('\n')
 
+
 def set_readahead(val):
     run(f"echo {val} | sudo tee /sys/kernel/jif_pager/readahead")
+
 
 def set_fault_around(val):
     run(f"echo {val} | sudo tee /sys/kernel/jif_pager/fault_around")
 
+
 def set_prefault(val):
     run(f"echo {val} | sudo tee /sys/kernel/jif_pager/prefault")
+
 
 def set_prefault_minor(val):
     run(f"echo {val} | sudo tee /sys/kernel/jif_pager/prefault_minor")
 
+
 def set_measure_latency(val):
     run(f"echo {val} | sudo tee /sys/kernel/jif_pager/measure_latency")
+
 
 def jifpager_reset():
     run("echo 1 | sudo tee /sys/kernel/jif_pager/reset")
 
-def generate_images(cmd, output_image, logname, stop_count = 1, extra_flags = "", name="", arg=""):
+
+def generate_images(
+        cmd,
+        output_image,
+        logname,
+        stop_count=1,
+        extra_flags="",
+        name="",
+        arg=""):
     if ENABLE_ELF_BASELINE:
-        snapshot_elf(cmd, output_image, logname, extra_flags, stop_count=stop_count, name=name, arg=arg)
-    snapshot_jif(cmd, output_image, logname, extra_flags, stop_count=stop_count, name=name, arg=arg)
-    process_itree(f"{CHROOT_DIR}/{output_image}" if USE_CHROOT else output_image, logname)
+        snapshot_elf(
+            cmd,
+            output_image,
+            logname,
+            extra_flags,
+            stop_count=stop_count,
+            name=name,
+            arg=arg)
+    snapshot_jif(
+        cmd,
+        output_image,
+        logname,
+        extra_flags,
+        stop_count=stop_count,
+        name=name,
+        arg=arg)
+    process_itree(
+        f"{CHROOT_DIR}/{output_image}" if USE_CHROOT else output_image,
+        logname)
 
     # generate ord with tracer
-    restore_jif(output_image, f"{logname}_buildord", extra_flags=f" {extra_flags} --stackswitch --mem-trace --mem-trace-out {output_image}.ord", name=name, arg=arg)
+    restore_jif(
+        output_image,
+        f"{logname}_buildord",
+        extra_flags=f" {extra_flags} --stackswitch --mem-trace --mem-trace-out {output_image}.ord",
+        name=name,
+        arg=arg)
 
-    process_fault_order(f"{CHROOT_DIR}/{output_image}" if USE_CHROOT else output_image, logname)
+    process_fault_order(
+        f"{CHROOT_DIR}/{output_image}" if USE_CHROOT else output_image,
+        logname)
+
 
 def get_baseline(cmd, edir):
     run(f"DONTSTOP=1 {cmd} >> {edir}/restore_images_linux 2>&1")
 
+
 def dropcache():
     for i in range(DROPCACHE):
-        if i > 0: time.sleep(10)
+        if i > 0:
+            time.sleep(10)
         run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
+
 
 RESTORE_CONFIG_SET = [
     ("linux", "Linux warm"),
@@ -255,8 +382,10 @@ RESTORE_CONFIG_SET = [
     ("prefault_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)"),
     ("prefault_minor_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\nprefault minor"),
     ("prefault_reorder_itrees_jif_k", "JIF\nkernel\nprefetch)\n(w/ reorder)"),
-    ("prefault_reorder_minor_itrees_jif_k", "JIF k\nFully cold + \nall optimizations"),
-    ("prefault_reorder_minor_sa_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\nprefault minor\nsa"),
+    ("prefault_reorder_minor_itrees_jif_k",
+     "JIF k\nFully cold + \nall optimizations"),
+    ("prefault_reorder_minor_sa_itrees_jif_k",
+     "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\nprefault minor\nsa"),
     ("reorder_itrees_jif_k", "JIF\nkernel\nReorder"),
     ("reorder_sa_itrees_jif_k", "JIF\nkernel\n(w/ reorder)\nsa"),
 
@@ -265,14 +394,24 @@ RESTORE_CONFIG_SET = [
     ("nora_itrees_jif_k", "JIF\nkernel\nNo RA"),
     ("nora_reorder_itrees_jif_k", "JIF\nkernel\nNo RA\nReorder"),
     ("nora_prefault_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\nNo RA"),
-    ("prefault_reorder_simple_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\n(float op)"),
-    ("prefault_reorder_self_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\n(self)"),
+    ("prefault_reorder_simple_itrees_jif_k",
+     "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\n(float op)"),
+    ("prefault_reorder_self_itrees_jif_k",
+     "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\n(self)"),
     ("reorder_simple_itrees_jif_k", "JIF\nkernel\n(w/ reorder)\n(float op)"),
     ("reorder_self_itrees_jif_k", "JIF\nkernel\n(w/ reorder)\n(self)"),
-    ("nora_prefault_reorder_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\nNoRA"),
+    ("nora_prefault_reorder_itrees_jif_k",
+     "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\nNoRA"),
 ]
 
-def restore_image(image, logname, extra_flags="", name="", arg="", second_app=[]):
+
+def restore_image(
+        image,
+        logname,
+        extra_flags="",
+        name="",
+        arg="",
+        second_app=[]):
     if ENABLE_ELF_BASELINE:
         dropcache()
         restore_elf(image, logname, extra_flags, name=name, arg=arg)
@@ -283,58 +422,156 @@ def restore_image(image, logname, extra_flags="", name="", arg="", second_app=[]
     # use the reorder file with userspace restore (increases VMA setup costs)
     if False:
         dropcache()
-        restore_itrees_jif(image, f"{logname}_reorder", extra_flags, reorder=True, name=name, arg=arg)
+        restore_itrees_jif(
+            image,
+            f"{logname}_reorder",
+            extra_flags,
+            reorder=True,
+            name=name,
+            arg=arg)
 
     if jifpager_installed():
         if DO_KERNEL_NO_PREFETCH_EXP:
             # Kernel module restore (no prefetching)
-            jifpager_restore_itrees(image, logname, extra_flags=extra_flags, prefault=False, cold=True, reorder=False, name=name, arg=arg)
+            jifpager_restore_itrees(
+                image,
+                logname,
+                extra_flags=extra_flags,
+                prefault=False,
+                cold=True,
+                reorder=False,
+                name=name,
+                arg=arg)
 
             # Kernel module restore using reorder file, with/without readahead
             if False:
-                jifpager_restore_itrees(image, f"{logname}_reorder", extra_flags=extra_flags, prefault=False, cold=True, reorder=True, name=name, arg=arg)
-                jifpager_restore_itrees(image, f"{logname}_nora", extra_flags=extra_flags, prefault=False, cold=True, reorder=False, name=name, arg=arg)
-                jifpager_restore_itrees(image, f"{logname}_nora_reorder", extra_flags=extra_flags, prefault=False, cold=True, reorder=True, name=name, arg=arg)
+                jifpager_restore_itrees(
+                    image,
+                    f"{logname}_reorder",
+                    extra_flags=extra_flags,
+                    prefault=False,
+                    cold=True,
+                    reorder=True,
+                    name=name,
+                    arg=arg)
+                jifpager_restore_itrees(
+                    image,
+                    f"{logname}_nora",
+                    extra_flags=extra_flags,
+                    prefault=False,
+                    cold=True,
+                    reorder=False,
+                    name=name,
+                    arg=arg)
+                jifpager_restore_itrees(
+                    image,
+                    f"{logname}_nora_reorder",
+                    extra_flags=extra_flags,
+                    prefault=False,
+                    cold=True,
+                    reorder=True,
+                    name=name,
+                    arg=arg)
 
         if DO_KERNEL_PREFETCH_EXP:
             # Prefault pages
-            jifpager_restore_itrees(image, f"{logname}_prefault", extra_flags=extra_flags, prefault=True, cold=True, reorder=False, name=name, arg=arg)
+            jifpager_restore_itrees(
+                image,
+                f"{logname}_prefault",
+                extra_flags=extra_flags,
+                prefault=True,
+                cold=True,
+                reorder=False,
+                name=name,
+                arg=arg)
             # jifpager_restore_itrees(image, f"{logname}_prefault_minor", extra_flags=extra_flags, minor=True, prefault=True, cold=True, reorder=False, name=name, arg=arg)
         if DO_KERNEL_PREFETCH_REORDER_EXP:
             # Prefault pages with reordered contiguous data section
             # jifpager_restore_itrees(image, f"{logname}_prefault_reorder", extra_flags=extra_flags, prefault=True, cold=True, reorder=True, name=name, arg=arg)
-            jifpager_restore_itrees(image, f"{logname}_prefault_reorder_minor", extra_flags=extra_flags, minor=True, prefault=True, cold=True, reorder=True, name=name, arg=arg)
+            jifpager_restore_itrees(
+                image,
+                f"{logname}_prefault_reorder_minor",
+                extra_flags=extra_flags,
+                minor=True,
+                prefault=True,
+                cold=True,
+                reorder=True,
+                name=name,
+                arg=arg)
 
         if False:
             # try warming things with one image restore before the main one
             for tag, f in [("simple", "/tmp/float_operation"), ("self", name)]:
-                jifpager_restore_itrees(image, f"{logname}_prefault_reorder_{tag}", extra_flags=extra_flags, prefault=True, cold=True, reorder=True, second_app=f, name=name, arg=arg)
-                jifpager_restore_itrees(image, f"{logname}_reorder_{tag}", extra_flags=extra_flags, prefault=False, cold=True, reorder=True, second_app=f, name=name, arg=arg)
+                jifpager_restore_itrees(
+                    image,
+                    f"{logname}_prefault_reorder_{tag}",
+                    extra_flags=extra_flags,
+                    prefault=True,
+                    cold=True,
+                    reorder=True,
+                    second_app=f,
+                    name=name,
+                    arg=arg)
+                jifpager_restore_itrees(
+                    image,
+                    f"{logname}_reorder_{tag}",
+                    extra_flags=extra_flags,
+                    prefault=False,
+                    cold=True,
+                    reorder=True,
+                    second_app=f,
+                    name=name,
+                    arg=arg)
 
         if second_app:
-            jifpager_restore_itrees(image, f"{logname}_sa", extra_flags=extra_flags, minor=False, prefault=False, cold=True, reorder=False, name=name, arg=arg, second_app=second_app)
+            jifpager_restore_itrees(
+                image,
+                f"{logname}_sa",
+                extra_flags=extra_flags,
+                minor=False,
+                prefault=False,
+                cold=True,
+                reorder=False,
+                name=name,
+                arg=arg,
+                second_app=second_app)
         # # jifpager_restore_itrees(image, f"{logname}", extra_flags=extra_flags, minor=False, prefault=False, cold=True, reorder=True, name=name, arg=arg, second_app=second_app)
 
         # jifpager_restore_itrees(image, f"{logname}_self", extra_flags=extra_flags, minor=False, prefault=False, cold=True, reorder=False, name=name, arg=arg, second_app=second_app)
         second_app = [(name, arg, image)]
-        jifpager_restore_itrees(image, f"{logname}_self", extra_flags=extra_flags, minor=False, prefault=False, cold=True, reorder=False, name=name, arg=arg, second_app=second_app)
+        jifpager_restore_itrees(
+            image,
+            f"{logname}_self",
+            extra_flags=extra_flags,
+            minor=False,
+            prefault=False,
+            cold=True,
+            reorder=False,
+            name=name,
+            arg=arg,
+            second_app=second_app)
 
 
 def get_cmd(lang, fn):
     if lang == "python":
         script = "new_runner.py" if NEW_VERSION else "run.py"
-        return f"{ROOT_DIR}/bin/venv/bin/python3 " + f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/" + f"{script} {fn}"
+        return f"{ROOT_DIR}/bin/venv/bin/python3 " + \
+            f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/" + f"{script} {fn}"
 
     if lang == "node":
-        return f"/usr/bin/node --jitless --expose-gc " + f"{ROOT_DIR}/build/junction/samples/snapshots/node/" + f"function_bench/run.js {fn}"
+        return f"/usr/bin/node --jitless --expose-gc " + \
+            f"{ROOT_DIR}/build/junction/samples/snapshots/node/" + f"function_bench/run.js {fn}"
 
     if lang == "java":
         if fn == "jmatmul":
-            return f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{ROOT_DIR}/build/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar {ROOT_DIR}/build/junction/samples/snapshots/java/matmul/MatMul.java --new_version"
+            return f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{
+                ROOT_DIR}/build/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar {ROOT_DIR}/build/junction/samples/snapshots/java/matmul/MatMul.java --new_version"
 
         assert False, f"unknown function for java `{fn}`, only know matmul"
 
-    assert False, f"unknown lang for cmd `{lang}`: can only map python, node and java"
+    assert False, f"unknown lang for cmd `{
+        lang}`: can only map python, node and java"
+
 
 def get_fbench_times(edir):
     eflags = ""
@@ -344,13 +581,28 @@ def get_fbench_times(edir):
         for lang, fn in FBENCH:
             stop_count = 2 if "java" in lang else 1
             cmd = get_cmd(lang, fn)
-            generate_images(cmd, f"/tmp/{fn}", f"{edir}/generate_images", stop_count=stop_count, extra_flags=eflags, name=fn, arg=default_jsons[fn])
+            generate_images(
+                cmd,
+                f"/tmp/{fn}",
+                f"{edir}/generate_images",
+                stop_count=stop_count,
+                extra_flags=eflags,
+                name=fn,
+                arg=default_jsons[fn])
         for name, cmd in RESIZERS:
             stop_count = 2 if "java" in name else 1
             for image, path in IMAGES:
-                fullcmd = f"{cmd} --new_version" if name != "rust" else f"{cmd} --new-version"
+                fullcmd = f"{
+                    cmd} --new_version" if name != "rust" else f"{cmd} --new-version"
                 nm = f"{name}_resizer_{image}"
-                generate_images(fullcmd, f"/tmp/{nm}", f"{edir}/generate_images", stop_count=stop_count, extra_flags=eflags, name=nm, arg=path)
+                generate_images(
+                    fullcmd,
+                    f"/tmp/{nm}",
+                    f"{edir}/generate_images",
+                    stop_count=stop_count,
+                    extra_flags=eflags,
+                    name=nm,
+                    arg=path)
 
     for lang, fn in FBENCH:
         cmd = get_cmd(lang, fn)
@@ -360,7 +612,13 @@ def get_fbench_times(edir):
                 continue
             second_app.append((fn2, default_jsons[fn2], f"/tmp/{fn2}"))
 
-        restore_image(f"/tmp/{fn}", f"{edir}/restore_images", extra_flags=eflags, name=fn, arg=default_jsons[fn], second_app=second_app)
+        restore_image(
+            f"/tmp/{fn}",
+            f"{edir}/restore_images",
+            extra_flags=eflags,
+            name=fn,
+            arg=default_jsons[fn],
+            second_app=second_app)
 
     for name, cmd in RESIZERS:
         for image, path in IMAGES:
@@ -373,14 +631,20 @@ def get_fbench_times(edir):
                 nm2 = f"{name}_resizer_{simage}"
                 second_app.append((nm2, spath, f"/tmp/{nm2}"))
 
-            restore_image(f"/tmp/{nm}", f"{edir}/restore_images", extra_flags=eflags, name=nm, arg=path, second_app=second_app)
+            restore_image(
+                f"/tmp/{nm}",
+                f"{edir}/restore_images",
+                extra_flags=eflags,
+                name=nm,
+                arg=path,
+                second_app=second_app)
 
 
 def get_one_log(name):
     try:
         with open(name) as x:
             dat = x.read().splitlines()
-    except:
+    except BaseException:
         return {}
 
     progs = {}
@@ -392,7 +656,8 @@ def get_one_log(name):
             continue
         lx = l.split("DATA  ")[-1].strip()
         xx = json.loads(lx)
-        assert xx['program'] not in progs, f"{name}: {xx['program']} already in {progs}"
+        assert xx['program'] not in progs, f"{
+            name}: {xx['program']} already in {progs}"
 
         if prev_restore:
             l = prev_restore.split("restore time")[1].split()
@@ -405,6 +670,7 @@ def get_one_log(name):
 
     return progs
 
+
 def getstats_old(d):
     return {
         'cold_first_iter': d["cold"][0],
@@ -414,6 +680,7 @@ def getstats_old(d):
         'metadata_restore': d.get("metadata_restore"),
         'fs_restore': d.get("fs_restore"),
     }
+
 
 def getstats(d):
     return {
@@ -425,14 +692,16 @@ def getstats(d):
         'fs_restore': d.get("fs_restore"),
     }
 
+
 def get_kstats(fn, data, expn):
     try:
         with open(fn, "r") as f:
             for line in f.readlines():
                 jx = json.loads(line)
                 data[jx['key']][expn]['jifpager_stats_ns'] = jx
-    except:
+    except BaseException:
         pass
+
 
 def parse_fbench_times(edir):
     from pprint import pprint
@@ -449,6 +718,7 @@ def parse_fbench_times(edir):
 
     pprint(out)
     return out
+
 
 def plot_workloads(edir, data):
     workloads = list(data.keys())
@@ -517,7 +787,8 @@ def plot_workloads(edir, data):
         seen = set()
 
         def get_lbl(label):
-            if label in seen: return None
+            if label in seen:
+                return None
             seen.add(label)
             return {
                 'function': 'Function',
@@ -532,7 +803,8 @@ def plot_workloads(edir, data):
                 if FUNCTION_ONLY:
                     sm = next(l[0] for l in stack if l[1] == "function")
                 else:
-                    sm = sum(l[0] for l in stack if l[0] is not None) #- WARM_ITER
+                    sm = sum(l[0] for l in stack if l[0]
+                             is not None)  # - WARM_ITER
                 if SLOWDOWN:
                     sm /= WARM_ITER
                 ax.bar(label, sm, color=get_colors('slowdown'))
@@ -540,7 +812,12 @@ def plot_workloads(edir, data):
                 for val, category in stack:
                     if val is None:
                         continue
-                    ax.bar(label, val, bottom=bottom, color=get_colors(category), label=get_lbl(category))
+                    ax.bar(
+                        label,
+                        val,
+                        bottom=bottom,
+                        color=get_colors(category),
+                        label=get_lbl(category))
                     bottom += val
             if jpstat is None:
                 continue
@@ -572,6 +849,7 @@ def plot_workloads(edir, data):
     plt.tight_layout()
     plt.savefig(f'{edir}/graph.pdf', bbox_inches='tight')
 
+
 def main():
     edir = f"{RESULT_DIR}/run.{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
     os.system(f"mkdir -p {edir}")
@@ -579,6 +857,7 @@ def main():
     get_fbench_times(edir)
     data = parse_fbench_times(edir)
     plot_workloads(edir, data)
+
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:
