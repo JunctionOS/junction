@@ -1,6 +1,7 @@
 import math
 from time import time
 
+
 def float_operation(N):
     start = time()
     for i in range(0, N):
@@ -9,6 +10,7 @@ def float_operation(N):
         sqrt_i = math.sqrt(i)
     latency = time() - start
     return latency
+
 
 def function_handler(request_json):
     N = request_json['N']

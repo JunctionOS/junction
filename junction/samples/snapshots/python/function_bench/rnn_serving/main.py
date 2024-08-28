@@ -15,8 +15,17 @@ Language
  - Scottish, Vietnamese, Korean, Japanese
 """
 
+
 class RNN(nn.Module):
-    def __init__(self, input_size, hidden_size, output_size, all_categories, n_categories, all_letters, n_letters):
+    def __init__(
+            self,
+            input_size,
+            hidden_size,
+            output_size,
+            all_categories,
+            n_categories,
+            all_letters,
+            n_letters):
         super(RNN, self).__init__()
         self.hidden_size = hidden_size
 
@@ -25,8 +34,16 @@ class RNN(nn.Module):
         self.all_letters = all_letters
         self.n_letters = n_letters
 
-        self.i2h = nn.Linear(n_categories + input_size + hidden_size, hidden_size)
-        self.i2o = nn.Linear(n_categories + input_size + hidden_size, output_size)
+        self.i2h = nn.Linear(
+            n_categories +
+            input_size +
+            hidden_size,
+            hidden_size)
+        self.i2o = nn.Linear(
+            n_categories +
+            input_size +
+            hidden_size,
+            output_size)
         self.o2o = nn.Linear(hidden_size + output_size, output_size)
         self.dropout = nn.Dropout(0.1)
         self.softmax = nn.LogSoftmax(dim=1)
@@ -61,15 +78,24 @@ class RNN(nn.Module):
 
     # Sample from a category and starting letter
     def sample(self, category, start_letter='A'):
-        category_tensor = Variable(self.gen_category_tensor(self.all_categories, self.n_categories, category))
-        input_tensor = Variable(self.gen_input_tensor(self.all_letters, self.n_letters, start_letter))
+        category_tensor = Variable(
+            self.gen_category_tensor(
+                self.all_categories,
+                self.n_categories,
+                category))
+        input_tensor = Variable(
+            self.gen_input_tensor(
+                self.all_letters,
+                self.n_letters,
+                start_letter))
         hidden = self.init_hidden()
 
         output_name = start_letter
 
         max_length = 20
         for i in range(max_length):
-            output, hidden = self.forward(category_tensor, input_tensor[0], hidden)
+            output, hidden = self.forward(
+                category_tensor, input_tensor[0], hidden)
             topv, topi = output.data.topk(1)
             topi = topi[0][0]
 
@@ -79,7 +105,11 @@ class RNN(nn.Module):
                 letter = self.all_letters[topi]
                 output_name += letter
 
-            input_tensor = Variable(self.gen_input_tensor(self.all_letters, self.n_letters, letter))
+            input_tensor = Variable(
+                self.gen_input_tensor(
+                    self.all_letters,
+                    self.n_letters,
+                    letter))
 
         return output_name
 
@@ -105,7 +135,14 @@ def function_handler(request_json):
     all_letters = params['all_letters']
     n_letters = params['n_letters']
 
-    rnn_model = RNN(n_letters, 128, n_letters, all_categories, n_categories, all_letters, n_letters)
+    rnn_model = RNN(
+        n_letters,
+        128,
+        n_letters,
+        all_categories,
+        n_categories,
+        all_letters,
+        n_letters)
     rnn_model.load_state_dict(torch.load(model_path))
     rnn_model.eval()
 

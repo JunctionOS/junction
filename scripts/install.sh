@@ -10,7 +10,7 @@ export DEBIAN_FRONTEND=noninteractive
 # Install Linux packages
 sudo apt update
 sudo -E apt install -y perl libboost-dev libboost-program-options-dev bison gcc-12 g++-12 gawk binutils
-sudo -E apt install -y clang-tidy-16 clang-format-16 || true
+sudo -E apt install -y clang-tidy-16 clang-format-16 python3-autopep8 || true
 
 # Install packages for nbody tests and samples
 sudo -E apt install -y gfortran php-cli golang-go python3-numpy openjdk-21-jre-headless nodejs python3-pil ruby

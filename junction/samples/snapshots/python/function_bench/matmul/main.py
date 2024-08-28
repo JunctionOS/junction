@@ -1,6 +1,7 @@
 import numpy as np
 from time import time
 
+
 def matmul(N):
     A = np.random.rand(N, N)
     B = np.random.rand(N, N)
@@ -10,6 +11,7 @@ def matmul(N):
     latency = time() - start
 
     return latency
+
 
 def function_handler(request_json):
     N = request_json['N']

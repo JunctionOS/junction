@@ -6,7 +6,7 @@ def function_handler(request_json):
     json_path = request_json['json_path']
 
     with open(json_path, 'rb') as file:
-        data = file.read() 
+        data = file.read()
 
     start = time()
     json_data = json.loads(data)

@@ -76,7 +76,7 @@ AT_FDS = [
 ]
 
 TYPE_ARR = {
-    p : 'reinterpret_cast<strace::PathName *>' for p in STRACE_ARGS_THAT_ARE_PATHNAMES
+    p: 'reinterpret_cast<strace::PathName *>' for p in STRACE_ARGS_THAT_ARE_PATHNAMES
 }
 
 TYPE_ARR.update({
@@ -104,7 +104,13 @@ TYPE_ARR.update({
     ("madvise", 2): 'static_cast<strace::MAdviseHint>',
 })
 
-SKIP_STRACE_TARGET = ["exit", "exit_group", "vfork", "clone", "clone3", "rt_sigreturn"]
+SKIP_STRACE_TARGET = [
+    "exit",
+    "exit_group",
+    "vfork",
+    "clone",
+    "clone3",
+    "rt_sigreturn"]
 
 systabl_targets = [None for i in range(SYS_NR)]
 systabl_strace_targets = [None for i in range(SYS_NR)]
@@ -116,6 +122,7 @@ systabl_targets[454] = "junction_fncall_enter_preserve_regs"
 
 for i in range(451, 455):
     systabl_strace_targets[i] = systabl_targets[i]
+
 
 def genLogSyscallCall(pretty_name, with_ret, fnname):
     ret = ""
@@ -135,9 +142,12 @@ def genLogSyscallCall(pretty_name, with_ret, fnname):
     fn += ");"
     return fn
 
+
 def emit_strace_target(pretty_name, function_name, output):
-    fn = f"\nextern \"C\" __attribute__((cold)) int64_t {function_name}_trace(int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5) {'{'}"
-    runsyscall_cmd = f"\n\tint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
+    fn = f"\nextern \"C\" __attribute__((cold)) int64_t {
+        function_name}_trace(int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5) {'{'}"
+    runsyscall_cmd = f"\n\tint64_t ret = reinterpret_cast<sysfn_t>(&{
+        function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 
     if STRACE_LOG_BEFORE_RETURN:
         fn += genLogSyscallCall(pretty_name, False, function_name)
@@ -156,30 +166,39 @@ def emit_strace_target(pretty_name, function_name, output):
 def emit_enosys_target(syscall_name, sysnr, output):
     wrapper_name = f"{syscall_name}_enosys"
     fn = f"""
-    extern "C" __attribute__((cold)) long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+    extern "C" __attribute__((cold)) long {wrapper_name}
+                                           (long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {
+        '{'}
         LOG_ONCE(ERR) << "Unsupported system call {sysnr}:{syscall_name}";
         return -ENOSYS;
     {'}'}"""
     output.append(fn)
     return wrapper_name
 
+
 def emit_errno_target(syscall_name, output, errno):
     wrapper_name = f"{syscall_name}_{errno.lower()}"
     fn = f"""
-    extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+    extern "C" long {wrapper_name}
+        (long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {
+        '{'}
         return -{errno.upper()};
     {'}'}"""
     output.append(fn)
     return wrapper_name
 
+
 def emit_passthrough_target(syscall_name, sysnr, output):
     wrapper_name = f"{syscall_name}_forward"
     fn = f"""
-    extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
+    extern "C" long {wrapper_name}
+        (long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {
+        '{'}
         return ksys_default(arg0, arg1, arg2, arg3, arg4, arg5, {sysnr});
     {'}'}"""
     output.append(fn)
     return wrapper_name
+
 
 def emit_stub_target(syscall_name, output):
     wrapper_name = f"{syscall_name}_stub"
@@ -189,6 +208,7 @@ def emit_stub_target(syscall_name, output):
     {'}'}"""
     output.append(fn)
     return wrapper_name
+
 
 def gen_syscall_dict():
     syscall_defs_file = None
@@ -296,7 +316,8 @@ with open(USYS_LIST) as f:
         else:
             target = f"usys_{name}"
 
-        assertion = f"""static_assert(is_valid_syscall_v<decltype(&{target})>, "usys functions must return 64-bit values");"""
+        assertion = f"""static_assert(is_valid_syscall_v<decltype(&{
+            target})>, "usys functions must return 64-bit values");"""
         dispatch_file.append(assertion)
 
         systabl_targets[sysnr] = target

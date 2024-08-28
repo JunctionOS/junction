@@ -18,11 +18,13 @@ ch.setFormatter(formatter)
 
 logger.addHandler(ch)
 
+
 def get_chroot_path(original_path, chroot_root_path):
     """
     Gets the new path starting at the chroot_path.
     """
     return chroot_root_path.rstrip("/") + original_path
+
 
 def get_mount_points(prefix_path):
     """
@@ -41,6 +43,7 @@ def get_mount_points(prefix_path):
     logger.debug(f"Found mountpoints: {paths}")
     return paths
 
+
 def mount_cmd(src_path, dst_path):
     """
     Mounts the src_path on to dst_path.
@@ -48,7 +51,10 @@ def mount_cmd(src_path, dst_path):
     """
     cmd = ["sudo", "mount", "--bind", src_path, dst_path]
     logger.debug(f"{' '.join(cmd)}")
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) 
+    proc = subprocess.Popen(
+    cmd,
+    stdout=subprocess.PIPE,
+     stderr=subprocess.PIPE)
     proc.wait()
     stdout, stderr = proc.communicate()
     if len(stderr) > 0:
@@ -68,6 +74,7 @@ def mount_cmd(src_path, dst_path):
         return False
     return True
 
+
 def umount_cmd(path):
     """
     Unmounts the given path recursively and forecefully.
@@ -76,7 +83,10 @@ def umount_cmd(path):
     cmd = ["sudo", "umount", "--all-targets", "--recursive", "--force",
             path]
     logger.debug(f"{' '.join(cmd)}")
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) 
+    proc = subprocess.Popen(
+    cmd,
+    stdout=subprocess.PIPE,
+     stderr=subprocess.PIPE)
     proc.wait()
     stdout, stderr = proc.communicate()
     if len(stderr) > 0:
@@ -96,6 +106,7 @@ def umount_cmd(path):
         return False
     return True
 
+
 def rebind_readonly(path):
     """
     Rebinds the given path as read-only.
@@ -103,7 +114,10 @@ def rebind_readonly(path):
     """
     cmd = ["sudo", "mount", "-o", "bind,remount,ro", path]
     logger.debug(f"{' '.join(cmd)}")
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE) 
+    proc = subprocess.Popen(
+    cmd,
+    stdout=subprocess.PIPE,
+     stderr=subprocess.PIPE)
     proc.wait()
     stdout, stderr = proc.communicate()
     if len(stderr) > 0:
@@ -115,6 +129,7 @@ def rebind_readonly(path):
         os.remove(chroot_path)
         return False
     return True
+
 
 def mount(original_path, chroot_root_path, is_file=False):
     """
@@ -138,6 +153,7 @@ def mount(original_path, chroot_root_path, is_file=False):
     if not mount_cmd(original_path, chroot_path):
         return None
     return chroot_path
+
 
 def get_paths(input_file_path):
     """
@@ -164,6 +180,7 @@ def get_paths(input_file_path):
     logger.debug(f"Directories: {directories}")
     return files, directories
 
+
 def create_chroot_directory(path):
     """
     Creates a new chroot directory.
@@ -175,6 +192,7 @@ def create_chroot_directory(path):
         logger.error(f"chroot path already exists: {path}")
         return False
     return True
+
 
 def remove_chroot_directory(path):
     """
@@ -192,6 +210,7 @@ def remove_chroot_directory(path):
     except FileNotFoundError as e:
         logger.debug(f"chroot path does not exist: {path}")
     return True
+
 
 def get_args():
     parser = argparse.ArgumentParser()

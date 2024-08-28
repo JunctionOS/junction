@@ -40,6 +40,7 @@ def function_handler(request_json):
 
     return "latency : " + str(latency)
 
+
 def main():
     if len(sys.argv) != 2:
         print("usage: python3 main.py <json_string>")
@@ -47,6 +48,7 @@ def main():
     json_string = sys.argv[1]
     json_req = json.loads(json_string)
     print(function_handler(json_req))
+
 
 if __name__ == "__main__":
     main()

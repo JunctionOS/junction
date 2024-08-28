@@ -1,10 +1,12 @@
 import sys
-import os, signal
+import os
+import signal
 
 if __name__ == "__main__":
     print("Hello world!")
 
-    # flush to make sure the stuff from above isn't printed when we are restored
+    # flush to make sure the stuff from above isn't printed when we are
+    # restored
     sys.stdout.flush()
 
     # wait for snapshot

@@ -1,6 +1,7 @@
 import numpy as np
 import sys
-import os, signal
+import os
+import signal
 
 print("Starting numpy snapshot test")
 
@@ -21,4 +22,4 @@ res1 = np.dot(m1, m2)
 if np.array_equal(res, res1):
     print("OK: Matrices are the same")
 else:
-    print("ERR: Matricies differ");
+    print("ERR: Matricies differ")

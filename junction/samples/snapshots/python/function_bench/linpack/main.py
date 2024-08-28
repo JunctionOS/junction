@@ -1,26 +1,27 @@
 from numpy import matrix, array, linalg, random, amax
 from time import time
 
-def linpack(N):
-    eps=2.22e-16
 
-    ops=(2.0*N)*N*N/3.0+(2.0*N)*N
+def linpack(N):
+    eps = 2.22e-16
+
+    ops = (2.0 * N) * N * N / 3.0 + (2.0 * N) * N
 
     # Create AxA array of random numbers -0.5 to 0.5
-    A=random.random_sample((N,N))-0.5
-    B=A.sum(axis=1)
+    A = random.random_sample((N, N)) - 0.5
+    B = A.sum(axis=1)
 
     # Convert to matrices
-    A=matrix(A)
+    A = matrix(A)
 
-    B=matrix(B.reshape((N,1)))
-    na=amax(abs(A.A))
+    B = matrix(B.reshape((N, 1)))
+    na = amax(abs(A.A))
 
     start = time()
-    X=linalg.solve(A,B)
+    X = linalg.solve(A, B)
     latency = time() - start
 
-    mflops = (ops*1e-6/latency)
+    mflops = (ops * 1e-6 / latency)
 
     result = {
         'mflops': mflops,
@@ -33,4 +34,5 @@ def linpack(N):
 def function_handler(request_json):
     N = request_json['N']
     result = linpack(N)
-    return "latency : " + str(result['latency']) + " mflops : " + str(result['mflops'])
+    return "latency : " + str(result['latency']) + \
+        " mflops : " + str(result['mflops'])

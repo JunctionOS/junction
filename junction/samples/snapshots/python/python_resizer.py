@@ -7,7 +7,8 @@
 
 import sys
 import argparse
-import os, signal
+import os
+import signal
 from PIL import Image, ImageChops
 from pathlib import Path
 from typing import Optional
@@ -24,6 +25,7 @@ parser.add_argument(
     action='store_true')
 
 MAX_SIZE = (128, 128)
+
 
 def resize(
         image_path: Path,
@@ -94,6 +96,7 @@ def main():
         else:
             print('ERR: thumbnails are not the same')
             exit(-1)
+
 
 if __name__ == '__main__':
     main()

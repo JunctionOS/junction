@@ -4,6 +4,7 @@ import os
 
 TMP = "/tmp/"
 
+
 def flip(image, file_name):
     path_list = []
     path = TMP + "flip-left-right-" + file_name
@@ -17,6 +18,7 @@ def flip(image, file_name):
     path_list.append(path)
 
     return path_list
+
 
 def rotate(image, file_name):
     path_list = []
@@ -37,6 +39,7 @@ def rotate(image, file_name):
 
     return path_list
 
+
 def filter(image, file_name):
     path_list = []
     path = TMP + "blur-" + file_name
@@ -56,17 +59,20 @@ def filter(image, file_name):
 
     return path_list
 
+
 def gray_scale(image, file_name):
     path = TMP + "gray-scale-" + file_name
     img = image.convert('L')
     img.save(path)
     return [path]
 
+
 def resize(image, file_name):
     path = TMP + "resized-" + file_name
     image.thumbnail((128, 128))
     image.save(path)
     return [path]
+
 
 def image_processing(file_name, image_path):
     path_list = []
@@ -82,10 +88,11 @@ def image_processing(file_name, image_path):
     latency = time() - start
     return latency, path_list
 
+
 def function_handler(request_json):
     image_path = request_json['path']
     file_name = os.path.basename(image_path)
-    
-    latency, path_list = image_processing(file_name, image_path) 
-    
+
+    latency, path_list = image_processing(file_name, image_path)
+
     return "latency : " + str(latency)

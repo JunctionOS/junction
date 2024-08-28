@@ -25,9 +25,15 @@ exp3x3 = "expand3x3"
 relu = "relu_"
 
 
-PATH_TO_FBENCH = str(os.path.dirname(os.path.dirname(os.path.dirname(os.path.realpath(__file__)))))
+PATH_TO_FBENCH = str(
+    os.path.dirname(
+        os.path.dirname(
+            os.path.dirname(
+                os.path.realpath(__file__)))))
 
 # Modular function for Fire Node
+
+
 def fire_module(x, fire_id, squeeze=16, expand=64):
     s_id = 'fire' + str(fire_id) + '-'
 
@@ -39,10 +45,12 @@ def fire_module(x, fire_id, squeeze=16, expand=64):
     x = Convolution2D(squeeze, (1, 1), padding='valid', name=s_id + sq1x1)(x)
     x = Activation('relu', name=s_id + relu + sq1x1)(x)
 
-    left = Convolution2D(expand, (1, 1), padding='valid', name=s_id + exp1x1)(x)
+    left = Convolution2D(expand, (1, 1), padding='valid',
+                         name=s_id + exp1x1)(x)
     left = Activation('relu', name=s_id + relu + exp1x1)(left)
 
-    right = Convolution2D(expand, (3, 3), padding='same', name=s_id + exp3x3)(x)
+    right = Convolution2D(expand, (3, 3), padding='same',
+                          name=s_id + exp3x3)(x)
     right = Activation('relu', name=s_id + relu + exp3x3)(right)
 
     x = concatenate([left, right], axis=channel_axis, name=s_id + 'concat')
@@ -66,13 +74,13 @@ def SqueezeNet(include_top=True, weights='imagenet',
         raise ValueError('If using `weights` as imagenet with `include_top`'
                          ' as true, `classes` should be 1000')
 
-
     # input_shape = _obtain_input_shape(input_shape,
     #                                   default_size=227,
     #                                   min_size=48,
     #                                   data_format=K.image_data_format(),
     #                                   require_flatten=include_top)
-    input_shape = (227, 227, 3) # hard-coding this for the input because _obtain_input_shape is deprecated
+    # hard-coding this for the input because _obtain_input_shape is deprecated
+    input_shape = (227, 227, 3)
 
     if input_tensor is None:
         img_input = Input(shape=input_shape)
@@ -82,7 +90,9 @@ def SqueezeNet(include_top=True, weights='imagenet',
         else:
             img_input = input_tensor
 
-    x = Convolution2D(64, (3, 3), strides=(2, 2), padding='valid', name='conv1')(img_input)
+    x = Convolution2D(
+        64, (3, 3), strides=(
+            2, 2), padding='valid', name='conv1')(img_input)
     x = Activation('relu', name='relu_conv1')(x)
     x = MaxPooling2D(pool_size=(3, 3), strides=(2, 2), name='pool1')(x)
 
@@ -101,7 +111,8 @@ def SqueezeNet(include_top=True, weights='imagenet',
 
     if include_top:
         # It's not obvious where to cut the network...
-        # Could do the 8th or 9th layer... some work recommends cutting earlier layers.
+        # Could do the 8th or 9th layer... some work recommends cutting earlier
+        # layers.
 
         x = Dropout(0.5, name='drop9')(x)
 
@@ -114,7 +125,7 @@ def SqueezeNet(include_top=True, weights='imagenet',
             x = GlobalAveragePooling2D()(x)
         elif pooling == 'max':
             x = GlobalMaxPooling2D()(x)
-        elif pooling == None:
+        elif pooling is None:
             pass
         else:
             raise ValueError("Unknown argument for 'pooling'=" + pooling)
@@ -130,7 +141,8 @@ def SqueezeNet(include_top=True, weights='imagenet',
 
     # load weights
     if weights == 'imagenet':
-        weights_path = f"{PATH_TO_FBENCH}/dataset/model/squeezenet_weights_tf_dim_ordering_tf_kernels.h5"
+        weights_path = f"{
+            PATH_TO_FBENCH}/dataset/model/squeezenet_weights_tf_dim_ordering_tf_kernels.h5"
         model.load_weights(weights_path)
 
         if K.image_data_format() == 'channels_first':
