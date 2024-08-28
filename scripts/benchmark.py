@@ -22,6 +22,8 @@ JRUN = f"{BUILD_DIR}/junction/junction_run"
 CONFIG = f"{BUILD_DIR}/junction/caladan_test_ts_st.config"
 CALADAN_DIR = f"{ROOT_DIR}/lib/caladan"
 CHROOT_DIR=f"{ROOT_DIR}/chroot"
+RESULT_DIR=f"{ROOT_DIR}/results"
+RESULT_LINK=f"{ROOT_DIR}/results/run.recent"
 
 # LINUX_BASELINE = False
 USE_CHROOT = True
@@ -571,12 +573,12 @@ def plot_workloads(edir, data):
     plt.savefig(f'{edir}/graph.pdf', bbox_inches='tight')
 
 def main():
-    name = ""
-    name = f"run.{datetime.now().strftime('%Y%m%d%H%M%S')}{name}"
-    os.system(f"mkdir {name}")
-    get_fbench_times(name)
-    data = parse_fbench_times(name)
-    plot_workloads(name, data)
+    edir = f"{RESULT_DIR}/run.{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+    os.system(f"mkdir -p {edir}")
+    os.system(f"ln -sfn {edir} {RESULT_LINK}")
+    get_fbench_times(edir)
+    data = parse_fbench_times(edir)
+    plot_workloads(edir, data)
 
 if __name__ == '__main__':
     if len(sys.argv) > 1:

@@ -3,6 +3,7 @@ build-debug/**
 bin/**
 perf_*/**
 Testing/**
+results/**
 *.d
 *.o
 *.a
