@@ -258,15 +258,18 @@ def jifpager_restore_itrees(
 
     procs = []
     suffix = "_reorder" if reorder else ""
-    for sname, sarg, simage in second_app:
+
+    for i, (sname, sarg, simage) in enumerate(second_app):
+        run(f"sed 's/host_addr.*/host_addr 123.45.6.{i}/' {CONFIG} > /tmp/beconf{i}.conf"
+            )
         procs.append(
             run_async(
-                f"sudo -E {JRUN} {CONFIG} {extra_flags} --function_arg '{sarg}' --function_name {sname} --jif -rk -- {simage}.jm {simage}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k_second_app_{sname} 2>&1"
+                f"sudo -E {JRUN} /tmp/beconf{i}.conf{extra_flags} --function_arg '{sarg}' --function_name {sname} --jif -rk -- {simage}.jm {simage}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k_second_app_{sname} 2>&1"
             ))
 
-    for proc in procs:
+    for proc, app in zip(procs, second_app):
         proc.wait()
-        assert proc.returncode == 0
+        assert proc.returncode == 0, app[0]
 
     jifpager_reset()
     verarg = f"--function_arg '{arg}' --function_name {name}" if NEW_VERSION else ""
