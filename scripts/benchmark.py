@@ -1,14 +1,16 @@
 #!/usr/bin/python3
 
-import matplotlib.pyplot as plt
-import stat
-import os
-import atexit
-import sys
-from datetime import datetime
 from collections import defaultdict
+from datetime import datetime
+import argparse
+import atexit
 import json
+import matplotlib.pyplot as plt
+import os
+import re
+import stat
 import subprocess
+import sys
 import time
 
 import matplotlib as mpl
@@ -20,7 +22,7 @@ ROOT_DIR = os.path.split(SCRIPT_DIR)[0]
 BUILD_DIR = f"{ROOT_DIR}/build"
 BIN_DIR = f"{ROOT_DIR}/bin"
 JRUN = f"{BUILD_DIR}/junction/junction_run"
-CONFIG = f"{BUILD_DIR}/junction/caladan_test_ts_st.config"
+CALADAN_CONFIG = f"{BUILD_DIR}/junction/caladan_test_ts_st.config"
 CALADAN_DIR = f"{ROOT_DIR}/lib/caladan"
 CHROOT_DIR = f"{ROOT_DIR}/chroot"
 RESULT_DIR = f"{ROOT_DIR}/results"
@@ -28,17 +30,85 @@ RESULT_LINK = f"{ROOT_DIR}/results/run.recent"
 
 PATH_TO_FBENCH = f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/"
 
-# LINUX_BASELINE = False
-USE_CHROOT = True
-ENABLE_ELF_BASELINE = True
-ENABLE_JIF_USERSPACE_BASELINE = True
-DO_KERNEL_EXPS = True
-DO_KERNEL_NO_PREFETCH_EXP = True
-DO_KERNEL_PREFETCH_EXP = True
-DO_KERNEL_PREFETCH_REORDER_EXP = True
-REDO_SNAPSHOT = True
-DROPCACHE = 4
+# default config
+# is overriden by the CLI
+CONFIG = {
+    'LINUX_BASELINE': False,
+    'USE_CHROOT': True,
+    'ELF_BASELINE': True,
+    'JIF_USERSPACE_BASELINE': True,
+    'KERNEL_EXPS': True,
+    'KERNEL_NO_PREFETCH': True,
+    'KERNEL_PREFETCH': True,
+    'KERNEL_PREFETCH_REORDER': True,
+    'REDO_SNAPSHOT': True,
+}
 
+DROPCACHE = 4
+DRY_RUN = False
+
+parser = argparse.ArgumentParser(
+    prog='jif_benchmark', description='benchmark restore times with JIFs')
+parser.add_argument('--linux-baseline',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['LINUX_BASELINE'],
+                    help='run the baseline code in linux')
+parser.add_argument('--use-chroot',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['USE_CHROOT'],
+                    help='use the chroot\'ed filesystem')
+parser.add_argument('--elf-baseline',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['ELF_BASELINE'],
+                    help='run an ELF baseline')
+parser.add_argument('--jif-userspace-baseline',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['JIF_USERSPACE_BASELINE'],
+                    help='run a userpace restore baseline for JIF')
+parser.add_argument('--kernel-exps',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['KERNEL_EXPS'],
+                    help='do kernel experiments')
+parser.add_argument('--kernel-no-prefetch',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['KERNEL_NO_PREFETCH'],
+                    help='do the jifpager experiment without prefetching')
+parser.add_argument('--kernel-prefetch',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['KERNEL_PREFETCH'],
+                    help='do the jifpager experiment with prefetching')
+parser.add_argument(
+    '--kernel-prefetch-reorder',
+    action=argparse.BooleanOptionalAction,
+    default=CONFIG['KERNEL_PREFETCH_REORDER'],
+    help=
+    'do the jipager experiment with prefetching and reordering of the intervals mentioned in the ordering segment'
+)
+parser.add_argument('--redo-snapshot',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['REDO_SNAPSHOT'],
+                    help='regenerate the snapshots')
+parser.add_argument('--name-filter',
+                    help='regex to positively filter tests by their name')
+parser.add_argument('--lang-filter',
+                    help='regex to positively filter tests by their language')
+parser.add_argument(
+    '--arg-name-filter',
+    help=
+    'regex to positively filter tests by their argument name (if it exists)')
+parser.add_argument(
+    '-n',
+    '--dry-run',
+    action='store_true',
+    help=
+    'don\'t run the commands, but print the list of tests that would be ran and the commands that would be ran'
+)
+parser.add_argument(
+    'dirs',
+    nargs='*',
+    help='instead of benchmarking, go into the dirs and plot them all')
+
+# TODO(bsd): do we want to support NEW_VERSION = False?
 NEW_VERSION = True
 
 RESTORE_CONFIG_SET = [
@@ -80,13 +150,27 @@ RESTORE_CONFIG_SET = [
 def run(cmd):
     print(cmd)
     sys.stdout.flush()
-    subprocess.check_output(cmd, shell=True)
+    if not DRY_RUN:
+        subprocess.check_output(cmd, shell=True)
+
+
+# fake process that is waitable
+class FakeProcess:
+
+    def __init__(self):
+        self.returncode = 0
+
+    def wait(self):
+        return
 
 
 def run_async(cmd):
     print(cmd)
     sys.stdout.flush()
-    return subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
+    if DRY_RUN:
+        return FakeProcess()
+    else:
+        return subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
 
 
 def kill_iok():
@@ -94,11 +178,15 @@ def kill_iok():
 
 
 def run_iok():
-    if os.system("pgrep iok > /dev/null") == 0:
+    if not DRY_RUN and os.system("pgrep iok > /dev/null") == 0:
         return
     run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh nouintr")
     run(f"sudo {CALADAN_DIR}/iokerneld ias nobw noht no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0 > /tmp/iokernel0.log 2>&1 &"
         )
+
+    if DRY_RUN:
+        return
+
     while os.system("grep -q 'running dataplan' /tmp/iokernel0.log") != 0:
         time.sleep(0.3)
         run("pgrep iokerneld > /dev/null")
@@ -112,7 +200,7 @@ def kill_chroot():
 
 
 def setup_chroot():
-    if not USE_CHROOT:
+    if not CONFIG['USE_CHROOT']:
         return
     run(f"sudo mkdir -p {CHROOT_DIR}/{BIN_DIR} {CHROOT_DIR}/{BUILD_DIR}")
     run(f"sudo mount --bind -o ro {BIN_DIR} {CHROOT_DIR}/{BIN_DIR}")
@@ -131,7 +219,7 @@ def setup_chroot():
 
 def jifpager_installed():
     try:
-        return DO_KERNEL_EXPS and stat.S_ISCHR(
+        return CONFIG['KERNEL_EXPS'] and stat.S_ISCHR(
             os.stat("/dev/jif_pager").st_mode)
     except BaseException:
         return False
@@ -162,6 +250,9 @@ def jifpager_reset():
 
 
 def dropcache():
+    if DRY_RUN:
+        return
+
     for i in range(DROPCACHE):
         if i > 0:
             time.sleep(10)
@@ -214,6 +305,10 @@ class Test:
         else:
             return f"{self.lang}_{self.name}"
 
+    def __repr__(self):
+        return f"{self.name}: lang={self.lang}, id={self.id()}" + (
+            f" arg_name={self.arg_name}" if self.arg_name else "")
+
     def baseline(self, result_dir: str):
         run(f"DONTSTOP=1 {self.raw_cmd} >> {result_dir}/restore_images_linux 2>&1"
             )
@@ -224,43 +319,47 @@ class Test:
 
     def snapshot_elf(self, output_log: str):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}" if NEW_VERSION else f"-S {self.stop_count()}"
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if USE_CHROOT else ""
+        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
+            'USE_CHROOT'] else ""
         prefix = self.snapshot_prefix()
 
-        run(f"sudo -E {JRUN} {CONFIG} {junction_args} {chroot_args} --snapshot-prefix {prefix} -- {self.cmd} >> {output_log}_snap_elf 2>&1"
+        run(f"sudo -E {JRUN} {CALADAN_CONFIG} {junction_args} {chroot_args} --snapshot-prefix {prefix} -- {self.cmd} >> {output_log}_snap_elf 2>&1"
             )
 
     def snapshot_jif(self, output_log: str):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}" if NEW_VERSION else f"-S {self.stop_count()}"
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if USE_CHROOT else ""
+        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
+            'USE_CHROOT'] else ""
         prefix = self.snapshot_prefix()
 
-        run(f"sudo -E {JRUN} {CONFIG} {junction_args} {chroot_args} --jif --madv_remap --snapshot-prefix {prefix} -- {self.cmd} >> {output_log}_snap_jif 2>&1"
+        run(f"sudo -E {JRUN} {CALADAN_CONFIG} {junction_args} {chroot_args} --jif --madv_remap --snapshot-prefix {prefix} -- {self.cmd} >> {output_log}_snap_jif 2>&1"
             )
 
     def process_itree(self, output_log: str):
         prefix = CHROOT_DIR + '/' + self.snapshot_prefix(
-        ) if USE_CHROOT else self.snapshot_prefix()
+        ) if CONFIG['USE_CHROOT'] else self.snapshot_prefix()
+        chroot_dir = CHROOT_DIR if CONFIG['USE_CHROOT'] else ''
 
-        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}.jif {prefix}_itrees.jif build-itrees {CHROOT_DIR if USE_CHROOT else ''} >> {output_log}_build_itree 2>&1"
+        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}.jif {prefix}_itrees.jif build-itrees {chroot_dir} >> {output_log}_build_itree 2>&1"
             )
 
     def process_fault_order(self, output_log: str):
         '''add ordering to the jif'''
         prefix = CHROOT_DIR + '/' + self.snapshot_prefix(
-        ) if USE_CHROOT else self.snapshot_prefix()
+        ) if CONFIG['USE_CHROOT'] else self.snapshot_prefix()
 
-        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}_itrees.jif {prefix}_itrees_ord_reorder.jif add-ord --setup-prefetch {prefix}.ord >> {output_log}_add_ord_reord 2>&1 "
+        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}_itrees.jif {prefix}_itrees_ord_reorder.jif add-ord --setup-prefetch {prefix}.ord >> {output_log}_add_ord_reord 2>&1"
             )
         run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}_itrees.jif {prefix}_itrees_ord.jif add-ord {prefix}.ord >> {output_log}_add_ord 2>&1 "
             )
 
     def restore_elf(self, output_log: str):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}" if NEW_VERSION else ""
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if USE_CHROOT else ""
+        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
+            'USE_CHROOT'] else ""
         prefix = self.snapshot_prefix()
 
-        run(f"sudo -E {JRUN} {CONFIG} -r {junction_args} {chroot_args} -- {prefix}.metadata {prefix}.elf >> {output_log}_elf 2>&1"
+        run(f"sudo -E {JRUN} {CALADAN_CONFIG} -r {junction_args} {chroot_args} -- {prefix}.metadata {prefix}.elf >> {output_log}_elf 2>&1"
             )
 
     def userspace_restore_jif(self,
@@ -279,13 +378,14 @@ class Test:
             return fname
 
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}" if NEW_VERSION else ""
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if USE_CHROOT else ""
+        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
+            'USE_CHROOT'] else ""
         prefix = self.snapshot_prefix()
         mem_flags = f"--stackswitch --mem-trace --mem-trace-out {prefix}.ord" if trace else ""
 
         jif_fname = construct_jif_fname(self, itrees, reorder)
 
-        run(f"sudo -E {JRUN} {CONFIG} {junction_args} {mem_flags} {chroot_args} --jif -r -- {prefix}.jm {jif_fname} >> {output_log}_jif 2>&1"
+        run(f"sudo -E {JRUN} {CALADAN_CONFIG} {junction_args} {mem_flags} {chroot_args} --jif -r -- {prefix}.jm {jif_fname} >> {output_log}_jif 2>&1"
             )
 
     def jifpager_restore_jif(self,
@@ -309,18 +409,20 @@ class Test:
             dropcache()
 
         suffix = "_reorder" if reorder else ""
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if USE_CHROOT else ""
+        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
+            'USE_CHROOT'] else ""
 
         procs = []
         for idx, sapp in enumerate(second_apps):
-            config = f"/tmp/beconf_{idx}.conf"
+            caladan_config = f"/tmp/beconf_{idx}.conf"
             ip = f"123.45.6.{idx}"
-            run(f"sed 's/host_addr.*/host_addr {ip}/' {CONFIG} > {config}")
+            run(f"sed 's/host_addr.*/host_addr {ip}/' {CALADAN_CONFIG} > {caladan_config}"
+                )
             junction_args = f"--function_arg '{sapp.args}' --function_name {sapp.id()}"
             prefix = sapp.snapshot_prefix()
             procs.append(
                 run_async(
-                    f"sudo -E {JRUN} {config} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {prefix}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k_second_app_{sapp.id()} 2>&1"
+                    f"sudo -E {JRUN} {caladan_config} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {prefix}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k_second_app_{sapp.id()} 2>&1"
                 ))
 
         for proc, app in zip(procs, second_apps):
@@ -330,7 +432,7 @@ class Test:
         jifpager_reset()
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         prefix = self.snapshot_prefix()
-        run(f"sudo -E {JRUN} {CONFIG} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {prefix}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k  2>&1"
+        run(f"sudo -E {JRUN} {CALADAN_CONFIG} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {prefix}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k  2>&1"
             )
 
         stats = open("/sys/kernel/jif_pager/stats")
@@ -357,7 +459,7 @@ class Test:
             f.write('\n')
 
     def generate_images(self, output_log: str):
-        if ENABLE_ELF_BASELINE:
+        if CONFIG['ELF_BASELINE']:
             self.snapshot_elf(output_log)
 
         self.snapshot_jif(output_log)
@@ -368,11 +470,11 @@ class Test:
         self.process_fault_order(output_log)
 
     def restore_image(self, output_log: str, second_apps=[]):
-        if ENABLE_ELF_BASELINE:
+        if CONFIG['ELF_BASELINE']:
             dropcache()
             self.restore_elf(output_log)
 
-        if ENABLE_JIF_USERSPACE_BASELINE:
+        if CONFIG['JIF_USERSPACE_BASELINE']:
             dropcache()
             self.userspace_restore_jif(output_log, itrees=True)
 
@@ -385,7 +487,7 @@ class Test:
                                        itrees=True)
 
         if jifpager_installed():
-            if DO_KERNEL_NO_PREFETCH_EXP:
+            if CONFIG['KERNEL_NO_PREFETCH']:
                 # Kernel module restore (no prefetching)
                 self.jifpager_restore_jif(output_log,
                                           prefault=False,
@@ -408,7 +510,7 @@ class Test:
                                               cold=True,
                                               reorder=True)
 
-            if DO_KERNEL_PREFETCH_EXP:
+            if CONFIG['KERNEL_PREFETCH']:
                 # Prefault pages
                 self.jifpager_restore_jif(f"{output_log}_prefault",
                                           prefault=True,
@@ -417,7 +519,7 @@ class Test:
                 # self.jifpager_restore_jif(f"{output_log}_prefault_minor,
                 # minor=True, prefault=True, cold=True, reorder=False)
 
-            if DO_KERNEL_PREFETCH_REORDER_EXP:
+            if CONFIG['KERNEL_PREFETCH_REORDER']:
                 # Prefault pages with reordered contiguous data section
                 # self.jifpager_restore_jif(f"{output_log}_prefault_reorder,
                 # prefault=True, cold=True, reorder=True)
@@ -465,11 +567,12 @@ class Test:
 class PyFBenchTest(Test):
 
     def __init__(self, name: str, args: str, arg_name: str = ""):
-        script = "new_runner.py" if NEW_VERSION else "run.py"
+        new_version_fn = lambda cmd: cmd.replace('run.py', 'new_runner.py'
+                                                 ) if NEW_VERSION else cmd
         super().__init__(
             'python', name,
-            f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/{script} {name}",
-            args, arg_name, lambda cmd: cmd.replace('new_runner.py', 'run.py'))
+            f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/run.py {name}",
+            args, arg_name, new_version_fn)
 
 
 class NodeFBenchTest(Test):
@@ -529,15 +632,14 @@ TESTS = [
         + ResizerTest.template('go', f"{ROOT_DIR}/build/junction/samples/snapshots/go/resizer", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new_version" if NEW_VERSION else "")
 
 
-def get_fbench_times(result_dir: str):
-    if REDO_SNAPSHOT:
-        for app in TESTS:
-            # this should call new-version
+def benchmark(result_dir: str, tests):
+    if CONFIG['REDO_SNAPSHOT']:
+        for app in tests:
             app.generate_images(f"{result_dir}/generate_images")
 
-    for app in TESTS:
+    for app in tests:
         second_apps = []
-        for sapp in TESTS:
+        for sapp in tests:
             if app.name == sapp.name or app.lang != sapp.lang or (
                     app.arg_name and sapp.arg_name
                     and app.arg_name == sapp.arg_name):
@@ -612,7 +714,7 @@ def get_kstats(fname: str, data, exp_n: int):
         pass
 
 
-def parse_fbench_times(result_dir: str):
+def parse_benchmark_times(result_dir: str):
     from pprint import pprint
 
     out = defaultdict(dict)
@@ -631,6 +733,9 @@ def parse_fbench_times(result_dir: str):
 
 
 def plot_workloads(result_dir: str, data):
+    if DRY_RUN:
+        return
+
     workloads = list(data.keys())
     num_workloads = len(workloads)
     fig, axes = plt.subplots(num_workloads, 1, figsize=(10, 5 * num_workloads))
@@ -761,20 +866,54 @@ def plot_workloads(result_dir: str, data):
     plt.savefig(f'{result_dir}/graph.pdf', bbox_inches='tight')
 
 
-def main():
+def main(tests):
     result_dir = f"{RESULT_DIR}/run.{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
     os.system(f"mkdir -p {result_dir}")
     os.system(f"ln -sfn {result_dir} {RESULT_LINK}")
-    get_fbench_times(result_dir)
-    data = parse_fbench_times(result_dir)
+    benchmark(result_dir, tests)
+    data = parse_benchmark_times(result_dir)
     plot_workloads(result_dir, data)
 
 
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        for d in sys.argv[1:]:
-            plot_workloads(d, parse_fbench_times(d))
+    args = parser.parse_args()
+    CONFIG['LINUX_BASELINE'] = args.linux_baseline
+    CONFIG['USE_CHROOT'] = args.use_chroot
+    CONFIG['ELF_BASELINE'] = args.elf_baseline
+    CONFIG['JIF_USERSPACE_BASELINE'] = args.jif_userspace_baseline
+    CONFIG['KERNEL_EXPS'] = args.kernel_exps
+    CONFIG['KERNEL_NO_PREFETCH'] = args.kernel_no_prefetch
+    CONFIG['KERNEL_PREFETCH'] = args.kernel_prefetch
+    CONFIG['KERNEL_PREFETCH_REORDER'] = args.kernel_prefetch_reorder
+    CONFIG['REDO_SNAPSHOT'] = args.redo_snapshot
+
+    DRY_RUN = args.dry_run
+
+    if args.dirs:
+        for d in dirs:
+            plot_workloads(d, parse_benchmark_times(d))
     else:
+        name_regex = re.compile(args.name_filter) if args.name_filter else None
+        lang_regex = re.compile(args.lang_filter) if args.lang_filter else None
+        arg_name_regex = re.compile(
+            args.arg_name_filter) if args.arg_name_filter else None
+
+        name_filter = lambda t: name_regex.search(
+            t.name) if name_regex else lambda x: True
+        lang_filter = lambda t: lang_regex.search(
+            t.lang) if lang_regex else lambda x: True
+        arg_name_filter = (
+            lambda t: arg_name_regex.search(t.arg_name)
+            if t.arg_name else True) if arg_name_regex else lambda x: True
+
+        combined_filter = lambda t: name_filter(t) and lang_filter(
+            t) and arg_name_filter(t)
+        tests = list(filter(combined_filter, TESTS))
+
+        if DRY_RUN:
+            for test in tests:
+                print(test)
+
         run_iok()
         setup_chroot()
-        main()
+        main(tests)
