@@ -108,9 +108,6 @@ parser.add_argument(
     nargs='*',
     help='instead of benchmarking, go into the dirs and plot them all')
 
-# TODO(bsd): do we want to support NEW_VERSION = False?
-NEW_VERSION = True
-
 RESTORE_CONFIG_SET = [
     ("linux", "Linux warm"),
     ("elf", "ELF"),
@@ -154,8 +151,8 @@ def run(cmd):
         subprocess.check_output(cmd, shell=True)
 
 
-# fake process that is waitable
 class FakeProcess:
+    '''fake process that has a returncode and can be waited on'''
 
     def __init__(self):
         self.returncode = 0
@@ -318,7 +315,7 @@ class Test:
         return f"/tmp/{func_id}"
 
     def snapshot_elf(self, output_log: str):
-        junction_args = f"--function_arg '{self.args}' --function_name {self.id()}" if NEW_VERSION else f"-S {self.stop_count()}"
+        junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
             'USE_CHROOT'] else ""
         prefix = self.snapshot_prefix()
@@ -327,7 +324,7 @@ class Test:
             )
 
     def snapshot_jif(self, output_log: str):
-        junction_args = f"--function_arg '{self.args}' --function_name {self.id()}" if NEW_VERSION else f"-S {self.stop_count()}"
+        junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
             'USE_CHROOT'] else ""
         prefix = self.snapshot_prefix()
@@ -354,7 +351,7 @@ class Test:
             )
 
     def restore_elf(self, output_log: str):
-        junction_args = f"--function_arg '{self.args}' --function_name {self.id()}" if NEW_VERSION else ""
+        junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
             'USE_CHROOT'] else ""
         prefix = self.snapshot_prefix()
@@ -377,7 +374,7 @@ class Test:
             fname += '.jif'
             return fname
 
-        junction_args = f"--function_arg '{self.args}' --function_name {self.id()}" if NEW_VERSION else ""
+        junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
             'USE_CHROOT'] else ""
         prefix = self.snapshot_prefix()
@@ -567,8 +564,7 @@ class Test:
 class PyFBenchTest(Test):
 
     def __init__(self, name: str, args: str, arg_name: str = ""):
-        new_version_fn = lambda cmd: cmd.replace('run.py', 'new_runner.py'
-                                                 ) if NEW_VERSION else cmd
+        new_version_fn = lambda cmd: cmd.replace('run.py', 'new_runner.py')
         super().__init__(
             'python', name,
             f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/run.py {name}",
@@ -625,11 +621,11 @@ TESTS = [
    # PyFBenchTest("rnn_serving", '{{ "language": "Scottish", "start_letters": "ABCDEFGHIJKLMNOP", "parameter_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/model/rnn_params.pkl', 'dataset/model/rnn_model.pth'))),
    # PyFBenchTest("cnn_serving", '{{ "img_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/image/animal-dog.jpg', 'dataset/model/rnn_model.squeezenet_weights_tf_dim_ordering_tf_kernels.h5'))),
 
-   Test("java", "matmul", f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{ROOT_DIR}/build/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar { ROOT_DIR}/build/junction/samples/snapshots/java/matmul/MatMul.java", '{ "N": 300 }', new_version_fn=lambda x: x + " --new_version" if NEW_VERSION else ""),
+   Test("java", "matmul", f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{ROOT_DIR}/build/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar { ROOT_DIR}/build/junction/samples/snapshots/java/matmul/MatMul.java", '{ "N": 300 }', new_version_fn=lambda x: x + " --new_version"),
 ]\
-        + ResizerTest.template('rust', f"{ROOT_DIR}/build/junction/samples/snapshots/rust/resize-rs", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new-version" if NEW_VERSION else "") \
-        + ResizerTest.template('java', f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar {ROOT_DIR}/build/junction/samples/snapshots/java/resizer/Resizer.java", RESIZER_IMAGES, new_version_fn = lambda x: x + " --new_version" if NEW_VERSION else "") \
-        + ResizerTest.template('go', f"{ROOT_DIR}/build/junction/samples/snapshots/go/resizer", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new_version" if NEW_VERSION else "")
+        + ResizerTest.template('rust', f"{ROOT_DIR}/build/junction/samples/snapshots/rust/resize-rs", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new-version") \
+        + ResizerTest.template('java', f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar {ROOT_DIR}/build/junction/samples/snapshots/java/resizer/Resizer.java", RESIZER_IMAGES, new_version_fn = lambda x: x + " --new_version") \
+        + ResizerTest.template('go', f"{ROOT_DIR}/build/junction/samples/snapshots/go/resizer", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new_version")
 
 
 def benchmark(result_dir: str, tests):
@@ -682,17 +678,6 @@ def get_one_log(log_name: str):
     return progs
 
 
-def getstats_old(d):
-    return {
-        "cold_first_iter": d["cold"][0],
-        "data_restore": d.get("data_restore"),
-        "first_iter": d["warmup"][0],
-        "warm_iter": d["warmup"][-1],
-        "metadata_restore": d.get("metadata_restore"),
-        "fs_restore": d.get("fs_restore"),
-    }
-
-
 def getstats(d):
     return {
         "cold_first_iter": d.get("first_iter"),
@@ -722,10 +707,7 @@ def parse_benchmark_times(result_dir: str):
     for tag, name in RESTORE_CONFIG_SET:
         for prog, d in get_one_log(
                 f"{result_dir}/restore_images_{tag}").items():
-            if NEW_VERSION:
-                out[prog][tag] = getstats(d)
-            else:
-                out[prog][tag] = getstats_old(d)
+            out[prog][tag] = getstats(d)
         get_kstats(f"{result_dir}/restore_images_{tag}_kstats", out, tag)
 
     pprint(out)
