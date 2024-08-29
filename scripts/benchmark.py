@@ -178,13 +178,18 @@ def prefix_fbench(fname: str):
 class Test:
 
     @classmethod
-    def template(cls, lang: str, name: str, cmd: str, arg_map):
+    def template(cls,
+                 lang: str,
+                 name: str,
+                 cmd: str,
+                 arg_map,
+                 new_version_fn=lambda x: x):
         """
         punch out a template of tests, where the arg_map is a map from arg_name -> arg
         return a list of Tests
         """
         return [
-            cls(lang, name, cmd, args, arg_name)
+            cls(lang, name, cmd, args, arg_name, new_version_fn)
             for arg_name, args in arg_map.items()
         ]
 
@@ -193,10 +198,12 @@ class Test:
                  name: str,
                  cmd: str,
                  args: str,
-                 arg_name: str = ""):
+                 arg_name: str = "",
+                 new_version_fn=lambda x: x):
         self.lang = lang
         self.name = name
-        self.cmd = cmd
+        self.raw_cmd = cmd
+        self.cmd = new_version_fn(cmd)
         self.args = args
         self.stop_count = 2 if lang == 'java' else 1
         self.arg_name = arg_name
@@ -208,7 +215,8 @@ class Test:
             return f"{self.lang}_{self.name}"
 
     def baseline(self, result_dir: str):
-        run(f"DONTSTOP=1 {self.cmd} >> {result_dir}/restore_images_linux 2>&1")
+        run(f"DONTSTOP=1 {self.raw_cmd} >> {result_dir}/restore_images_linux 2>&1"
+            )
 
     def snapshot_prefix(self):
         func_id = self.id()
@@ -461,7 +469,7 @@ class PyFBenchTest(Test):
         super().__init__(
             'python', name,
             f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/{script} {name}",
-            args, arg_name)
+            args, arg_name, lambda cmd: cmd.replace('new_runner.py', 'run.py'))
 
 
 class NodeFBenchTest(Test):
@@ -476,18 +484,19 @@ class NodeFBenchTest(Test):
 class ResizerTest(Test):
 
     @classmethod
-    def template(cls, lang: str, cmd: str, arg_map):
+    def template(cls, lang: str, cmd: str, arg_map, new_version_fn):
         """
         punch out a template of tests, where the arg_map is a map from arg_name -> arg
         return a list of Tests
         """
         return [
-            cls(lang, cmd, args, arg_name)
+            cls(lang, cmd, args, arg_name, new_version_fn)
             for arg_name, args in arg_map.items()
         ]
 
-    def __init__(self, lang: str, cmd: str, args: str, arg_name: str):
-        super().__init__(lang, 'resizer', cmd, args, arg_name)
+    def __init__(self, lang: str, cmd: str, args: str, arg_name: str,
+                 new_version_fn):
+        super().__init__(lang, 'resizer', cmd, args, arg_name, new_version_fn)
 
 
 RESIZER_IMAGES = {
@@ -498,8 +507,8 @@ RESIZER_IMAGES = {
 }
 
 TESTS = [
-      NodeFBenchTest("hello", '{ "test": "Hello, world" }'),
-    PyFBenchTest("chameleon", '{"num_of_rows": 3, "num_of_cols": 4}'),
+   NodeFBenchTest("hello", '{ "test": "Hello, world" }'),
+   PyFBenchTest("chameleon", '{"num_of_rows": 3, "num_of_cols": 4}'),
    PyFBenchTest("float_operation", '{ "N": 300}'),
    PyFBenchTest("pyaes", '{"length_of_message": 20, "num_of_iterations": 3}'),
    PyFBenchTest("matmul", '{ "N": 300}'),
@@ -513,11 +522,11 @@ TESTS = [
    # PyFBenchTest("rnn_serving", '{{ "language": "Scottish", "start_letters": "ABCDEFGHIJKLMNOP", "parameter_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/model/rnn_params.pkl', 'dataset/model/rnn_model.pth'))),
    # PyFBenchTest("cnn_serving", '{{ "img_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/image/animal-dog.jpg', 'dataset/model/rnn_model.squeezenet_weights_tf_dim_ordering_tf_kernels.h5'))),
 
-    Test("java", "jmatmul", f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{ROOT_DIR}/build/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar { ROOT_DIR}/build/junction/samples/snapshots/java/matmul/MatMul.java" + " --new_version" if NEW_VERSION else "", '{ "N": 300 }'),
+   Test("java", "matmul", f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{ROOT_DIR}/build/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar { ROOT_DIR}/build/junction/samples/snapshots/java/matmul/MatMul.java", '{ "N": 300 }', new_version_fn=lambda x: x + " --new_version" if NEW_VERSION else ""),
 ]\
-   + ResizerTest.template('rust', f"{ROOT_DIR}/build/junction/samples/snapshots/rust/resize-rs" + " --new-version" if NEW_VERSION else "", RESIZER_IMAGES) \
-   + ResizerTest.template('java', f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar {ROOT_DIR}/build/junction/samples/snapshots/java/resizer/Resizer.java" + " --new_version" if NEW_VERSION else "", RESIZER_IMAGES) \
-   + ResizerTest.template('go', f"{ROOT_DIR}/build/junction/samples/snapshots/go/resizer" + " --new_version" if NEW_VERSION else "", RESIZER_IMAGES)
+        + ResizerTest.template('rust', f"{ROOT_DIR}/build/junction/samples/snapshots/rust/resize-rs", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new-version" if NEW_VERSION else "") \
+        + ResizerTest.template('java', f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar {ROOT_DIR}/build/junction/samples/snapshots/java/resizer/Resizer.java", RESIZER_IMAGES, new_version_fn = lambda x: x + " --new_version" if NEW_VERSION else "") \
+        + ResizerTest.template('go', f"{ROOT_DIR}/build/junction/samples/snapshots/go/resizer", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new_version" if NEW_VERSION else "")
 
 
 def get_fbench_times(result_dir: str):
