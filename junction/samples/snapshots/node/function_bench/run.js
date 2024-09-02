@@ -53,22 +53,15 @@ async function readLines(filePath) {
     for await (const line of rl) {
 	if (line == "SNAPSHOT_PREPARE") {
 	    snapshot_prepare();
-	    write.write("OK");
+	    await write.write("OK");
 	    continue;
 	}
 
 	// invoke function
 	json_req = JSON.parse(line)
-	const ret = handler(json_req);
-	write.write(ret);
+	const ret = await handler(json_req);
+	await write.write(ret);
     }
 }
 
-(async () => {
-    try {
-        await readLines('/serverless/chan0');
-        console.log('Processing complete.');
-    } catch (err) {
-        console.error('Error:', err);
-    }
-})();
+readLines('/serverless/chan0');
