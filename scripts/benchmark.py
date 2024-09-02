@@ -41,6 +41,7 @@ CONFIG = {
     'KERNEL_NO_PREFETCH': True,
     'KERNEL_PREFETCH': True,
     'KERNEL_PREFETCH_REORDER': True,
+    'KERNEL_TRACE_RUNS': 3,
     'REDO_SNAPSHOT': True,
 }
 
@@ -222,6 +223,10 @@ def jifpager_installed():
         return False
 
 
+def set_trace(val):
+    run(f"echo {val} | sudo tee /sys/kernel/jif_pager/trace")
+
+
 def set_readahead(val):
     run(f"echo {val} | sudo tee /sys/kernel/jif_pager/readahead")
 
@@ -394,12 +399,14 @@ class Test:
                              measure_latency: bool = False,
                              readahead: bool = True,
                              reorder: bool = True,
+                             trace: bool = True,
                              second_apps=[]):
         set_fault_around(1 if fault_around else 0)
         set_prefault(1 if prefault else 0)
         set_prefault_minor(1 if minor else 0)
         set_measure_latency(1 if measure_latency else 0)
         set_readahead(1 if readahead else 0)
+        set_trace(1 if trace else 0)
         jifpager_reset()
 
         if cold:
@@ -455,6 +462,20 @@ class Test:
             f.write(json.dumps(stats))
             f.write('\n')
 
+    def do_kernel_trace(self, output_log: str):
+        for _ in range(CONFIG['KERNEL_TRACE_RUNS']):
+            self.jifpager_restore_jif(f"{output_log}_build_ord",
+                                      cold=True,
+                                      prefault=True,
+                                      minor=True,
+                                      fault_around=False,
+                                      trace=True)
+
+            path = f"{CHROOT_DIR}/{self.snapshot_prefix()}" if CONFIG[
+                'USE_CHROOT'] else self.snapshot_prefix()
+            run("sudo cat /sys/kernel/debug/mem_trace > /tmp/ord")
+            run(f"sudo cp /tmp/ord {path}.ord")
+
     def generate_images(self, output_log: str):
         if CONFIG['ELF_BASELINE']:
             self.snapshot_elf(output_log)
@@ -465,6 +486,11 @@ class Test:
         # generate ord
         self.userspace_restore_jif(f"{output_log}_build_ord", trace=True)
         self.process_fault_order(output_log)
+
+        # re-generate ord with kernel tracer to catch more faults
+        if jifpager_installed():
+            self.do_kernel_trace(output_log)
+            self.process_fault_order(output_log)
 
     def restore_image(self, output_log: str, second_apps=[]):
         if CONFIG['ELF_BASELINE']:
@@ -576,7 +602,7 @@ class NodeFBenchTest(Test):
     def __init__(self, name: str, args: str, arg_name: str = ""):
         super().__init__(
             'node', name,
-            f"/usr/bin/node --jitless --expose-gc {ROOT_DIR}/build/junction/samples/snapshots/node/function_bench/run.js {name}",
+            f"/usr/bin/node --expose-gc {ROOT_DIR}/build/junction/samples/snapshots/node/function_bench/run.js {name}",
             args, arg_name)
 
 
@@ -618,8 +644,8 @@ TESTS = [
    PyFBenchTest("linpack", '{ "N": 300}'),
 
    # cnn and rnn serving take too long to run
-   # PyFBenchTest("rnn_serving", '{{ "language": "Scottish", "start_letters": "ABCDEFGHIJKLMNOP", "parameter_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/model/rnn_params.pkl', 'dataset/model/rnn_model.pth'))),
-   # PyFBenchTest("cnn_serving", '{{ "img_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/image/animal-dog.jpg', 'dataset/model/rnn_model.squeezenet_weights_tf_dim_ordering_tf_kernels.h5'))),
+   PyFBenchTest("rnn_serving", '{{ "language": "Scottish", "start_letters": "ABCDEFGHIJKLMNOP", "parameter_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/model/rnn_params.pkl', 'dataset/model/rnn_model.pth'))),
+   PyFBenchTest("cnn_serving", '{{ "img_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/image/animal-dog.jpg', 'dataset/model/rnn_model.squeezenet_weights_tf_dim_ordering_tf_kernels.h5'))),
 
    Test("java", "matmul", f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{ROOT_DIR}/build/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar { ROOT_DIR}/build/junction/samples/snapshots/java/matmul/MatMul.java", '{ "N": 300 }', new_version_fn=lambda x: x + " --new_version"),
 ]\
@@ -694,7 +720,7 @@ def get_kstats(fname: str, data, exp_n: int):
         with open(fname, "r") as f:
             for line in f.readlines():
                 jx = json.loads(line)
-                data[jx["key"]][expn]["jifpager_stats_ns"] = jx
+                data[jx["key"]][exp_n]["jifpager_stats_ns"] = jx
     except BaseException:
         pass
 
@@ -736,25 +762,6 @@ def plot_workloads(result_dir: str, data):
 
     for ax, workload in zip(axes, workloads):
         categories = data[workload]
-
-        # jifpager_stats_ns = categories['jifpager_stats_ns']
-
-        # how do I get needed throughput? in pages/s
-        # for x in jifpager_stats_ns:
-        #     print(x)
-        # if not jifpager_stats_ns.get("readahead", False):
-        #     no_readahead = jifpager_stats_ns
-
-        # should only be major faults but just in case
-        # total_pages = no_readahead["major_faults"] + no_readahead["minor_faults"]
-        # read_latency = no_readahead["average_sync_read_latency"]
-
-        # ideal_throughput = int((total_pages / first_iter) * 1000000 * 4096)
-        # bytes per nanosecond
-        # actual_throughput = int((4096 / read_latency) * 1000000000)
-
-        # print(f"{workload} ideal throughput = {ideal_throughput / 1024 ** 2}MB/s")
-        # print(f"{workload} actual throughput = {actual_throughput / 1024 ** 2}MB/s")
 
         WARM_ITER = list(categories.items())[0][1]["warm_iter"]
         stack1 = [(WARM_ITER, "function")]
@@ -825,6 +832,7 @@ def plot_workloads(result_dir: str, data):
             # txt += f"\n  Pre-major: {jpstat['pre_major_faults']}"
             txt += f"\n Minor: {jpstat['minor_faults']}"
             # txt += f"\n  Pre-minor: {jpstat['pre_minor_faults']}"
+
             ax.text(
                 x=label,
                 y=sm / 2 if SLOWDOWN or SUM else stack[0][0] / 2,
@@ -872,7 +880,7 @@ if __name__ == "__main__":
     DRY_RUN = args.dry_run
 
     if args.dirs:
-        for d in dirs:
+        for d in args.dirs:
             plot_workloads(d, parse_benchmark_times(d))
     else:
         name_regex = re.compile(args.name_filter) if args.name_filter else None
