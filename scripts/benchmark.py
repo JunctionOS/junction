@@ -454,7 +454,7 @@ class Test:
                              measure_latency: bool = False,
                              readahead: bool = True,
                              reorder: bool = True,
-                             trace: bool = True,
+                             trace: bool = False,
                              second_apps=[]):
         set_fault_around(1 if fault_around else 0)
         set_prefault(1 if prefault else 0)
