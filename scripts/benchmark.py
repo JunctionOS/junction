@@ -12,6 +12,7 @@ import stat
 import subprocess
 import sys
 import time
+import numpy as np
 
 import matplotlib as mpl
 
@@ -43,10 +44,13 @@ CONFIG = {
     'KERNEL_PREFETCH_REORDER': True,
     'KERNEL_TRACE_RUNS': 3,
     'REDO_SNAPSHOT': True,
+    'DO_DENSITY': True,
+    'DO_MICROBENCH': True,
 }
 
 DROPCACHE = 4
 DRY_RUN = False
+DROPCACHE_SLEEP = 10
 
 parser = argparse.ArgumentParser(
     prog='jif_benchmark', description='benchmark restore times with JIFs')
@@ -89,6 +93,14 @@ parser.add_argument('--redo-snapshot',
                     action=argparse.BooleanOptionalAction,
                     default=CONFIG['REDO_SNAPSHOT'],
                     help='regenerate the snapshots')
+parser.add_argument('--do-microbench',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['DO_MICROBENCH'],
+                    help='run microbenchmarks')
+parser.add_argument('--do-density',
+                    action=argparse.BooleanOptionalAction,
+                    default=CONFIG['DO_DENSITY'],
+                    help='run density experiments')
 parser.add_argument('--name-filter',
                     help='regex to positively filter tests by their name')
 parser.add_argument('--lang-filter',
@@ -108,6 +120,9 @@ parser.add_argument(
     'dirs',
     nargs='*',
     help='instead of benchmarking, go into the dirs and plot them all')
+parser.add_argument('--dropcache-sleep',
+                    help='seconds to sleep after dropping caches',
+                    default=DROPCACHE_SLEEP)
 
 RESTORE_CONFIG_SET = [
     ("linux", "Linux warm"),
@@ -140,6 +155,35 @@ RESTORE_CONFIG_SET = [
     ("reorder_self_itrees_jif_k", "JIF\nkernel\n(w/ reorder)\n(self)"),
     ("nora_prefault_reorder_itrees_jif_k",
      "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\nNoRA"),
+]
+
+DENSITY_CONFIG_SET = [
+    (("itrees_same_image_"), {
+        'same_image': True,
+        'itrees': True,
+        'prefault': True,
+        'cold': True,
+        'reorder': True,
+        'minor': True,
+        'reorder': True,
+    }),
+    (("itrees_"), {
+        'same_image': False,
+        'itrees': True,
+        'prefault': True,
+        'cold': True,
+        'reorder': True,
+        'minor': True,
+        'reorder': True,
+    }),
+    (("no_itrees_"), {
+        'same_image': False,
+        'itrees': False,
+        'prefault': True,
+        'cold': True,
+        'reorder': True,
+        'minor': True,
+    }),
 ]
 
 # util functions
@@ -188,6 +232,15 @@ def run_iok():
     while os.system("grep -q 'running dataplan' /tmp/iokernel0.log") != 0:
         time.sleep(0.3)
         run("pgrep iokerneld > /dev/null")
+
+
+def kill_mem_cgroup():
+    run("sudo rmdir /sys/fs/cgroup/memory/junction")
+
+
+def setup_mem_cgroup():
+    run("sudo mkdir -p /sys/fs/cgroup/memory/junction")
+    atexit.register(kill_mem_cgroup)
 
 
 def kill_chroot():
@@ -257,7 +310,7 @@ def dropcache():
 
     for i in range(DROPCACHE):
         if i > 0:
-            time.sleep(10)
+            time.sleep(DROPCACHE_SLEEP)
         run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
 
 
@@ -345,14 +398,16 @@ class Test:
         run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}.jif {prefix}_itrees.jif build-itrees {chroot_dir} >> {output_log}_build_itree 2>&1"
             )
 
-    def process_fault_order(self, output_log: str):
+    def process_fault_order(self, output_log: str, itrees: bool = True):
         '''add ordering to the jif'''
+
+        itrees = "_itrees" if itrees else ""
         prefix = CHROOT_DIR + '/' + self.snapshot_prefix(
         ) if CONFIG['USE_CHROOT'] else self.snapshot_prefix()
 
-        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}_itrees.jif {prefix}_itrees_ord_reorder.jif add-ord --setup-prefetch {prefix}.ord >> {output_log}_add_ord_reord 2>&1"
+        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}{itrees}.jif {prefix}{itrees}_ord_reorder.jif add-ord --setup-prefetch {prefix}.ord >> {output_log}_add_ord_reord 2>&1"
             )
-        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}_itrees.jif {prefix}_itrees_ord.jif add-ord {prefix}.ord >> {output_log}_add_ord 2>&1 "
+        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}{itrees}.jif {prefix}{itrees}_ord.jif add-ord {prefix}.ord >> {output_log}_add_ord 2>&1 "
             )
 
     def restore_elf(self, output_log: str):
@@ -491,6 +546,10 @@ class Test:
         if jifpager_installed():
             self.do_kernel_trace(output_log)
             self.process_fault_order(output_log)
+
+        # add ordering to non-itree JIFs for dedup experiments
+        if CONFIG['DO_DENSITY']:
+            self.process_fault_order(output_log, itrees=False)
 
     def restore_image(self, output_log: str, second_apps=[]):
         if CONFIG['ELF_BASELINE']:
@@ -654,11 +713,7 @@ TESTS = [
         + ResizerTest.template('go', f"{ROOT_DIR}/build/junction/samples/snapshots/go/resizer", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new_version")
 
 
-def benchmark(result_dir: str, tests):
-    if CONFIG['REDO_SNAPSHOT']:
-        for app in tests:
-            app.generate_images(f"{result_dir}/generate_images")
-
+def run_microbenchmark(result_dir: str, tests):
     for app in tests:
         second_apps = []
         for sapp in tests:
@@ -671,6 +726,121 @@ def benchmark(result_dir: str, tests):
 
         app.restore_image(f"{result_dir}/restore_images",
                           second_apps=second_apps)
+
+
+def get_img_suffix(cfg):
+    itrees = cfg['itrees']
+    prefault = cfg['prefault']
+    reorder = cfg['reorder']
+
+    suffix = "_itrees" if itrees else ""
+    suffix = f"{suffix}_ord" if prefault else suffix
+    suffix = f"{suffix}_reorder" if reorder else suffix
+    return suffix
+
+
+def setup_async_images(apps, count, cfg):
+    suffix = get_img_suffix(cfg)
+    path = CHROOT_DIR if CONFIG['USE_CHROOT'] else ""
+
+    same_image = cfg['same_image']
+    for i in range(1, count + 1):
+        run(f"sed 's/host_addr.*/host_addr 192.168.127.{i}/' {CALADAN_CONFIG} > /tmp/tmp{i}.config"
+            )
+        if not same_image:
+            for app in apps:
+                img = f"{app.snapshot_prefix()}{suffix}"
+                run(f"cp {path}{img}.jif {path}{img}{i}.jif")
+
+
+def rm_async_images(apps, count, cfg):
+    suffix = get_img_suffix(cfg)
+    path = CHROOT_DIR if CONFIG['USE_CHROOT'] else ""
+
+    same_image = cfg['same_image']
+    for i in range(1, count + 1):
+        if not same_image:
+            for app in apps:
+                img = f"{app.snapshot_prefix()}{suffix}"
+                run(f"rm {path}{img}{i}.jif")
+
+        run(f"rm /tmp/tmp{i}.config")
+
+
+def restore_images_async(result_dir: str,
+                         exp_name: str,
+                         apps,
+                         cfg,
+                         count: int = 10):
+    output_log = f"{result_dir}/density_{exp_name}{count}"
+    cold = cfg['cold']
+    minor = cfg['minor']
+    reorder = cfg['reorder']
+    prefault = cfg['prefault']
+    itrees = cfg['itrees']
+    same_image = cfg['same_image']
+
+    set_fault_around(1)
+    set_prefault(1 if prefault else 0)
+    set_prefault_minor(1 if minor else 0)
+    set_measure_latency(0)
+    set_readahead(1)
+    set_trace(0)
+
+    output_log = f"{result_dir}/density_{exp_name}{count}"
+    path = CHROOT_DIR if CONFIG['USE_CHROOT'] else ""
+    chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if CONFIG[
+        'USE_CHROOT'] else ""
+
+    jifpager_reset()
+
+    if cold:
+        dropcache()
+
+    # reset mem usage
+    run(f"echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
+        )
+
+    procs = []
+    fn = 1
+    for i in range(1, count + 1):
+        app = apps[(i - 1) % len(apps)]
+        prefix = app.snapshot_prefix()
+        img = f"{prefix}{get_img_suffix(cfg)}{str(i) if not same_image else ''}"
+        junction_args = f"--function_arg '{app.args}' --function_name {app.id()}"
+        caladan_config = f"/tmp/tmp{i}.config"
+
+        procs.append(
+            run_async(
+                f"sudo -E cgexec -g memory:junction {JRUN} {caladan_config} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {img}.jif >> {output_log}_{i} 2>&1"
+            ))
+
+    for i in range(0, len(procs)):
+        proc = procs[i]
+        proc.wait()
+        assert proc.returncode == 0, f"failed to run {app.snapshot_prefix()}, log = {output_log}_{i}"
+
+    run(f"cat /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes >> {result_dir}/{exp_name}mem_usage"
+        )
+
+
+def run_density(result_dir: str, tests, count=10, step=1):
+    setup_mem_cgroup()
+
+    # log apps to regenerate figs
+    with open(f"{result_dir}/apps", "a") as f:
+        for app in tests:
+            f.write(f"{app.id()}\n")
+
+    with open(f"{result_dir}/params", "a") as f:
+        f.write(f"{count}, {step}")
+
+    for name, cfg in DENSITY_CONFIG_SET:
+        setup_async_images(tests, count, cfg)
+        for i in range(step, count + 1, step):
+            restore_images_async(result_dir, name, tests, cfg, count=i)
+
+        rm_async_images(tests, count, cfg)
 
 
 def get_one_log(log_name: str):
@@ -725,7 +895,112 @@ def get_kstats(fname: str, data, exp_n: int):
         pass
 
 
-def parse_benchmark_times(result_dir: str):
+def parse_density_one_cfg(apps, name, result_dir, count, step):
+    times = []
+    for j in range(step, count + 1, step):
+        lats = []
+        for i in range(1, j + 1):
+            app = apps[(i - 1) % len(apps)]
+            data = get_one_log(f"{result_dir}/density_{name}{j}_{i}")
+            lat = data[app]['times'][-1]
+            lat += data[app]['data_restore']
+            lats.append(lat)
+        times.append(lats)
+
+    mem = []
+    with open(f"{result_dir}/{name}mem_usage") as f:
+        lines = f.readlines()
+        for line in lines:
+            mem.append(int(line))
+
+    data = dict()
+    data['times'] = times
+    data['mem'] = mem
+
+    return data
+
+
+def parse_density_logs(result_dir: str):
+    with open(f"{result_dir}/apps", "r") as f:
+        apps = [app.split('\n')[0] for app in f.readlines()]
+
+    with open(f"{result_dir}/params", "r") as f:
+        line = f.readline().split(',')
+        count = int(line[0])
+        step = int(line[1])
+
+    data = dict()
+
+    for name, _ in DENSITY_CONFIG_SET:
+        data[name] = parse_density_one_cfg(apps, name, result_dir, count, step)
+
+    data['x'] = [i for i in range(step, count + 1, step)]
+    data['apps'] = apps
+
+    return data
+
+
+def plot_density_slowdowns(ax, data):
+    x_axis = data['x']
+
+    baseline = "itrees_same_image_"
+
+    all_slowdowns = []
+    baseline_times = data[baseline]['times']
+
+    for name, _ in DENSITY_CONFIG_SET:
+        if name == baseline:
+            continue
+
+        slowdown = []
+        for slow, b in zip(data[name]["times"], baseline_times):
+            s = 0
+            for x, y in zip(slow, b):
+                s += float(x / y)
+            s /= len(b)
+            slowdown.append(s)
+        all_slowdowns.append((name, slowdown))
+
+    all_slowdowns = sorted(all_slowdowns, key=lambda s: s[-1])
+
+    for name, slowdown in all_slowdowns:
+        ax.plot(x_axis, slowdown, label=name)
+
+    ax.plot(x_axis, [1 for _ in x_axis], label=f"baseline ({baseline})")
+
+    ax.set_xticks(x_axis)
+    ax.set_ylabel("Slowdown")
+    ax.legend()
+
+
+def plot_density_mem_usage(ax, data):
+    x = data["x"]
+    vals = []
+    for name, _ in DENSITY_CONFIG_SET:
+        d = data[name]
+        vals.append((name, [m / (1024**2) for m in d["mem"]]))
+
+    vals = sorted(vals, key=lambda v: v[-1])
+    for name, v in vals:
+        ax.plot(x, v, label=name)
+
+    ax.set_xticks(x)
+    ax.set_ylabel("Memory Usage (MB)")
+    ax.legend()
+
+
+def plot_density(results_dir, data):
+    fig, axes = plt.subplots(2, 1)
+    plot_density_slowdowns(axes[0], data)
+    plot_density_mem_usage(axes[1], data)
+
+    axes[0].set_title(data["apps"])
+    plt.xlabel("Concurrent Instances")
+    plt.tight_layout()
+    plt.savefig(f"{results_dir}/density.pdf")
+
+
+def parse_microbenchmark_times(result_dir: str):
     from pprint import pprint
 
     out = defaultdict(dict)
@@ -860,9 +1135,20 @@ def main(tests):
     result_dir = f"{RESULT_DIR}/run.{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
     os.system(f"mkdir -p {result_dir}")
     os.system(f"ln -sfn {result_dir} {RESULT_LINK}")
-    benchmark(result_dir, tests)
-    data = parse_benchmark_times(result_dir)
-    plot_workloads(result_dir, data)
+
+    if CONFIG['REDO_SNAPSHOT']:
+        for app in tests:
+            app.generate_images(f"{result_dir}/generate_images")
+
+    if CONFIG['DO_MICROBENCH']:
+        run_microbenchmark(result_dir, tests)
+        data = parse_microbenchmark_times(result_dir)
+        plot_workloads(result_dir, data)
+
+    if CONFIG['DO_DENSITY']:
+        run_density(result_dir, tests, count=50, step=2)
+        data = parse_density_logs(result_dir)
+        plot_density(result_dir, data)
 
 
 if __name__ == "__main__":
@@ -876,12 +1162,18 @@ if __name__ == "__main__":
     CONFIG['KERNEL_PREFETCH'] = args.kernel_prefetch
     CONFIG['KERNEL_PREFETCH_REORDER'] = args.kernel_prefetch_reorder
     CONFIG['REDO_SNAPSHOT'] = args.redo_snapshot
+    CONFIG['DO_DENSITY'] = args.do_density
+    CONFIG['DO_MICROBENCH'] = args.do_microbench
 
     DRY_RUN = args.dry_run
+    DROPCACHE_SLEEP = int(args.dropcache_sleep)
 
     if args.dirs:
         for d in args.dirs:
-            plot_workloads(d, parse_benchmark_times(d))
+            if CONFIG['DO_MICROBENCH']:
+                plot_workloads(d, parse_microbenchmark_times(d))
+            if CONFIG['DO_DENSITY']:
+                plot_density(d, parse_density_logs(d))
     else:
         name_regex = re.compile(args.name_filter) if args.name_filter else None
         lang_regex = re.compile(args.lang_filter) if args.lang_filter else None
@@ -899,6 +1191,8 @@ if __name__ == "__main__":
         combined_filter = lambda t: name_filter(t) and lang_filter(
             t) and arg_name_filter(t)
         tests = list(filter(combined_filter, TESTS))
+
+        assert len(tests) > 0, "No tests to run!"
 
         if DRY_RUN:
             for test in tests:
