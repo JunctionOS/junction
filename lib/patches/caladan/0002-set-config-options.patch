@@ -1,7 +1,7 @@
-From 8777d66ee7d3503f78399452e421073fcdf6afe4 Mon Sep 17 00:00:00 2001
+From 1f98ed193deefb1b885a69a60e9aa8f690f9fd86 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 21 Nov 2022 00:00:45 -0500
-Subject: [PATCH 02/33] set config options
+Subject: [PATCH 02/40] set config options
 
 ---
  build/config             |  6 +++---
@@ -33,7 +33,7 @@ index 023e2e1c..3e741d8b 100644
  # Build with clang instead of gcc
  CONFIG_CLANG=n
 diff --git a/build/init_submodules.sh b/build/init_submodules.sh
-index 323f15ad..254c12be 100755
+index 757f6837..b4092a38 100755
 --- a/build/init_submodules.sh
 +++ b/build/init_submodules.sh
 @@ -67,13 +67,13 @@ export EXTRA_LDFLAGS=
@@ -58,5 +58,5 @@ index 323f15ad..254c12be 100755
  echo building PCM
  cd deps/pcm
 -- 
-2.39.2
+2.43.0
 
