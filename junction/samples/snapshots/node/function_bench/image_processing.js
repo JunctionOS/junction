@@ -1,4 +1,4 @@
-const sharp = require('/usr/local/lib/node_modules/sharp');
+const sharp = require('sharp');
 const fs = require('fs');
 const path = require('path');
 
