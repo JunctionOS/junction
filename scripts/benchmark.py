@@ -507,18 +507,17 @@ class Test:
             f.write('\n')
 
     def do_kernel_trace(self, output_log: str):
-        for _ in range(CONFIG['KERNEL_TRACE_RUNS']):
-            self.jifpager_restore_jif(f"{output_log}_build_ord",
-                                      cold=True,
-                                      prefault=True,
-                                      minor=True,
-                                      fault_around=False,
-                                      trace=True)
+        self.jifpager_restore_jif(f"{output_log}_build_ord",
+                                  cold=True,
+                                  prefault=True,
+                                  minor=True,
+                                  fault_around=False,
+                                  trace=True)
 
-            path = f"{CHROOT_DIR}/{self.snapshot_prefix()}" if ARGS.use_chroot else self.snapshot_prefix(
-            )
-            run("sudo cat /sys/kernel/debug/mem_trace > /tmp/ord")
-            run(f"sudo cp /tmp/ord {path}.ord")
+        path = f"{CHROOT_DIR}/{self.snapshot_prefix()}" if ARGS.use_chroot else self.snapshot_prefix(
+        )
+        run("sudo cat /sys/kernel/debug/mem_trace > /tmp/ord")
+        run(f"sudo cp /tmp/ord {path}.ord")
 
     def generate_images(self, output_log: str):
         if ARGS.elf_baseline:
@@ -533,8 +532,9 @@ class Test:
 
         # re-generate ord with kernel tracer to catch more faults
         if jifpager_installed():
-            self.do_kernel_trace(output_log)
-            self.process_fault_order(output_log)
+            for _ in range(CONFIG['KERNEL_TRACE_RUNS']):
+                self.do_kernel_trace(output_log)
+                self.process_fault_order(output_log)
 
         # add ordering to non-itree JIFs for dedup experiments
         if ARGS.do_density:
