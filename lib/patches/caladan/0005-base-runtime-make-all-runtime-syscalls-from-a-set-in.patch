@@ -1,7 +1,7 @@
-From 017ff7c9e0d35390edc1849a6efe1161d28fa472 Mon Sep 17 00:00:00 2001
+From 96b87082ff3431c245b11582a62a2bb5cf68cf13 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 15:59:55 -0500
-Subject: [PATCH 05/33] base/runtime - make all runtime syscalls from a set
+Subject: [PATCH 05/40] base/runtime - make all runtime syscalls from a set
  instruction range
 
 ---
@@ -17,7 +17,7 @@ Subject: [PATCH 05/33] base/runtime - make all runtime syscalls from a set
  create mode 100644 inc/base/syscall.h
 
 diff --git a/Makefile b/Makefile
-index 46ef149f..e5933c82 100644
+index f3e4bd2..a5341f1 100644
 --- a/Makefile
 +++ b/Makefile
 @@ -11,7 +11,8 @@ endif
@@ -30,7 +30,7 @@ index 46ef149f..e5933c82 100644
  
  #libnet.a - a packet/networking utility library
  net_src = $(wildcard net/*.c)
-@@ -73,7 +74,7 @@ shim:
+@@ -75,7 +76,7 @@ shim:
  
  # general build rules for all targets
  src = $(base_src) $(net_src) $(runtime_src) $(iokernel_src) $(test_src)
@@ -40,7 +40,7 @@ index 46ef149f..e5933c82 100644
  dep = $(obj:.o=.d)
  
 diff --git a/base/mem.c b/base/mem.c
-index 27817995..8e1314ab 100644
+index 97dfb01..cb87d99 100644
 --- a/base/mem.c
 +++ b/base/mem.c
 @@ -18,6 +18,7 @@
@@ -51,7 +51,7 @@ index 27817995..8e1314ab 100644
  
  #if !defined(MAP_HUGE_2MB) || !defined(MAP_HUGE_1GB)
  #warning "Your system does not support specifying MAP_HUGETLB page sizes"
-@@ -33,21 +34,8 @@ int shmctl(int shm_id, int cmd, struct shmid_ds* buf);
+@@ -35,21 +36,8 @@ int shmctl(int shm_id, int cmd, struct shmid_ds* buf);
  int shmdt(const void *addr);
  int shmget(key_t key, size_t size, int flags);
  
@@ -73,7 +73,7 @@ index 27817995..8e1314ab 100644
  	char *pos;
  
  	/*
-@@ -55,10 +43,8 @@ static void touch_mapping(void *base, size_t len, size_t pgsize)
+@@ -57,10 +45,8 @@ static void touch_mapping(void *base, size_t len, size_t pgsize)
  	 * because of insufficient memory. Therefore, we manually force a write
  	 * on each page to make sure the mapping was successful.
  	 */
@@ -84,8 +84,8 @@ index 27817995..8e1314ab 100644
  } 
  
  static void *
-@@ -93,12 +79,12 @@ __mem_map_anom(void *base, size_t len, size_t pgsize,
- 		return MAP_FAILED;
+@@ -98,12 +84,12 @@ __mem_map_anom(void *base, size_t len, size_t pgsize,
+ 	  return MAP_FAILED;
  	}
  
 -	addr = mmap(base, len, PROT_READ | PROT_WRITE, flags, -1, 0);
@@ -102,7 +102,7 @@ index 27817995..8e1314ab 100644
  
 diff --git a/base/syscall.S b/base/syscall.S
 new file mode 100644
-index 00000000..d98d2e45
+index 0000000..d98d2e4
 --- /dev/null
 +++ b/base/syscall.S
 @@ -0,0 +1,54 @@
@@ -162,7 +162,7 @@ index 00000000..d98d2e45
 +base_syscall_end:
 diff --git a/inc/base/syscall.h b/inc/base/syscall.h
 new file mode 100644
-index 00000000..c10f9fb3
+index 0000000..c10f9fb
 --- /dev/null
 +++ b/inc/base/syscall.h
 @@ -0,0 +1,21 @@
@@ -189,7 +189,7 @@ index 00000000..c10f9fb3
 +extern int syscall_mprotect(void *addr, size_t len, int prot);
 \ No newline at end of file
 diff --git a/runtime/kthread.c b/runtime/kthread.c
-index 7851d669..aa949e4a 100644
+index 7851d66..aa949e4 100644
 --- a/runtime/kthread.c
 +++ b/runtime/kthread.c
 @@ -13,6 +13,7 @@
@@ -219,7 +219,7 @@ index 7851d669..aa949e4a 100644
  
  	k->curr_cpu = s;
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 1c18e721..5e81df9b 100644
+index 1c18e72..5e81df9 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
 @@ -14,6 +14,8 @@
@@ -282,7 +282,7 @@ index 1c18e721..5e81df9b 100644
  
  	ret = ioctl(ksched_fd, KSCHED_IOC_UINTR_SETUP_USER, uintr_asm_entry);
 diff --git a/runtime/stack.c b/runtime/stack.c
-index da6c3e90..787bdb7a 100644
+index da6c3e9..787bdb7 100644
 --- a/runtime/stack.c
 +++ b/runtime/stack.c
 @@ -10,6 +10,7 @@
@@ -319,5 +319,5 @@ index da6c3e90..787bdb7a 100644
  }
  
 -- 
-2.39.2
+2.43.0
 

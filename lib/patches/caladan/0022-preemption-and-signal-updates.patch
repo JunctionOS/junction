@@ -1,18 +1,18 @@
-From e43117285a9c892d305788f2e61ea0cb03d1bce1 Mon Sep 17 00:00:00 2001
+From 361a70d86a973b3dc1142789964e5498447b9cd5 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
-Subject: [PATCH 22/33] preemption and signal updates
+Subject: [PATCH 22/40] preemption and signal updates
 
 ---
  inc/runtime/thread.h |  4 +-
- runtime/cfg.c        |  9 -----
+ runtime/cfg.c        |  8 ----
  runtime/defs.h       |  2 +-
  runtime/preempt.c    | 31 ++++++---------
  runtime/sched.c      | 89 +++++++++++++++-----------------------------
- 5 files changed, 42 insertions(+), 93 deletions(-)
+ 5 files changed, 42 insertions(+), 92 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index ada82bca..48071274 100644
+index ada82bc..4807127 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -109,7 +109,6 @@ struct stack;
@@ -34,10 +34,10 @@ index ada82bca..48071274 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index 7936ce12..1043ede4 100644
+index 378fa31..21e76b1 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
-@@ -18,7 +18,6 @@ static size_t arp_static_sz;
+@@ -19,7 +19,6 @@ static size_t arp_static_sz;
  size_t arp_static_count;
  struct cfg_arp_static_entry *static_entries;
  int preferred_socket = 0;
@@ -45,8 +45,8 @@ index 7936ce12..1043ede4 100644
  
  /*
   * Configuration Options
-@@ -358,13 +357,6 @@ static int parse_enable_gc(const char *name, const char *val)
- #endif
+@@ -365,13 +364,6 @@ static int parse_enable_transparent_hugepages(const char *name, const char *val)
+   return 0;
  }
  
 -static int parse_use_sigaltstack(const char *name, const char *val)
@@ -56,19 +56,11 @@ index 7936ce12..1043ede4 100644
 -	return 0;
 -}
 -
- 
  /*
   * Parsing Infrastructure
-@@ -401,7 +393,6 @@ static const struct cfg_handler cfg_handlers[] = {
- 	{ "enable_storage", parse_enable_storage, false },
- 	{ "enable_directpath", parse_enable_directpath, false },
- 	{ "enable_gc", parse_enable_gc, false },
--	{ "use_sigaltstack", parse_use_sigaltstack, false },
- };
- 
- /**
+  */
 diff --git a/runtime/defs.h b/runtime/defs.h
-index f4b7da61..f63167b7 100644
+index cd99fac..9f9d123 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -70,6 +70,7 @@ struct stack {
@@ -88,7 +80,7 @@ index f4b7da61..f63167b7 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 9ac73f80..f49d73e2 100644
+index 9ac73f8..f49d73e 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
 @@ -4,6 +4,7 @@
@@ -174,7 +166,7 @@ index 9ac73f80..f49d73e2 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index eedc7eec..7a90ec3f 100644
+index eedc7ee..7a90ec3 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -332,5 +324,5 @@ index eedc7eec..7a90ec3f 100644
  }
  
 -- 
-2.39.2
+2.43.0
 
