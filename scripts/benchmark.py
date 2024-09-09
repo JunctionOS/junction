@@ -362,8 +362,12 @@ class Test:
     def _env(self):
         return f"-E {self.env}" if self.env else ""
 
-    def snapshot_prefix(self):
+    def snapshot_prefix(self, with_chroot=False):
         func_id = self.id()
+
+        if with_chroot and ARGS.use_chroot:
+            return f"{CHROOT_DIR}/tmp/{func_id}"
+
         return f"/tmp/{func_id}"
 
     def snapshot_elf(self, output_log: str):
@@ -383,8 +387,7 @@ class Test:
             )
 
     def process_itree(self, output_log: str):
-        prefix = CHROOT_DIR + '/' + self.snapshot_prefix(
-        ) if ARGS.use_chroot else self.snapshot_prefix()
+        prefix = self.snapshot_prefix(with_chroot=True)
         chroot_dir = CHROOT_DIR if ARGS.use_chroot else ''
 
         run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}.jif {prefix}_itrees.jif build-itrees {chroot_dir} >> {output_log}_build_itree 2>&1"
@@ -394,18 +397,19 @@ class Test:
         '''add ordering to the jif'''
 
         itrees = "_itrees" if itrees else ""
-        prefix = CHROOT_DIR + '/' + self.snapshot_prefix(
-        ) if ARGS.use_chroot else self.snapshot_prefix()
+        prefix = self.snapshot_prefix(with_chroot=True)
 
         run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}{itrees}.jif {prefix}{itrees}_ord_reorder.jif add-ord --setup-prefetch {prefix}.ord >> {output_log}_add_ord_reord 2>&1"
             )
         run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}{itrees}.jif {prefix}{itrees}_ord.jif add-ord {prefix}.ord >> {output_log}_add_ord 2>&1 "
             )
 
-    def restore_elf(self, output_log: str):
+    def restore_elf(self, output_log: str, cold: bool = True):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
         prefix = self.snapshot_prefix()
+
+        if cold: dropcache()
 
         run(f"sudo -E {JRUN} {CALADAN_CONFIG} -r {junction_args} {chroot_args} -- {prefix}.metadata {prefix}.elf >> {output_log}_elf 2>&1"
             )
@@ -414,7 +418,8 @@ class Test:
                               output_log: str,
                               trace: bool = False,
                               itrees: bool = False,
-                              reorder: bool = False):
+                              reorder: bool = False,
+                              cold: bool = True):
 
         def construct_jif_fname(self, itrees: bool, reorder: bool) -> str:
             fname = self.snapshot_prefix()
@@ -431,6 +436,8 @@ class Test:
         mem_flags = f"--stackswitch --mem-trace --mem-trace-out {prefix}.ord" if trace else ""
 
         jif_fname = construct_jif_fname(self, itrees, reorder)
+
+        if cold: dropcache()
 
         run(f"sudo -E {JRUN} {CALADAN_CONFIG} {junction_args} {mem_flags} {chroot_args} --jif -r -- {prefix}.jm {jif_fname} >> {output_log}_jif 2>&1"
             )
@@ -507,17 +514,16 @@ class Test:
             f.write('\n')
 
     def do_kernel_trace(self, output_log: str):
+        time.sleep(1)
         self.jifpager_restore_jif(f"{output_log}_build_ord",
-                                  cold=True,
+                                  cold=False,
                                   prefault=True,
                                   minor=True,
                                   fault_around=False,
                                   trace=True)
-
-        path = f"{CHROOT_DIR}/{self.snapshot_prefix()}" if ARGS.use_chroot else self.snapshot_prefix(
-        )
-        run("sudo cat /sys/kernel/debug/mem_trace > /tmp/ord")
-        run(f"sudo cp /tmp/ord {path}.ord")
+        path = self.snapshot_prefix(with_chroot=True)
+        run(f"sudo cat /sys/kernel/debug/mem_trace {path}.ord > /tmp/ord")
+        run(f"sort -n /tmp/ord > {path}.ord")
 
     def generate_images(self, output_log: str):
         if ARGS.elf_baseline:
@@ -542,17 +548,14 @@ class Test:
 
     def restore_image(self, output_log: str, second_apps=[]):
         if ARGS.elf_baseline:
-            dropcache()
             self.restore_elf(output_log)
 
         if ARGS.jif_userspace_baseline:
-            dropcache()
             self.userspace_restore_jif(output_log, itrees=True)
 
         # use the reorder file with userspace restore (increases VMA setup
         # costs)
         if False:
-            dropcache()
             self.userspace_restore_jif(f"{output_log}_reorder",
                                        reorder=True,
                                        itrees=True)
@@ -620,7 +623,7 @@ class Test:
                 self.jifpager_restore_jif(f"{output_log}_sa",
                                           minor=False,
                                           prefault=False,
-                                          cold=False,
+                                          cold=True,
                                           reorder=False,
                                           second_apps=second_apps)
 
@@ -640,9 +643,12 @@ class PyFBenchTest(Test):
     def __init__(self, name: str, **args):
         new_version_fn = lambda cmd: cmd.replace('run.py', 'new_runner.py')
         super().__init__(
-            'python', name,
+            'python',
+            name,
             f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/run.py {name}",
-            json.dumps(args), "", new_version_fn)
+            json.dumps(args),
+            "",
+            new_version_fn=new_version_fn)
 
 
 class NodeFBenchTest(Test):
@@ -671,7 +677,12 @@ class ResizerTest(Test):
 
     def __init__(self, lang: str, cmd: str, args: str, arg_name: str,
                  new_version_fn):
-        super().__init__(lang, 'resizer', cmd, args, arg_name, new_version_fn)
+        super().__init__(lang,
+                         'resizer',
+                         cmd,
+                         args,
+                         arg_name,
+                         new_version_fn=new_version_fn)
 
 
 RESIZER_IMAGES = {
