@@ -42,6 +42,7 @@ class FunctionChannel {
         return nb;
       }
       if (nonblocking) return MakeError(EAGAIN);
+      last_waiter_tid_ = mythread().get_tid();
       bool signaled = !rt::WaitInterruptible(
           lock_, app_waiter_, [this] { return request_.size() > 0; });
       if (signaled) return MakeError(ERESTARTSYS);
@@ -55,7 +56,7 @@ class FunctionChannel {
     rt::SpinGuard g(lock_);
     BUG_ON(!in_progress_);
     response_ = from_byte_span(buf);
-    junction_waiter_.Wake();
+    junction_waiter_.Wake(true);
     if (!start_.IsZero()) {
       latencies_us_.push_back((end - start_).Microseconds());
       start_ = Time(0);
@@ -107,6 +108,7 @@ class FunctionChannel {
   }
 
   [[nodiscard]] bool in_progress() const { return access_once(in_progress_); }
+  [[nodiscard]] pid_t get_last_blocked_tid() const { return last_waiter_tid_; }
 
   std::vector<uint64_t> get_latencies() {
     rt::SpinGuard g(lock_);
@@ -147,6 +149,7 @@ class FunctionChannel {
   rt::Spin lock_;
   rt::ThreadWaker app_waiter_;
   rt::ThreadWaker junction_waiter_;
+  pid_t last_waiter_tid_{0};
   bool in_progress_{false};
   Time start_{0};
   std::string request_;
@@ -362,7 +365,14 @@ void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
 
 std::string InvokeChan(int chan, std::string arg) {
   std::shared_ptr<FunctionInode> fino = get_channel(chan);
+  assert(fino);
   return fino->get_chan().DoRequest(arg);
+}
+
+pid_t GetLastBlockedTid(int chan) {
+  std::shared_ptr<FunctionInode> fino = get_channel(chan);
+  if (unlikely(!fino)) return 0;
+  return fino->get_chan().get_last_blocked_tid();
 }
 
 }  // namespace junction

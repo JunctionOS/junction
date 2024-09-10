@@ -162,7 +162,7 @@ void JunctionMain(int argc, char *argv[]) {
 
   if (proc) {
     if (!function_arg.empty()) {
-      rt::Spawn([p = proc, arg = std::move(function_arg)] mutable {
+      rt::SpawnHead([p = proc, arg = std::move(function_arg)] mutable {
         if (GetCfg().restoring())
           RunRestored(std::move(p), 0, arg);
         else

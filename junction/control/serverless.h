@@ -13,6 +13,7 @@ Status<void> SetupServerlessChannel(int chan);
 void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
                        std::string_view arg);
 
+pid_t GetLastBlockedTid(int chan);
 std::string InvokeChan(int chan, std::string arg);
 void RunRestored(std::shared_ptr<Process> proc, int chan_id,
                  std::string_view arg);

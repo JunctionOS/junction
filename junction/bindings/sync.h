@@ -101,6 +101,12 @@ inline void ThreadReady(thread_t *th) {
   interruptible_wake(th);
 }
 
+// ThreadReadyHead wakes a blocking thread, placing it at the head of the runq.
+inline void ThreadReadyHead(thread_t *th) {
+  // Works whether SetInterruptible() was called or not.
+  if (interruptible_wake_test(th)) thread_ready_head(th);
+}
+
 // ScopedLock releases a lock using RAII like std::scoped_lock.
 template <Lockable L>
 class ScopedLock {
@@ -439,10 +445,13 @@ class ThreadWaker {
   // Wake makes the parked thread runnable. Must be called by another thread
   // after the prior thread has called Arm() and has parked (or will park in
   // the immediate future). Returns true if a thread was woken.
-  bool Wake() {
+  bool Wake(bool head = false) {
     if (th_ == nullptr) return false;
     thread_t *th = std::exchange(th_, nullptr);
-    ThreadReady(th);
+    if (!head)
+      ThreadReady(th);
+    else
+      ThreadReadyHead(th);
     return true;
   }
 

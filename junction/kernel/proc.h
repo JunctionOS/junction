@@ -16,6 +16,7 @@ extern "C" {
 
 #include "junction/base/arch.h"
 #include "junction/base/uid.h"
+#include "junction/control/serverless.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
 #include "junction/fs/procfs/procfs.h"
@@ -102,7 +103,12 @@ class Thread {
     return *reinterpret_cast<Thread *>(ts);
   }
 
-  void ThreadReady() { thread_ready(GetCaladanThread()); }
+  void ThreadReady(bool head = false) {
+    if (!head)
+      thread_ready(GetCaladanThread());
+    else
+      thread_ready_head(GetCaladanThread());
+  }
 
   void Kill() {
     siginfo_t info;
@@ -569,7 +575,10 @@ class Process : public std::enable_shared_from_this<Process> {
   void RunThreads() {
     rt::ScopedLock g(child_thread_lock_);
     stopped_gen_ = 2;
-    for (const auto &[_pid, th] : thread_map_) th->ThreadReady();
+    for (const auto &[pid, th] : thread_map_) {
+      bool wake_at_head = pid == first_wake_th_;
+      th->ThreadReady(wake_at_head);
+    }
   }
 
   void SetCwd(std::shared_ptr<IDir> new_cwd) {
@@ -690,7 +699,7 @@ class Process : public std::enable_shared_from_this<Process> {
     if (!cwd) throw std::runtime_error("stale cwd during snapshot");
     ar(*cwd);
 
-    ar(thread_map_.size());
+    ar(thread_map_.size(), GetLastBlockedTid(0));
     for (const auto &[pid, th] : thread_map_) {
       ar(pid);
       th->DoSave(ar);
@@ -705,7 +714,8 @@ class Process : public std::enable_shared_from_this<Process> {
     construct(pid, ar);
 
     size_t n_threads;
-    ar(n_threads);
+    pid_t first_wake_th;
+    ar(n_threads, first_wake_th);
     for (size_t idx = 0; idx < n_threads; idx++) {
       thread_t *th = thread_create(nullptr, 0);
       if (unlikely(!th)) {
@@ -727,6 +737,7 @@ class Process : public std::enable_shared_from_this<Process> {
     }
 
     if (!construct->parent_) detail::SetInitProc(construct->shared_from_this());
+    construct->first_wake_th_ = first_wake_th;
   }
 
   const pid_t pid_;         // the process identifier
@@ -818,6 +829,9 @@ class Process : public std::enable_shared_from_this<Process> {
 
   // Procfs entries.
   procfs::ProcFSData procfs_data_;
+
+  // First thread to wake after restore.
+  pid_t first_wake_th_;
 
   static rt::Spin pid_map_lock_;
   static std::map<pid_t, Process *> pid_to_proc_;

@@ -195,6 +195,21 @@ void Spawn(Callable&& func, Args&&... args)
   thread_ready(th);
 }
 
+// Spawns a new thread at the head of the runqueue.
+template <typename Callable, typename... Args>
+void SpawnHead(Callable&& func, Args&&... args)
+  requires std::invocable<Callable, Args...>
+{
+  void* buf;
+  using Data = thread_internal::basic_data;
+  using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
+  thread_t* th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
+                                        sizeof(Wrapper));
+  if (unlikely(!th)) BUG();
+  new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
+  thread_ready_head(th);
+}
+
 // This is a very stripped down version of std::future (used for Async only).
 template <typename T>
 class Future {
