@@ -24,6 +24,7 @@ BUILD_DIR = f"{ROOT_DIR}/build"
 BIN_DIR = f"{ROOT_DIR}/bin"
 JRUN = f"{BUILD_DIR}/junction/junction_run"
 CALADAN_CONFIG = f"{BUILD_DIR}/junction/caladan_test_ts_st.config"
+CALADAN_CONFIG_NOTS = f"{BUILD_DIR}/junction/caladan_test_st.config"
 CALADAN_DIR = f"{ROOT_DIR}/lib/caladan"
 CHROOT_DIR = f"{ROOT_DIR}/chroot"
 RESULT_DIR = f"{ROOT_DIR}/results"
@@ -31,13 +32,11 @@ RESULT_LINK = f"{ROOT_DIR}/results/run.recent"
 
 PATH_TO_FBENCH = f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/"
 
-# default config
-# is overriden by the CLI
 CONFIG = {
-    'KERNEL_TRACE_RUNS': 3,
+    'KERNEL_TRACE_RUNS': 5,
 }
 
-DROPCACHE = 4
+DROPCACHE = 1
 
 parser = argparse.ArgumentParser(
     prog='jif_benchmark', description='benchmark restore times with JIFs')
@@ -411,7 +410,7 @@ class Test:
 
         if cold: dropcache()
 
-        run(f"sudo -E {JRUN} {CALADAN_CONFIG} -r {junction_args} {chroot_args} -- {prefix}.metadata {prefix}.elf >> {output_log}_elf 2>&1"
+        run(f"sudo -E {JRUN} {CALADAN_CONFIG_NOTS} -r {junction_args} {chroot_args} -- {prefix}.metadata {prefix}.elf >> {output_log}_elf 2>&1"
             )
 
     def userspace_restore_jif(self,
@@ -439,7 +438,7 @@ class Test:
 
         if cold: dropcache()
 
-        run(f"sudo -E {JRUN} {CALADAN_CONFIG} {junction_args} {mem_flags} {chroot_args} --jif -r -- {prefix}.jm {jif_fname} >> {output_log}_jif 2>&1"
+        run(f"sudo -E {JRUN} {CALADAN_CONFIG_NOTS} {junction_args} {mem_flags} {chroot_args} --jif -r -- {prefix}.jm {jif_fname} >> {output_log}_jif 2>&1"
             )
 
     def jifpager_restore_jif(self,
@@ -470,8 +469,12 @@ class Test:
         procs = []
         for idx, sapp in enumerate(second_apps):
             caladan_config = f"/tmp/beconf_{idx}.conf"
-            ip = f"123.45.6.{idx}"
-            run(f"sed 's/host_addr.*/host_addr {ip}/' {CALADAN_CONFIG} > {caladan_config}"
+            def addr_to_str(ip):
+                return "{}.{}.{}.{}".format(
+                    ip >> 24, (ip >> 16) & 0xff, (ip >> 8) & 0xff, ip & 0xff
+                )
+            ip = addr_to_str(2066548225 + idx) # "123.45.6.1"
+            run(f"sed 's/host_addr.*/host_addr {ip}/' {CALADAN_CONFIG_NOTS} | sed 's/host_netmask.*/host_netmask 255.255.0.0/' > {caladan_config}"
                 )
             junction_args = f"--function_arg '{sapp.args}' --function_name {sapp.id()}"
             prefix = sapp.snapshot_prefix()
@@ -487,7 +490,7 @@ class Test:
         jifpager_reset()
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         prefix = self.snapshot_prefix()
-        run(f"sudo -E {JRUN} {CALADAN_CONFIG} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {prefix}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k  2>&1"
+        run(f"sudo -E {JRUN} {CALADAN_CONFIG_NOTS} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {prefix}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k  2>&1"
             )
 
         stats = open("/sys/kernel/jif_pager/stats")
@@ -514,16 +517,18 @@ class Test:
             f.write('\n')
 
     def do_kernel_trace(self, output_log: str):
-        time.sleep(1)
-        self.jifpager_restore_jif(f"{output_log}_build_ord",
-                                  cold=False,
-                                  prefault=True,
-                                  minor=True,
-                                  fault_around=False,
-                                  trace=True)
         path = self.snapshot_prefix(with_chroot=True)
-        run(f"sudo cat /sys/kernel/debug/mem_trace {path}.ord > /tmp/ord")
-        run(f"sort -n /tmp/ord > {path}.ord")
+        for i in range(CONFIG['KERNEL_TRACE_RUNS']):
+            time.sleep(1)
+            self.jifpager_restore_jif(f"{output_log}_build_ord",
+                                      cold=False,
+                                      prefault=True,
+                                      minor=i % 2 == 0,
+                                      fault_around=False,
+                                      trace=True)
+            run(f"sudo cat /sys/kernel/debug/mem_trace {path}.ord > /tmp/ord")
+            run(f"sort -n /tmp/ord > {path}.ord")
+            self.process_fault_order(output_log)
 
     def generate_images(self, output_log: str):
         if ARGS.elf_baseline:
@@ -538,9 +543,7 @@ class Test:
 
         # re-generate ord with kernel tracer to catch more faults
         if jifpager_installed():
-            for _ in range(CONFIG['KERNEL_TRACE_RUNS']):
-                self.do_kernel_trace(output_log)
-                self.process_fault_order(output_log)
+            self.do_kernel_trace(output_log)
 
         # add ordering to non-itree JIFs for dedup experiments
         if ARGS.do_density:
@@ -749,7 +752,7 @@ def setup_async_images(apps, count, cfg):
 
     same_image = cfg['same_image']
     for i in range(1, count + 1):
-        run(f"sed 's/host_addr.*/host_addr 192.168.127.{i}/' {CALADAN_CONFIG} > /tmp/tmp{i}.config"
+        run(f"sed 's/host_addr.*/host_addr 192.168.127.{i}/' {CALADAN_CONFIG_NOTS} > /tmp/tmp{i}.config"
             )
         if not same_image:
             for app in apps:
