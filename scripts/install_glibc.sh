@@ -6,7 +6,7 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 GLIBC_DIR=${ROOT_DIR}/lib/glibc
 GLIBC_PATCHES_DIR=${ROOT_DIR}/lib/patches/glibc
-GLIBC_INSTALL_DIR=${ROOT_DIR}/bin/glibc/build/install
+GLIBC_INSTALL_DIR=${ROOT_DIR}/install
 
 # Create installation directory
 mkdir -p $GLIBC_INSTALL_DIR

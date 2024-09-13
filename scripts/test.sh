@@ -43,6 +43,7 @@ fi
 CALADAN_DIR=${ROOT_DIR}/lib/caladan
 TEST_DIR=${BUILD_DIR}/junction
 BIN_DIR=${ROOT_DIR}/bin
+INSTALL_DIR=${ROOT_DIR}/install
 CTEST=${BIN_DIR}/bin/ctest
 
 # Start Caladan if not doing a dry run
@@ -74,13 +75,15 @@ if [[ ! -z ${USECHROOT} ]]; then
         exit 255
     fi
     export EXTRA_JUNCTION_FLAGS=" --chroot ${CHROOT_DIR} --cache_linux_fs "
-    sudo mkdir -p ${CHROOT_DIR}/${BIN_DIR} ${CHROOT_DIR}/${BUILD_DIR}
+    sudo mkdir -p ${CHROOT_DIR}/${BIN_DIR} ${CHROOT_DIR}/${BUILD_DIR} ${CHROOT_DIR}/${INSTALL_DIR}
     sudo mount --bind -o ro ${BIN_DIR} ${CHROOT_DIR}/${BIN_DIR}
     sudo mount --bind -o ro ${BUILD_DIR} ${CHROOT_DIR}/${BUILD_DIR}
+    sudo mount --bind -o ro ${INSTALL_DIR} ${CHROOT_DIR}/${INSTALL_DIR}
 
     function cleanup {
         sudo umount "${CHROOT_DIR}/${BUILD_DIR}" 2> /dev/null
         sudo umount "${CHROOT_DIR}/${BIN_DIR}" 2> /dev/null
+        sudo umount "${CHROOT_DIR}/${INSTALL_DIR}" 2> /dev/null
     }
     trap cleanup SIGINT SIGTERM EXIT
 fi

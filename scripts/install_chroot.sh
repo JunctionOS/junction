@@ -27,4 +27,4 @@ EOT
 
 sudo umount ${CHROOT}/proc
 
-sudo cp ${ROOT_DIR}/bin/glibc/build/install/sbin/ldconfig ${CHROOT}/sbin/
+sudo cp ${ROOT_DIR}/install/sbin/ldconfig ${CHROOT}/sbin/

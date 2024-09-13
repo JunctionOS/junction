@@ -8,6 +8,7 @@ ROOT_DIR=${SCRIPT_DIR}/../
 VENV_DIR=${ROOT_DIR}/bin/venv
 
 sudo -E apt install -y libgl1 python3-venv
+mkdir -p ${ROOT_DIR}/bin/
 python3 -m venv ${VENV_DIR}
 ${VENV_DIR}/bin/pip install chameleon pillow numpy pyaes six torch opencv-python scikit-learn pandas tensorflow #[and-cuda]
 

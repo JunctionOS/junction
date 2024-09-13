@@ -22,6 +22,7 @@ SCRIPT_DIR = os.path.split(os.path.realpath(__file__))[0]
 ROOT_DIR = os.path.split(SCRIPT_DIR)[0]
 BUILD_DIR = f"{ROOT_DIR}/build"
 BIN_DIR = f"{ROOT_DIR}/bin"
+INSTALL_DIR = f"{ROOT_DIR}/install"
 JRUN = f"{BUILD_DIR}/junction/junction_run"
 CALADAN_CONFIG = f"{BUILD_DIR}/junction/caladan_test_ts_st.config"
 CALADAN_CONFIG_NOTS = f"{BUILD_DIR}/junction/caladan_test_st.config"
@@ -232,6 +233,7 @@ def setup_mem_cgroup():
 
 
 def kill_chroot():
+    run(f"sudo umount {CHROOT_DIR}/{INSTALL_DIR}")
     run(f"sudo umount {CHROOT_DIR}/{BIN_DIR}")
     run(f"sudo umount {CHROOT_DIR}/{BUILD_DIR}")
     if jifpager_installed():
@@ -241,9 +243,10 @@ def kill_chroot():
 def setup_chroot():
     if not ARGS.use_chroot:
         return
-    run(f"sudo mkdir -p {CHROOT_DIR}/{BIN_DIR} {CHROOT_DIR}/{BUILD_DIR}")
+    run(f"sudo mkdir -p {CHROOT_DIR}/{BIN_DIR} {CHROOT_DIR}/{BUILD_DIR} {CHROOT_DIR}/{INSTALL_DIR}")
     run(f"sudo mount --bind -o ro {BIN_DIR} {CHROOT_DIR}/{BIN_DIR}")
     run(f"sudo mount --bind -o ro {BUILD_DIR} {CHROOT_DIR}/{BUILD_DIR}")
+    run(f"sudo mount --bind -o ro {INSTALL_DIR} {CHROOT_DIR}/{INSTALL_DIR}")
 
     if jifpager_installed():
         st = os.stat("/dev/jif_pager")

@@ -1,6 +1,7 @@
 build/**
 build-debug/**
 bin/**
+install/**
 perf_*/**
 Testing/**
 results/**
@@ -19,6 +20,8 @@ lib/.jiftools_installed_ver
 *.snapshot
 *.elf
 *.metadata
+
+lib/node
 
 chroot/**
 

@@ -45,12 +45,12 @@ jobs:
         run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
 
       - uses: actions/cache@v4
-        name: Retrieve cached glibc binaries
+        name: Retrieve cached install dir
         with:
           path: |
-            bin/glibc
+            install
             lib/.glibc_installed_ver
-          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-glibc-${{ hashFiles('lib/patches/glibc/*', 'scripts/install_glibc.sh') }}
+          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/*') }}
 
       - uses: actions/cache@v4
         name: Retrieve cached caladan submodule binaries
@@ -67,6 +67,7 @@ jobs:
         with:
           path: |
             bin/venv
+            bin/node_modules
           key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
 
       - name: Install
@@ -153,12 +154,12 @@ jobs:
         run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
 
       - uses: actions/cache@v4
-        name: Retrieve cached glibc binaries
+        name: Retrieve cached install dir
         with:
           path: |
-            bin/glibc
+            install
             lib/.glibc_installed_ver
-          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-glibc-${{ hashFiles('lib/patches/glibc/*', 'scripts/install_glibc.sh') }}
+          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/*') }}
 
       - uses: actions/cache@v4
         name: Retrieve cached caladan submodule binaries
@@ -175,6 +176,7 @@ jobs:
         with:
           path: |
             bin/venv
+            bin/node_modules
           key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
 
       - uses: actions/cache@v4
