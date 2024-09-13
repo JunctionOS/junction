@@ -2,6 +2,14 @@ const path = require('path')
 const fs = require('fs');
 const readline = require('readline');
 
+
+let addon;
+try {
+    addon = require('addon');
+} catch (e) {
+    console.log('Continuing without addon module.')
+}
+
 const PATH_TO_FBENCH = path.dirname(__filename);
 
 if (process.argv.length < 3) {
@@ -23,9 +31,9 @@ try {
     module = require(`${PATH_TO_FBENCH}/${name}`);
 
     if (module && module.function_handler) {
-	handler = module.function_handler;
+        handler = module.function_handler;
     } else {
-	console.log(`module ${name} missing function_handler`);
+        console.log(`module ${name} missing function_handler`);
     }
 } catch (error) {
     console.log(`Error: could not load module ${name}.js: ${error}`);
@@ -35,9 +43,15 @@ if (handler == null) {
     process.exit(0);
 }
 
+var frozen = false;
+
 function snapshot_prepare() {
     for (let i = 0; i < 3; i++) {
-	global.gc()
+        global.gc()
+    }
+    if (addon) {
+        addon.freeze();
+        frozen = true;
     }
 }
 
@@ -51,16 +65,21 @@ async function readLines(filePath) {
     });
 
     for await (const line of rl) {
-	if (line == "SNAPSHOT_PREPARE") {
-	    snapshot_prepare();
-	    await write.write("OK");
-	    continue;
-	}
+        if (line == "SNAPSHOT_PREPARE") {
+            snapshot_prepare();
+            await write.write("OK");
+            continue;
+        }
 
-	// invoke function
-	json_req = JSON.parse(line)
-	const ret = await handler(json_req);
-	await write.write(ret);
+        if (frozen) {
+            addon.unfreeze();
+            frozen = false;
+        }
+
+        // invoke function
+        json_req = JSON.parse(line)
+        const ret = await handler(json_req);
+        await write.write(ret);
     }
 }
 

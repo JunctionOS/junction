@@ -30,6 +30,12 @@ CALADAN_DIR = f"{ROOT_DIR}/lib/caladan"
 CHROOT_DIR = f"{ROOT_DIR}/chroot"
 RESULT_DIR = f"{ROOT_DIR}/results"
 RESULT_LINK = f"{ROOT_DIR}/results/run.recent"
+NODE_BIN = f"/usr/bin/node"
+NODE_PATH = f"{ROOT_DIR}/bin/node_modules"
+
+if os.path.exists(f"{INSTALL_DIR}/bin/node"):
+    NODE_BIN = f"{INSTALL_DIR}/bin/node"
+    NODE_PATH += f":{ROOT_DIR}/bin/node_modules_addon"
 
 PATH_TO_FBENCH = f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/"
 
@@ -663,9 +669,9 @@ class NodeFBenchTest(Test):
         super().__init__(
             'node',
             name,
-            f"/usr/bin/node --expose-gc {ROOT_DIR}/build/junction/samples/snapshots/node/function_bench/run.js {name}",
+            f"{NODE_BIN} --expose-gc {ROOT_DIR}/build/junction/samples/snapshots/node/function_bench/run.js {name}",
             json.dumps(args),
-            env=f"NODE_PATH={ROOT_DIR}/bin/node_modules/")
+            env=f"NODE_PATH={NODE_PATH}")
 
 
 class ResizerTest(Test):
