@@ -13,6 +13,7 @@
 
 namespace junction {
 
+constexpr uint64_t kChannelPort = 43;
 class FunctionInode;
 
 rt::SharedMutex lock_;
@@ -302,7 +303,6 @@ void PrintTimes(const std::vector<uint64_t> &times, std::string_view name) {
   }
 
   ss << ", \"first_iter\": " << timings().FirstIterTime().Microseconds();
-
   ss << "}";
   LOG(ERR) << ss.str();
 }
@@ -373,6 +373,105 @@ pid_t GetLastBlockedTid(int chan) {
   std::shared_ptr<FunctionInode> fino = get_channel(chan);
   if (unlikely(!fino)) return 0;
   return fino->get_chan().get_last_blocked_tid();
+}
+
+void ChannelWorker(rt::TCPConn &c) {
+  std::vector<std::byte> data;
+  std::shared_ptr<FunctionInode> fino = get_channel(0);
+  FunctionChannel &chan = fino->get_chan();
+
+  std::string func_name = GetCfg().get_function_name();
+  size_t len = func_name.length();
+
+  // first send the function name
+  Status<void> ret = WriteFull(c, std::as_bytes(std::span{&len, 1}));
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to write length of function name";
+    return;
+  }
+
+  ret = WriteFull(c, std::as_bytes(std::span{func_name.data(), len}));
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to write function name";
+    return;
+  }
+
+  while (true) {
+    size_t nbytes;
+    // reads the size of the args
+    ret = ReadFull(c, std::as_writable_bytes(std::span{&nbytes, 1}));
+    if (unlikely(!ret)) {
+      LOG(INFO) << "failed to read from socket";
+      c.Shutdown(SHUT_RDWR);
+      return;
+    }
+
+    // resize the buffer if needed
+    if (data.size() < nbytes) data.resize(nbytes);
+
+    // read the args
+    ret = ReadFull(c, {data.data(), nbytes});
+    if (unlikely(!ret)) break;
+
+    // convert to string
+    std::string req(reinterpret_cast<const char *>(data.data()), nbytes);
+
+    if (!nbytes) continue;
+
+    if (req == "SHUTDOWN") {
+      LOG(INFO) << "Finished, shutting down";
+      ret = WriteFull(c, std::as_bytes(std::span{&nbytes, 1}));
+      if (unlikely(!ret)) break;
+
+      ret = WriteFull(c, std::as_bytes(std::span{req.data(), nbytes}));
+      if (unlikely(!ret)) break;
+
+      syscall_exit(0);
+    }
+
+    // call function
+    std::string res = chan.DoRequest(std::move(req));
+    nbytes = res.size();
+    // write the length of the response
+    ret = WriteFull(c, std::as_bytes(std::span{&nbytes, 1}));
+    if (unlikely(!ret)) break;
+    // write the response
+    ret = WriteFull(c, std::as_bytes(std::span{res.data(), nbytes}));
+    if (unlikely(!ret)) break;
+  }
+}
+
+void ChannelClient(void) {
+  netaddr laddr, raddr;
+  laddr = {0};
+
+  raddr = GetCfg().get_dispatch_netaddr();
+  raddr.port = GetCfg().port();
+
+  if (!raddr.ip) return;
+
+  Status<rt::TCPConn> c;
+  while (true) {
+    LOG(INFO) << "connecting to " << GetCfg().get_dispatch_ip_str() << ":"
+              << GetCfg().port();
+
+    rt::Sleep(Duration(kSeconds));
+    c = rt::TCPConn::Dial(laddr, raddr);
+
+    if (!c) {
+      LOG(INFO) << "couldn't connect: " << c.error();
+      continue;
+    }
+
+    LOG(INFO) << "connected!";
+    ChannelWorker(*c);
+  }
+}
+
+Status<void> InitChannelClient() {
+  LOG(INFO) << "started serverless channel client on port " << kChannelPort;
+  rt::Spawn([] mutable { ChannelClient(); });
+  return {};
 }
 
 }  // namespace junction

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "junction/base/error.h"
+#include "junction/bindings/net.h"
 
 #ifndef CUSTOM_GLIBC_INTERPRETER_PATH
 #define CUSTOM_GLIBC_INTERPRETER_PATH
@@ -59,9 +60,22 @@ class alignas(kCacheLineSize) JunctionCfg {
     return terminate_after_snapshot_;
   }
   [[nodiscard]] uint16_t port() const { return port_; }
-
   [[nodiscard]] const std::string &get_snapshot_prefix() const {
     return snapshot_prefix_;
+  }
+
+  [[nodiscard]] const std::string &get_function_name() const {
+    return function_name_;
+  }
+
+  [[nodiscard]] netaddr get_dispatch_netaddr() const {
+    netaddr addr;
+    str_to_netaddr(func_dispatch_addr.c_str(), &addr);
+    return addr;
+  }
+
+  [[nodiscard]] const std::string &get_dispatch_ip_str() const {
+    return func_dispatch_addr;
   }
 
   static void PrintOptions();
@@ -98,6 +112,8 @@ class alignas(kCacheLineSize) JunctionCfg {
   int snapshot_on_stop_;
   bool mem_trace_;
   std::string snapshot_prefix_;
+  std::string func_dispatch_addr;
+  std::string function_name_;
   static JunctionCfg singleton_;
 };
 
@@ -109,6 +125,7 @@ pid_t GetLinuxPid();
 Status<void> init();
 Status<void> InitUnixTime();
 Status<void> InitControlServer();
+Status<void> InitChannelClient();
 Status<std::unique_ptr<Process>> InitTestProc();
 void MarkRuntimeReady();
 [[nodiscard]] bool IsRuntimeReady();

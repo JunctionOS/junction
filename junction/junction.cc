@@ -113,8 +113,10 @@ po::options_description GetOptions() {
       ("function_arg", po::value<std::string>()->default_value(""),
        "argument provided to serverless function")  //
       ("function_name", po::value<std::string>()->default_value("func"),
-       "name of function being run")(
-          "keep_alive", po::bool_switch()->default_value(false), "");
+       "name of function being run")                               //
+      ("keep_alive", po::bool_switch()->default_value(false), "")  //
+      ("dispatch_ip", po::value<std::string>()->default_value(""),
+       "ip addr of serverless function dispatcher");
   return desc;
 }
 
@@ -158,6 +160,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   expecting_snapshot_ = vm["snapshot_enabled"].as<bool>();
   expecting_snapshot_ |= snapshot_on_stop_;
   expecting_snapshot_ |= vm.count("function_arg") && !restore;
+  function_name_ = vm["function_name"].as<std::string>();
 
   strace = vm["strace"].as<bool>();
   stack_switching = vm["stackswitch"].as<bool>();
@@ -181,6 +184,8 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
     LOG(WARN) << "Enabling stack switching for memory tracing";
     stack_switching = true;
   }
+
+  func_dispatch_addr = vm["dispatch_ip"].as<std::string>();
 
   return {};
 }
@@ -255,6 +260,9 @@ Status<void> init() {
   if (unlikely(!ret)) return ret;
 
   ret = InitControlServer();
+  if (unlikely(!ret)) return ret;
+
+  ret = InitChannelClient();
   if (unlikely(!ret)) return ret;
 
   return init_seccomp();
