@@ -23,7 +23,7 @@ extern "C" void junction_exec_start(void *entry_arg);
 
 Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, std::vector<std::string_view> &argv,
-    const std::vector<std::string_view> &envp) {
+    const std::vector<std::string_view> &envp, bool is_init) {
   // Create the process object
   Status<std::shared_ptr<Process>> proc = CreateInitProcess();
   if (!proc) return MakeError(proc);
@@ -50,6 +50,8 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   Status<Thread *> tmp = (*proc)->CreateThreadMain();
   if (!tmp) return MakeError(tmp);
   Thread &th = **tmp;
+
+  if (is_init) SetInitProc(*proc);
 
   FunctionCallTf &entry = FunctionCallTf::CreateOnSyscallStack(th);
   thread_tf &tf = entry.GetFrame();

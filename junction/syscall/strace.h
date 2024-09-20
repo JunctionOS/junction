@@ -21,6 +21,7 @@ enum class MMapFlag : int {};
 enum class OpenFlag : int {};
 enum class SignalNumber : int {};
 enum class MAdviseHint : int {};
+enum class CloneFlag : int {};
 
 template <typename U>
 inline void PrintArg(const char **array, U, rt::Logger &ss) {
@@ -60,6 +61,7 @@ inline void PrintArg(const char *arg, T, rt::Logger &ss) {
 void PrintArg(int fd, AtFD, rt::Logger &ss);
 void PrintArg(int prot, ProtFlag, rt::Logger &ss);
 void PrintArg(int flags, MMapFlag, rt::Logger &ss);
+void PrintArg(unsigned long flags, CloneFlag, rt::Logger &ss);
 void PrintArg(int *fds, FDPair *, rt::Logger &ss);
 void PrintArg(int flags, OpenFlag, rt::Logger &ss);
 void PrintArg(int signo, SignalNumber, rt::Logger &ss);

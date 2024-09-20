@@ -127,39 +127,38 @@ class alignas(kCacheLineSize) PollSource {
  private:
   void Notify();
   void DetachEPollObservers();
+  friend class PollSourceSet;
 
   rt::Spin lock_;
   unsigned int event_mask_{0};
   IntrusiveList<PollObserver, &PollObserver::node_> observers_;
   IntrusiveList<PollObserver, &PollObserver::node_> epoll_observers_;
+  IntrusiveListNode poll_state_node_;
 };
 
 class PollSourceSet {
  public:
-  void Attach(PollSource *p) {
-    assert(std::count(sources_.begin(), sources_.end(), p) == 0);
-    sources_.push_back(p);
-  }
+  void Attach(PollSource *p) { sources_.push_back(*p); }
 
   // May be called multiple times.
   void Detach(PollSource *p) {
-    sources_.erase(std::remove(sources_.begin(), sources_.end(), p));
+    sources_.erase(decltype(sources_)::s_iterator_to(*p));
   }
 
   // Sets a mask of events and notifies (must be synchronized by caller).
   void Set(unsigned int event_mask) {
-    for (auto &ps : sources_) ps->Set(event_mask);
+    for (auto &ps : sources_) ps.Set(event_mask);
   }
 
   // Clears a mask of events and notifies (must be synchronized by caller).
   void Clear(unsigned int event_mask) {
-    for (auto &ps : sources_) ps->Clear(event_mask);
+    for (auto &ps : sources_) ps.Clear(event_mask);
   }
 
   [[nodiscard]] size_t size() const { return sources_.size(); }
 
  private:
-  std::vector<PollSource *> sources_;
+  IntrusiveList<PollSource, &PollSource::poll_state_node_> sources_;
 };
 
 inline void PollSource::Set(unsigned int event_mask) {

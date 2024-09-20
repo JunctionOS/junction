@@ -8,7 +8,10 @@ getpid
 gettid
 getppid
 getpgid
-getpgrp:::stub
+getsid
+setsid
+getpgrp
+setpgid
 arch_prctl
 vfork
 clone3
@@ -140,10 +143,10 @@ time
 rt_sigtimedwait
 rt_sigsuspend
 pause
-getuid:::stub
-geteuid:::stub
-getgid:::stub
-getegid:::stub
+getuid
+geteuid
+getgid
+getegid
 setfsuid:::stub
 setfsgid:::stub
 getxattr:::enotsup
@@ -160,3 +163,5 @@ mknodat
 rename
 renameat
 renameat2
+setresuid
+setresgid

@@ -108,6 +108,10 @@ enum Command {
     Run {
         argv: Vec<String>,
     },
+    RunAux {
+        bin: String,
+        argv: Vec<String>,
+    },
     Snapshot {
         pid: u64,
         snapshot_path: String,
@@ -212,6 +216,21 @@ fn cli(uri: &str) -> anyhow::Result<()> {
             },
         )
         .add(
+            "run_aux",
+            easy_repl::Command {
+                description: "run auxiliary process".into(),
+                args_info: vec!["argv: Vec<String>".into()],
+                handler: Box::new(|argv: &[&str]| {
+                    if argv.len() < 2 {
+                        return Err(anyhow::anyhow!("Missing arguments: bin and argv"));
+                    }
+                    // Call run_aux with the arguments
+                    run_aux(uri, argv[0], &argv[1..])?;
+                    Ok(CommandStatus::Done)
+                }),
+            }
+        )
+        .add(
             "snapshot",
             command! {
                 "snapshot a process",
@@ -291,9 +310,61 @@ fn run(uri: &str, argv: &[&str]) -> anyhow::Result<()> {
         .iter()
         .map(|s| fbb.create_string(s))
         .collect::<Vec<_>>();
+
+    let bin = Some(fbb.create_string(argv[0]));
+
     let argv = Some(fbb.create_vector_from_iter(argv_fb.into_iter()));
 
-    let run_req = RunRequest::create(&mut fbb, &RunRequestArgs { argv });
+    let run_req = RunRequest::create(
+        &mut fbb,
+        &RunRequestArgs {
+            bin,
+            argv,
+            is_init: true,
+        },
+    );
+
+    let req = Request::create(
+        &mut fbb,
+        &RequestArgs {
+            inner_type: InnerRequest::run,
+            inner: Some(run_req.as_union_value()),
+        },
+    );
+
+    finish_size_prefixed_request_buffer(&mut fbb, req);
+
+    let mut stream = get_stream(uri)?;
+    stream
+        .write_all(fbb.finished_data())
+        .context("failed to write run request")?;
+
+    match await_response(stream)? {
+        GoodResponse::Ok => Ok(()),
+        _ => Err(anyhow::anyhow!(
+            "mismatched response (expected SuccessResponse)"
+        )),
+    }
+}
+
+fn run_aux(uri: &str, bin: &str, argv: &[&str]) -> anyhow::Result<()> {
+    let mut fbb = FlatBufferBuilder::new();
+
+    let bin = Some(fbb.create_string(bin));
+    let argv_fb = argv
+        .iter()
+        .map(|s| fbb.create_string(s))
+        .collect::<Vec<_>>();
+    let argv = Some(fbb.create_vector_from_iter(argv_fb.into_iter()));
+
+    let run_req = RunRequest::create(
+        &mut fbb,
+        &RunRequestArgs {
+            bin,
+            argv,
+            is_init: false,
+        },
+    );
 
     let req = Request::create(
         &mut fbb,
@@ -516,6 +587,10 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Run { argv }) => {
             let args = argv.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
             run(uri.as_str(), args.as_slice())
+        }
+        Some(Command::RunAux { bin, argv }) => {
+            let args = argv.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
+            run_aux(uri.as_str(), bin.as_str(), args.as_slice())
         }
         Some(Command::Snapshot {
             pid,

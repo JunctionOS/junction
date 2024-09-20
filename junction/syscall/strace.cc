@@ -1,12 +1,21 @@
 #include "junction/syscall/strace.h"
 
 extern "C" {
+#include <sched.h>
 #include <signal.h>
 }
 
 #include <map>
 
 #include "junction/bindings/log.h"
+
+#ifndef CLONE_CLEAR_SIGHAND
+#define CLONE_CLEAR_SIGHAND 0x100000000ULL
+#endif
+
+#ifndef CLONE_INTO_CGROUP
+#define CLONE_INTO_CGROUP 0x200000000ULL
+#endif
 
 namespace junction {
 
@@ -70,6 +79,35 @@ const std::map<int, std::string> madvise_hints{
     {MADV_POPULATE_WRITE, "MADV_POPULATE_WRITE"},
 };
 
+const std::map<int, std::string> clone_flags{
+    {CLONE_CHILD_CLEARTID, "CLONE_CHILD_CLEARTID"},
+    {CLONE_CHILD_SETTID, "CLONE_CHILD_SETTID"},
+    {CLONE_CLEAR_SIGHAND, "CLONE_CLEAR_SIGHAND"},
+    {CLONE_DETACHED, "CLONE_DETACHED"},
+    {CLONE_FILES, "CLONE_FILES"},
+    {CLONE_FS, "CLONE_FS"},
+    {CLONE_INTO_CGROUP, "CLONE_INTO_CGROUP"},
+    {CLONE_IO, "CLONE_IO"},
+    {CLONE_NEWCGROUP, "CLONE_NEWCGROUP"},
+    {CLONE_NEWIPC, "CLONE_NEWIPC"},
+    {CLONE_NEWNET, "CLONE_NEWNET"},
+    {CLONE_NEWNS, "CLONE_NEWNS"},
+    {CLONE_NEWPID, "CLONE_NEWPID"},
+    {CLONE_NEWUSER, "CLONE_NEWUSER"},
+    {CLONE_NEWUTS, "CLONE_NEWUTS"},
+    {CLONE_PARENT, "CLONE_PARENT"},
+    {CLONE_PARENT_SETTID, "CLONE_PARENT_SETTID"},
+    {CLONE_PIDFD, "CLONE_PIDFD"},
+    {CLONE_PTRACE, "CLONE_PTRACE"},
+    {CLONE_SETTLS, "CLONE_SETTLS"},
+    {CLONE_SIGHAND, "CLONE_SIGHAND"},
+    {CLONE_SYSVSEM, "CLONE_SYSVSEM"},
+    {CLONE_THREAD, "CLONE_THREAD"},
+    {CLONE_UNTRACED, "CLONE_UNTRACED"},
+    {CLONE_VFORK, "CLONE_VFORK"},
+    {CLONE_VM, "CLONE_VM"},
+};
+
 const char *sigmap[] = {
     "SIGHUP",  "SIGINT",    "SIGQUIT", "SIGILL",    "SIGTRAP", "SIGABRT",
     "SIGBUS",  "SIGFPE",    "SIGKILL", "SIGUSR1",   "SIGSEGV", "SIGUSR2",
@@ -124,6 +162,10 @@ void PrintArg(int prot, ProtFlag, rt::Logger &ss) {
 
 void PrintArg(int flags, MMapFlag, rt::Logger &ss) {
   PrintArr(mmap_flags, flags, ss);
+}
+
+void PrintArg(unsigned long flags, CloneFlag, rt::Logger &ss) {
+  PrintArr(clone_flags, flags, ss);
 }
 
 void PrintArg(int flags, OpenFlag, rt::Logger &ss) {

@@ -959,15 +959,37 @@ long usys_sigaltstack(const stack_t *ss, stack_t *old_ss) {
 }
 
 long usys_kill(pid_t tgid, int sig) {
+  // Fast path.
   if (tgid == myproc().get_pid()) {
     myproc().Signal(sig);
     return 0;
-  } else {
-    std::shared_ptr<Process> proc = Process::Find(tgid);
+  };
+
+  // Determine type of identifier used.
+  auto [idtype, id] = PidtoId(tgid);
+  if (idtype == P_PID) {
+    std::shared_ptr<Process> proc = Process::Find(id);
     if (!proc) return -ESRCH;
     proc->Signal(sig);
     return 0;
   }
+
+  // Signal all procs in process group
+  if (idtype == P_PGID) {
+    if (id == 0) id = myproc().get_pgid();
+    size_t cnt = 0;
+    Process::ForEachProcess([&](Process &p) {
+      if (p.get_pgid() == static_cast<pid_t>(id)) {
+        p.Signal(sig);
+        cnt++;
+      }
+    });
+    return cnt > 0 ? 0 : -ESRCH;
+  }
+
+  // Signal all procs.
+  Process::ForEachProcess([&](Process &p) { p.Signal(sig); });
+  return 0;
 }
 
 long usys_tgkill(pid_t tgid, pid_t tid, int sig) {

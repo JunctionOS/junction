@@ -77,6 +77,10 @@ po::options_description GetOptions() {
        "location of ld preload library")  //
       ("env,E", po::value<std::vector<std::string>>()->multitoken(),
        "environment flags for binary")  //
+      ("uid,u", po::value<uid_t>()->default_value(0),
+       "UID shown to processes internally")  //
+      ("gid,g", po::value<uid_t>()->default_value(0),
+       "GID shown to processes internally")  //
       ("port,p", po::value<int>()->default_value(42),
        "port number to setup control port on")                              //
       ("strace,s", po::bool_switch()->default_value(false), "strace mode")  //
@@ -161,6 +165,9 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   expecting_snapshot_ |= snapshot_on_stop_;
   expecting_snapshot_ |= vm.count("function_arg") && !restore;
   function_name_ = vm["function_name"].as<std::string>();
+
+  uid_ = vm["uid"].as<uid_t>();
+  gid_ = vm["gid"].as<uid_t>();
 
   strace = vm["strace"].as<bool>();
   stack_switching = vm["stackswitch"].as<bool>();

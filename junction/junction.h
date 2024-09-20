@@ -45,6 +45,9 @@ class alignas(kCacheLineSize) JunctionCfg {
     return binary_envp;
   }
 
+  [[nodiscard]] uid_t get_gid() const { return gid_; }
+  [[nodiscard]] uid_t get_uid() const { return uid_; }
+
   [[nodiscard]] bool strace_enabled() const { return strace; }
   [[nodiscard]] bool restoring() const { return restore; }
   [[nodiscard]] bool kernel_restoring() const { return kernel_restoring_; }
@@ -92,6 +95,8 @@ class alignas(kCacheLineSize) JunctionCfg {
   bool madv_remap;
   bool expecting_snapshot_;
   bool restore_populate_;
+  uid_t gid_;
+  uid_t uid_;
 
   // Cold state
   std::string chroot_path;

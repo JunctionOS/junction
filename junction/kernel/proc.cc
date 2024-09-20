@@ -45,45 +45,65 @@ inline constexpr uint64_t kVforkRequiredFlags = (CLONE_VM | CLONE_VFORK);
 inline constexpr uint64_t kCheckFlags =
     (kThreadRequiredFlags | kVforkRequiredFlags);
 
-namespace detail {
-
 // Global allocation of PIDs
 rt::Spin process_lock;
 UIDGenerator<kMaxProcesses> pid_generator;
 std::map<pid_t, unsigned long> pid_ref_count;
 std::shared_ptr<Process> init_proc;
 
-Status<pid_t> AllocPid(std::optional<pid_t> pgid = std::nullopt) {
-  rt::SpinGuard guard(process_lock);
-  std::optional<size_t> tmp = pid_generator();
-  if (!tmp) return MakeError(ENOSPC);
-  pid_ref_count[*tmp] = 1;
-  if (pgid) pid_ref_count[*pgid] += 1;
-  return *tmp;
-}
-
-void ReleasePid(pid_t pid, std::optional<pid_t> pgid = std::nullopt) {
-  rt::SpinGuard guard(process_lock);
-
+void DecRefCountPid(pid_t pid) {
+  assert(process_lock.IsHeld());
   if (--pid_ref_count[pid] == 0) {
     pid_generator.Release(pid);
     pid_ref_count.erase(pid);
   }
-
-  if (pgid && --pid_ref_count[*pgid] == 0) {
-    pid_generator.Release(*pgid);
-    pid_ref_count.erase(*pgid);
-  }
 }
 
-// should only be called on restore path, no multithreading
-void AcquirePid(pid_t pid) {
+void IncRefCountPid(pid_t pid, int incr = 1) {
+  assert(process_lock.IsHeld());
+  pid_ref_count[pid] += incr;
+}
+
+Status<pid_t> AllocPid(std::optional<pid_t> pgid = std::nullopt,
+                       std::optional<pid_t> sid = std::nullopt) {
+  rt::SpinGuard guard(process_lock);
+  std::optional<size_t> tmp = pid_generator();
+  if (!tmp) return MakeError(ENOSPC);
+  pid_ref_count[*tmp] = 1;
+  if (pgid) IncRefCountPid(*pgid);
+  if (sid) IncRefCountPid(*sid);
+  return *tmp;
+}
+
+Status<pid_t> AllocNewSession() {
+  rt::SpinGuard guard(process_lock);
+  std::optional<size_t> tmp = pid_generator();
+  if (!tmp) return MakeError(ENOSPC);
+  pid_ref_count[*tmp] = 3;
+  return *tmp;
+}
+
+void ReleasePid(pid_t pid, std::optional<pid_t> pgid = std::nullopt,
+                std::optional<pid_t> sid = std::nullopt) {
+  rt::SpinGuard guard(process_lock);
+  DecRefCountPid(pid);
+  if (pgid) DecRefCountPid(*pgid);
+  if (sid) DecRefCountPid(*sid);
+}
+
+void AcquirePid(pid_t pid, std::optional<pid_t> pgid,
+                std::optional<pid_t> sid) {
+  rt::SpinGuard guard(process_lock);
   pid_generator.Acquire(pid);
-  pid_ref_count[pid] += 1;
+  IncRefCountPid(pid);
+  if (pgid) IncRefCountPid(*pgid);
+  if (sid) IncRefCountPid(*sid);
 }
 
-// should only be called on restore path
-void SetInitProc(std::shared_ptr<Process> proc) { detail::init_proc = proc; }
+void SetInitProc(std::shared_ptr<Process> proc) {
+  assert(!init_proc);
+  init_proc = std::move(proc);
+}
 
 long DoClone(clone_args *cl_args, uint64_t rsp) {
   bool do_vfork = false;
@@ -162,8 +182,6 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   return newth.get_tid();
 }
 
-}  // namespace detail
-
 void Thread::DestroyThread(Thread *th) {
   assert(th->cold().ref_count_ == 0);
   thread_t *cth = th->GetCaladanThread();
@@ -184,7 +202,7 @@ Thread::~Thread() {
     FutexTable::GetFutexTable().Wake(child_tid);
   }
   bool proc_done = proc_->ThreadFinish(this);
-  if (tid_ != proc_->get_pid()) detail::ReleasePid(tid_);
+  if (tid_ != proc_->get_pid()) ReleasePid(tid_);
   if (proc_done) proc_->ProcessFinish();
   DestroyCold();
 }
@@ -215,13 +233,32 @@ Status<void> Thread::DropUnusedStack() {
   return KernelMAdvise(*top, len, MADV_DONTNEED);
 }
 
+void Process::BecomeSessionLeader() {
+  assert(!is_process_group_leader());
+  rt::SpinGuard g(process_lock);
+  IncRefCountPid(pid_, 2);
+  DecRefCountPid(sid_);
+  DecRefCountPid(pgid_);
+  sid_ = pid_;
+  pgid_ = pid_;
+}
+
+void Process::JoinProcessGroup(pid_t pgid) {
+  assert(!is_process_group_leader());
+  assert(pgid > 0);
+  rt::SpinGuard g(process_lock);
+  DecRefCountPid(pgid_);
+  IncRefCountPid(pgid);
+  pgid_ = pgid;
+}
+
 void Process::ProcessFinish() {
   if (unlikely(!mem_map_->DumpTracerReport())) {
     LOG(ERR) << "Failed to dump memory trace";
     syscall_exit(-1);
   }
   // Check if init has died
-  if (unlikely(get_pid() == 1)) {
+  if (unlikely(init_proc.get() == this)) {
     syscall_exit(xstate_);
     std::unreachable();
   }
@@ -236,11 +273,11 @@ void Process::ProcessFinish() {
   if (!child_procs_.size()) return;
 
   // reparent
-  rt::SpinGuard g(detail::init_proc->shared_sig_q_);
+  rt::SpinGuard g(init_proc->shared_sig_q_);
   for (auto &child : child_procs_) {
     rt::SpinGuard g(child->shared_sig_q_);
-    child->parent_ = detail::init_proc;
-    detail::init_proc->child_procs_.push_back(std::move(child));
+    child->parent_ = init_proc;
+    init_proc->child_procs_.push_back(std::move(child));
   }
 }
 
@@ -248,7 +285,7 @@ rt::Spin Process::pid_map_lock_;
 std::map<pid_t, Process *> Process::pid_to_proc_;
 Process::~Process() {
   DeregisterProcess(*this);
-  detail::ReleasePid(pid_, pgid_);
+  ReleasePid(pid_, pgid_, sid_);
 }
 
 Status<void> Process::WaitForFullStop() {
@@ -301,24 +338,23 @@ bool Process::ThreadFinish(Thread *th) {
 }
 
 Status<std::shared_ptr<Process>> CreateInitProcess() {
-  Status<pid_t> pid = detail::AllocPid(1);
+  Status<pid_t> pid = AllocNewSession();
   if (!pid) return MakeError(pid);
-  BUG_ON(*pid != 1);
 
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
 
-  detail::init_proc = std::make_shared<Process>(*pid, std::move(*mm), *pid);
-  return detail::init_proc;
+  return std::make_shared<Process>(*pid, std::move(*mm));
 }
 
 Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
     rt::ThreadWaker &&w) {
-  Status<pid_t> pid = detail::AllocPid(get_pgid());
+  Status<pid_t> pid = AllocPid(get_pgid(), get_sid());
   if (!pid) return MakeError(pid);
 
   auto p = std::make_shared<Process>(*pid, mem_map_, file_tbl_, std::move(w),
-                                     shared_from_this(), get_pgid(), get_fs());
+                                     shared_from_this(), get_pgid(), get_fs(),
+                                     get_sid());
   rt::SpinGuard g(shared_sig_q_);
   child_procs_.push_back(p);
   return p;
@@ -349,7 +385,7 @@ Status<Thread *> Process::CreateThread() {
   thread_t *th = thread_create(nullptr, 0);
   if (unlikely(!th)) return MakeError(ENOMEM);
 
-  Status<pid_t> tid = detail::AllocPid();
+  Status<pid_t> tid = AllocPid();
   if (!tid) {
     thread_free(th);
     return MakeError(tid);
@@ -361,7 +397,7 @@ Status<Thread *> Process::CreateThread() {
     rt::UniqueLock g(child_thread_lock_);
     if (unlikely(exited())) {
       g.Unlock();
-      detail::ReleasePid(*tid);
+      ReleasePid(*tid);
       thread_free(th);
       return MakeError(1);
     }
@@ -459,6 +495,10 @@ void Process::DoExit(int status) {
 
   vfork_waker_.Wake();
   NotifyParentWait(kWaitableExited, status);
+
+  if (is_session_leader()) {
+    /* send sighup to procs in the foreground process group */
+  }
 }
 
 Status<Process *> Process::FindWaitableProcess(idtype_t idtype, id_t id,
@@ -521,13 +561,6 @@ Status<pid_t> Process::DoWait(idtype_t idtype, id_t id, int options,
   return pid;
 }
 
-std::pair<idtype_t, id_t> PidtoId(pid_t pid) {
-  if (pid < -1) return {P_PGID, -pid};
-  if (pid == -1) return {P_ALL, 0};
-  if (pid == 0) return {P_PGID, 0};
-  return {P_PID, pid};
-}
-
 void Process::ThreadStopWait() {
   rt::SpinGuard g(child_thread_lock_);
   if (!is_stopped()) return;
@@ -575,7 +608,42 @@ long usys_getpid() { return myproc().get_pid(); }
 
 long usys_gettid() { return mythread().get_tid(); }
 
-long usys_getpgid() { return myproc().get_pgid(); }
+long usys_getpgrp() { return myproc().get_pgid(); }
+
+long usys_setpgid(pid_t pid, pid_t pgid) {
+  // TODO: check that pgid is a valid process group and that pgid's sid matches.
+  if (pid == 0 || pid == myproc().get_pid()) {
+    if (pgid) myproc().JoinProcessGroup(pgid);
+    return 0;
+  }
+
+  std::shared_ptr<Process> proc = Process::Find(pid);
+  if (!proc) return -ESRCH;
+  proc->JoinProcessGroup(pgid ? pgid : myproc().get_pgid());
+  return 0;
+}
+
+long usys_getpgid(pid_t pid) {
+  if (pid == 0 || pid == myproc().get_pid()) return myproc().get_pgid();
+  std::shared_ptr<Process> proc = Process::Find(pid);
+  if (!proc) return -ESRCH;
+  return proc->get_pgid();
+}
+
+long usys_getsid(pid_t pid) {
+  if (pid == 0 || pid == myproc().get_pid()) return myproc().get_sid();
+  std::shared_ptr<Process> proc = Process::Find(pid);
+  if (!proc) return -ESRCH;
+  return proc->get_sid();
+}
+
+long usys_setsid() {
+  Process &p = myproc();
+  if (p.is_session_leader()) return 0;
+  if (p.is_process_group_leader()) return -EPERM;
+  p.BecomeSessionLeader();
+  return 0;
+}
 
 long usys_arch_prctl(int code, unsigned long addr) {
   // TODO: supporting Intel AMX requires requesting the feature from the kernel.
@@ -596,7 +664,7 @@ long usys_vfork() {
 
   cl_args.flags = kVforkRequiredFlags;
 
-  long ret = detail::DoClone(&cl_args, mythread().GetSyscallFrame().GetRsp());
+  long ret = DoClone(&cl_args, mythread().GetSyscallFrame().GetRsp());
   if (unlikely(GetCfg().strace_enabled() && ret < 0))
     LogSyscall(ret, "vfork", &usys_vfork);
 
@@ -608,10 +676,11 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
   if (unlikely(!cl_args->stack))
     ret = -EINVAL;
   else
-    ret = detail::DoClone(cl_args, cl_args->stack + cl_args->stack_size);
+    ret = DoClone(cl_args, cl_args->stack + cl_args->stack_size);
 
   if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall(ret, "clone3", &usys_clone, cl_args->flags,
+    LogSyscall(ret, "clone3", &usys_clone,
+               static_cast<strace::CloneFlag>(cl_args->flags),
                reinterpret_cast<void *>(cl_args->stack),
                reinterpret_cast<void *>(cl_args->parent_tid),
                reinterpret_cast<void *>(cl_args->child_tid),
@@ -633,12 +702,14 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   cl_args.parent_tid = parent_tidptr;
   cl_args.tls = tls;
 
-  long ret = detail::DoClone(&cl_args, newsp);
-  if (unlikely(GetCfg().strace_enabled()))
+  long ret = DoClone(&cl_args, newsp);
+  if (unlikely(GetCfg().strace_enabled())) {
     LogSyscall(
-        ret, "clone", &usys_clone, clone_flags, reinterpret_cast<void *>(newsp),
+        ret, "clone", &usys_clone, static_cast<strace::CloneFlag>(clone_flags),
+        reinterpret_cast<void *>(newsp),
         reinterpret_cast<void *>(parent_tidptr),
         reinterpret_cast<void *>(child_tidptr), reinterpret_cast<void *>(tls));
+  }
   return ret;
 }
 

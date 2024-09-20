@@ -33,10 +33,9 @@ namespace junction {
 
 class Process;
 
-namespace detail {
-void AcquirePid(pid_t pid);
+void AcquirePid(pid_t pid, std::optional<pid_t> pgid = std::nullopt,
+                std::optional<pid_t> sid = std::nullopt);
 void SetInitProc(std::shared_ptr<Process> proc);
-}  // namespace detail
 
 inline constexpr unsigned int kNotWaitable = 0;
 inline constexpr unsigned int kWaitableExited = WEXITED;
@@ -421,9 +420,10 @@ static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 class Process : public std::enable_shared_from_this<Process> {
  public:
   // Constructor for init process
-  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm, pid_t pgid)
+  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm)
       : pid_(pid),
-        pgid_(pgid),
+        sid_(pid),
+        pgid_(pid),
         fs_(FSRoot::GetGlobalRoot()),
         mem_map_(std::move(mm)),
         parent_(nullptr) {
@@ -432,8 +432,9 @@ class Process : public std::enable_shared_from_this<Process> {
   // Constructor for all other processes
   Process(pid_t pid, std::shared_ptr<MemoryMap> mm, FileTable &ftbl,
           rt::ThreadWaker &&w, std::shared_ptr<Process> parent, pid_t pgid,
-          const FSRoot &fs)
+          const FSRoot &fs, pid_t sid)
       : pid_(pid),
+        sid_(sid),
         pgid_(pgid),
         vfork_waker_(std::move(w)),
         file_tbl_(ftbl),
@@ -455,11 +456,18 @@ class Process : public std::enable_shared_from_this<Process> {
   };
 
   [[nodiscard]] pid_t get_pid() const { return pid_; }
+  [[nodiscard]] pid_t get_sid() const { return sid_; }
   [[nodiscard]] pid_t get_pgid() const { return pgid_; }
   [[nodiscard]] pid_t get_ppid() const {
     if (parent_) return parent_->get_pid();
     return 1;
   }
+
+  [[nodiscard]] bool is_session_leader() const { return sid_ == pid_; }
+  [[nodiscard]] bool is_process_group_leader() const { return pgid_ == pid_; }
+
+  void JoinProcessGroup(pid_t pgid);
+  void BecomeSessionLeader();
 
   [[nodiscard]] bool in_vfork_preexec() const { return !!vfork_waker_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
@@ -593,17 +601,19 @@ class Process : public std::enable_shared_from_this<Process> {
     return d + accumulated_runtime_;
   }
 
-  // Run a function for each process in the system. The function will be called
-  // with a spinlock held and preemption disabled, so the function should not
-  // block.
-  template <typename F>
-  static void ForEachProcess(F func) {
-    rt::SpinGuard g(pid_map_lock_);
+  // Run a function for each process in the system.
+  template <typename Func>
+  static void ForEachProcess(Func func) {
+    pid_map_lock_.Lock();
+    std::shared_ptr<Process> procs[pid_to_proc_.size()];
+    size_t cnt = 0;
     for (const auto &[pid, proc] : pid_to_proc_) {
       std::shared_ptr<Process> lck = proc->weak_from_this().lock();
-      if (!lck) continue;
-      func(*proc);
+      if (!lck || lck->exited()) continue;
+      procs[cnt++] = std::move(lck);
     }
+    pid_map_lock_.Unlock();
+    for (size_t i = 0; i < cnt; i++) func(*procs[i].get());
   }
 
   // Run a function for each thread in this process. The function will be called
@@ -672,7 +682,7 @@ class Process : public std::enable_shared_from_this<Process> {
         stopped_gen_(1) {
     RegisterProcess(*this);
 
-    ar(pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
+    ar(pgid_, sid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
        shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
 
     std::string cwd;
@@ -681,8 +691,7 @@ class Process : public std::enable_shared_from_this<Process> {
     if (unlikely(!ret)) throw std::runtime_error("bad lookup for cwd!");
     fs_.SetCwd(std::move(*ret));
 
-    detail::AcquirePid(pid_);
-    detail::AcquirePid(pgid_);
+    AcquirePid(pid_, pgid_, sid_);
   }
 
   template <class Archive>
@@ -692,8 +701,9 @@ class Process : public std::enable_shared_from_this<Process> {
     if (exited_ || doing_exec_ || exec_waker_ || vfork_waker_ || child_waiters_)
       throw std::runtime_error("bad process state for snapshot");
 
-    ar(pid_, pgid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
-       shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
+    ar(pid_, pgid_, sid_, parent_, file_tbl_, mem_map_, limit_nofile_,
+       signal_tbl_, shared_sig_q_, child_procs_, wait_state_, wait_status_,
+       it_real_.get());
 
     Status<std::string> cwd = fs_.get_cwd_ent()->GetPathStr();
     if (!cwd) throw std::runtime_error("stale cwd during snapshot");
@@ -726,7 +736,7 @@ class Process : public std::enable_shared_from_this<Process> {
       pid_t tid;
       ar(tid);
 
-      detail::AcquirePid(tid);
+      AcquirePid(tid);
 
       Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
       new (tstate) Thread(construct->shared_from_this(), tid, ar);
@@ -736,11 +746,12 @@ class Process : public std::enable_shared_from_this<Process> {
       construct->thread_map_[tstate->get_tid()] = tstate;
     }
 
-    if (!construct->parent_) detail::SetInitProc(construct->shared_from_this());
+    if (!construct->parent_) SetInitProc(construct->shared_from_this());
     construct->first_wake_th_ = first_wake_th;
   }
 
   const pid_t pid_;         // the process identifier
+  pid_t sid_;               // session ID
   pid_t pgid_;              // the process group identifier
   int xstate_;              // exit state
   bool exited_{false};      // If true, the process has been killed
@@ -894,5 +905,12 @@ class SigMaskGuard {
   SigMaskGuard(SigMaskGuard &&) = delete;
   SigMaskGuard &operator=(SigMaskGuard &&) = delete;
 };
+
+inline constexpr std::pair<idtype_t, id_t> PidtoId(pid_t pid) {
+  if (pid < -1) return {P_PGID, -pid};
+  if (pid == -1) return {P_ALL, 0};
+  if (pid == 0) return {P_PGID, 0};
+  return {P_PID, pid};
+}
 
 }  // namespace junction

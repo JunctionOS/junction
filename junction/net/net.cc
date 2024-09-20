@@ -124,12 +124,15 @@ long usys_setsockopt(int sockfd, [[maybe_unused]] int level,
   return 0;
 }
 
-long usys_getsockopt(int sockfd, [[maybe_unused]] int level,
-                     [[maybe_unused]] int option_name,
-                     [[maybe_unused]] void *option_value,
-                     [[maybe_unused]] socklen_t *option_len) {
+long usys_getsockopt(int sockfd, int level, int option_name, void *option_value,
+                     socklen_t *option_len) {
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  if (level == IPPROTO_IP && option_name == IP_OPTIONS) {
+    if (!option_len) return -EINVAL;
+    *option_len = 0;
+    return 0;
+  }
   Socket &s = sock_ret.value().get();
   Status<int> val = s.GetSockOpt(level, option_name);
   if (!val) {

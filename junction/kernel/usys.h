@@ -144,7 +144,9 @@ long usys_epoll_pwait2(int epfd, struct epoll_event *events, int maxevents,
 long usys_getpid();
 long usys_getppid();
 long usys_gettid();
-long usys_getpgid();
+long usys_getpgrp();
+long usys_getpgid(pid_t pid);
+long usys_setpgid(pid_t pid, pid_t pgid);
 long usys_set_tid_address(int *tidptr);
 [[noreturn]] void usys_exit_group(int status);
 [[noreturn]] void usys_exit(int status);
@@ -160,6 +162,8 @@ long usys_futex(uint32_t *uaddr, int futex_op, uint32_t val,
 long usys_wait4(pid_t pid, int *wstatus, int options, struct rusage *ru);
 long usys_waitid(int which, pid_t pid, siginfo_t *infop, int options,
                  struct rusage *ru);
+long usys_getsid(pid_t pid);
+long usys_setsid();
 
 // Sched
 long usys_sched_yield();
@@ -198,6 +202,12 @@ long usys_prlimit64(pid_t pid, int resource, const struct rlimit *new_limit,
                     struct rlimit *old_limit);
 long usys_ioctl(int fd, unsigned long request, char *argp);
 long usys_sysinfo(struct sysinfo *info);
+long usys_getuid();
+long usys_geteuid();
+long usys_getgid();
+long usys_getegid();
+long usys_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+long usys_setresgid(gid_t rgid, gid_t egid, gid_t sgid);
 
 // Signals
 long usys_rt_sigaction(int sig, const struct k_sigaction *action,

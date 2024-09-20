@@ -81,4 +81,29 @@ long usys_prlimit64([[maybe_unused]] pid_t pid, int resource,
   return 0;
 }
 
+long usys_getuid() { return GetCfg().get_uid(); }
+long usys_geteuid() { return GetCfg().get_uid(); }
+long usys_getgid() { return GetCfg().get_gid(); }
+long usys_getegid() { return GetCfg().get_gid(); }
+
+long usys_setresuid(uid_t ruid, uid_t euid, uid_t suid) {
+  if (static_cast<int>(ruid) != -1 && ruid != GetCfg().get_uid())
+    return -EINVAL;
+  if (static_cast<int>(euid) != -1 && euid != GetCfg().get_uid())
+    return -EINVAL;
+  if (static_cast<int>(suid) != -1 && suid != GetCfg().get_uid())
+    return -EINVAL;
+  return 0;
+}
+
+long usys_setresgid(gid_t rgid, gid_t egid, gid_t sgid) {
+  if (static_cast<int>(rgid) != -1 && rgid != GetCfg().get_gid())
+    return -EINVAL;
+  if (static_cast<int>(egid) != -1 && egid != GetCfg().get_gid())
+    return -EINVAL;
+  if (static_cast<int>(sgid) != -1 && sgid != GetCfg().get_gid())
+    return -EINVAL;
+  return 0;
+}
+
 }  // namespace junction

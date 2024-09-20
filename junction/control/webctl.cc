@@ -37,7 +37,8 @@ bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
 
   // Initialize environment and arguments
   auto [envp_s, envp_view] = BuildEnvp();
-  auto proc = CreateFirstProcess(argv[0], argv, envp_view);
+  auto proc = CreateFirstProcess(req->bin()->string_view(), argv, envp_view,
+                                 req->is_init());
   if (!proc) {
     std::ostringstream error_msg;
     error_msg << "failed to run(";

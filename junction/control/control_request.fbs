@@ -1,7 +1,9 @@
 namespace junction.ctl_schema;
 
 table RunRequest {
+    bin: string;
     argv: [string];
+    is_init: bool;
 }
 
 table SnapshotRequest {

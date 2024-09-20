@@ -250,7 +250,8 @@ Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
   // Look for a PHDR table segment
   uintptr_t phdr_va = 0;
   phdr = FindPHDRByType(*phdrs, kPTypeSelf);
-  if (phdr) phdr_va = phdr->vaddr + std::get<0>(*ret);
+  if (!phdr) phdr = phdrs->front();
+  phdr_va = phdr->vaddr + std::get<0>(*ret);
 
   DLOG(DEBUG) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
 
