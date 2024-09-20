@@ -71,14 +71,11 @@ class alignas(kCacheLineSize) JunctionCfg {
     return function_name_;
   }
 
-  [[nodiscard]] netaddr get_dispatch_netaddr() const {
+  [[nodiscard]] Status<netaddr> get_dispatch_netaddr() const {
     netaddr addr;
-    str_to_netaddr(func_dispatch_addr.c_str(), &addr);
+    int ret = str_to_netaddr(func_dispatch_addr.c_str(), &addr);
+    if (ret) return MakeError(-ret);
     return addr;
-  }
-
-  [[nodiscard]] const std::string &get_dispatch_ip_str() const {
-    return func_dispatch_addr;
   }
 
   static void PrintOptions();

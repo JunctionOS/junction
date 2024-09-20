@@ -119,8 +119,8 @@ po::options_description GetOptions() {
       ("function_name", po::value<std::string>()->default_value("func"),
        "name of function being run")                               //
       ("keep_alive", po::bool_switch()->default_value(false), "")  //
-      ("dispatch_ip", po::value<std::string>()->default_value(""),
-       "ip addr of serverless function dispatcher");
+      ("dispatch_addr", po::value<std::string>()->default_value(""),
+       "addr of serverless function dispatcher (ip:port)");
   return desc;
 }
 
@@ -192,7 +192,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
     stack_switching = true;
   }
 
-  func_dispatch_addr = vm["dispatch_ip"].as<std::string>();
+  func_dispatch_addr = vm["dispatch_addr"].as<std::string>();
 
   return {};
 }

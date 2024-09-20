@@ -442,21 +442,20 @@ void ChannelWorker(rt::TCPConn &c) {
 }
 
 void ChannelClient(void) {
-  netaddr laddr, raddr;
-  laddr = {0};
+  Status<netaddr> raddr = GetCfg().get_dispatch_netaddr();
+  if (!raddr) return;
 
-  raddr = GetCfg().get_dispatch_netaddr();
-  raddr.port = GetCfg().port();
+  netaddr laddr = {0};
 
-  if (!raddr.ip) return;
+  char str[IP_ADDR_STR_LEN];
+  char *ip = ip_addr_to_str(raddr->ip, str);
 
   Status<rt::TCPConn> c;
   while (true) {
-    LOG(INFO) << "connecting to " << GetCfg().get_dispatch_ip_str() << ":"
-              << GetCfg().port();
+    LOG(INFO) << "connecting to " << ip << ":" << raddr->port;
 
     rt::Sleep(Duration(kSeconds));
-    c = rt::TCPConn::Dial(laddr, raddr);
+    c = rt::TCPConn::Dial(laddr, *raddr);
 
     if (!c) {
       LOG(INFO) << "couldn't connect: " << c.error();
