@@ -303,11 +303,9 @@ def build_loadgen():
 def kill_mem_cgroup():
     run("sudo rmdir /sys/fs/cgroup/memory/junction")
 
-
 def setup_mem_cgroup():
     run("sudo mkdir -p /sys/fs/cgroup/memory/junction")
     atexit.register(kill_mem_cgroup)
-
 
 def kill_chroot():
     run(f"sudo umount {CHROOT_DIR}/{INSTALL_DIR}")
@@ -816,8 +814,9 @@ def setup_async_images(apps, count, cfg):
     path = CHROOT_DIR if ARGS.use_chroot else ""
 
     same_image = cfg['same_image']
+    assert count < 2**16
     for i in range(1, count + 1):
-        run(f"sed 's/host_addr.*/host_addr 192.168.12{int(i / 255)}.{i % 255}/' {CALADAN_CONFIG_NOTS} > /tmp/tmp{i}.config"
+        run(f"sed 's/host_addr.*/host_addr 192.168.{120 + int(i / 256)}.{i % 256}/' {CALADAN_CONFIG_NOTS} > /tmp/tmp{i}.config"
             )
         run(f"sed -i 's/runtime_priority.*/runtime_priority be/' /tmp/tmp{i}.config"
             )
@@ -892,7 +891,7 @@ def restore_images_async(result_dir: str,
         junction_args = f" --function_name {app.id()} {function_arg}"
         caladan_config = f"/tmp/tmp{i}.config"
 
-        dispatch = f'--port {i + 100} --dispatch_ip {loadgen_ip}' if loadgen_ip else ''
+        dispatch = f'--dispatch_addr {loadgen_ip}:{i + 100}' if loadgen_ip else ''
         procs.append(
             run_async(
                 f"sudo -E {'cgexec -g memory:junction' if cgroup else ''} {JRUN} {caladan_config} {dispatch}  {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {img}.jif >> {output_log}_{i} 2>&1"
