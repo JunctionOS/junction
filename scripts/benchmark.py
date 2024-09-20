@@ -100,10 +100,10 @@ parser.add_argument('--do-density',
                     action=argparse.BooleanOptionalAction,
                     default=True,
                     help='run density experiments')
-parser.add_argument('--do-utilization',
+parser.add_argument('--do-sharing',
                     action=argparse.BooleanOptionalAction,
                     default=True,
-                    help='run utilization experiments')
+                    help='run sharing experiments')
 parser.add_argument('--name-filter',
                     help='regex to positively filter tests by their name')
 parser.add_argument('--lang-filter',
@@ -1465,7 +1465,7 @@ def main(tests):
         data = parse_density_logs(result_dir)
         plot_density(result_dir, data)
 
-    if ARGS.do_utilization:
+    if ARGS.do_sharing:
         build_loadgen()
         # rerun iokernel with directpath and without hugepages
         kill_iok()
@@ -1482,7 +1482,7 @@ if __name__ == "__main__":
                 plot_workloads(d, parse_microbenchmark_times(d))
             if ARGS.do_density:
                 plot_density(d, parse_density_logs(d))
-            if ARGS.do_utilization:
+            if ARGS.do_sharing:
                 parse_sharing_logs(d)
     else:
         name_regex = re.compile(ARGS.name_filter) if ARGS.name_filter else None
