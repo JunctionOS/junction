@@ -2,6 +2,7 @@
 
 from collections import defaultdict
 from datetime import datetime
+from typing import List
 import argparse
 import atexit
 import json
@@ -16,6 +17,7 @@ import numpy as np
 import multiprocessing
 import contextlib
 import psutil
+import shlex
 
 import matplotlib as mpl
 
@@ -36,14 +38,12 @@ RESULT_LINK = f"{ROOT_DIR}/results/run.recent"
 NODE_BIN = f"/usr/bin/node"
 NODE_PATH = f"{ROOT_DIR}/bin/node_modules"
 LOADGEN_PATH = f"{CALADAN_DIR}/apps/synthetic/target/release/synthetic"
-LOADGEN_CONFIG = "/tmp/loadgen.config"
-CALADAN_CONFIG_SAMPLE = f"{CALADAN_DIR}/sample.config"
 
 if os.path.exists(f"{INSTALL_DIR}/bin/node"):
     NODE_BIN = f"{INSTALL_DIR}/bin/node"
     NODE_PATH += f":{ROOT_DIR}/bin/node_modules_addon"
 
-PATH_TO_FBENCH = f"{ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/"
+PATH_TO_FBENCH = f"{BUILD_DIR}/junction/samples/snapshots/python/function_bench/"
 
 CONFIG = {
     'KERNEL_TRACE_RUNS': 5,
@@ -198,13 +198,19 @@ DENSITY_CONFIG_SET = [
 
 # util functions
 
+def addr_to_str(ip):
+    return "{}.{}.{}.{}".format(ip >> 24, (ip >> 16) & 0xff,
+                                (ip >> 8) & 0xff, ip & 0xff)
 
-def run(cmd):
-    print(cmd)
-    sys.stdout.flush()
+def run(cmd, quiet = False):
+    if not quiet:
+        print(cmd)
+        sys.stdout.flush()
     if not ARGS.dry_run:
-        subprocess.check_output(cmd, shell=True)
+        return subprocess.check_output(cmd, shell=True)
 
+def run_quiet(cmd):
+    return run(cmd, True)
 
 class FakeProcess:
     '''fake process that has a returncode and can be waited on'''
@@ -215,7 +221,6 @@ class FakeProcess:
     def wait(self):
         return
 
-
 def run_async(cmd):
     print(cmd)
     sys.stdout.flush()
@@ -224,22 +229,20 @@ def run_async(cmd):
     else:
         return subprocess.Popen(cmd, shell=True, stdin=subprocess.PIPE)
 
-
 def kill_iok():
-    run("sudo pkill iokerneld || true")
-    time.sleep(1)
-
+    run("(sudo pkill iokerneld && sleep 1) || true")
 
 def run_iok(directpath: bool = False, hugepages: bool = True):
     if not ARGS.dry_run and os.system("pgrep iok > /dev/null") == 0:
         return
     run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh nouintr")
+    run(f"sudo chmod 777 /tmp/iokernel0.log || true")
     hugepages = "" if hugepages else "nohugepages"
     if directpath:
-        run(f"sudo {CALADAN_DIR}/iokerneld ias nobw noht {hugepages} vfio nicpci 0000:6f:00.1 > /tmp/iokernel0.log 2>&1 &"
+        run(f"sudo {CALADAN_DIR}/iokerneld ias nobw {hugepages} vfio nicpci 0000:6f:00.1 > /tmp/iokernel0.log 2>&1 &"
             )
     else:
-        run(f"sudo {CALADAN_DIR}/iokerneld ias nobw noht {hugepages} no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0  > /tmp/iokernel0.log 2>&1 &"
+        run(f"sudo {CALADAN_DIR}/iokerneld ias nobw {hugepages} no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0  > /tmp/iokernel0.log 2>&1 &"
             )
 
     if ARGS.dry_run:
@@ -285,7 +288,7 @@ def build_loadgen():
 
     ncpu = multiprocessing.cpu_count()
 
-    run(f"sed -i 's/CONFIG_OPTIMIZE.*/CONFIG_OPTIMIZE=n/' {CALADAN_DIR}/build/config"
+    run(f"sed -i 's/-flto=auto//g' {CALADAN_DIR}/build/shared.mk"
         )
     run(f"make -C {CALADAN_DIR} clean")
     run(f"make -C {CALADAN_DIR} -j {ncpu}")
@@ -294,8 +297,7 @@ def build_loadgen():
         run("cargo clean")
         run(f"cargo b -r")
 
-    run(f"sed -i 's/CONFIG_OPTIMIZE.*/CONFIG_OPTIMIZE=y/' {CALADAN_DIR}/build/config"
-        )
+    run(r"sed -i '/^FLAGS += -march=native/a\FLAGS += -flto=auto' " + f"{CALADAN_DIR}/build/shared.mk")
     run(f"make -C {CALADAN_DIR} clean")
     run(f"make -C {CALADAN_DIR} -j {ncpu}")
 
@@ -308,11 +310,10 @@ def setup_mem_cgroup():
     atexit.register(kill_mem_cgroup)
 
 def kill_chroot():
-    run(f"sudo umount {CHROOT_DIR}/{INSTALL_DIR}")
-    run(f"sudo umount {CHROOT_DIR}/{BIN_DIR}")
-    run(f"sudo umount {CHROOT_DIR}/{BUILD_DIR}")
+    for mount in [BIN_DIR, BUILD_DIR, INSTALL_DIR]:
+        run(f"while sudo umount {CHROOT_DIR}/{mount} 2> /dev/null; do :; done")
     if jifpager_installed():
-        run(f"sudo rm {CHROOT_DIR}/dev/jif_pager")
+        run(f"sudo rm {CHROOT_DIR}/dev/jif_pager || true")
 
 
 def setup_chroot():
@@ -320,9 +321,12 @@ def setup_chroot():
         return
     run(f"sudo mkdir -p {CHROOT_DIR}/{BIN_DIR} {CHROOT_DIR}/{BUILD_DIR} {CHROOT_DIR}/{INSTALL_DIR}"
         )
-    run(f"sudo mount --bind -o ro {BIN_DIR} {CHROOT_DIR}/{BIN_DIR}")
-    run(f"sudo mount --bind -o ro {BUILD_DIR} {CHROOT_DIR}/{BUILD_DIR}")
-    run(f"sudo mount --bind -o ro {INSTALL_DIR} {CHROOT_DIR}/{INSTALL_DIR}")
+
+    # clean old mounts
+    kill_chroot()
+
+    for mount in [BIN_DIR, BUILD_DIR, INSTALL_DIR]:
+        run(f"sudo mount --bind -o ro {mount} {CHROOT_DIR}/{mount}")
 
     if jifpager_installed():
         st = os.stat("/dev/jif_pager")
@@ -549,10 +553,6 @@ class Test:
         for idx, sapp in enumerate(second_apps):
             caladan_config = f"/tmp/beconf_{idx}.conf"
 
-            def addr_to_str(ip):
-                return "{}.{}.{}.{}".format(ip >> 24, (ip >> 16) & 0xff,
-                                            (ip >> 8) & 0xff, ip & 0xff)
-
             ip = addr_to_str(2066548225 + idx)  # "123.45.6.1"
             run(f"sed 's/host_addr.*/host_addr {ip}/' {CALADAN_CONFIG_NOTS} | sed 's/host_netmask.*/host_netmask 255.255.0.0/' > {caladan_config}"
                 )
@@ -711,7 +711,7 @@ class PyFBenchTest(Test):
         super().__init__(
             'python',
             name,
-            f"{ROOT_DIR}/bin/venv/bin/python3 {ROOT_DIR}/build/junction/samples/snapshots/python/function_bench/run.py {name}",
+            f"{ROOT_DIR}/bin/venv/bin/python3 {BUILD_DIR}/junction/samples/snapshots/python/function_bench/run.py {name}",
             json.dumps(args),
             "",
             new_version_fn=new_version_fn)
@@ -723,7 +723,7 @@ class NodeFBenchTest(Test):
         super().__init__(
             'node',
             name,
-            f"{NODE_BIN} --expose-gc {ROOT_DIR}/build/junction/samples/snapshots/node/function_bench/run.js {name}",
+            f"{NODE_BIN} --expose-gc {BUILD_DIR}/junction/samples/snapshots/node/function_bench/run.js {name}",
             json.dumps(args),
             env=f"NODE_PATH={NODE_PATH}")
 
@@ -753,9 +753,9 @@ class ResizerTest(Test):
 
 RESIZER_IMAGES = {
     "large":
-    f"{ROOT_DIR}/build/junction/samples/snapshots/images/IMG_4011.jpg",
+    f"{BUILD_DIR}/junction/samples/snapshots/images/IMG_4011.jpg",
     "tiny":
-    f"{ROOT_DIR}/build/junction/samples/snapshots/thumbnails/IMG_4011.jpg",
+    f"{BUILD_DIR}/junction/samples/snapshots/thumbnails/IMG_4011.jpg",
 }
 
 TESTS = [
@@ -776,11 +776,11 @@ TESTS = [
    # PyFBenchTest("cnn_serving", '{{ "img_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/image/animal-dog.jpg', 'dataset/model/rnn_model.squeezenet_weights_tf_dim_ordering_tf_kernels.h5'))),
    # PyFBenchTest("video_processing", input_path=prefix_fbench('dataset/video/SampleVideo_1280x720_10mb.mp4')),
 
-   Test("java", "matmul", f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{ROOT_DIR}/build/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar { ROOT_DIR}/build/junction/samples/snapshots/java/matmul/MatMul.java", '{ "N": 300 }', new_version_fn=lambda x: x + " --new_version"),
+   Test("java", "matmul", f"/usr/bin/java -cp {BUILD_DIR}/junction/samples/snapshots/java/jar/jna-5.14.0.jar:{BUILD_DIR}/junction/samples/snapshots/java/jar/json-simple-1.1.1.jar {BUILD_DIR}/junction/samples/snapshots/java/matmul/MatMul.java", '{ "N": 300 }', new_version_fn=lambda x: x + " --new_version"),
 ]\
-        + ResizerTest.template('rust', f"{ROOT_DIR}/build/junction/samples/snapshots/rust/resize-rs", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new-version") \
-        + ResizerTest.template('java', f"/usr/bin/java -cp {ROOT_DIR}/build/junction/samples/snapshots/java/jar/jna-5.14.0.jar {ROOT_DIR}/build/junction/samples/snapshots/java/resizer/Resizer.java", RESIZER_IMAGES, new_version_fn = lambda x: x + " --new_version") \
-        + ResizerTest.template('go', f"{ROOT_DIR}/build/junction/samples/snapshots/go/resizer", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new_version")
+        + ResizerTest.template('rust', f"{BUILD_DIR}/junction/samples/snapshots/rust/resize-rs", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new-version") \
+        + ResizerTest.template('java', f"/usr/bin/java -cp {BUILD_DIR}/junction/samples/snapshots/java/jar/jna-5.14.0.jar {BUILD_DIR}/junction/samples/snapshots/java/resizer/Resizer.java", RESIZER_IMAGES, new_version_fn = lambda x: x + " --new_version") \
+        + ResizerTest.template('go', f"{BUILD_DIR}/junction/samples/snapshots/go/resizer", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new_version")
 
 
 def run_microbenchmark(result_dir: str, tests):
@@ -808,49 +808,120 @@ def get_img_suffix(cfg):
     suffix = f"{suffix}_reorder" if reorder else suffix
     return suffix
 
+# It's hard to use proc.kill() to terminate a process, so this function
+# recursively scans the process tree and terminates every node directly.
+def kill_pid_and_kids(pid):
+    try:
+        kids = subprocess.check_output(shlex.split(f"ps -o pid --ppid {pid} --noheaders")).splitlines()
+    except:
+        kids = []
+    for i in kids:
+        kill_pid_and_kids(int(i.strip()))
+    os.system(f"sudo kill -SIGINT {pid} 2> /dev/null")
 
-def setup_async_images(apps, count, cfg):
+class RunningProc:
+    def __init__(self, proc, app, output_file, ip):
+        self.proc = proc
+        self.app = app
+        self.output_file = output_file
+        self.ip = ip
+
+    def get_output_file(self):
+        return self.output_file
+
+    def wait(self):
+        self.proc.wait()
+        assert self.proc.returncode == 0, f"failed to run, log = {self.output_file}"
+
+    def check_alive(self):
+        return self.proc.poll() is None
+
+    def assert_alive(self):
+        assert self.check_alive(), f"proc is dead, log = {self.output_file}"
+
+    def get_ip(self):
+        return self.ip
+
+    def get_app(self):
+        return self.app
+
+    def kill(self):
+        kill_pid_and_kids(self.proc.pid)
+
+def setup_async_images(apps, copies_per_app: int, cfg):
     suffix = get_img_suffix(cfg)
     path = CHROOT_DIR if ARGS.use_chroot else ""
 
-    same_image = cfg['same_image']
-    assert count < 2**16
-    for i in range(1, count + 1):
-        run(f"sed 's/host_addr.*/host_addr 192.168.{120 + int(i / 256)}.{i % 256}/' {CALADAN_CONFIG_NOTS} > /tmp/tmp{i}.config"
-            )
-        run(f"sed -i 's/runtime_priority.*/runtime_priority be/' /tmp/tmp{i}.config"
-            )
-        run(f"sed -i 's/host_netmask.*/host_netmask 255.255.0.0/' /tmp/tmp{i}.config"
-            )
-        run(f"echo '\nenable_transparent_hugepages 1' >> /tmp/tmp{i}.config")
-        if not same_image:
-            app = apps[(i - 1) % len(apps)]
-            img = f"{app.snapshot_prefix()}{suffix}"
-            run(f"cp {path}{img}.jif {path}{img}{i}.jif")
+    for app in apps:
+        img = f"{app.snapshot_prefix()}{suffix}"
+        run(f"parallel cp {path}{img}.jif {path}{img}{{}}.jif ::: " + " ".join(str(i) for i in range(copies_per_app)))
 
 
-def rm_async_images(apps, count, cfg):
+def rm_async_images(apps, copies_per_app, cfg):
     suffix = get_img_suffix(cfg)
     path = CHROOT_DIR if ARGS.use_chroot else ""
 
-    same_image = cfg['same_image']
-    for i in range(1, count + 1):
-        if not same_image:
-            app = apps[(i - 1) % len(apps)]
-            img = f"{app.snapshot_prefix()}{suffix}"
-            run(f"rm {path}{img}{i}.jif")
+    for app in apps:
+        img = f"{app.snapshot_prefix()}{suffix}"
+        for i in range(copies_per_app):
+            os.unlink(f"{path}{img}{i}.jif")
 
-        run(f"rm /tmp/tmp{i}.config")
+def clear_cgroup():
+    run(f"echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
+        )
+
+def get_and_reset_memusage():
+    with open("/sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes",
+              "r") as f:
+        usage = int(int(f.readlines()[0]))
+    run("echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
+        )
+    return usage
+
+def gen_be_config(file, ip, mask, gw):
+    be_kthreads = 2 # add extra kthread to help avoid network timeouts
+    cfg = [
+        f"host_addr {addr_to_str(ip)}",
+        f"host_netmask {addr_to_str(mask)}",
+        f"host_gateway {addr_to_str(gw)}",
+        "runtime_kthreads 2",
+        "runtime_spinning_kthreads 0",
+        "runtime_guaranteed_kthreads 0",
+        "runtime_priority be",
+        "runtime_quantum_us 0",
+        "enable_transparent_hugepages 1",
+    ]
+    with open(file, "w") as f:
+        f.write("\n".join(cfg))
 
 
-def restore_images_async(result_dir: str,
-                         exp_name: str,
+class IPAllocator:
+    def __init__(self):
+        self.base = 3232266241 # (192 << 24) + (168 << 16) + (120 << 8) + 1
+        self.netmask = 0xffff0000 # 255.255.0.0
+        self.assigned = 1 # reserve one for gateway
+        pass
+
+    def get_base(self):
+        return self.base
+
+    def get_netmask(self):
+        return self.netmask
+
+    def next(self):
+        nxt = self.base + self.assigned
+        self.assigned += 1
+        # check for overflow out of our subnet mask
+        assert (nxt & ~self.netmask) > (self.base & ~self.netmask), f"{addr_to_str(nxt)} overflows"
+        return nxt
+
+def restore_images_async(output_prefix: str,
                          apps,
                          cfg,
-                         loadgen_ip: str = None,
-                         count: int = 10,
-                         cgroup: bool = True):
-    output_log = f"{result_dir}/density_{exp_name}_{count}"
+                         ip_alloc: IPAllocator,
+                         copies_per_app: int = 1,
+                         cgroup: bool = True,
+                         wait_for_apps: bool = False):
     cold = cfg['cold']
     minor = cfg['minor']
     reorder = cfg['reorder']
@@ -865,7 +936,6 @@ def restore_images_async(result_dir: str,
     set_wait_for_pages(1)
     set_trace(0)
 
-    output_log = f"{result_dir}/density_{exp_name}_{count}"
     path = CHROOT_DIR if ARGS.use_chroot else ""
     chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
 
@@ -876,35 +946,36 @@ def restore_images_async(result_dir: str,
 
     # reset mem usage
     if cgroup:
-        run(f"echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
-            )
+        clear_cgroup()
 
     procs = []
-    fn = 1
+    for app in apps:
+        for i in range(copies_per_app):
+            prefix = app.snapshot_prefix()
+            img = f"{prefix}{get_img_suffix(cfg)}{i if not same_image else ''}"
+            junction_args = f" --function_name {app.id()} --function_arg '{app.args}' --keep_alive"
+            caladan_config = f"/tmp/{app.id()}_{i}.config"
+            ip = ip_alloc.next()
+            gen_be_config(caladan_config, ip, ip_alloc.get_netmask(), ip_alloc.get_base())
+            output = f"{output_prefix}_{app.id()}_{i}"
+            proc = run_async(
+                    f"sudo -E {'cgexec -g memory:junction' if cgroup else ''} {JRUN} {caladan_config} {chroot_args} {junction_args} --jif -r -- {prefix}.jm {img}.jif >> {output} 2>&1"
+                )
+            procs.append(RunningProc(proc, app, output, ip))
 
-    for i in range(1, count + 1):
-        app = apps[(i - 1) % len(apps)]
-        prefix = app.snapshot_prefix()
-        img = f"{prefix}{get_img_suffix(cfg)}{str(i) if not same_image else ''}"
+    if not wait_for_apps:
+        return procs
 
-        function_arg = f"--function_arg '{app.args}'" if not loadgen_ip else ""
-        junction_args = f" --function_name {app.id()} {function_arg}"
-        caladan_config = f"/tmp/tmp{i}.config"
-
-        dispatch = f'--dispatch_addr {loadgen_ip}:{i + 100}' if loadgen_ip else ''
-        procs.append(
-            run_async(
-                f"sudo -E {'cgexec -g memory:junction' if cgroup else ''} {JRUN} {caladan_config} {dispatch}  {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {img}.jif >> {output_log}_{i} 2>&1"
-            ))
-
-    for i in range(0, len(procs)):
-        proc = procs[i]
-        proc.wait()
-        assert proc.returncode == 0, f"failed to run {app.snapshot_prefix()}, log = {output_log}_{i}"
-
-    if cgroup:
-        run(f"cat /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes >> {result_dir}/{exp_name}_mem_usage"
-            )
+    # Wait for each app to print a line with DATA, happens after the first
+    # function execution.
+    print("Waiting for apps to initialize")
+    for p in procs:
+        while os.system(f"grep -q DATA {p.get_output_file()}") != 0:
+            time.sleep(0.1)
+            p.assert_alive()
+        p.assert_alive()
+    print("Apps initialized")
+    return procs
 
 
 def run_density(result_dir: str, tests, count=10, step=1):
@@ -921,7 +992,8 @@ def run_density(result_dir: str, tests, count=10, step=1):
     for name, cfg in DENSITY_CONFIG_SET:
         setup_async_images(tests, count, cfg)
         for i in range(step, count + 1, step):
-            restore_images_async(result_dir,
+            output_log = f"{result_dir}/density_{name}_{count}"
+            restore_images_async(output_log,
                                  name,
                                  tests,
                                  cfg,
@@ -930,34 +1002,100 @@ def run_density(result_dir: str, tests, count=10, step=1):
 
         rm_async_images(tests, count, cfg)
 
+def run_loadgen_async(output_prefix: str, running_procs: List[RunningProc], ip_alloc: IPAllocator):
+    loadgen_kthreads = 4
+    depth = 5
+    runtime = 10
 
-def run_loadgen_async(result_dir: str, count: int, loadgen_ip: str):
-    function_args_path = f"{result_dir}/args.json"
-    loadgen_kthreads = 1
+    assert loadgen_kthreads % 2 == 0, "with HT enabled need even #"
 
-    run(f"cp {CALADAN_CONFIG_SAMPLE} {LOADGEN_CONFIG}")
-    run(f"sed -i 's/host_addr.*/host_addr {loadgen_ip}/' {LOADGEN_CONFIG}")
-    run(f"sed -i 's/runtime_priority.*/runtime_priority lc/' {LOADGEN_CONFIG}")
-    run(f"sed -i 's/runtime_kthreads.*/runtime_kthreads {loadgen_kthreads}/' {LOADGEN_CONFIG}"
-        )
-    run(f"sed -i 's/runtime_guaranteed_kthreads.*/runtime_guaranteed_kthreads 1/' {LOADGEN_CONFIG}"
-        )
-    run(f"sed -i 's/host_netmask.*/host_netmask 255.255.0.0/' {LOADGEN_CONFIG}"
-        )
-    run(f"echo '\nenable_transparent_hugepages 1' >> {LOADGEN_CONFIG}")
-    return run_async(
-        f"sudo -E {LOADGEN_PATH} 0.0.0.0:0 --config {LOADGEN_CONFIG} --mode fn-dispatch --transport tcp --protocol serverless --threads {count} --mpps=1 --function_args={function_args_path} >> {result_dir}/loadgen_out 2>&1"
-    )
+    by_app = defaultdict(list)
+    app_args = {}
 
+    for proc in running_procs:
+        by_app[proc.app.id()].append(proc)
+        if proc.app.id() not in app_args:
+            app_args[proc.app.id()] = proc.app.args
+        assert app_args[proc.app.id()] == proc.app.args, "assuming app ip match means arguments match"
+
+    base_loadgen_ip = None
+    procs = []
+
+    for index, app_id in enumerate(by_app.keys()):
+        cfg = []
+        ip = ip_alloc.next()
+        if index == 0:
+            base_loadgen_ip = ip
+        cfg = [
+            f"host_addr {addr_to_str(ip)}",
+            f"host_netmask {addr_to_str(ip_alloc.get_netmask())}",
+            f"host_gateway {addr_to_str(ip_alloc.get_base())}",
+            f"runtime_kthreads {loadgen_kthreads}",
+            f"runtime_guaranteed_kthreads {loadgen_kthreads}",
+            "runtime_priority lc",
+            "runtime_quantum_us 0",
+            "enable_transparent_hugepages 1",
+        ]
+
+        lgpath = f"/tmp/loadgen_{app_id}.config"
+        with open(lgpath, "w") as f:
+            f.write("\n".join(cfg))
+
+        ips = [addr_to_str(proc.ip) for proc in by_app[app_id]]
+        addrs = " ".join(f"{ip}:43" for ip in ips)
+        output = f"{output_prefix}_loadgen_{app_id}_out"
+        if len(by_app) == 1:
+            bflags = ""
+        elif index == 0:
+            bflags = f"--leader --barrier-peers {len(by_app)}"
+        else:
+            bflags = f" --leader-ip={addr_to_str(base_loadgen_ip)} "
+        proc = run_async(
+            f"sudo -E {LOADGEN_PATH} {addrs} --closed_bench --config {lgpath} {bflags} --runtime {runtime} --mode runtime-client --transport tcp --protocol serverless --threads 1 --depth {depth} --function_args='{app_args[app_id]}' >> {output} 2>&1"
+        )
+        procs.append(RunningProc(proc, None, output, ip))
+    return procs
+
+def run_cfg(output_log, tests, cfg, copies_per_app):
+    if not cfg['same_image']:
+        setup_async_images(tests, copies_per_app, cfg)
+
+    kill_iok()
+    run_iok(hugepages=False, directpath=True)
+
+    ip_alloc = IPAllocator()
+    app_procs = restore_images_async(output_log,
+                         tests,
+                         cfg,
+                         ip_alloc,
+                         copies_per_app=copies_per_app,
+                         cgroup=True,
+                         wait_for_apps=True)
+
+    lg_procs = run_loadgen_async(output_log, app_procs, ip_alloc)
+
+    print("Waiting for loadgen(s) to terminate")
+    for l in lg_procs:
+        l.wait()
+
+    print("Cleaning up procs")
+    for a in app_procs:
+        a.assert_alive()
+    os.system("sudo pkill junc")
+    kill_iok()
+
+    # Wait for all shared memory to be released
+    print("Waiting for shmem cleanup...")
+    while os.system("ipcs -u | grep -q 'segments allocated 0'") != 0:
+        time.sleep(0.1)
+    print("Clean up done")
+
+    if not cfg['same_image']:
+        rm_async_images(tests, copies_per_app, cfg)
 
 def run_sharing(result_dir: str, tests, count):
-    args = dict()
-    for app in tests:
-        args[app.id()] = app.args
 
-    # args for loadgen
-    with open(f"{result_dir}/args.json", "w") as f:
-        args_json = json.dump(args, f)
+    atexit.register(lambda: os.system("sudo pkill junc"))
 
     # apps for regenerating results
     with open(f"{result_dir}/apps", "a") as f:
@@ -971,56 +1109,27 @@ def run_sharing(result_dir: str, tests, count):
 
     setup_mem_cgroup()
 
-    # set 90% of currently free memory as the memory threshold
-    mem_thresh = psutil.virtual_memory().free * 0.9
+    if ARGS.max_instances == 0:
+        name, cfg = (("no_sharing"), {
+            'same_image': False,
+            'itrees': False,
+            'prefault': False,
+            'cold': True,
+            'reorder': False,
+            'minor': False,
+        })
 
-    baseline = dict()
-    loadgen_ip = "192.168.120.0"
+        # See what memory usage is like with 25 copies per app
+        copies_per_app = 10
+        output_log = f"{result_dir}/sharing1_{name}_{copies_per_app}"
+        run_cfg(output_log, tests, cfg, copies_per_app)
 
-    max_mem_usage = 0
+        # set 90% of currently free memory as the memory threshold
+        mem_thresh = psutil.virtual_memory().free * 0.9
+        max_mem_usage = get_and_reset_memusage()
 
-    ncpu = multiprocessing.cpu_count()
-    if ht_enabled():
-        ncpu = int(ncpu / 2)
-    ncpu = ncpu - 1  # 1 for loadgen
-
-    name, cfg = (("no_sharing"), {
-        'same_image': False,
-        'itrees': False,
-        'prefault': True,
-        'cold': True,
-        'reorder': True,
-        'minor': True,
-    })
-
-    # compute max instances by getting mem usage with 1 instance
-    setup_async_images(tests, ncpu, cfg)
-    loadgen = run_loadgen_async(result_dir, ncpu, loadgen_ip)
-    time.sleep(1)
-
-    restore_images_async(result_dir,
-                         name,
-                         tests,
-                         cfg,
-                         loadgen_ip=loadgen_ip,
-                         count=ncpu,
-                         cgroup=True)
-
-    loadgen.wait()
-    rm_async_images(tests, ncpu, cfg)
-
-    with open("/sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes",
-              "r") as f:
-        max_mem_usage = int(f.readlines()[0])
-    run("echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
-        )
-
-    # clear log
-    run(f"rm {result_dir}/loadgen_out")
-
-    count = int(mem_thresh / (max_mem_usage / ncpu))
-
-    if ARGS.max_instances > 0:
+        count = int(10 * (mem_thresh / max_mem_usage))
+    else:
         count = ARGS.max_instances
 
     # instance count for regenerating results
@@ -1037,54 +1146,21 @@ def run_sharing(result_dir: str, tests, count):
         'minor': True,
         'reorder': True,
     })
-
     for app in tests:
-        setup_async_images([app], ncpu, cfg)
-        loadgen = run_loadgen_async(result_dir, ncpu, loadgen_ip)
-        time.sleep(10)
+        output_log = f"{result_dir}/sharing2_{count}"
+        run_cfg(output_log, [app], cfg, multiprocessing.cpu_count())
 
-        restore_images_async(result_dir,
-                             name, [app],
-                             cfg,
-                             loadgen_ip=loadgen_ip,
-                             count=ncpu,
-                             cgroup=True)
-
-        loadgen.wait()
-        rm_async_images([app], ncpu, cfg)
-
-    run("echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
-        )
+    clear_cgroup()
 
     # run experiment
     mem_usage = dict()
     for name, cfg in DENSITY_CONFIG_SET:
-        setup_async_images(tests, count, cfg)
-        loadgen = run_loadgen_async(result_dir, count, loadgen_ip)
-        time.sleep(10)
-
-        restore_images_async(result_dir,
-                             name,
-                             tests,
-                             cfg,
-                             loadgen_ip=loadgen_ip,
-                             count=count,
-                             cgroup=True)
-
-        loadgen.wait()
-        rm_async_images(tests, count, cfg)
-
-        with open("/sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes",
-                  "r") as f:
-            # memory usage per instance
-            mem_usage[name] = int(int(f.readlines()[0]))
-
-        run("echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
-            )
+        output_log = f"{result_dir}/sharing3_{name}_{count}"
+        run_cfg(output_log, tests, cfg, count)
+        mem_usage[name] = get_and_reset_memusage()
 
     with open(f'{result_dir}/mem_usage', 'w') as f:
         json.dump(mem_usage, f)
-
 
 def parse_sharing_logs(result_dir):
     with open(f"{result_dir}/apps", "r") as f:
@@ -1096,23 +1172,24 @@ def parse_sharing_logs(result_dir):
     with open(f"{result_dir}/sharing_params", "r") as f:
         count = int(f.readline())
 
+    def getrps(filename):
+        with open(f"{result_dir}/{filename}", "r") as f:
+            lines = f.readlines()
+        for line in lines:
+            if not line.startswith("RPS: "): continue
+            return int(line.split()[1])
+        assert False, f"{filename} has no RPS."
+
     c = 0
-    baseline = dict()
-    results = dict()
-    with open(f"{result_dir}/loadgen_out", "r") as f:
-        lines = f.readlines()
-        data = []
-        for l in lines:
-            if 'data' in l:
-                data.append(json.loads(l.split('data:')[1]))
+    baseline = defaultdict(dict)
+    results = defaultdict(dict)
+    for app in apps:
+        baseln = f"sharing2_{count}_loadgen_{app}_out"
+        baseline[app][app] = getrps(baseln)
 
-        for i in range(0, len(apps)):
-            app = apps[i]
-            baseline[app] = data[i]
-
-        for i in range(len(apps), len(data)):
-            exp = exps[i - len(apps)]
-            results[exp] = data[i]
+        for exp in exps:
+            fn = f"sharing3_{exp}_{count}_loadgen_{app}_out"
+            results[exp][app] = getrps(fn)
 
     baseline_slowdowns = dict()
     sharing_slowdowns = dict()
@@ -1466,9 +1543,6 @@ def main(tests):
 
     if ARGS.do_sharing:
         build_loadgen()
-        # rerun iokernel with directpath and without hugepages
-        kill_iok()
-        run_iok(hugepages=False, directpath=True)
         run_sharing(result_dir, tests, count=ARGS.max_instances)
         parse_sharing_logs(result_dir)
 

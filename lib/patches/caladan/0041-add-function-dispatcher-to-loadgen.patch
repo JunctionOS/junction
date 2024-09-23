@@ -1,14 +1,14 @@
-From dbb599d31145dd9fd0dcd5276c96c79b3d294aa4 Mon Sep 17 00:00:00 2001
+From 7a7947f6201de8ce7e6fe2776b7d7f2c466c5902 Mon Sep 17 00:00:00 2001
 From: Ben Holmes <bcwh@csail.mit.edu>
 Date: Thu, 19 Sep 2024 16:03:58 +0000
 Subject: [PATCH 41/41] add function dispatcher to loadgen
 
 ---
  apps/synthetic/Cargo.toml        |   1 +
- apps/synthetic/src/main.rs       | 264 ++++++++++++++++++++++++++++++-
- apps/synthetic/src/serverless.rs |  77 +++++++++
+ apps/synthetic/src/main.rs       | 270 ++++++++++++++++++++++++++++++-
+ apps/synthetic/src/serverless.rs |  64 ++++++++
  bindings/rust/src/udp.rs         |   1 +
- 4 files changed, 339 insertions(+), 4 deletions(-)
+ 4 files changed, 332 insertions(+), 4 deletions(-)
  create mode 100644 apps/synthetic/src/serverless.rs
 
 diff --git a/apps/synthetic/Cargo.toml b/apps/synthetic/Cargo.toml
@@ -24,7 +24,7 @@ index 86246f61..6b28f282 100644
  [profile.release]
  debug=false
 diff --git a/apps/synthetic/src/main.rs b/apps/synthetic/src/main.rs
-index 29f3227b..c7eb1fee 100644
+index 29f3227b..0efcf6fa 100644
 --- a/apps/synthetic/src/main.rs
 +++ b/apps/synthetic/src/main.rs
 @@ -17,7 +17,7 @@ extern crate arrayvec;
@@ -70,11 +70,10 @@ index 29f3227b..c7eb1fee 100644
              })
          })
          .collect();
-@@ -989,6 +993,215 @@ fn run_closed_loop_client(
-     let total_requests: usize = conn_threads.into_iter().map(|s| s.join().unwrap()).sum();
-     println!("RPS: {}", total_requests as u64 / runtime.as_secs());
+@@ -991,6 +995,221 @@ fn run_closed_loop_client(
      true
-+
+ }
+ 
 +fn run_fn_dispatch_server(
 +    proto: Arc<Box<dyn LoadgenProtocol>>,
 +    backend: Backend,
@@ -105,6 +104,11 @@ index 29f3227b..c7eb1fee 100644
 +                run_fn_dispatch_worker(
 +                    proto, backend, wg, fn_name_wg, wg_start, schedules, i as u16, shutdown,
 +                )
++            })
++        })
++        .collect();
++    
++    wg.wait();
 +    fn_name_wg.wait();
 +    wg_start.done();
 +
@@ -283,10 +287,12 @@ index 29f3227b..c7eb1fee 100644
 +    }
 +
 +    return None;
- }
- 
++}
++
  fn run_client(
-@@ -1194,6 +1407,7 @@ fn main() {
+     proto: Arc<Box<dyn LoadgenProtocol>>,
+     backend: Backend,
+@@ -1194,6 +1413,7 @@ fn main() {
                      "linux-server",
                      "linux-client",
                      "runtime-client",
@@ -294,7 +300,7 @@ index 29f3227b..c7eb1fee 100644
                      "spawner-server",
                      "local-client",
                  ])
-@@ -1234,7 +1448,14 @@ fn main() {
+@@ -1234,7 +1454,14 @@ fn main() {
                  .short("p")
                  .long("protocol")
                  .value_name("PROTOCOL")
@@ -310,7 +316,7 @@ index 29f3227b..c7eb1fee 100644
                  .default_value("synthetic")
                  .help("Server protocol"),
          )
-@@ -1377,6 +1598,7 @@ fn main() {
+@@ -1377,6 +1604,7 @@ fn main() {
          .args(&DnsProtocol::args())
          .args(&ReflexProtocol::args())
          .args(&HttpProtocol::args())
@@ -318,7 +324,7 @@ index 29f3227b..c7eb1fee 100644
          .get_matches();
  
      let addrs: Vec<SocketAddrV4> = matches
-@@ -1424,6 +1646,7 @@ fn main() {
+@@ -1424,6 +1652,7 @@ fn main() {
              distribution,
          ))),
          "http" => Arc::new(Box::new(HttpProtocol::with_args(&matches, tport))),
@@ -326,7 +332,7 @@ index 29f3227b..c7eb1fee 100644
          _ => unreachable!(),
      };
  
-@@ -1434,7 +1657,7 @@ fn main() {
+@@ -1434,7 +1663,7 @@ fn main() {
      let mode = matches.value_of("mode").unwrap();
      let backend = match mode {
          "linux-server" | "linux-client" => Backend::Linux,
@@ -335,7 +341,7 @@ index 29f3227b..c7eb1fee 100644
          _ => unreachable!(),
      };
  
-@@ -1648,6 +1871,39 @@ fn main() {
+@@ -1648,6 +1877,39 @@ fn main() {
                  }
              });
          }
@@ -377,10 +383,10 @@ index 29f3227b..c7eb1fee 100644
  }
 diff --git a/apps/synthetic/src/serverless.rs b/apps/synthetic/src/serverless.rs
 new file mode 100644
-index 00000000..540fbef5
+index 00000000..06ea243c
 --- /dev/null
 +++ b/apps/synthetic/src/serverless.rs
-@@ -0,0 +1,77 @@
+@@ -0,0 +1,64 @@
 +use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 +use clap::Arg;
 +use std::cmp::min;
@@ -396,7 +402,7 @@ index 00000000..540fbef5
 +
 +#[derive(Copy, Clone)]
 +pub struct InvokeProtocol {
-+    args: &'static HashMap<String, String>,
++    args: &'static str,
 +}
 +
 +impl InvokeProtocol {
@@ -405,12 +411,11 @@ index 00000000..540fbef5
 +            panic!("udp is unsupported");
 +        }
 +
-+        let args_path = matches.value_of("function_args").unwrap();
-+        let args_str = std::fs::read_to_string(args_path).unwrap();
-+        let args: HashMap<String, String> = serde_json::from_str(args_str.as_str()).unwrap();
++        let arg = matches.value_of("function_args").unwrap();
++
 +
 +        InvokeProtocol {
-+            args: Box::leak(Box::new(args)),
++            args: Box::leak(arg.to_string().into_boxed_str())
 +        }
 +    }
 +
@@ -428,34 +433,22 @@ index 00000000..540fbef5
 +        true
 +    }
 +
-+    fn gen_req(&self, i: usize, _p: &Packet, buf: &mut Vec<u8>) {
-+        if i == 0 {
-+            buf.write_u64::<LittleEndian>("SHUTDOWN".len() as u64)
-+                .unwrap();
-+            buf.extend("SHUTDOWN".as_bytes());
-+        } else {
-+            // assuming calling thread put function name in buf
-+            let name = String::from(std::str::from_utf8(buf).unwrap());
-+            let arg = self.args.get(&name).unwrap();
-+            buf.clear();
-+            buf.write_u64::<LittleEndian>(arg.len() as u64).unwrap();
-+            buf.extend(arg.as_bytes());
-+        }
++    fn gen_req(&self, _i: usize, _p: &Packet, buf: &mut Vec<u8>) {
++        buf.write_u64::<LittleEndian>(self.args.len() as u64).unwrap();
++        buf.extend(self.args.as_bytes());
 +    }
 +
 +    fn read_response(&self, mut sock: &Connection, buf: &mut Buffer) -> io::Result<(usize, u64)> {
 +        let scratch = buf.get_empty_buf();
 +        let mut size = sock.read_u64::<LittleEndian>()? as usize;
 +
-+        let copy = size;
 +        while size > 0 {
 +            let rlen = min(size, scratch.len());
 +            sock.read_exact(&mut scratch[..rlen])?;
 +            size -= rlen;
 +        }
 +
-+        // returning the length
-+        return Ok((copy, 0));
++        return Ok((0, 0));
 +    }
 +}
 diff --git a/bindings/rust/src/udp.rs b/bindings/rust/src/udp.rs

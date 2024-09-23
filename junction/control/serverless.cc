@@ -315,16 +315,8 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
     syscall_exit(-1);
   }
 
-  bool ka = GetCfg().GetBool("keep_alive");
   FunctionChannel &chan = fino->get_chan();
   chan.DoRequest(std::string{arg});
-
-  while (ka) {
-    Time tstart = Time::Now();
-    chan.DoRequest(std::string{arg});
-    Time tend = Time::Now();
-    rt::Sleep(Duration((tend - tstart).Microseconds() * 9));
-  }
 
   if (GetCfg().mem_trace()) {
     proc->Signal(SIGSTOP);
@@ -332,6 +324,9 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
     BUG_ON(!proc->get_mem_map().DumpTracerReport());
   }
   PrintTimes(chan.get_latencies(), GetCfg().GetArg("function_name"));
+
+  if (GetCfg().GetBool("keep_alive")) rt::WaitForever();
+
   syscall_exit(0);
 }
 
@@ -375,6 +370,7 @@ pid_t GetLastBlockedTid(int chan) {
   return fino->get_chan().get_last_blocked_tid();
 }
 
+#if 0
 void ChannelWorker(rt::TCPConn &c) {
   std::vector<std::byte> data;
   std::shared_ptr<FunctionInode> fino = get_channel(0);
@@ -470,6 +466,54 @@ void ChannelClient(void) {
 Status<void> InitChannelClient() {
   LOG(INFO) << "started serverless channel client on port " << kChannelPort;
   rt::Spawn([] mutable { ChannelClient(); });
+  return {};
+}
+#endif
+
+void ChannelWorker(rt::TCPConn &c) {
+  std::vector<std::byte> data;
+  std::shared_ptr<FunctionInode> fino = get_channel(0);
+  FunctionChannel &chan = fino->get_chan();
+
+  while (true) {
+    size_t nbytes;
+    Status<void> ret =
+        ReadFull(c, std::as_writable_bytes(std::span{&nbytes, 1}));
+    if (unlikely(!ret)) {
+      LOG(INFO) << "closing connection " << ret.error();
+      return;
+    }
+
+    if (data.size() < nbytes) data.resize(nbytes);
+
+    ret = ReadFull(c, {data.data(), nbytes});
+    if (unlikely(!ret)) break;
+
+    std::string req(reinterpret_cast<const char *>(data.data()), nbytes);
+    std::string res = chan.DoRequest(std::move(req));
+
+    nbytes = res.size();
+    ret = WriteFull(c, std::as_bytes(std::span{&nbytes, 1}));
+    if (unlikely(!ret)) break;
+
+    ret = WriteFull(c, std::as_bytes(std::span{res.data(), nbytes}));
+    if (unlikely(!ret)) break;
+  }
+}
+
+void ChannelServer(rt::TCPQueue &q) {
+  while (true) {
+    Status<rt::TCPConn> c = q.Accept();
+    if (!c) panic("couldn't accept a connection");
+    rt::Spawn([c = std::move(*c)] mutable { ChannelWorker(c); });
+  }
+}
+
+Status<void> InitChannelClient() {
+  Status<rt::TCPQueue> q = rt::TCPQueue::Listen({0, kChannelPort}, 4096);
+  if (!q) return MakeError(q);
+
+  rt::Spawn([q = std::move(*q)] mutable { ChannelServer(q); });
   return {};
 }
 
