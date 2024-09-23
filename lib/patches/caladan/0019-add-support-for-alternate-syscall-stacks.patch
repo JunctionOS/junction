@@ -1,7 +1,7 @@
-From b5b1aaad804e4e676739b3aceb13f4f33f3896ef Mon Sep 17 00:00:00 2001
+From ff8db573b52f89ba96ab501856debce73e45ac59 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
-Subject: [PATCH 19/40] add support for alternate syscall stacks
+Subject: [PATCH 19/41] add support for alternate syscall stacks
 
 some applications do not have space on their stacks for syscalls
 
@@ -19,7 +19,7 @@ intercepted with seccomp. using this option disables preemption in the runtime.
  6 files changed, 42 insertions(+), 2 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 3c07b5e..21876bc 100644
+index 3c07b5e1..21876bcb 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -108,6 +108,7 @@ struct stack;
@@ -31,7 +31,7 @@ index 3c07b5e..21876bc 100644
      unsigned int        main_thread:1;
      unsigned int        has_fsbase:1;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index 1732dd2..378fa31 100644
+index 1732dd2f..378fa311 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
 @@ -19,6 +19,7 @@ static size_t arp_static_sz;
@@ -65,7 +65,7 @@ index 1732dd2..378fa31 100644
  
  /**
 diff --git a/runtime/defs.h b/runtime/defs.h
-index f36142c..cd99fac 100644
+index f36142cc..cd99fac8 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -449,6 +449,7 @@ extern unsigned int cfg_request_hardware_queues;
@@ -77,7 +77,7 @@ index f36142c..cd99fac 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/init.c b/runtime/init.c
-index 862446d..859adc6 100644
+index 862446d1..859adc62 100644
 --- a/runtime/init.c
 +++ b/runtime/init.c
 @@ -58,10 +58,10 @@ static const struct init_entry global_init_handlers[] = {
@@ -93,7 +93,7 @@ index 862446d..859adc6 100644
  	THREAD_INITIALIZER(timer),
  	THREAD_INITIALIZER(smalloc),
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 88d3e52..9ac73f8 100644
+index 88d3e523..9ac73f80 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
 @@ -159,8 +159,25 @@ void preempt(void)
@@ -133,7 +133,7 @@ index 88d3e52..9ac73f8 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 2cad41b..6b4f706 100644
+index cbbe7805..115c0dfa 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -798,6 +798,10 @@ static __always_inline thread_t *__thread_create_nostack(void)
@@ -159,15 +159,15 @@ index 2cad41b..6b4f706 100644
  	th->main_thread = false;
  	th->has_fsbase = false;
  	th->thread_ready = false;
-@@ -960,6 +969,8 @@ static void thread_finish_exit(void)
- 	gc_remove_thread(th);
+@@ -966,6 +975,8 @@ static void thread_finish_exit(void)
+ 
  	if (th->stack)
  		stack_free(th->stack);
 +	if (th->syscallstack)
 +		stack_free(th->syscallstack);
  	tcache_free(perthread_ptr(thread_pt), th);
- 	perthread_store(__self, NULL);
  
+ 	spin_lock(&myk()->lock);
 -- 
 2.43.0
 

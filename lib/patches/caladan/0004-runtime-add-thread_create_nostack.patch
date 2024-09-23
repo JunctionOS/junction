@@ -1,7 +1,7 @@
-From e6a8f0e64e12ba7f0a07f00f70e8001c9139202d Mon Sep 17 00:00:00 2001
+From 62170ec00a7dbd011d471758a82dbc41ff8de9f8 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 24 Nov 2022 21:55:35 -0500
-Subject: [PATCH 04/33] runtime: add thread_create_nostack
+Subject: [PATCH 04/41] runtime: add thread_create_nostack
 
 ---
  inc/runtime/thread.h |  1 +
@@ -21,7 +21,7 @@ index c653e681..77c1d374 100644
  extern uint64_t __get_uthread_specific(thread_t *th);
  extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 4e1d37e3..d29df9b8 100644
+index afbe604e..844c152e 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -797,6 +797,31 @@ void thread_yield(void)
@@ -83,16 +83,16 @@ index 4e1d37e3..d29df9b8 100644
  /**
   * thread_create - creates a new thread
   * @fn: a function pointer to the starting method of the thread
-@@ -921,7 +966,8 @@ static void thread_finish_exit(void)
- 	struct thread *th = thread_self();
+@@ -927,7 +972,8 @@ static void thread_finish_exit(void)
+ 	if (unlikely(th->main_thread))
+ 		init_shutdown(EXIT_SUCCESS);
  
- 	gc_remove_thread(th);
 -	stack_free(th->stack);
 +	if (th->stack)
 +		stack_free(th->stack);
  	tcache_free(perthread_ptr(thread_pt), th);
- 	perthread_store(__self, NULL);
  
+ 	spin_lock(&myk()->lock);
 -- 
-2.39.2
+2.43.0
 

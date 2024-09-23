@@ -1,7 +1,7 @@
-From e86d2a4c1eea1dc67dc9a3fea7db5963adca2515 Mon Sep 17 00:00:00 2001
+From 63956ce3f1bd8825a63e34fe5afb94280c879c3e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 4 Oct 2023 21:33:11 +0000
-Subject: [PATCH 31/32] make TCP/UDP sockets interruptible
+Subject: [PATCH 31/41] make TCP/UDP sockets interruptible
 
 ---
  runtime/net/tcp.c    | 79 ++++++++++++++++++++++++++++++--------------
@@ -12,7 +12,7 @@ Subject: [PATCH 31/32] make TCP/UDP sockets interruptible
  5 files changed, 139 insertions(+), 57 deletions(-)
 
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index 035df38c..e66e756c 100644
+index 3528b3dc..a5bb5f50 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
 @@ -171,7 +171,7 @@ void tcp_free_rx_bufs(void)
@@ -33,7 +33,7 @@ index 035df38c..e66e756c 100644
  		poll_set(&c->poll_src, POLLOUT);
  	}
  
-@@ -572,6 +572,7 @@ int tcp_listen(struct netaddr laddr, int backlog, tcpqueue_t **q_out)
+@@ -577,6 +577,7 @@ int tcp_listen(struct netaddr laddr, int backlog, tcpqueue_t **q_out)
   */
  int tcp_accept(tcpqueue_t *q, tcpconn_t **c_out)
  {
@@ -41,7 +41,7 @@ index 035df38c..e66e756c 100644
  	tcpconn_t *c;
  
  	spin_lock_np(&q->l);
-@@ -581,7 +582,11 @@ int tcp_accept(tcpqueue_t *q, tcpconn_t **c_out)
+@@ -586,7 +587,11 @@ int tcp_accept(tcpqueue_t *q, tcpconn_t **c_out)
  			spin_unlock_np(&q->l);
  			return -EAGAIN;
  		}
@@ -54,7 +54,7 @@ index 035df38c..e66e756c 100644
  	}
  
  	/* was the queue drained and shutdown? */
-@@ -611,6 +616,10 @@ static void __tcp_qshutdown(tcpqueue_t *q)
+@@ -616,6 +621,10 @@ static void __tcp_qshutdown(tcpqueue_t *q)
  	BUG_ON(q->shutdown);
  	q->shutdown = true;
  	poll_set(&q->poll_src, POLLRDHUP | POLLHUP | POLLIN);
@@ -65,7 +65,7 @@ index 035df38c..e66e756c 100644
  	spin_unlock_np(&q->l);
  
  	/* prevent ingress receive and error dispatch (after RCU period) */
-@@ -629,9 +638,6 @@ void tcp_qshutdown(tcpqueue_t *q)
+@@ -634,9 +643,6 @@ void tcp_qshutdown(tcpqueue_t *q)
  {
  	/* shutdown the listen queue */
  	__tcp_qshutdown(q);
@@ -75,7 +75,7 @@ index 035df38c..e66e756c 100644
  }
  
  /**
-@@ -717,8 +723,13 @@ static int __tcp_dial(struct netaddr laddr, struct netaddr raddr,
+@@ -722,8 +728,13 @@ static int __tcp_dial(struct netaddr laddr, struct netaddr raddr,
  	}
  
  	/* wait until the connection is established or there is a failure */
@@ -91,7 +91,7 @@ index 035df38c..e66e756c 100644
  
  	/* check if the connection failed */
  	if (c->tx_closed) {
-@@ -849,6 +860,7 @@ struct netaddr tcp_remote_addr(tcpconn_t *c)
+@@ -854,6 +865,7 @@ struct netaddr tcp_remote_addr(tcpconn_t *c)
  static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
  			     struct list_head *q, struct mbuf **mout)
  {
@@ -99,7 +99,7 @@ index 035df38c..e66e756c 100644
  	struct mbuf *m;
  	size_t readlen = 0;
  	bool do_ack = false;
-@@ -862,7 +874,11 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
+@@ -867,7 +879,11 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
  			spin_unlock_np(&c->lock);
  			return -EAGAIN;
  		}
@@ -112,7 +112,7 @@ index 035df38c..e66e756c 100644
  	}
  
  	/* is the socket closed? */
-@@ -921,7 +937,7 @@ static void tcp_read_finish(tcpconn_t *c, struct mbuf *m)
+@@ -926,7 +942,7 @@ static void tcp_read_finish(tcpconn_t *c, struct mbuf *m)
  	list_head_init(&waiters);
  	spin_lock_np(&c->lock);
  	c->rx_exclusive = false;
@@ -121,7 +121,7 @@ index 035df38c..e66e756c 100644
  	spin_unlock_np(&c->lock);
  	waitq_release_finish(&waiters);
  }
-@@ -1065,6 +1081,7 @@ ssize_t tcp_readv(tcpconn_t *c, const struct iovec *iov, int iovcnt)
+@@ -1070,6 +1086,7 @@ ssize_t tcp_readv(tcpconn_t *c, const struct iovec *iov, int iovcnt)
  
  static int tcp_write_wait(tcpconn_t *c, size_t *winlen)
  {
@@ -129,7 +129,7 @@ index 035df38c..e66e756c 100644
  	spin_lock_np(&c->lock);
  
  	/* block until there is an actionable event */
-@@ -1081,7 +1098,11 @@ static int tcp_write_wait(tcpconn_t *c, size_t *winlen)
+@@ -1086,7 +1103,11 @@ static int tcp_write_wait(tcpconn_t *c, size_t *winlen)
  			spin_unlock_np(&c->lock);
  			return -EAGAIN;
  		}
@@ -142,7 +142,7 @@ index 035df38c..e66e756c 100644
  	}
  	c->zero_wnd = false;
  
-@@ -1132,7 +1153,7 @@ static void tcp_write_finish(tcpconn_t *c)
+@@ -1137,7 +1158,7 @@ static void tcp_write_finish(tcpconn_t *c)
  	}
  
  	tcp_timer_update(c);
@@ -151,7 +151,7 @@ index 035df38c..e66e756c 100644
  
  	if (tcp_is_snd_full(c))
  		poll_clear(&c->poll_src, POLLOUT);
-@@ -1218,7 +1239,7 @@ static void tcp_retransmit(void *arg)
+@@ -1223,7 +1244,7 @@ static void tcp_retransmit(void *arg)
  	spin_lock_np(&c->lock);
  
  	while (c->tx_exclusive && c->pcb.state != TCP_STATE_CLOSED)
@@ -160,7 +160,7 @@ index 035df38c..e66e756c 100644
  
  	if (c->pcb.state != TCP_STATE_CLOSED) {
  		c->tx_exclusive = true;
-@@ -1250,7 +1271,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
+@@ -1255,7 +1276,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
  
  	if (!c->tx_closed) {
  		store_release(&c->tx_closed, true);
@@ -169,7 +169,7 @@ index 035df38c..e66e756c 100644
  		poll_set(&c->poll_src, POLLHUP);
  	}
  
-@@ -1285,10 +1306,10 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
+@@ -1290,10 +1311,10 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
  
  	poll_set(&c->poll_src, POLLRDHUP | POLLIN);
  	c->rx_closed = true;
@@ -182,7 +182,7 @@ index 035df38c..e66e756c 100644
  {
  	int ret;
  
-@@ -1303,8 +1324,16 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
+@@ -1308,8 +1329,16 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
  		return 0;
  	}
  
@@ -201,7 +201,7 @@ index 035df38c..e66e756c 100644
  	ret = tcp_tx_ctl(c, TCP_FIN | TCP_ACK, NULL);
  	if (unlikely(ret))
  		return ret;
-@@ -1317,7 +1346,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
+@@ -1322,7 +1351,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
  
  	poll_set(&c->poll_src, POLLHUP);
  	c->tx_closed = true;
@@ -210,7 +210,7 @@ index 035df38c..e66e756c 100644
  
  	return 0;
  }
-@@ -1342,7 +1371,7 @@ int tcp_shutdown(tcpconn_t *c, int how)
+@@ -1347,7 +1376,7 @@ int tcp_shutdown(tcpconn_t *c, int how)
  
  	spin_lock_np(&c->lock);
  	if (tx) {
@@ -219,7 +219,7 @@ index 035df38c..e66e756c 100644
  		if (ret) {
  			spin_unlock_np(&c->lock);
  			return ret;
-@@ -1375,7 +1404,7 @@ void tcp_abort(tcpconn_t *c)
+@@ -1380,7 +1409,7 @@ void tcp_abort(tcpconn_t *c)
  	tcp_conn_fail(c, ECONNABORTED);
  
  	while (c->tx_exclusive)
@@ -228,7 +228,7 @@ index 035df38c..e66e756c 100644
  
  	snd_nxt = c->pcb.snd_nxt;
  	spin_unlock_np(&c->lock);
-@@ -1396,7 +1425,7 @@ void tcp_close(tcpconn_t *c)
+@@ -1401,7 +1430,7 @@ void tcp_close(tcpconn_t *c)
  
  	spin_lock_np(&c->lock);
  	BUG_ON(!waitq_empty(&c->rx_wq));
@@ -237,7 +237,7 @@ index 035df38c..e66e756c 100644
  	if (ret)
  		tcp_conn_fail(c, -ret);
  	tcp_conn_shutdown_rx(c);
-@@ -1414,8 +1443,8 @@ void tcp_set_nonblocking(tcpconn_t *c, bool nonblocking)
+@@ -1419,8 +1448,8 @@ void tcp_set_nonblocking(tcpconn_t *c, bool nonblocking)
  	spin_lock_np(&c->lock);
  	c->nonblocking = nonblocking;
  	if (nonblocking) {
@@ -248,7 +248,7 @@ index 035df38c..e66e756c 100644
  	}
  	spin_unlock_np(&c->lock);
  }
-@@ -1425,7 +1454,7 @@ void tcpq_set_nonblocking(tcpqueue_t *q, bool nonblocking)
+@@ -1430,7 +1459,7 @@ void tcpq_set_nonblocking(tcpqueue_t *q, bool nonblocking)
  	spin_lock_np(&q->l);
  	q->nonblocking = nonblocking;
  	if (nonblocking)
@@ -527,5 +527,5 @@ index 17fed7f9..fd5675b1 100644
  	}
  }
 -- 
-2.39.2
+2.43.0
 

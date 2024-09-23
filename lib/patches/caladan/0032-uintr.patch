@@ -1,7 +1,7 @@
-From 523cd4d6858ae8ceb372db935c021c754e471851 Mon Sep 17 00:00:00 2001
+From 407cf50914587c93173576d3ac574585d0b15ddd Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 31 Dec 2023 04:21:49 +0000
-Subject: [PATCH 32/32] uintr
+Subject: [PATCH 32/41] uintr
 
 ---
  inc/runtime/preempt.h |  1 +
@@ -119,5 +119,5 @@ index 2347fbc2..49ce17d5 100644
  	nop
 \ No newline at end of file
 -- 
-2.39.2
+2.43.0
 

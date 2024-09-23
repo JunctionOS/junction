@@ -1,14 +1,14 @@
-From 9e02178b1a2c188659bd8cd86a174bda344d97e8 Mon Sep 17 00:00:00 2001
+From 6ea6d50417bf2a4cbabccdf06a8ead780b4462dd Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 13 Aug 2023 16:56:31 +0000
-Subject: [PATCH 23/33] disable stack protector
+Subject: [PATCH 23/41] disable stack protector
 
 ---
  build/shared.mk | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
-index aaa8c58c..fa7f2e0d 100644
+index ad8060f7..8c182efe 100644
 --- a/build/shared.mk
 +++ b/build/shared.mk
 @@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
@@ -21,5 +21,5 @@ index aaa8c58c..fa7f2e0d 100644
  LD      = gcc
  CC      = gcc
 -- 
-2.39.2
+2.43.0
 

@@ -1,7 +1,7 @@
-From bd2890d728e8a6b63ad96c9caf6f48cb00693764 Mon Sep 17 00:00:00 2001
+From 2c889ef6ec2c43fa0187707f1ae279926628e99f Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 31 Dec 2023 04:21:49 +0000
-Subject: [PATCH 33/33] uintr xsave area
+Subject: [PATCH 33/41] uintr xsave area
 
 ---
  inc/runtime/thread.h |  4 +++-
@@ -36,7 +36,7 @@ index a24c65e1..9e910be9 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 7ff1d840..6fb8bcbd 100644
+index ff5d66d5..2bb66091 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -39,6 +39,9 @@
@@ -117,7 +117,7 @@ index 7ff1d840..6fb8bcbd 100644
  	/* reserve the buffer */
  	pos -= div_up(buf_len, sizeof(uint64_t));
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 21752588..6c2d3590 100644
+index a8638b32..a6e125e4 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -854,6 +854,7 @@ static __always_inline thread_t *__thread_create(void)
@@ -128,7 +128,7 @@ index 21752588..6c2d3590 100644
  	atomic8_write(&th->interrupt_state, 0);
  
  	return th;
-@@ -1036,7 +1037,7 @@ int sched_init_thread(void)
+@@ -1037,7 +1038,7 @@ int sched_init_thread(void)
  	if (!s)
  		return -ENOMEM;
  
@@ -160,5 +160,5 @@ index 787bdb7a..191832dc 100644
  
  	return 0;
 -- 
-2.39.2
+2.43.0
 

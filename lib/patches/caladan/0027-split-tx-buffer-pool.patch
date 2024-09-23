@@ -1,7 +1,7 @@
-From 6b2abf9c73848efd8765a79c30c51c16a06d90f3 Mon Sep 17 00:00:00 2001
+From 5affdbd8e84f3d343091e9db083c1b1948c106a5 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 6 Sep 2023 14:44:32 -0400
-Subject: [PATCH 27/33] split tx buffer pool
+Subject: [PATCH 27/41] split tx buffer pool
 
 ---
  inc/base/mempool.h                           |   5 +
@@ -545,5 +545,5 @@ index e79e6330..153df4b7 100644
  		return -ENOBUFS;
  
 -- 
-2.39.2
+2.43.0
 

@@ -1,7 +1,7 @@
-From d852552a645ac74a5e17b7b23ad1041e926503a3 Mon Sep 17 00:00:00 2001
+From a0b2378d334f56792c71bc9c2ca294bbcc6e56aa Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 5 Jun 2024 18:06:13 -0400
-Subject: [PATCH 37/37] collect thread cpu times
+Subject: [PATCH 37/41] collect thread cpu times
 
 ---
  inc/runtime/thread.h |  3 +++
@@ -9,7 +9,7 @@ Subject: [PATCH 37/37] collect thread cpu times
  2 files changed, 45 insertions(+), 13 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 9e910be..0783446 100644
+index 9e910be9..07834460 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -126,6 +126,7 @@ struct thread {
@@ -30,7 +30,7 @@ index 9e910be..0783446 100644
   * High-level routines, use this API most of the time.
   */
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 854ebc1..5c8a842 100644
+index 86398b44..1cb0fc48 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -338,7 +338,7 @@ static __noinline bool do_watchdog(struct kthread *l)

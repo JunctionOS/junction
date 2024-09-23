@@ -1,12 +1,12 @@
-From a46eb49ddb7d944e7dca2af73620a0186e2c2441 Mon Sep 17 00:00:00 2001
+From 4bd423055e0398be3c942223caaef06ce74eba48 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 27 Apr 2023 17:53:14 -0400
-Subject: [PATCH 21/33] thread nit
+Subject: [PATCH 21/41] thread nit
 
 ---
  inc/runtime/thread.h |  1 +
- runtime/sched.c      | 11 ++++++++---
- 2 files changed, 9 insertions(+), 3 deletions(-)
+ runtime/sched.c      | 17 +++++++++++------
+ 2 files changed, 12 insertions(+), 6 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index 21876bcb..ada82bca 100644
@@ -21,34 +21,43 @@ index 21876bcb..ada82bca 100644
  DECLARE_PERTHREAD(thread_t *, __self);
  DECLARE_PERTHREAD(unsigned int, kthread_idx);
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 6b4f7061..eedc7eec 100644
+index 115c0dfa..ca94f09c 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -962,16 +962,21 @@ int thread_spawn_main(thread_fn_t fn, void *arg)
+@@ -962,22 +962,27 @@ int thread_spawn_main(thread_fn_t fn, void *arg)
  	return 0;
  }
  
--static void thread_finish_exit(void)
 +void thread_free(thread_t *th)
- {
--	struct thread *th = thread_self();
--
- 	gc_remove_thread(th);
- 	if (th->stack)
- 		stack_free(th->stack);
- 	if (th->syscallstack)
- 		stack_free(th->syscallstack);
- 	tcache_free(perthread_ptr(thread_pt), th);
++{
++	gc_remove_thread(th);
++	if (th->stack)
++		stack_free(th->stack);
++	if (th->syscallstack)
++		stack_free(th->syscallstack);
++	tcache_free(perthread_ptr(thread_pt), th);
 +}
 +
-+static void thread_finish_exit(void)
-+{
-+	struct thread *th = thread_self();
-+
-+	thread_free(th);
+ static void thread_finish_exit(void)
+ {
+ 	struct thread *th = thread_self();
+ 
+-	gc_remove_thread(th);
  	perthread_store(__self, NULL);
  
  	/* if the main thread dies, kill the whole program */
+ 	if (unlikely(th->main_thread))
+ 		init_shutdown(EXIT_SUCCESS);
+ 
+-	if (th->stack)
+-		stack_free(th->stack);
+-	if (th->syscallstack)
+-		stack_free(th->syscallstack);
+-	tcache_free(perthread_ptr(thread_pt), th);
++	thread_free(th);
+ 
+ 	spin_lock(&myk()->lock);
+ 	schedule();
 -- 
-2.39.2
+2.43.0
 

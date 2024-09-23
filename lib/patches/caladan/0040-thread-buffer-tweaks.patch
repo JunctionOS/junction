@@ -1,14 +1,14 @@
-From 4ebddca7f368a2b7d0185831da6c902c1074038b Mon Sep 17 00:00:00 2001
+From 806617d9a43bae73ddc014d3d149c1db4f2f856c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 14 Jul 2024 21:07:42 -0400
-Subject: [PATCH 40/40] thread buffer tweaks
+Subject: [PATCH 40/41] thread buffer tweaks
 
 ---
  inc/runtime/thread.h | 3 ++-
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 888a3a5..c574823 100644
+index 888a3a59..c5748232 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -121,7 +121,7 @@ struct thread {

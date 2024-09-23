@@ -1,7 +1,7 @@
-From 22d2f80eae780dd66883b6011a4e423915f6a5c7 Mon Sep 17 00:00:00 2001
+From a5d463f9c1dab9e66c21aba9cac5eaf45cf6812c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 11 Jan 2024 19:23:34 -0500
-Subject: [PATCH 29/32] make logging safe
+Subject: [PATCH 29/41] make logging safe
 
 ---
  base/log.c | 8 ++++++++
@@ -44,5 +44,5 @@ index c085086b..c957b7da 100644
  
  #define MAX_CALL_DEPTH	256
 -- 
-2.39.2
+2.43.0
 

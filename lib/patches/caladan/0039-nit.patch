@@ -1,17 +1,17 @@
-From ceaf1c8ff8a6c63ca02b71fb857967e2137bbd11 Mon Sep 17 00:00:00 2001
+From eb1e021d9774297f922c2d4d5a5cd7b1c42244d6 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 11 Jul 2024 15:23:11 +0000
-Subject: [PATCH 39/39] nit
+Subject: [PATCH 39/41] nit
 
 ---
  iokernel/sched.c | 5 +++--
  1 file changed, 3 insertions(+), 2 deletions(-)
 
 diff --git a/iokernel/sched.c b/iokernel/sched.c
-index db0edbb..089152a 100644
+index de2b8fa2..3b67b925 100644
 --- a/iokernel/sched.c
 +++ b/iokernel/sched.c
-@@ -993,13 +993,14 @@ int sched_init(void)
+@@ -994,13 +994,14 @@ int sched_init(void)
  	 */
  
  	for (i = 0; i < cpu_count; i++) {

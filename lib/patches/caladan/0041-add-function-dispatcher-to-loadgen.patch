@@ -1,18 +1,18 @@
-From f6ea1fc8588231690220d54f5c33e0d408947820 Mon Sep 17 00:00:00 2001
+From dbb599d31145dd9fd0dcd5276c96c79b3d294aa4 Mon Sep 17 00:00:00 2001
 From: Ben Holmes <bcwh@csail.mit.edu>
 Date: Thu, 19 Sep 2024 16:03:58 +0000
 Subject: [PATCH 41/41] add function dispatcher to loadgen
 
 ---
  apps/synthetic/Cargo.toml        |   1 +
- apps/synthetic/src/main.rs       | 287 +++++++++++++++++++++++++++++--
+ apps/synthetic/src/main.rs       | 264 ++++++++++++++++++++++++++++++-
  apps/synthetic/src/serverless.rs |  77 +++++++++
  bindings/rust/src/udp.rs         |   1 +
- 4 files changed, 353 insertions(+), 13 deletions(-)
+ 4 files changed, 339 insertions(+), 4 deletions(-)
  create mode 100644 apps/synthetic/src/serverless.rs
 
 diff --git a/apps/synthetic/Cargo.toml b/apps/synthetic/Cargo.toml
-index 86246f6..6b28f28 100644
+index 86246f61..6b28f282 100644
 --- a/apps/synthetic/Cargo.toml
 +++ b/apps/synthetic/Cargo.toml
 @@ -19,6 +19,7 @@ serde = "1.0"
@@ -24,7 +24,7 @@ index 86246f6..6b28f28 100644
  [profile.release]
  debug=false
 diff --git a/apps/synthetic/src/main.rs b/apps/synthetic/src/main.rs
-index d96fd37..55c07ee 100644
+index 29f3227b..c7eb1fee 100644
 --- a/apps/synthetic/src/main.rs
 +++ b/apps/synthetic/src/main.rs
 @@ -17,7 +17,7 @@ extern crate arrayvec;
@@ -62,10 +62,19 @@ index d96fd37..55c07ee 100644
      // If the send or receive thread is still running 500 ms after it should have finished,
      // then stop it by triggering a shutdown on the socket.
      let last = packets[packets.len() - 1].target_start;
-@@ -876,6 +879,221 @@ fn run_live_client(
-     }
- }
- 
+@@ -970,6 +973,7 @@ fn run_closed_loop_client(
+                         proto, backend, addr, tport, wg, wg_start, depth, start, end_time,
+                     )
+                 })
++
+             })
+         })
+         .collect();
+@@ -989,6 +993,215 @@ fn run_closed_loop_client(
+     let total_requests: usize = conn_threads.into_iter().map(|s| s.join().unwrap()).sum();
+     println!("RPS: {}", total_requests as u64 / runtime.as_secs());
+     true
++
 +fn run_fn_dispatch_server(
 +    proto: Arc<Box<dyn LoadgenProtocol>>,
 +    backend: Backend,
@@ -96,11 +105,6 @@ index d96fd37..55c07ee 100644
 +                run_fn_dispatch_worker(
 +                    proto, backend, wg, fn_name_wg, wg_start, schedules, i as u16, shutdown,
 +                )
-+            })
-+        })
-+        .collect();
-+
-+    wg.wait();
 +    fn_name_wg.wait();
 +    wg_start.done();
 +
@@ -279,12 +283,10 @@ index d96fd37..55c07ee 100644
 +    }
 +
 +    return None;
-+}
-+
+ }
+ 
  fn run_client(
-     proto: Arc<Box<dyn LoadgenProtocol>>,
-     backend: Backend,
-@@ -1079,6 +1297,7 @@ fn main() {
+@@ -1194,6 +1407,7 @@ fn main() {
                      "linux-server",
                      "linux-client",
                      "runtime-client",
@@ -292,7 +294,7 @@ index d96fd37..55c07ee 100644
                      "spawner-server",
                      "local-client",
                  ])
-@@ -1119,7 +1338,14 @@ fn main() {
+@@ -1234,7 +1448,14 @@ fn main() {
                  .short("p")
                  .long("protocol")
                  .value_name("PROTOCOL")
@@ -308,7 +310,7 @@ index d96fd37..55c07ee 100644
                  .default_value("synthetic")
                  .help("Server protocol"),
          )
-@@ -1249,6 +1475,7 @@ fn main() {
+@@ -1377,6 +1598,7 @@ fn main() {
          .args(&DnsProtocol::args())
          .args(&ReflexProtocol::args())
          .args(&HttpProtocol::args())
@@ -316,7 +318,7 @@ index d96fd37..55c07ee 100644
          .get_matches();
  
      let addrs: Vec<SocketAddrV4> = matches
-@@ -1294,6 +1521,7 @@ fn main() {
+@@ -1424,6 +1646,7 @@ fn main() {
              distribution,
          ))),
          "http" => Arc::new(Box::new(HttpProtocol::with_args(&matches, tport))),
@@ -324,7 +326,7 @@ index d96fd37..55c07ee 100644
          _ => unreachable!(),
      };
  
-@@ -1304,7 +1532,7 @@ fn main() {
+@@ -1434,7 +1657,7 @@ fn main() {
      let mode = matches.value_of("mode").unwrap();
      let backend = match mode {
          "linux-server" | "linux-client" => Backend::Linux,
@@ -333,32 +335,7 @@ index d96fd37..55c07ee 100644
          _ => unreachable!(),
      };
  
-@@ -1464,15 +1692,15 @@ fn main() {
-                 if dowarmup {
-                     // Run at full pps 3 times for 20 seconds
-                     for _ in 0..1 {
--                    let sched = gen_classic_packet_schedule(
--                        Duration::from_secs(1),
--                        (0.75 * (packets_per_second as f64)) as usize,
--                        OutputMode::Silent,
--                        distribution,
--                        20,
--                        nthreads,
--                        discard_pct,
--                    );
-+			let sched = gen_classic_packet_schedule(
-+                            Duration::from_secs(1),
-+                            (0.75 * (packets_per_second as f64)) as usize,
-+                            OutputMode::Silent,
-+                            distribution,
-+                            20,
-+                            nthreads,
-+                            discard_pct,
-+			);
-                         run_client(
-                             proto.clone(),
-                             backend,
-@@ -1515,6 +1743,39 @@ fn main() {
+@@ -1648,6 +1871,39 @@ fn main() {
                  }
              });
          }
@@ -400,7 +377,7 @@ index d96fd37..55c07ee 100644
  }
 diff --git a/apps/synthetic/src/serverless.rs b/apps/synthetic/src/serverless.rs
 new file mode 100644
-index 0000000..540fbef
+index 00000000..540fbef5
 --- /dev/null
 +++ b/apps/synthetic/src/serverless.rs
 @@ -0,0 +1,77 @@
@@ -482,7 +459,7 @@ index 0000000..540fbef
 +    }
 +}
 diff --git a/bindings/rust/src/udp.rs b/bindings/rust/src/udp.rs
-index 9a07d1e..d24b98a 100644
+index 9a07d1e2..d24b98ad 100644
 --- a/bindings/rust/src/udp.rs
 +++ b/bindings/rust/src/udp.rs
 @@ -63,6 +63,7 @@ impl UdpConnection {

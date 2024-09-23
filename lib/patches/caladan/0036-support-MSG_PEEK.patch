@@ -1,7 +1,7 @@
-From 77d68c71613e8faf37fdf7914072a148c5c5fec5 Mon Sep 17 00:00:00 2001
+From 9d6ab4df0640ba3b3b3e60e2ef888ca0a44af28f Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 29 May 2024 23:24:12 -0400
-Subject: [PATCH 36/36] support MSG_PEEK
+Subject: [PATCH 36/41] support MSG_PEEK
 
 ---
  inc/runtime/tcp.h |  1 +
@@ -12,7 +12,7 @@ Subject: [PATCH 36/36] support MSG_PEEK
  5 files changed, 50 insertions(+), 14 deletions(-)
 
 diff --git a/inc/runtime/tcp.h b/inc/runtime/tcp.h
-index 4d01ca2..a106170 100644
+index 4d01ca24..a106170f 100644
 --- a/inc/runtime/tcp.h
 +++ b/inc/runtime/tcp.h
 @@ -38,6 +38,7 @@ extern int tcp_get_status(tcpconn_t *c);
@@ -24,7 +24,7 @@ index 4d01ca2..a106170 100644
  extern int tcp_shutdown(tcpconn_t *c, int how);
  extern void tcp_abort(tcpconn_t *c);
 diff --git a/inc/runtime/udp.h b/inc/runtime/udp.h
-index 2aa84ef..7702fbe 100644
+index 2aa84efa..7702fbe8 100644
 --- a/inc/runtime/udp.h
 +++ b/inc/runtime/udp.h
 @@ -41,7 +41,7 @@ extern struct netaddr udp_local_addr(udpconn_t *c);
@@ -37,7 +37,7 @@ index 2aa84ef..7702fbe 100644
  			    const struct netaddr *raddr);
  extern ssize_t udp_read(udpconn_t *c, void *buf, size_t len);
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index a5bb5f5..4a75afe 100644
+index a5bb5f50..4a75afe2 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
 @@ -863,11 +863,11 @@ struct netaddr tcp_remote_addr(tcpconn_t *c)
@@ -114,7 +114,7 @@ index a5bb5f5..4a75afe 100644
  	/* check if connection was closed */
  	if (len <= 0)
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index 605381e..12ab610 100644
+index 605381e8..12ab6104 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -321,7 +321,7 @@ int udp_set_buffers(udpconn_t *c, int read_mbufs, int write_mbufs)
@@ -170,7 +170,7 @@ index 605381e..12ab610 100644
  
  /**
 diff --git a/runtime/stat.c b/runtime/stat.c
-index abc273b..917bc4a 100644
+index abc273b4..917bc4aa 100644
 --- a/runtime/stat.c
 +++ b/runtime/stat.c
 @@ -202,7 +202,7 @@ static void stat_worker_udp(void *arg)

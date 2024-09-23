@@ -1,7 +1,7 @@
-From 361a70d86a973b3dc1142789964e5498447b9cd5 Mon Sep 17 00:00:00 2001
+From dd39dc85ae892a8c5882875a274debcaed477758 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
-Subject: [PATCH 22/40] preemption and signal updates
+Subject: [PATCH 22/41] preemption and signal updates
 
 ---
  inc/runtime/thread.h |  4 +-
@@ -12,7 +12,7 @@ Subject: [PATCH 22/40] preemption and signal updates
  5 files changed, 42 insertions(+), 92 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index ada82bc..4807127 100644
+index ada82bca..48071274 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -109,7 +109,6 @@ struct stack;
@@ -34,7 +34,7 @@ index ada82bc..4807127 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index 378fa31..21e76b1 100644
+index 378fa311..21e76b1f 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
 @@ -19,7 +19,6 @@ static size_t arp_static_sz;
@@ -60,7 +60,7 @@ index 378fa31..21e76b1 100644
   * Parsing Infrastructure
   */
 diff --git a/runtime/defs.h b/runtime/defs.h
-index cd99fac..9f9d123 100644
+index cd99fac8..9f9d123d 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -70,6 +70,7 @@ struct stack {
@@ -80,7 +80,7 @@ index cd99fac..9f9d123 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 9ac73f8..f49d73e 100644
+index 9ac73f80..f49d73e2 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
 @@ -4,6 +4,7 @@
@@ -166,7 +166,7 @@ index 9ac73f8..f49d73e 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index eedc7ee..7a90ec3 100644
+index ca94f09c..12ba01d4 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -302,7 +302,7 @@ index eedc7ee..7a90ec3 100644
  	tcache_free(perthread_ptr(thread_pt), th);
  }
  
-@@ -1044,6 +1006,7 @@ static void runtime_top_of_stack(void)
+@@ -1045,6 +1007,7 @@ static void runtime_top_of_stack(void)
   */
  int sched_init_thread(void)
  {
@@ -310,7 +310,7 @@ index eedc7ee..7a90ec3 100644
  	struct stack *s;
  
  	tcache_init_perthread(thread_tcache, perthread_ptr(thread_pt));
-@@ -1055,6 +1018,12 @@ int sched_init_thread(void)
+@@ -1056,6 +1019,12 @@ int sched_init_thread(void)
  	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
  	perthread_store(runtime_fsbase, _readfsbase_u64());
  

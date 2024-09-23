@@ -1,7 +1,7 @@
-From 97785dbbcb2425a8ecbeb0f858478e0f8c1db9c4 Mon Sep 17 00:00:00 2001
+From 33b576fe44fcb7612dcf0f5208299c39305e7c2b Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 14 Feb 2023 18:16:43 -0500
-Subject: [PATCH 15/33] expose thread struct
+Subject: [PATCH 15/41] expose thread struct
 
 ---
  inc/runtime/thread.h | 94 ++++++++++++++++++++++++++++++++++++++++++--
@@ -135,7 +135,7 @@ index 77c1d374..b256fd0d 100644
  
  
 diff --git a/runtime/defs.h b/runtime/defs.h
-index d3d205f7..ccf10757 100644
+index fd11f770..22731d12 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -39,83 +39,10 @@
@@ -223,7 +223,7 @@ index d3d205f7..ccf10757 100644
  
  /* assembly helper routines from switch.S */
 diff --git a/runtime/sched.c b/runtime/sched.c
-index d29df9b8..8c15250e 100644
+index 844c152e..d90d1957 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -44,16 +44,6 @@ static DEFINE_PERTHREAD(uint64_t, last_tsc);
@@ -244,5 +244,5 @@ index d29df9b8..8c15250e 100644
  {
  	th->tf.fsbase = fsbase;
 -- 
-2.39.2
+2.43.0
 

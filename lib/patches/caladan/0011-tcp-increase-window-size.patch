@@ -1,7 +1,7 @@
-From f3f79426ae888a0093d35a256a20e7825b30de9c Mon Sep 17 00:00:00 2001
+From 3b7704fb3586344886ba2c7e91224e3e0f7eac11 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 24 Jan 2023 22:54:00 -0500
-Subject: [PATCH 11/33] tcp: increase window size
+Subject: [PATCH 11/41] tcp: increase window size
 
 ---
  runtime/net/tcp.h | 2 +-
@@ -21,5 +21,5 @@ index b208bf13..e9fd3ef3 100644
  #define TCP_CONNECT_TIMEOUT	(5 * ONE_SECOND) /* FIXME */
  #define TCP_OOQ_ACK_TIMEOUT	(300 * ONE_MS)
 -- 
-2.39.2
+2.43.0
 

@@ -1,14 +1,14 @@
-From 4a703ce1ad363451beb684f0e8e814b249731f0e Mon Sep 17 00:00:00 2001
+From 3c1732d149cd175520e35f6cd783af5a6724ac1e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 20 Jun 2024 19:27:11 -0400
-Subject: [PATCH 38/38] bump tstate buf
+Subject: [PATCH 38/41] bump tstate buf
 
 ---
  inc/runtime/thread.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 0783446..888a3a5 100644
+index 07834460..888a3a59 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -121,7 +121,7 @@ struct thread {

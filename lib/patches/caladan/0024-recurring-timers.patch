@@ -1,7 +1,7 @@
-From c3dcf9d86ba625b3410455776c0ff61c79d647f3 Mon Sep 17 00:00:00 2001
+From 9b094dd9f9ba35b2bae7e1030a5a407d1fa5da41 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 16 Aug 2023 23:44:28 -0400
-Subject: [PATCH 24/33] recurring timers
+Subject: [PATCH 24/41] recurring timers
 
 ---
  inc/runtime/timer.h |  6 ++++
@@ -9,7 +9,7 @@ Subject: [PATCH 24/33] recurring timers
  2 files changed, 74 insertions(+), 19 deletions(-)
 
 diff --git a/inc/runtime/timer.h b/inc/runtime/timer.h
-index f3245354..1c11df25 100644
+index c1fe8e15..b5ea331e 100644
 --- a/inc/runtime/timer.h
 +++ b/inc/runtime/timer.h
 @@ -15,6 +15,7 @@ struct kthread;
@@ -181,5 +181,5 @@ index 8634bc73..9c3ae258 100644
  	thread_park_and_unlock_np(&k->timer_lock);
  
 -- 
-2.39.2
+2.43.0
 
