@@ -319,8 +319,7 @@ def setup_mem_cgroup():
 
 
 def kill_chroot():
-    for mount in [BIN_DIR, BUILD_DIR, INSTALL_DIR]:
-        run(f"while sudo umount {CHROOT_DIR}/{mount} 2> /dev/null; do :; done")
+    run(f"{ROOT_DIR}/scripts/chroot_mount.sh -u")
     if jifpager_installed():
         run(f"sudo rm {CHROOT_DIR}/dev/jif_pager || true")
 
@@ -333,9 +332,7 @@ def setup_chroot():
 
     # clean old mounts
     kill_chroot()
-
-    for mount in [BIN_DIR, BUILD_DIR, INSTALL_DIR]:
-        run(f"sudo mount --bind -o ro {mount} {CHROOT_DIR}/{mount}")
+    run(f"{ROOT_DIR}/scripts/chroot_mount.sh")
 
     if jifpager_installed():
         st = os.stat("/dev/jif_pager")
