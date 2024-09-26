@@ -766,6 +766,7 @@ TESTS = [
    NodeFBenchTest("hello", test="Hello, world"),
    NodeFBenchTest("float_operation", N=300),
    NodeFBenchTest("image_processing", path=prefix_fbench('dataset/image/animal-dog.jpg')),
+   NodeFBenchTest("json_serdes", json_path=prefix_fbench('json_serdes/2.json')),
    PyFBenchTest("chameleon", num_of_rows=3, num_of_cols=4),
    PyFBenchTest("float_operation", N=300),
    PyFBenchTest("pyaes", length_of_message=20, num_of_iterations=3),
