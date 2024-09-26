@@ -102,6 +102,7 @@ TYPE_ARR.update({
     ("tgkill", 2): 'static_cast<strace::SignalNumber>',
     ("rt_tgsigqueueinfo", 2): 'static_cast<strace::SignalNumber>',
     ("madvise", 2): 'static_cast<strace::MAdviseHint>',
+    ("futex", 1): 'static_cast<strace::FutexOp>',
 })
 
 SKIP_STRACE_TARGET = [

@@ -22,6 +22,7 @@ enum class OpenFlag : int {};
 enum class SignalNumber : int {};
 enum class MAdviseHint : int {};
 enum class CloneFlag : int {};
+enum class FutexOp : int {};
 
 template <typename U>
 inline void PrintArg(const char **array, U, rt::Logger &ss) {
@@ -66,6 +67,7 @@ void PrintArg(int *fds, FDPair *, rt::Logger &ss);
 void PrintArg(int flags, OpenFlag, rt::Logger &ss);
 void PrintArg(int signo, SignalNumber, rt::Logger &ss);
 void PrintArg(int advice, MAdviseHint, rt::Logger &ss);
+void PrintArg(int op, FutexOp, rt::Logger &ss);
 
 template <typename U>
 inline void PrintArg(struct timespec *t, U, rt::Logger &ss) {

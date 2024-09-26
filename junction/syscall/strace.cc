@@ -1,6 +1,7 @@
 #include "junction/syscall/strace.h"
 
 extern "C" {
+#include <linux/futex.h>
 #include <sched.h>
 #include <signal.h>
 }
@@ -108,6 +109,23 @@ const std::map<int, std::string> clone_flags{
     {CLONE_VM, "CLONE_VM"},
 };
 
+const std::map<int, std::string> futex_flags{
+    {FUTEX_WAKE_BITSET, "FUTEX_WAKE_BITSET"},
+    {FUTEX_WAIT, "FUTEX_WAIT"},
+    {FUTEX_WAKE, "FUTEX_WAKE"},
+    {FUTEX_FD, "FUTEX_FD"},
+    {FUTEX_REQUEUE, "FUTEX_REQUEUE"},
+    {FUTEX_CMP_REQUEUE, "FUTEX_CMP_REQUEUE"},
+    {FUTEX_WAKE_OP, "FUTEX_WAKE_OP"},
+    {FUTEX_WAIT_BITSET, "FUTEX_WAIT_BITSET"},
+    {FUTEX_LOCK_PI, "FUTEX_LOCK_PI"},
+    {FUTEX_LOCK_PI2, "FUTEX_LOCK_PI2"},
+    {FUTEX_TRYLOCK_PI, "FUTEX_TRYLOCK_PI"},
+    {FUTEX_UNLOCK_PI, "FUTEX_UNLOCK_PI"},
+    {FUTEX_CMP_REQUEUE_PI, "FUTEX_CMP_REQUEUE_PI"},
+    {FUTEX_WAIT_REQUEUE_PI, "FUTEX_WAIT_REQUEUE_PI"},
+};
+
 const char *sigmap[] = {
     "SIGHUP",  "SIGINT",    "SIGQUIT", "SIGILL",    "SIGTRAP", "SIGABRT",
     "SIGBUS",  "SIGFPE",    "SIGKILL", "SIGUSR1",   "SIGSEGV", "SIGUSR2",
@@ -158,6 +176,18 @@ void PrintArg(int prot, ProtFlag, rt::Logger &ss) {
     return;
   }
   PrintArr(protection_flags, prot, ss);
+}
+
+void PrintArg(int op, FutexOp, rt::Logger &ss) {
+  int cmd = op & FUTEX_CMD_MASK;
+  auto it = futex_flags.find(cmd);
+  if (it != futex_flags.end())
+    ss << it->second;
+  else
+    ss << cmd;
+
+  if (op & FUTEX_PRIVATE_FLAG) ss << "|FUTEX_PRIVATE_FLAG";
+  if (op & FUTEX_CLOCK_REALTIME) ss << "|FUTEX_CLOCK_REALTIME";
 }
 
 void PrintArg(int flags, MMapFlag, rt::Logger &ss) {
