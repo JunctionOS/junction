@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "junction/base/bits.h"
+#include "junction/snapshot/cereal.h"
 
 namespace junction {
 
@@ -97,6 +98,12 @@ class bitmap {
   [[nodiscard]] std::optional<size_t> find_next_clear(size_t pos) const {
     assert(pos < N);
     return find_next<true>(pos);
+  }
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    // TODO: consider compressing this.
+    ar(cereal::binary_data(bits_, sizeof(bits_)));
   }
 
  private:

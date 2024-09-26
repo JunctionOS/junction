@@ -725,6 +725,8 @@ std::shared_ptr<IDir> MkFolder(IDir &parent, std::string name,
 Status<void> InitMemfs();
 void MemFSStartTracer(IDir &root);
 void MemFSEndTracer();
+Status<void> SaveMemFs(cereal::BinaryOutputArchive &ar);
+Status<void> RestoreMemFs(cereal::BinaryInputArchive &ar);
 }  // namespace memfs
 
 Status<void> FSSnapshot(cereal::BinaryOutputArchive &ar);

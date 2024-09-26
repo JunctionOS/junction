@@ -19,6 +19,8 @@ FSRoot *FSRoot::global_root_ = nullptr;
 
 namespace {
 
+static std::atomic_size_t inos;
+
 // The maximum number of links to follow before giving up with ELOOP
 inline constexpr size_t kMaxLinksToChase = 8;
 
@@ -768,6 +770,7 @@ void DirectoryEntry::load_and_construct(
 
 Status<void> FSRestore(cereal::BinaryInputArchive &ar) {
   size_t nr_overlays;
+  ar(inos);
   for (ar(nr_overlays); nr_overlays > 0; ar(nr_overlays)) {
     for (size_t i = 0; i < nr_overlays; i++) {
       std::shared_ptr<DirectoryEntry> dent;
@@ -775,10 +778,12 @@ Status<void> FSRestore(cereal::BinaryInputArchive &ar) {
       assert(dent.use_count() > 1);
     }
   }
-  return {};
+  return memfs::RestoreMemFs(ar);
 }
 
 Status<void> FSSnapshot(cereal::BinaryOutputArchive &ar) {
+  ar(inos);
+
   // Find directory entries that need to be saved that are contained in
   // directories that won't be retained.
   std::function<void(DirectoryEntry & cur)> fn([&](DirectoryEntry &cur) {
@@ -805,7 +810,8 @@ Status<void> FSSnapshot(cereal::BinaryOutputArchive &ar) {
     for (auto &dent : saves) ar(dent);
   }
   ar((size_t)0);
-  return {};
+
+  return memfs::SaveMemFs(ar);
 }
 
 Status<void> InitFs(

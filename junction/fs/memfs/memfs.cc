@@ -67,6 +67,16 @@ class MemIDevice : public Inode {
 
 }  // namespace
 
+Status<void> SaveMemFs(cereal::BinaryOutputArchive &ar) {
+  ar(allocated_file_slots, next_memfs_faddr);
+  return {};
+}
+
+Status<void> RestoreMemFs(cereal::BinaryInputArchive &ar) {
+  ar(allocated_file_slots, next_memfs_faddr);
+  return {};
+}
+
 MemInode::~MemInode() {
   // Drop backing pages.
   if (extent_offset_ != -1) {
