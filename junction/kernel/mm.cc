@@ -545,9 +545,6 @@ Status<void> MemoryMap::MAdvise(void *addr, size_t len, int hint) {
   // check length and alignment
   if (!AddressValid(addr, len)) return MakeError(EINVAL);
 
-  // TODO: fix after MADVISE is works in the kernel module.
-  if (GetCfg().restoring()) return {};
-
   // Translate MADV_FREEs to MADV_DONTNEED to immediately zero a page.
   if (hint == MADV_FREE && GetCfg().madv_dontneed_remap()) hint = MADV_DONTNEED;
 

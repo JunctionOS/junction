@@ -117,7 +117,7 @@ def rtti_cast(base_ptr, derived_type):
 
 def offsets_from_junction_map():
     map_var = gdb.parse_and_eval(
-        "'junction::detail::init_proc'.get()->mem_map_.get()->vmareas_")
+        "'junction::init_proc'.get()->mem_map_.get()->vmareas_")
     filetype = get_enum_int()
     nodetype = gdb.lookup_type(
         "std::_Rb_tree_node<std::pair<unsigned long const, junction::VMArea> >").pointer()

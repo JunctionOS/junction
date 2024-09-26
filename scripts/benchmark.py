@@ -167,34 +167,34 @@ RESTORE_CONFIG_SET = [
      "JIF\nkernel\n(w/ prefetch)\n(w/ reorder)\nNoRA"),
 ]
 
-DENSITY_CONFIG_SET = [
-    (("same_image"), {
-        'same_image': True,
-        'itrees': True,
-        'prefault': True,
-        'cold': True,
-        'reorder': True,
-        'minor': True,
-        'reorder': True,
-    }),
-    (("sharing_libs_only"), {
-        'same_image': False,
-        'itrees': True,
-        'prefault': True,
-        'cold': True,
-        'reorder': True,
-        'minor': True,
-        'reorder': True,
-    }),
-    (("no_sharing"), {
+DENSITY_CONFIG_SET = {
+    "no_sharing": {
         'same_image': False,
         'itrees': False,
-        'prefault': True,
+        'prefault': False,
         'cold': True,
-        'reorder': True,
-        'minor': True,
-    }),
-]
+        'reorder': False,
+        'minor': False,
+    },
+    "same_image": {
+        'same_image': True,
+        'itrees': True,
+        'prefault': False,
+        'cold': True,
+        'reorder': False,
+        'minor': False,
+        'reorder': False,
+    },
+    "sharing_libs_only": {
+        'same_image': False,
+        'itrees': True,
+        'prefault': False,
+        'cold': True,
+        'reorder': False,
+        'minor': False,
+        'reorder': False,
+    },
+}
 
 # util functions
 
@@ -239,17 +239,41 @@ def kill_iok():
     run("(sudo pkill iokerneld && sleep 1) || true")
 
 
-def run_iok(directpath: bool = False, hugepages: bool = True):
+def get_vfio_pci():
+    # find first MLX Vf
+    cmd = "lspci -D | grep Mellanox | grep 'Virtual' | head -n1 | awk '{print $1}'"
+    pci = run_quiet(cmd).decode("utf-8").strip()
+
+    # confirm it is bound to vfio-pci
+    cmd = "lspci -k -s %s | grep 'Kernel driver in use' | awk -F ': ' '{print $2}'" % pci
+    driver = run_quiet(cmd).decode("utf-8").strip()
+    assert driver == "vfio-pci", f"incorrect driver found: {driver}"
+    return pci
+
+
+def run_iok(directpath: bool = False,
+            hugepages: bool = True,
+            cgroup: bool = False):
     if not ARGS.dry_run and os.system("pgrep iok > /dev/null") == 0:
         return
     run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh nouintr")
+    if not hugepages:
+        run(f"echo 0 | sudo tee /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages > /dev/null"
+            )
     run(f"sudo chmod 777 /tmp/iokernel0.log || true")
     hugepages = "" if hugepages else "nohugepages"
+    cgexec = 'cgexec -g memory:junction' if cgroup else ''
+
     if directpath:
-        run(f"sudo {CALADAN_DIR}/iokerneld ias nobw {hugepages} vfio nicpci 0000:6f:00.1 > /tmp/iokernel0.log 2>&1 &"
+        try:
+            pci = get_vfio_pci()
+        except:
+            assert False, "Failed to find Mellanox virtual NIC (rerun setup_vfs script)"
+
+        run(f"sudo {cgexec} {CALADAN_DIR}/iokerneld ias nobw {hugepages} vfio nicpci {pci} > /tmp/iokernel0.log 2>&1 &"
             )
     else:
-        run(f"sudo {CALADAN_DIR}/iokerneld ias nobw {hugepages} no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0  > /tmp/iokernel0.log 2>&1 &"
+        run(f"sudo {cgexec} {CALADAN_DIR}/iokerneld ias nobw {hugepages} no_hw_qdel numanode -1 -- --allow 00:00.0 --vdev=net_tap0  > /tmp/iokernel0.log 2>&1 &"
             )
 
     if ARGS.dry_run:
@@ -319,9 +343,9 @@ def setup_mem_cgroup():
 
 
 def kill_chroot():
-    run(f"{ROOT_DIR}/scripts/chroot_mount.sh -u")
+    run(f"{ROOT_DIR}/scripts/chroot_mount.sh -u || true")
     if jifpager_installed():
-        run(f"sudo rm {CHROOT_DIR}/dev/jif_pager || true")
+        run(f"sudo rm -f {CHROOT_DIR}/dev/jif_pager")
 
 
 def setup_chroot():
@@ -816,7 +840,7 @@ def get_img_suffix(cfg):
 
 # It's hard to use proc.kill() to terminate a process, so this function
 # recursively scans the process tree and terminates every node directly.
-def kill_pid_and_kids(pid):
+def kill_pid_and_kids(pid, force_kill=False):
     try:
         kids = subprocess.check_output(
             shlex.split(f"ps -o pid --ppid {pid} --noheaders")).splitlines()
@@ -824,7 +848,8 @@ def kill_pid_and_kids(pid):
         kids = []
     for i in kids:
         kill_pid_and_kids(int(i.strip()))
-    os.system(f"sudo kill -SIGINT {pid} 2> /dev/null")
+    sig = "SIGKILL" if force_kill else "SIGINT"
+    run_quiet(f"sudo kill -{sig} {pid} 2> /dev/null || true")
 
 
 class RunningProc:
@@ -855,7 +880,8 @@ class RunningProc:
         return self.app
 
     def kill(self):
-        kill_pid_and_kids(self.proc.pid)
+        kill_pid_and_kids(self.proc.pid, False)
+        kill_pid_and_kids(self.proc.pid, True)
 
 
 def setup_async_images(apps, copies_per_app: int, cfg):
@@ -898,7 +924,7 @@ def gen_be_config(file, ip, mask, gw):
         f"host_addr {addr_to_str(ip)}",
         f"host_netmask {addr_to_str(mask)}",
         f"host_gateway {addr_to_str(gw)}",
-        "runtime_kthreads 2",
+        f"runtime_kthreads {be_kthreads}",
         "runtime_spinning_kthreads 0",
         "runtime_guaranteed_kthreads 0",
         "runtime_priority be",
@@ -1021,11 +1047,18 @@ def run_density(result_dir: str, tests, count=10, step=1):
         rm_async_images(tests, count, cfg)
 
 
-def run_loadgen_async(output_prefix: str, running_procs: List[RunningProc],
-                      ip_alloc: IPAllocator):
+def start_vmstat(prefix):
+    cmd = f"taskset -c 0 /bin/bash -c 'while ps -p {os.getpid()} > /dev/null; do vmstat -s; cat /proc/meminfo; sleep 1; done | ts %s > {prefix}_vmstat'"
+    return run_async(cmd)
+
+
+def run_loadgen_async(output_prefix: str,
+                      running_procs: List[RunningProc],
+                      ip_alloc: IPAllocator,
+                      runtime: int = None):
     loadgen_kthreads = 4
     depth = 5
-    runtime = 10
+    runtime = runtime or 20
 
     assert loadgen_kthreads % 2 == 0, "with HT enabled need even #"
 
@@ -1078,12 +1111,17 @@ def run_loadgen_async(output_prefix: str, running_procs: List[RunningProc],
     return procs
 
 
-def run_cfg(output_log, tests, cfg, copies_per_app):
+def run_cfg(output_log, tests, cfg, copies_per_app, runtime=None):
     if not cfg['same_image']:
         setup_async_images(tests, copies_per_app, cfg)
 
+    if cfg.get("cold", True):
+        dropcache()
+
+    mem_recorder = start_vmstat(output_log)
+
     kill_iok()
-    run_iok(hugepages=False, directpath=True)
+    run_iok(hugepages=False, directpath=True, cgroup=True)
 
     ip_alloc = IPAllocator()
     app_procs = restore_images_async(output_log,
@@ -1094,11 +1132,18 @@ def run_cfg(output_log, tests, cfg, copies_per_app):
                                      cgroup=True,
                                      wait_for_apps=True)
 
-    lg_procs = run_loadgen_async(output_log, app_procs, ip_alloc)
+    lg_procs = run_loadgen_async(output_log,
+                                 app_procs,
+                                 ip_alloc,
+                                 runtime=runtime)
 
     print("Waiting for loadgen(s) to terminate")
     for l in lg_procs:
         l.wait()
+
+    kill_pid_and_kids(mem_recorder.pid)
+    kill_pid_and_kids(mem_recorder.pid, True)
+    mem_recorder.wait()
 
     print("Cleaning up procs")
     for a in app_procs:
@@ -1544,8 +1589,10 @@ def plot_workloads(result_dir: str, data):
     plt.savefig(f'{result_dir}/graph.pdf', bbox_inches='tight')
 
 
-def main(tests):
-    result_dir = f"{RESULT_DIR}/run.{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
+def main(tests, name=""):
+    if name:
+        name = "_" + name
+    result_dir = f"{RESULT_DIR}/run.{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}{name}"
     os.system(f"mkdir -p {result_dir}")
     os.system(f"ln -sfn {result_dir} {RESULT_LINK}")
 
