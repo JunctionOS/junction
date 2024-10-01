@@ -80,6 +80,7 @@ connect
 setsockopt
 getsockopt
 recvfrom
+recvmsg
 sendto
 sendmsg
 accept

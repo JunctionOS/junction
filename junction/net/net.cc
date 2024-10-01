@@ -158,6 +158,24 @@ ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
   return static_cast<ssize_t>(*ret);
 }
 
+ssize_t usys_recvmsg(int sockfd, struct msghdr *msg, int flags) {
+  bool peek = flags & kMsgPeek;
+  flags = flags & ~(kMsgNoSignal | kMsgPeek);
+  if (unlikely(flags != 0))
+    // TODO(bcwh) can we return -EINVAL here?
+    LOG_ONCE(WARN) << "recvmsg ignoring flags" << flags;
+  if (msg->msg_control || msg->msg_controllen)
+    LOG_ONCE(WARN) << "recvmsg: ignoring control message";
+  auto sock_ret = FDToSocket(sockfd);
+  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  Socket &s = sock_ret.value().get();
+  const SockAddrPtr p = SockAddrPtr::asConst(
+      reinterpret_cast<const sockaddr *>(msg->msg_name), &msg->msg_namelen);
+  Status<size_t> ret = s.ReadvFrom({msg->msg_iov, msg->msg_iovlen}, p, peek);
+  if (unlikely(!ret)) return MakeCError(ret);
+  return static_cast<ssize_t>(*ret);
+}
+
 ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
                     const struct sockaddr *dest_addr, socklen_t addrlen) {
   flags = flags & ~kMsgNoSignal;

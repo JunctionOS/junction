@@ -69,6 +69,10 @@ class Socket : public File {
                                   bool peek = false) {
     return MakeError(ENOTCONN);
   }
+  virtual Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr,
+                                   bool peek) {
+    return MakeError(ENOTCONN);
+  }
   virtual Status<size_t> WriteTo(std::span<const std::byte> buf,
                                  const SockAddrPtr raddr) {
     return MakeError(ENOTCONN);

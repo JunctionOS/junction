@@ -199,6 +199,12 @@ class TCPConn : public VectoredReader, public VectoredWriter {
     return ret;
   }
 
+  Status<size_t> ReadvPeek(std::span<const iovec> iov) {
+    ssize_t ret = tcp_readv_peek(c_, iov.data(), static_cast<int>(iov.size()));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    return ret;
+  }
+
   // Writes to the TCP stream.
   Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = tcp_write(c_, buf.data(), buf.size_bytes());

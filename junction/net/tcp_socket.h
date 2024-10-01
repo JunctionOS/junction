@@ -169,6 +169,15 @@ class TCPSocket : public Socket {
     return TcpConn().Writev(iov);
   }
 
+  Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr,
+                           bool peek) override {
+    if (unlikely(state_ != SocketState::kSockConnected))
+      return MakeError(EINVAL);
+    if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
+    if (peek) return TcpConn().ReadvPeek(iov);
+    return TcpConn().Readv(iov);
+  }
+
   Status<size_t> Readv(std::span<iovec> iov,
                        [[maybe_unused]] off_t *off) override {
     if (unlikely(state_ != SocketState::kSockConnected))
