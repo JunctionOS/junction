@@ -784,20 +784,25 @@ Status<void> FSRestore(cereal::BinaryInputArchive &ar) {
 Status<void> FSSnapshot(cereal::BinaryOutputArchive &ar) {
   ar(inos);
 
+  std::list<std::shared_ptr<DirectoryEntry>> dirq;
+  dirq.push_back(FSRoot::GetGlobalRoot().get_root_ent());
+
   // Find directory entries that need to be saved that are contained in
   // directories that won't be retained.
-  std::function<void(DirectoryEntry & cur)> fn([&](DirectoryEntry &cur) {
-    if (!cur.get_inode_ref().SnapshotPrunable() &&
-        cur.get_parent_dir_locked().SnapshotPrunable()) {
-      GetSnapshotContext().dents.push_back(cur.shared_from_this());
-    }
-    if (!cur.get_inode_ref().is_dir()) return;
-    IDir &dir = static_cast<IDir &>(cur.get_inode_ref());
-    if (!dir.SnapshotRecurse()) return;
-    dir.ForEach(fn);
-  });
+  while (dirq.size() > 0) {
+    std::shared_ptr<DirectoryEntry> cur = std::move(dirq.front());
+    dirq.pop_front();
 
-  fn(*FSRoot::GetGlobalRoot().get_root_ent().get());
+    if (!cur->get_inode_ref().SnapshotPrunable() &&
+        cur->get_parent_dir_locked().SnapshotPrunable()) {
+      GetSnapshotContext().dents.push_back(cur->shared_from_this());
+    }
+    if (!cur->get_inode_ref().is_dir()) continue;
+    IDir &dir = static_cast<IDir &>(cur->get_inode_ref());
+    if (!dir.SnapshotRecurse()) continue;
+    dir.ForEach([&](DirectoryEntry &ent) {dirq.push_back(ent.shared_from_this()); });
+  }
+
 
   // Breadth-first tree traversal of directory entries. Each archive call
   // serializes the inode pointed to in the dent. For directories, the child
