@@ -147,23 +147,27 @@ long usys_getsockopt(int sockfd, int level, int option_name, void *option_value,
 ssize_t usys_recvfrom(int sockfd, void *buf, size_t len, int flags,
                       struct sockaddr *src_addr, socklen_t *addrlen) {
   bool peek = flags & kMsgPeek;
-  flags = flags & ~(kMsgNoSignal | kMsgPeek);
+  bool nonblocking = flags & kMsgDontWait;
+  flags = flags & ~(kMsgNoSignal | kMsgPeek | kMsgDontWait);
   if (unlikely(flags != 0)) return -EINVAL;
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
   Status<size_t> ret = s.ReadFrom(readable_span(static_cast<char *>(buf), len),
-                                  {src_addr, addrlen}, peek);
+                                  {src_addr, addrlen}, peek, nonblocking);
   if (unlikely(!ret)) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }
 
 ssize_t usys_recvmsg(int sockfd, struct msghdr *msg, int flags) {
   bool peek = flags & kMsgPeek;
-  flags = flags & ~(kMsgNoSignal | kMsgPeek);
-  if (unlikely(flags != 0))
+  bool nonblocking = flags & kMsgDontWait;
+  flags = flags & ~(kMsgNoSignal | kMsgPeek | kMsgDontWait);
+  if (unlikely(flags != 0)) {
     // TODO(bcwh) can we return -EINVAL here?
     LOG_ONCE(WARN) << "recvmsg ignoring flags" << flags;
+    return -EINVAL;
+  }
   if (msg->msg_control || msg->msg_controllen)
     LOG_ONCE(WARN) << "recvmsg: ignoring control message";
   auto sock_ret = FDToSocket(sockfd);
@@ -171,27 +175,34 @@ ssize_t usys_recvmsg(int sockfd, struct msghdr *msg, int flags) {
   Socket &s = sock_ret.value().get();
   const SockAddrPtr p = SockAddrPtr::asConst(
       reinterpret_cast<const sockaddr *>(msg->msg_name), &msg->msg_namelen);
-  Status<size_t> ret = s.ReadvFrom({msg->msg_iov, msg->msg_iovlen}, p, peek);
+  Status<size_t> ret =
+      s.ReadvFrom({msg->msg_iov, msg->msg_iovlen}, p, peek, nonblocking);
   if (unlikely(!ret)) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }
 
 ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
                     const struct sockaddr *dest_addr, socklen_t addrlen) {
-  flags = flags & ~kMsgNoSignal;
+  bool nonblocking = flags & kMsgDontWait;
+  flags = flags & ~(kMsgNoSignal | kMsgDontWait);
   if (unlikely(flags != 0)) return -EINVAL;
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
   Status<ssize_t> ret =
       s.WriteTo(writable_span(static_cast<const char *>(buf), len),
-                SockAddrPtr::asConst(dest_addr, &addrlen));
+                SockAddrPtr::asConst(dest_addr, &addrlen), nonblocking);
   if (unlikely(!ret)) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }
 
 ssize_t usys_sendmsg(int sockfd, const struct msghdr *msg, int flags) {
-  if (flags) LOG_ONCE(WARN) << "sendmsg ignoring flags " << flags;
+  bool nonblocking = flags & kMsgDontWait;
+  flags &= ~kMsgDontWait;
+  if (unlikely(flags != 0)) {
+    LOG_ONCE(WARN) << "sendmsg ignoring flags " << flags;
+    return -EINVAL;
+  }
   if (msg->msg_control || msg->msg_controllen)
     LOG_ONCE(WARN) << "sendmsg: ignoring control message";
   auto sock_ret = FDToSocket(sockfd);
@@ -199,7 +210,8 @@ ssize_t usys_sendmsg(int sockfd, const struct msghdr *msg, int flags) {
   Socket &s = sock_ret.value().get();
   const SockAddrPtr p = SockAddrPtr::asConst(
       reinterpret_cast<const sockaddr *>(msg->msg_name), &msg->msg_namelen);
-  Status<size_t> ret = s.WritevTo({msg->msg_iov, msg->msg_iovlen}, p);
+  Status<size_t> ret =
+      s.WritevTo({msg->msg_iov, msg->msg_iovlen}, p, nonblocking);
   if (unlikely(!ret)) return MakeCError(ret);
   return static_cast<ssize_t>(*ret);
 }

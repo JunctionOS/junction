@@ -61,17 +61,18 @@ class UDPSocket : public Socket {
   }
 
   Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
-                          bool peek) override {
+                          bool peek, bool nonblocking) override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
     netaddr ra;
-    Status<size_t> ret = conn_.ReadFrom(buf, raddr ? &ra : nullptr, peek);
+    Status<size_t> ret =
+        conn_.ReadFrom(buf, raddr ? &ra : nullptr, peek, nonblocking);
     if (unlikely(!ret)) return ret;
     if (raddr) raddr.FromNetAddr(ra);
     return ret;
   }
 
   Status<size_t> WriteTo(std::span<const std::byte> buf,
-                         const SockAddrPtr raddr) override {
+                         const SockAddrPtr raddr, bool nonblocking) override {
     if (!conn_.is_valid()) {
       Status<rt::UDPConn> ret = rt::UDPConn::Listen({0, 0});
       if (unlikely(!ret)) return MakeError(ret);
@@ -80,9 +81,9 @@ class UDPSocket : public Socket {
     if (raddr) {
       Status<netaddr> ra = raddr.ToNetAddr();
       if (unlikely(!ra)) return MakeError(ra);
-      return conn_.WriteTo(buf, &*ra);
+      return conn_.WriteTo(buf, &*ra, nonblocking);
     }
-    return conn_.WriteTo(buf, nullptr);
+    return conn_.WriteTo(buf, nullptr, nonblocking);
   }
 
   Status<void> Shutdown([[maybe_unused]] int how) override {

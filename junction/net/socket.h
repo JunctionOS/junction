@@ -17,6 +17,7 @@ static_assert(kFlagCloseExec == SOCK_CLOEXEC);
 
 inline constexpr unsigned int kMsgNoSignal = MSG_NOSIGNAL;
 inline constexpr unsigned int kMsgPeek = MSG_PEEK;
+inline constexpr unsigned int kMsgDontWait = MSG_DONTWAIT;
 inline constexpr unsigned int kSockTypeMask = 0xf;
 
 struct SockAddrPtr {
@@ -66,20 +67,23 @@ class Socket : public File {
     return MakeError(EINVAL);
   }
   virtual Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
-                                  bool peek = false) {
+                                  bool peek = false, bool nonblocking = false) {
     return MakeError(ENOTCONN);
   }
   virtual Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr,
-                                   bool peek) {
+                                   bool peek = false,
+                                   bool nonblocking = false) {
     return MakeError(ENOTCONN);
   }
   virtual Status<size_t> WriteTo(std::span<const std::byte> buf,
-                                 const SockAddrPtr raddr) {
+                                 const SockAddrPtr raddr,
+                                 bool nonblocking = false) {
     return MakeError(ENOTCONN);
   }
 
   virtual Status<size_t> WritevTo(std::span<const iovec> iov,
-                                  const SockAddrPtr raddr) {
+                                  const SockAddrPtr raddr,
+                                  bool nonblocking = false) {
     return MakeError(ENOTCONN);
   }
 

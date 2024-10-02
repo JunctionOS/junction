@@ -75,24 +75,23 @@ class UDPConn {
 
   // Reads a datagram and gets from remote address.
   Status<size_t> ReadFrom(std::span<std::byte> buf, netaddr *raddr,
-                          bool peek = false) {
-    ssize_t ret = udp_read_from(c_, buf.data(), buf.size_bytes(), raddr, peek);
+                          bool peek = false, bool nonblocking = false) {
+    ssize_t ret = udp_read_from2(c_, buf.data(), buf.size_bytes(), raddr, peek,
+                                 nonblocking);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
   // Writes a datagram and sets to remote address.
-  Status<size_t> WriteTo(std::span<const std::byte> buf, const netaddr *raddr) {
-    ssize_t ret = udp_write_to(c_, buf.data(), buf.size_bytes(), raddr);
+  Status<size_t> WriteTo(std::span<const std::byte> buf, const netaddr *raddr,
+                         bool nonblocking = false) {
+    ssize_t ret =
+        udp_write_to2(c_, buf.data(), buf.size_bytes(), raddr, nonblocking);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
 
   // Reads a datagram.
-  Status<size_t> Read(std::span<std::byte> buf, bool peek = false) {
-    ssize_t ret = udp_read_from(c_, buf.data(), buf.size_bytes(), NULL, peek);
-    if (ret < 0) return MakeError(static_cast<int>(-ret));
-    return ret;
-  }
+  Status<size_t> Read(std::span<std::byte> buf) { return ReadFrom(buf, NULL); }
   // Writes a datagram.
   Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = udp_write(c_, buf.data(), buf.size_bytes());
@@ -187,25 +186,26 @@ class TCPConn : public VectoredReader, public VectoredWriter {
   }
 
   // Reads from the TCP stream.
+  Status<size_t> Read(std::span<std::byte> buf, bool peek, bool nonblocking) {
+    ssize_t ret =
+        tcp_read2(c_, buf.data(), buf.size_bytes(), peek, nonblocking);
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    return ret;
+  }
+
   Status<size_t> Read(std::span<std::byte> buf) {
     ssize_t ret = tcp_read(c_, buf.data(), buf.size_bytes());
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
 
-  Status<size_t> ReadPeek(std::span<std::byte> buf) {
-    ssize_t ret = tcp_read_peek(c_, buf.data(), buf.size_bytes());
-    if (ret < 0) return MakeError(static_cast<int>(-ret));
-    return ret;
-  }
-
-  Status<size_t> ReadvPeek(std::span<const iovec> iov) {
-    ssize_t ret = tcp_readv_peek(c_, iov.data(), static_cast<int>(iov.size()));
-    if (ret < 0) return MakeError(static_cast<int>(-ret));
-    return ret;
-  }
-
   // Writes to the TCP stream.
+  Status<size_t> Write(std::span<const std::byte> buf, bool nonblocking) {
+    ssize_t ret = tcp_write2(c_, buf.data(), buf.size_bytes(), nonblocking);
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    return ret;
+  }
+
   Status<size_t> Write(std::span<const std::byte> buf) {
     ssize_t ret = tcp_write(c_, buf.data(), buf.size_bytes());
     if (ret < 0) return MakeError(static_cast<int>(-ret));
@@ -218,9 +218,25 @@ class TCPConn : public VectoredReader, public VectoredWriter {
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
+
+  Status<size_t> Readv(std::span<const iovec> iov, bool peek,
+                       bool nonblocking) {
+    ssize_t ret = tcp_readv2(c_, iov.data(), static_cast<int>(iov.size()), peek,
+                             nonblocking);
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    return ret;
+  }
+
   // Writes a vector to the TCP stream.
   Status<size_t> Writev(std::span<const iovec> iov) override {
     ssize_t ret = tcp_writev(c_, iov.data(), static_cast<int>(iov.size()));
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    return ret;
+  }
+
+  Status<size_t> Writev(std::span<const iovec> iov, bool nonblocking) {
+    ssize_t ret =
+        tcp_writev2(c_, iov.data(), static_cast<int>(iov.size()), nonblocking);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }

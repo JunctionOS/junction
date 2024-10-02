@@ -25,12 +25,14 @@ class NetlinkSocket : public Socket {
   ~NetlinkSocket() override = default;
 
   Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
-                          bool peek = false) override {
+                          bool peek = false,
+                          [[maybe_unused]] bool nonblocking = false) override {
     return data_.Read(buf, peek);
   }
 
   Status<size_t> WriteTo(std::span<const std::byte> buf,
-                         const SockAddrPtr raddr) override {
+                         const SockAddrPtr raddr,
+                         [[maybe_unused]] bool nonblocking = false) override {
     const nlmsghdr *nlh = reinterpret_cast<const nlmsghdr *>(buf.data());
 
     rt::ScopedLock g(lock_);

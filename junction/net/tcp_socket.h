@@ -138,28 +138,28 @@ class TCPSocket : public Socket {
   }
 
   virtual Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
-                                  bool peek) override {
+                                  bool peek, bool nonblocking) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
-    if (peek) return TcpConn().ReadPeek(buf);
-    return TcpConn().Read(buf);
+    return TcpConn().Read(buf, peek, nonblocking);
   }
 
   virtual Status<size_t> WriteTo(std::span<const std::byte> buf,
-                                 const SockAddrPtr raddr) override {
+                                 const SockAddrPtr raddr,
+                                 bool nonblocking) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
-    return TcpConn().Write(buf);
+    return TcpConn().Write(buf, nonblocking);
   }
 
-  Status<size_t> WritevTo(std::span<const iovec> iov,
-                          const SockAddrPtr raddr) override {
+  Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
+                          bool nonblocking) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
-    return TcpConn().Writev(iov);
+    return TcpConn().Writev(iov, nonblocking);
   }
 
   Status<size_t> Writev(std::span<const iovec> iov,
@@ -169,13 +169,12 @@ class TCPSocket : public Socket {
     return TcpConn().Writev(iov);
   }
 
-  Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr,
-                           bool peek) override {
+  Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
+                           bool nonblocking) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
-    if (peek) return TcpConn().ReadvPeek(iov);
-    return TcpConn().Readv(iov);
+    return TcpConn().Readv(iov, peek, nonblocking);
   }
 
   Status<size_t> Readv(std::span<iovec> iov,

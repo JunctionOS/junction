@@ -322,20 +322,31 @@ class PipeSocketFile : public Socket {
   }
 
   Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
-                          bool peek = false) override {
+                          bool peek, bool nonblocking) override {
     if (raddr) raddr.FromNetAddr({MAKE_IP_ADDR(127, 0, 0, 1), 0});
-    return rx_->Read(buf, is_nonblocking(), peek);
+    return rx_->Read(buf, is_nonblocking() || nonblocking, peek);
   }
 
   Status<size_t> WriteTo(std::span<const std::byte> buf,
-                         const SockAddrPtr raddr) override {
-    return tx_->Write(buf, is_nonblocking());
+                         const SockAddrPtr raddr, bool nonblocking) override {
+    return tx_->Write(buf, is_nonblocking() || nonblocking);
   }
 
-  Status<size_t> WritevTo(std::span<const iovec> iov,
-                          const SockAddrPtr raddr) override {
-    off_t off;
-    return File::Writev(iov, &off);
+  Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
+                          bool nonblocking) override {
+    ssize_t total_bytes = 0;
+    Status<size_t> ret;
+    for (auto &v : iov) {
+      if (!v.iov_len) continue;
+      ret = WriteTo(
+          writable_span(reinterpret_cast<const char *>(v.iov_base), v.iov_len),
+          raddr, nonblocking);
+      if (!ret) break;
+      total_bytes += *ret;
+      if (*ret < v.iov_len) break;
+    }
+    if (total_bytes) return total_bytes;
+    return ret;
   }
 
   Status<size_t> Write(std::span<const std::byte> buf, off_t *off) override {
