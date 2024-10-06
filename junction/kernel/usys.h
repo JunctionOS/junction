@@ -201,12 +201,15 @@ long usys_getrlimit(int resource, struct rlimit *rlim);
 long usys_setrlimit(int resource, const struct rlimit *rlim);
 long usys_prlimit64(pid_t pid, int resource, const struct rlimit *new_limit,
                     struct rlimit *old_limit);
-long usys_ioctl(int fd, unsigned long request, char *argp);
+long usys_ioctl(int fd, unsigned int request, char *argp);
 long usys_sysinfo(struct sysinfo *info);
 long usys_getuid();
 long usys_geteuid();
 long usys_getgid();
 long usys_getegid();
+long usys_setgid(gid_t gid);
+long usys_setuid(uid_t uid);
+long usys_setgroups(size_t size, const gid_t *list);
 long usys_setresuid(uid_t ruid, uid_t euid, uid_t suid);
 long usys_setresgid(gid_t rgid, gid_t egid, gid_t sgid);
 

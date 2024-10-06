@@ -286,7 +286,7 @@ Status<void> File::StatFS(struct statfs *buf) const {
   return {};
 }
 
-Status<void> File::Ioctl(unsigned long request, char *argp) {
+Status<long> File::Ioctl(unsigned long request, char *argp) {
   switch (request) {
     case TCGETS:
     case TIOCGPGRP:
@@ -299,7 +299,7 @@ Status<void> File::Ioctl(unsigned long request, char *argp) {
       set_flag(kFlagNonblock);
     else
       clear_flag(kFlagNonblock);
-    return {};
+    return 0;
   }
 
   return MakeError(EINVAL);
@@ -656,14 +656,14 @@ bool DoFileTableIoctls(FileTable &ftbl, int fd, unsigned long request) {
   return true;
 }
 
-long usys_ioctl(int fd, unsigned long request, char *argp) {
+long usys_ioctl(int fd, unsigned int request, char *argp) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f)) return -EBADF;
   if (DoFileTableIoctls(ftbl, fd, request)) return 0;
   auto ret = f->Ioctl(request, argp);
   if (!ret) return MakeCError(ret);
-  return 0;
+  return *ret;
 }
 
 long usys_umask(mode_t mask) { return myproc().get_fs().SetUmask(mask); }

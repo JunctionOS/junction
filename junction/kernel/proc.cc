@@ -166,15 +166,18 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
   if (do_vfork) {
     bool was_stopped = myproc().is_stopped();
     if (likely(!was_stopped)) {
-      myproc().Signal(SIGSTOP);
+      myproc().JobControlStop();
       myproc().WaitForFullStop();
     }
     if (unlikely(GetCfg().strace_enabled()))
       LogSyscall(newth.get_tid(), "vfork", &usys_vfork);
-    newth.ThreadReady();
+    {
+      rt::Preempt::Lock();
+      newth.ThreadReady();
+      rt::Preempt::UnlockAndPark();
+    }
     // Wait for child thread to exit or exec.
-    rt::WaitForever();
-    if (!was_stopped) myproc().Signal(SIGCONT);
+    if (!was_stopped) myproc().JobControlContinue();
   } else {
     newth.ThreadReady();
   }
@@ -233,20 +236,21 @@ Status<void> Thread::DropUnusedStack() {
   return KernelMAdvise(*top, len, MADV_DONTNEED);
 }
 
-void Process::BecomeSessionLeader() {
-  assert(!is_process_group_leader());
+Status<pid_t> Process::BecomeSessionLeader() {
   rt::SpinGuard g(process_lock);
+  if (is_process_group_leader()) return MakeError(EPERM);
   IncRefCountPid(pid_, 2);
   DecRefCountPid(sid_);
   DecRefCountPid(pgid_);
   sid_ = pid_;
   pgid_ = pid_;
+  return pid_;
 }
 
-void Process::JoinProcessGroup(pid_t pgid) {
-  assert(!is_process_group_leader());
+Status<void> Process::JoinProcessGroup(pid_t pgid) {
   assert(pgid > 0);
   rt::SpinGuard g(process_lock);
+  if (is_process_group_leader()) return MakeError(EPERM);
   DecRefCountPid(pgid_);
   IncRefCountPid(pgid);
   pgid_ = pgid;
@@ -612,14 +616,19 @@ long usys_getpgrp() { return myproc().get_pgid(); }
 
 long usys_setpgid(pid_t pid, pid_t pgid) {
   // TODO: check that pgid is a valid process group and that pgid's sid matches.
+  Status<void> ret;
+
+  if (pgid == 0) pgid = myproc().get_pgid();
+
   if (pid == 0 || pid == myproc().get_pid()) {
-    if (pgid) myproc().JoinProcessGroup(pgid);
-    return 0;
+    ret = myproc().JoinProcessGroup(pgid);
+  } else {
+    std::shared_ptr<Process> proc = Process::Find(pid);
+    if (!proc) return -ESRCH;
+    ret = proc->JoinProcessGroup(pgid);
   }
 
-  std::shared_ptr<Process> proc = Process::Find(pid);
-  if (!proc) return -ESRCH;
-  proc->JoinProcessGroup(pgid ? pgid : myproc().get_pgid());
+  if (unlikely(ret)) return MakeCError(ret);
   return 0;
 }
 
@@ -641,8 +650,9 @@ long usys_setsid() {
   Process &p = myproc();
   if (p.is_session_leader()) return 0;
   if (p.is_process_group_leader()) return -EPERM;
-  p.BecomeSessionLeader();
-  return 0;
+  Status<pid_t> ret = p.BecomeSessionLeader();
+  if (unlikely(!ret)) return MakeCError(ret);
+  return *ret;
 }
 
 long usys_arch_prctl(int code, unsigned long addr) {

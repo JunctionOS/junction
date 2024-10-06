@@ -17,7 +17,9 @@ Status<std::shared_ptr<File>> LinuxInode::Open(
     uint32_t flags, FileMode mode, std::shared_ptr<DirectoryEntry> dent) {
   // If we have an Inode for it, it already exists.
   unsigned int linux_flags = flags & ~(kFlagCreate | kFlagExclusive);
-  if constexpr (!linux_fs_writeable()) mode = FileMode::kRead;
+  if constexpr (!linux_fs_writeable()) {
+    if (mode != FileMode::kRead) return MakeError(EPERM);
+  }
   Status<KernelFile> f = linux_root_fd.OpenAt(get_path(), linux_flags, mode);
   if (!f) return MakeError(f);
   return std::make_shared<LinuxFile>(std::move(*f), flags, mode,

@@ -2,8 +2,10 @@
 
 extern "C" {
 #include <linux/futex.h>
+#include <linux/ioctl.h>
 #include <sched.h>
 #include <signal.h>
+#include <sys/ioctl.h>
 }
 
 #include <map>
@@ -21,8 +23,12 @@ extern "C" {
 namespace junction {
 
 namespace strace {
+
+#define VAL(x) \
+  { x, #x }
+
 const std::map<int, std::string> protection_flags{
-    {PROT_READ, "PROT_READ"},
+    VAL(PROT_READ),
     {PROT_WRITE, "PROT_WRITE"},
     {PROT_EXEC, "PROT_EXEC"},
 };
@@ -126,6 +132,60 @@ const std::map<int, std::string> futex_flags{
     {FUTEX_WAIT_REQUEUE_PI, "FUTEX_WAIT_REQUEUE_PI"},
 };
 
+const std::map<int, std::string> ioctls{
+    VAL(TCGETS), VAL(TCSETS), VAL(TCSETSW), VAL(TCSETSF), VAL(TCGETA),
+    VAL(TCSETA), VAL(TCSETAW), VAL(TCSETAF), VAL(TCSBRK), VAL(TCXONC),
+    VAL(TCFLSH), VAL(TIOCEXCL), VAL(TIOCNXCL), VAL(TIOCSCTTY), VAL(TIOCGPGRP),
+    VAL(TIOCSPGRP), VAL(TIOCOUTQ), VAL(TIOCSTI), VAL(TIOCGWINSZ),
+    VAL(TIOCSWINSZ), VAL(TIOCMGET), VAL(TIOCMBIS), VAL(TIOCMBIC), VAL(TIOCMSET),
+    VAL(TIOCGSOFTCAR), VAL(TIOCSSOFTCAR), VAL(FIONREAD), VAL(TIOCINQ),
+    VAL(TIOCLINUX), VAL(TIOCCONS), VAL(TIOCGSERIAL), VAL(TIOCSSERIAL),
+    VAL(TIOCPKT), VAL(FIONBIO), VAL(TIOCNOTTY), VAL(TIOCSETD), VAL(TIOCGETD),
+    VAL(TCSBRKP), VAL(TIOCSBRK), VAL(TIOCCBRK), VAL(TIOCGSID),
+    // VAL(TCGETS2), VAL(TCSETS2), VAL(TCSETSW2), VAL(TCSETSF2),
+    VAL(TIOCGRS485), VAL(TIOCSRS485), VAL(TIOCGPTN), VAL(TIOCSPTLCK),
+    VAL(TCGETX), VAL(TCSETX), VAL(TCSETXF), VAL(TCSETXW), VAL(FIONCLEX),
+    VAL(FIOCLEX), VAL(FIOASYNC), VAL(TIOCSERCONFIG), VAL(TIOCSERGWILD),
+    VAL(TIOCSERSWILD), VAL(TIOCGLCKTRMIOS), VAL(TIOCSLCKTRMIOS),
+    VAL(TIOCSERGSTRUCT), VAL(TIOCSERGETLSR), VAL(TIOCSERGETMULTI),
+    VAL(TIOCSERSETMULTI), VAL(TIOCMIWAIT), VAL(TIOCGICOUNT),
+    // VAL(TIOCGHAYESESP), VAL(TIOCSHAYESESP),
+    VAL(TIOCPKT_DATA), VAL(TIOCPKT_FLUSHREAD), VAL(TIOCPKT_FLUSHWRITE),
+    VAL(TIOCPKT_STOP), VAL(TIOCPKT_START), VAL(TIOCPKT_NOSTOP),
+    VAL(TIOCPKT_DOSTOP), VAL(TIOCSER_TEMT), VAL(TIOCGPTPEER)};
+
+const std::map<int, std::string> fcntls{
+    VAL(F_DUPFD),
+    VAL(F_DUPFD_CLOEXEC),
+    VAL(F_GETFD),
+    VAL(F_SETFD),
+    VAL(F_GETFL),
+    VAL(F_SETFL),
+    VAL(F_SETLK),
+    VAL(F_SETLKW),
+    VAL(F_GETLK),
+    VAL(F_OFD_SETLK),
+    VAL(F_OFD_SETLKW),
+    VAL(F_OFD_GETLK),
+    VAL(F_GETOWN),
+    VAL(F_SETOWN),
+    VAL(F_GETOWN_EX),
+    VAL(F_SETOWN_EX),
+    VAL(F_GETSIG),
+    VAL(F_SETSIG),
+    VAL(F_SETLEASE),
+    VAL(F_GETLEASE),
+    VAL(F_NOTIFY),
+    VAL(F_SETPIPE_SZ),
+    VAL(F_GETPIPE_SZ),
+    VAL(F_ADD_SEALS),
+    VAL(F_GET_SEALS),
+    VAL(F_GET_RW_HINT),
+    VAL(F_SET_RW_HINT),
+    VAL(F_GET_FILE_RW_HINT),
+    VAL(F_SET_FILE_RW_HINT),
+};
+
 const char *sigmap[] = {
     "SIGHUP",  "SIGINT",    "SIGQUIT", "SIGILL",    "SIGTRAP", "SIGABRT",
     "SIGBUS",  "SIGFPE",    "SIGKILL", "SIGUSR1",   "SIGSEGV", "SIGUSR2",
@@ -134,11 +194,17 @@ const char *sigmap[] = {
     "SIGXFSZ", "SIGVTALRM", "SIGPROF", "SIGWINCH",  "SIGIO",   "SIGPWR",
     "SIGSYS",  "SIGUNUSED"};
 
-void PrintArg(int advice, MAdviseHint, rt::Logger &ss) {
-  if (madvise_hints.count(advice))
-    ss << madvise_hints.at(advice);
+void PrintValMap(const std::map<int, std::string> &map, int val,
+                 rt::Logger &ss) {
+  auto it = map.find(val);
+  if (it != map.end())
+    ss << it->second;
   else
-    ss << advice;
+    ss << val;
+}
+
+void PrintArg(int advice, MAdviseHint, rt::Logger &ss) {
+  PrintValMap(madvise_hints, advice, ss);
 }
 
 void PrintArg(int signo, SignalNumber, rt::Logger &ss) {
@@ -156,8 +222,8 @@ void PrintArg(int fd, AtFD, rt::Logger &ss) {
     ss << fd;
 }
 
-bool PrintArr(const std::map<int, std::string> &map, int flags,
-              rt::Logger &ss) {
+bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
+                  rt::Logger &ss) {
   bool done_one = false;
   for (const auto &[flag, name] : map) {
     if (!(flags & flag)) continue;
@@ -175,31 +241,35 @@ void PrintArg(int prot, ProtFlag, rt::Logger &ss) {
     ss << "PROT_NONE";
     return;
   }
-  PrintArr(protection_flags, prot, ss);
+  PrintFlagArr(protection_flags, prot, ss);
 }
 
 void PrintArg(int op, FutexOp, rt::Logger &ss) {
   int cmd = op & FUTEX_CMD_MASK;
-  auto it = futex_flags.find(cmd);
-  if (it != futex_flags.end())
-    ss << it->second;
-  else
-    ss << cmd;
+  PrintValMap(futex_flags, cmd, ss);
 
   if (op & FUTEX_PRIVATE_FLAG) ss << "|FUTEX_PRIVATE_FLAG";
   if (op & FUTEX_CLOCK_REALTIME) ss << "|FUTEX_CLOCK_REALTIME";
 }
 
+void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss) {
+  PrintValMap(fcntls, op, ss);
+}
+
+void PrintArg(unsigned int op, IoctlOp, rt::Logger &ss) {
+  PrintValMap(ioctls, op, ss);
+}
+
 void PrintArg(int flags, MMapFlag, rt::Logger &ss) {
-  PrintArr(mmap_flags, flags, ss);
+  PrintFlagArr(mmap_flags, flags, ss);
 }
 
 void PrintArg(unsigned long flags, CloneFlag, rt::Logger &ss) {
-  PrintArr(clone_flags, flags, ss);
+  PrintFlagArr(clone_flags, flags, ss);
 }
 
 void PrintArg(int flags, OpenFlag, rt::Logger &ss) {
-  bool done_one = PrintArr(open_flags, flags, ss);
+  bool done_one = PrintFlagArr(open_flags, flags, ss);
   if ((flags & (O_WRONLY | O_RDWR)) == 0) {
     if (done_one) ss << "|";
     ss << "O_RDONLY";

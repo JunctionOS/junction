@@ -62,13 +62,8 @@ constexpr k_sigset_t MultiSignalMask(Args... args) {
   return mask;
 }
 
-// Mask of signals that can only be handling in the kernel.
+// Mask of signals that can only be handled in the kernel.
 constexpr k_sigset_t kSignalKernelOnlyMask = MultiSignalMask(SIGKILL, SIGSTOP);
-
-constexpr k_sigset_t kProcessWideSignals =
-    MultiSignalMask(SIGKILL, SIGSTOP, SIGCONT);
-
-constexpr k_sigset_t kStopStartSignals = MultiSignalMask(SIGSTOP, SIGCONT);
 
 [[nodiscard]] inline constexpr bool IsRestartSys(int rax) {
   return rax == -ERESTARTNOHAND || rax == -ERESTARTSYS;

@@ -800,9 +800,9 @@ Status<void> FSSnapshot(cereal::BinaryOutputArchive &ar) {
     if (!cur->get_inode_ref().is_dir()) continue;
     IDir &dir = static_cast<IDir &>(cur->get_inode_ref());
     if (!dir.SnapshotRecurse()) continue;
-    dir.ForEach([&](DirectoryEntry &ent) {dirq.push_back(ent.shared_from_this()); });
+    dir.ForEach(
+        [&](DirectoryEntry &ent) { dirq.push_back(ent.shared_from_this()); });
   }
-
 
   // Breadth-first tree traversal of directory entries. Each archive call
   // serializes the inode pointed to in the dent. For directories, the child

@@ -86,6 +86,21 @@ long usys_geteuid() { return GetCfg().get_uid(); }
 long usys_getgid() { return GetCfg().get_gid(); }
 long usys_getegid() { return GetCfg().get_gid(); }
 
+long usys_setgid(gid_t gid) {
+  if (gid != GetCfg().get_gid()) return -EINVAL;
+  return 0;
+}
+
+long usys_setuid(uid_t uid) {
+  if (uid != GetCfg().get_gid()) return -EINVAL;
+  return 0;
+}
+
+long usys_setgroups(size_t size, const gid_t *list) {
+  if (size != 1 || list[0] != GetCfg().get_gid()) return -EINVAL;
+  return 0;
+}
+
 long usys_setresuid(uid_t ruid, uid_t euid, uid_t suid) {
   if (static_cast<int>(ruid) != -1 && ruid != GetCfg().get_uid())
     return -EINVAL;

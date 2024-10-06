@@ -466,8 +466,8 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] bool is_session_leader() const { return sid_ == pid_; }
   [[nodiscard]] bool is_process_group_leader() const { return pgid_ == pid_; }
 
-  void JoinProcessGroup(pid_t pgid);
-  void BecomeSessionLeader();
+  Status<void> JoinProcessGroup(pid_t pgid);
+  Status<pid_t> BecomeSessionLeader();
 
   [[nodiscard]] bool in_vfork_preexec() const { return !!vfork_waker_; }
   [[nodiscard]] FileTable &get_file_table() { return file_tbl_; }
@@ -509,8 +509,8 @@ class Process : public std::enable_shared_from_this<Process> {
   void DoExit(int status);
 
   void Signal(const siginfo_t &si) {
-    if (SignalInMask(kStopStartSignals, si.si_signo)) {
-      SignalStopStart(si.si_signo == SIGSTOP);
+    if (si.si_signo == SIGCONT) {
+      JobControlContinue();
       return;
     }
     SignalLocked(rt::UniqueLock<rt::Spin>(shared_sig_q_), si);
@@ -524,8 +524,8 @@ class Process : public std::enable_shared_from_this<Process> {
 
   Status<void> SignalThread(pid_t tid, const siginfo_t &si) {
     // Force job control signals to be delivered globally
-    if (unlikely(SignalInMask(kProcessWideSignals, si.si_signo))) {
-      Signal(si);
+    if (unlikely(si.si_signo == SIGCONT)) {
+      JobControlContinue();
       return {};
     }
 
@@ -625,6 +625,21 @@ class Process : public std::enable_shared_from_this<Process> {
     for (const auto &[pid, th] : thread_map_) func(*th);
   }
 
+  void JobControlStop() {
+    rt::ScopedLock g(child_thread_lock_);
+    if (is_stopped()) return;
+    stopped_gen_ += 1;
+    SignalAllThreads();
+  }
+
+  void JobControlContinue() {
+    rt::ScopedLock g(child_thread_lock_);
+    if (!is_stopped()) return;
+    stopped_gen_ += 1;
+    stopped_threads_.WakeAll();
+    NotifyParentWait(kWaitableContinued);
+  }
+
  private:
   friend class cereal::access;
 
@@ -641,25 +656,13 @@ class Process : public std::enable_shared_from_this<Process> {
     SignalAllThreads();
   }
 
-  void SignalStopStart(bool stop) {
-    rt::ScopedLock g(child_thread_lock_);
-    if (stop == is_stopped()) return;
-    stopped_gen_ += 1;
-    if (!stop) {
-      stopped_threads_.WakeAll();
-      NotifyParentWait(kWaitableContinued);
-    } else {
-      SignalAllThreads();
-    }
-  }
-
   // Places a signal into the Process-wide signal queue and sends an IPI to a
   // thread to deliver it. May also notify a parent if this signal changes this
   // process's waitable state. Takes ownership of @lock, releasing it before
   // sending IPIs to threads.
   void SignalLocked(rt::UniqueLock<rt::Spin> &&lock, const siginfo_t &si) {
     assert(!!lock);
-    assert(!SignalInMask(kStopStartSignals, si.si_signo));
+    assert(si.si_signo != SIGCONT);
     bool needs_ipi = shared_sig_q_.Enqueue(si);
     lock.Unlock();
 

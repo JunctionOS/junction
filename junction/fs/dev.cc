@@ -97,12 +97,12 @@ using CDevURandomFile = SpecialFile<CDevReadURandom, CDevWriteNull>;
 
 template <typename T>
   requires(std::derived_from<T, File>)
-std::shared_ptr<File> MakeFile(unsigned int flags, FileMode mode,
-                               std::shared_ptr<DirectoryEntry> dent) {
+Status<std::shared_ptr<File>> MakeFile(unsigned int flags, FileMode mode,
+                                       std::shared_ptr<DirectoryEntry> dent) {
   return std::make_shared<T>(flags, mode, std::move(dent));
 }
 
-using FactoryPtr = std::shared_ptr<File> (*)(
+using FactoryPtr = Status<std::shared_ptr<File>> (*)(
     unsigned int flags, FileMode mode, std::shared_ptr<DirectoryEntry> dent);
 
 // Table of supported character devices

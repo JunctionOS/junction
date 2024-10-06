@@ -68,7 +68,7 @@ constexpr SignalAction ParseAction(const k_sigaction &act, int sig) {
     return SignalAction::kNormal;
 
   // otherwise lookup the default action
-  if (sig == SIGCONT) return SignalAction::kContinue;
+  // SIGCONT is handled specially elsewhere.
   if (SignalInMask(kSignalStopMask, sig)) return SignalAction::kStop;
   if (SignalInMask(kSignalCoredumpMask, sig)) return SignalAction::kCoredump;
   if (SignalInMask(kSignalIgnoreMask, sig)) return SignalAction::kIgnore;
@@ -437,8 +437,8 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
 }
 
 std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
-  k_sigaction act =
-      this_thread().get_process().get_signal_table().get_action(sig, true);
+  Process &p = this_thread().get_process();
+  k_sigaction act = p.get_signal_table().get_action(sig, true);
 
   // parse the type of signal action to perform
   SignalAction action = ParseAction(act, sig);
@@ -447,9 +447,9 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
     case SignalAction::kNormal:
       return act;
     case SignalAction::kIgnore:
-    case SignalAction::kContinue:
+      return std::nullopt;
     case SignalAction::kStop:
-      // TODO(jfried) remove these signal actions?
+      p.JobControlStop();
       return std::nullopt;
     case SignalAction::kTerminate:
     case SignalAction::kCoredump:
@@ -671,7 +671,7 @@ std::optional<siginfo_t> SignalQueue::Pop(k_sigset_t blocked,
 bool SignalQueue::Enqueue(const siginfo_t &info) {
   int signo = info.si_signo;
 
-  assert(!SignalInMask(kStopStartSignals, signo));
+  assert(signo != SIGCONT);
 
   if (signo < kNumStandardSignals) {
     if (is_sig_pending(signo)) return false;
