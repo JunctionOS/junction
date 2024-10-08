@@ -1,7 +1,10 @@
 # Outputs shimjmp_tbl.cpp to build/junction/shim/shimjmp_tbl.cpp
+
+find_package(Python3 3.12 REQUIRED COMPONENTS Interpreter)
+
 add_custom_command(
     OUTPUT  shimjmp_tbl.cpp intercept.cc
-    COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/shimjmp_tbl.py
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/shimjmp_tbl.py
       ${CMAKE_CURRENT_SOURCE_DIR}/functions.txt
       ${CMAKE_CURRENT_BINARY_DIR}/shimjmp_tbl.cpp
       ${CMAKE_CURRENT_BINARY_DIR}/intercept.cc

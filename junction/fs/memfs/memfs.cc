@@ -10,6 +10,10 @@ extern "C" {
 #include "junction/fs/memfs/memfsfile.h"
 #include "junction/kernel/ksys.h"
 
+#ifndef MFD_EXEC
+#define MFD_EXEC 0x0010U
+#endif
+
 namespace junction::memfs {
 
 namespace {

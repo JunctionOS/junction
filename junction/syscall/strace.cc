@@ -12,6 +12,10 @@ extern "C" {
 
 #include "junction/bindings/log.h"
 
+#ifndef MADV_COLLAPSE
+#define MADV_COLLAPSE 25 /* Synchronous hugepage collapse */
+#endif
+
 #ifndef CLONE_CLEAR_SIGHAND
 #define CLONE_CLEAR_SIGHAND 0x100000000ULL
 #endif

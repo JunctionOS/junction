@@ -1,7 +1,7 @@
-From cc8c5ee4c52b075fda2a5a956f106d6e3418014b Mon Sep 17 00:00:00 2001
+From 25d4ac679d06b9594f5491fbfe9a44e23cd9626b Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
-Subject: [PATCH 03/33] runtime: allow uthreads to set their own fsbase values
+Subject: [PATCH 03/43] runtime: allow uthreads to set their own fsbase values
 
 ---
  build/shared.mk      |  2 +-
@@ -12,7 +12,7 @@ Subject: [PATCH 03/33] runtime: allow uthreads to set their own fsbase values
  5 files changed, 58 insertions(+), 14 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
-index a10a2281..aaa8c58c 100644
+index 5f385f0..e95137e 100644
 --- a/build/shared.mk
 +++ b/build/shared.mk
 @@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
@@ -22,10 +22,10 @@ index a10a2281..aaa8c58c 100644
 -FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -muintr
 +FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -muintr -mfsgsbase
  LDFLAGS = -T $(ROOT_PATH)/base/base.ld
- LD      = gcc
- CC      = gcc
+ CC      ?= gcc
+ LD      = $(CC)
 diff --git a/inc/asm/ops.h b/inc/asm/ops.h
-index c6515737..01b4219a 100644
+index c651573..01b4219 100644
 --- a/inc/asm/ops.h
 +++ b/inc/asm/ops.h
 @@ -4,6 +4,7 @@
@@ -49,7 +49,7 @@ index c6515737..01b4219a 100644
  {
  #if __GNUC_PREREQ(10, 0)
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index d71d30f1..c653e681 100644
+index d71d30f..c653e68 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -26,9 +26,13 @@ extern void thread_ready(thread_t *thread);
@@ -85,7 +85,7 @@ index d71d30f1..c653e681 100644
  
  /*
 diff --git a/runtime/defs.h b/runtime/defs.h
-index bcb0a08f..d3d205f7 100644
+index 3543ca7..fd11f77 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -72,6 +72,7 @@ struct thread_tf {
@@ -128,7 +128,7 @@ index bcb0a08f..d3d205f7 100644
  	hd_parity = !!(ACCESS_ONCE(*addr) & q->parity_bit_mask);
  
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 3a82ca52..4e1d37e3 100644
+index bfca7f6..afbe604 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -232,7 +232,7 @@ index 3a82ca52..4e1d37e3 100644
  
  	return th;
  }
-@@ -974,6 +999,7 @@ int sched_init_thread(void)
+@@ -975,6 +1000,7 @@ int sched_init_thread(void)
  		return -ENOMEM;
  
  	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
@@ -241,5 +241,5 @@ index 3a82ca52..4e1d37e3 100644
  	return 0;
  }
 -- 
-2.39.2
+2.34.1
 

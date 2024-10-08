@@ -1,4 +1,15 @@
 cmake_minimum_required(VERSION 3.24)
+
+find_program(CMAKE_C_COMPILER NAMES gcc-13 gcc-12 gcc)
+find_program(CMAKE_CXX_COMPILER NAMES g++-13 g++-12 g++)
+
+if (CMAKE_C_COMPILER AND CMAKE_CXX_COMPILER)
+    set(CMAKE_C_COMPILER ${CMAKE_C_COMPILER} CACHE PATH "C compiler" FORCE)
+    set(CMAKE_CXX_COMPILER ${CMAKE_CXX_COMPILER} CACHE PATH "C++ compiler" FORCE)
+else()
+    message(FATAL_ERROR "No suitable GCC compiler found")
+endif()
+
 project(junction C CXX ASM)
 
 message(STATUS "Building junction")
@@ -33,7 +44,9 @@ FetchContent_Declare(
 # Set any global configuration variables such as `Rust_TOOLCHAIN` before this line!
 FetchContent_MakeAvailable(Corrosion)
 
-corrosion_import_crate(MANIFEST_PATH ${CMAKE_SOURCE_DIR}/lib/jiftools/Cargo.toml)
+if(SNAPSHOT_SAMPLES)
+    corrosion_import_crate(MANIFEST_PATH ${CMAKE_SOURCE_DIR}/lib/jiftools/Cargo.toml)
+endif()
 
 set(READJIF ${CMAKE_BINARY_DIR}/readjif)
 set(JIFTOOL ${CMAKE_BINARY_DIR}/jiftool)

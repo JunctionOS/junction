@@ -190,6 +190,16 @@ target_link_libraries(junction INTERFACE
   boost_program_options
 )
 
+include(CheckIncludeFileCXX)
+check_include_file_cxx("format" CXX_FORMAT_SUPPORT)
+if (NOT CXX_FORMAT_SUPPORT)
+    find_package(fmt REQUIRED)
+endif()
+
+if (NOT CXX_FORMAT_SUPPORT)
+    target_link_libraries(junction INTERFACE fmt::fmt)
+endif()
+
 add_executable(junction_run
   run.cc
 )
