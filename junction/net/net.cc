@@ -164,7 +164,6 @@ ssize_t usys_recvmsg(int sockfd, struct msghdr *msg, int flags) {
   bool nonblocking = flags & kMsgDontWait;
   flags = flags & ~(kMsgNoSignal | kMsgPeek | kMsgDontWait);
   if (unlikely(flags != 0)) {
-    // TODO(bcwh) can we return -EINVAL here?
     LOG_ONCE(WARN) << "recvmsg ignoring flags" << flags;
     return -EINVAL;
   }
@@ -198,7 +197,7 @@ ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
 
 ssize_t usys_sendmsg(int sockfd, const struct msghdr *msg, int flags) {
   bool nonblocking = flags & kMsgDontWait;
-  flags &= ~kMsgDontWait;
+  flags &= ~(kMsgNoSignal | kMsgDontWait);
   if (unlikely(flags != 0)) {
     LOG_ONCE(WARN) << "sendmsg ignoring flags " << flags;
     return -EINVAL;
