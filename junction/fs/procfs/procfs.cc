@@ -1,12 +1,16 @@
 
-#include "junction/fs/procfs/procfs.h"
+extern "C" {
+#include "lib/caladan/runtime/defs.h"
+}
 
 #include <charconv>
 #include <iomanip>
 
+#include "junction/base/format.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
 #include "junction/fs/memfs/memfs.h"
+#include "junction/fs/procfs/procfs.h"
 #include "junction/fs/procfs/seqfile.h"
 #include "junction/kernel/proc.h"
 
@@ -33,6 +37,12 @@ std::string GetMemInfo(IDir *) {
 
 std::string GetMounts(IDir *) {
   return "tmpfs / tmpfs rw,nosuid,nodev,inode64 0 0\n";
+}
+
+std::string GetMacAddr(IDir *) {
+  auto &mac = netcfg.mac.addr;
+  return std::format("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", mac[0],
+                     mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 std::optional<int> ParseInt(std::string_view s) {
@@ -333,8 +343,29 @@ Status<std::shared_ptr<Process>> FDDir::GetProcess() {
 }
 #endif
 
+class SysRootDir : public memfs::MemIDir {
+ public:
+  SysRootDir(Token t) : MemIDir(t, 0555) {}
+
+  bool SnapshotPrunable() override { return true; }
+
+ protected:
+  void DoInitialize() override {
+    auto classdirent = AddIDirLockedNoCheck<MemIDir>("class", 0655);
+    auto &classdir = static_cast<IDir &>(classdirent->get_inode_ref());
+    auto netdir = memfs::MkFolder(classdir, "net", 0655);
+    auto ethdir = memfs::MkFolder(*netdir.get(), "eth0", 0655);
+    ethdir->Link("address", std::make_shared<ProcFSInode<GetMacAddr>>(
+                                0444, ethdir->get_this()));
+  }
+};
+
 void MakeProcFS(IDir &root, std::string mount_name) {
   root.AddIDirNoCheck<ProcRootDir>(std::move(mount_name));
+}
+
+void MakeSysFS(IDir &root, std::string mount_name) {
+  root.AddIDirNoCheck<SysRootDir>(std::move(mount_name));
 }
 
 }  // namespace junction::procfs

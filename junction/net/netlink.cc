@@ -30,6 +30,20 @@ class NetlinkSocket : public Socket {
     return data_.Read(buf, peek);
   }
 
+  Status<size_t> ReadvFrom(std::span<iovec> iovs, SockAddrPtr raddr, bool peek,
+                           bool nonblocking) override {
+    BUG_ON(peek && iovs.size() > 1);
+    size_t read_bytes = 0;
+    Status<size_t> ret;
+    for (auto &iov : iovs) {
+      ret = data_.Read(readable_span(iov), peek);
+      if (!ret) break;
+    }
+
+    if (read_bytes) return read_bytes;
+    return ret;
+  }
+
   Status<size_t> WriteTo(std::span<const std::byte> buf,
                          const SockAddrPtr raddr,
                          [[maybe_unused]] bool nonblocking = false) override {
@@ -39,10 +53,10 @@ class NetlinkSocket : public Socket {
 
     switch (nlh->nlmsg_type) {
       case RTM_GETLINK:
-        RespondToLinkQuery();
+        RespondToLinkQuery(nlh);
         break;
       case RTM_GETADDR:
-        ResponseToAddrQuery();
+        ResponseToAddrQuery(nlh);
         break;
       default:
         return MakeError(EINVAL);
@@ -65,7 +79,7 @@ class NetlinkSocket : public Socket {
   }
 
  private:
-  void RespondToLinkQuery() {
+  void RespondToLinkQuery(const nlmsghdr *nlh_in) {
     struct {
       nlmsghdr nlh;
       ifinfomsg ifi;
@@ -76,20 +90,28 @@ class NetlinkSocket : public Socket {
         };
         unsigned char _bytes[NLA_ALIGN(NLA_HDRLEN + strlen("eth0") + 1)];
       };
+      union {
+        struct {
+          nlattr mac_attr;
+          unsigned char mac[6];
+        };
+        unsigned char _bytes2[NLA_ALIGN(NLA_HDRLEN + 6)];
+      };
       nlmsghdr done_nlh;
     } msg;
 
     msg.nlh.nlmsg_len = sizeof(nlmsghdr) + sizeof(ifinfomsg) +
-                        NLA_ALIGN(NLA_HDRLEN + strlen("eth0") + 1);
+                        NLA_ALIGN(NLA_HDRLEN + strlen("eth0") + 1) +
+                        NLA_ALIGN(NLA_HDRLEN + 6);
     msg.nlh.nlmsg_type = RTM_NEWLINK;
     msg.nlh.nlmsg_flags = NLM_F_MULTI;
-    msg.nlh.nlmsg_seq = seq_;
-    msg.nlh.nlmsg_pid = 0;  // 0 for kernel responses.
+    msg.nlh.nlmsg_seq = nlh_in->nlmsg_seq;
+    msg.nlh.nlmsg_pid = nlh_in->nlmsg_pid;
 
     // Prepare the link information message.
     msg.ifi.ifi_family = AF_INET;
     msg.ifi.ifi_type = ARPHRD_ETHER;  // Ethernet interface type.
-    msg.ifi.ifi_index = 0;            // Interface index (e.g., eth0).
+    msg.ifi.ifi_index = 1;            // Interface index (e.g., eth0).
     msg.ifi.ifi_flags = IFF_UP | IFF_BROADCAST | IFF_RUNNING | IFF_MULTICAST;
     msg.ifi.ifi_change = 0xFFFFFFFF;  // Specify which flags have changed.
 
@@ -98,19 +120,23 @@ class NetlinkSocket : public Socket {
     msg.name_attr.nla_type = IFLA_IFNAME;
     strcpy(msg.name, "eth0");
 
+    msg.mac_attr.nla_len = NLA_HDRLEN + 6;
+    msg.mac_attr.nla_type = IFLA_ADDRESS;
+    memcpy(msg.mac, &netcfg.mac, 6);
+
     // Add the "done" message.
     msg.done_nlh.nlmsg_len = sizeof(nlmsghdr);
     msg.done_nlh.nlmsg_type = NLMSG_DONE;
     msg.done_nlh.nlmsg_flags = 0;  // No flags needed for the done message.
     msg.done_nlh.nlmsg_seq =
-        seq_++;                  // Use the same sequence number as the request.
-    msg.done_nlh.nlmsg_pid = 0;  // 0 for kernel responses.
+        nlh_in->nlmsg_seq;  // Use the same sequence number as the request.
+    msg.done_nlh.nlmsg_pid = nlh_in->nlmsg_pid;
 
     Status<size_t> ret = data_.Write(std::as_bytes(std::span{&msg, 1}));
     if (ret != sizeof(msg)) LOG(WARN) << "netlink: failed to respond";
   }
 
-  void ResponseToAddrQuery() {
+  void ResponseToAddrQuery(const nlmsghdr *nlh_in) {
     struct {
       nlmsghdr nlh;
       ifaddrmsg ifa;
@@ -127,8 +153,8 @@ class NetlinkSocket : public Socket {
     // Prepare the netlink message header.
     msg.nlh.nlmsg_type = RTM_NEWADDR;
     msg.nlh.nlmsg_flags = NLM_F_MULTI;
-    msg.nlh.nlmsg_seq = seq_;
-    msg.nlh.nlmsg_pid = 0;
+    msg.nlh.nlmsg_seq = nlh_in->nlmsg_seq;
+    msg.nlh.nlmsg_pid = nlh_in->nlmsg_pid;
     msg.nlh.nlmsg_len = NLMSG_LENGTH(sizeof(ifaddrmsg)) +
                         NLA_ALIGN(NLA_HDRLEN + sizeof(uint32_t));
 
@@ -137,7 +163,7 @@ class NetlinkSocket : public Socket {
     msg.ifa.ifa_prefixlen = __builtin_popcount(netcfg.netmask);
     msg.ifa.ifa_flags = 0;
     msg.ifa.ifa_scope = RT_SCOPE_UNIVERSE;
-    msg.ifa.ifa_index = 0;
+    msg.ifa.ifa_index = 1;
 
     // Prepare the address attribute.
     msg.addr_attr.nla_len = NLA_HDRLEN + sizeof(uint32_t);
@@ -149,8 +175,8 @@ class NetlinkSocket : public Socket {
     msg.done_nlh.nlmsg_type = NLMSG_DONE;
     msg.done_nlh.nlmsg_flags = 0;  // No flags needed for the done message.
     msg.done_nlh.nlmsg_seq =
-        seq_++;                  // Use the same sequence number as the request.
-    msg.done_nlh.nlmsg_pid = 0;  // 0 for kernel responses.
+        nlh_in->nlmsg_seq;  // Use the same sequence number as the request.
+    msg.done_nlh.nlmsg_pid = nlh_in->nlmsg_pid;
 
     Status<size_t> ret = data_.Write(std::as_bytes(std::span{&msg, 1}));
     if (ret != sizeof(msg)) LOG(WARN) << "netlink: failed to respond";

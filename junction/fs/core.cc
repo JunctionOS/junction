@@ -828,6 +828,7 @@ Status<void> InitFs(
   IDir &linux_root = *tmp->get();
 
   procfs::MakeProcFS(linux_root, "proc");
+  procfs::MakeSysFS(linux_root, "sys");
 
   if (Status<void> ret = memfs::InitMemfs(); !ret) return ret;
 

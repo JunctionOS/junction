@@ -22,6 +22,7 @@ class ProcFSData {
 };
 
 void MakeProcFS(IDir &root, std::string mount_name);
+void MakeSysFS(IDir &root, std::string mount_name);
 
 }  // namespace procfs
 
