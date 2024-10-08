@@ -1,7 +1,7 @@
-From 96b87082ff3431c245b11582a62a2bb5cf68cf13 Mon Sep 17 00:00:00 2001
+From 6b1978e10ded4380524aeeff09455fe2ed55c3ed Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 15:59:55 -0500
-Subject: [PATCH 05/40] base/runtime - make all runtime syscalls from a set
+Subject: [PATCH 05/43] base/runtime - make all runtime syscalls from a set
  instruction range
 
 ---
@@ -40,7 +40,7 @@ index f3e4bd2..a5341f1 100644
  dep = $(obj:.o=.d)
  
 diff --git a/base/mem.c b/base/mem.c
-index 97dfb01..cb87d99 100644
+index 6266fb1..b923018 100644
 --- a/base/mem.c
 +++ b/base/mem.c
 @@ -18,6 +18,7 @@
@@ -67,13 +67,13 @@ index 97dfb01..cb87d99 100644
 -	panic("couldn't map pages");
 -}
 -
- static void touch_mapping(void *base, size_t len, size_t pgsize)
+ void touch_mapping(void *base, size_t len, size_t pgsize)
  {
 -	__sighandler_t s;
  	char *pos;
  
  	/*
-@@ -57,10 +45,8 @@ static void touch_mapping(void *base, size_t len, size_t pgsize)
+@@ -57,10 +45,8 @@ void touch_mapping(void *base, size_t len, size_t pgsize)
  	 * because of insufficient memory. Therefore, we manually force a write
  	 * on each page to make sure the mapping was successful.
  	 */
@@ -81,7 +81,7 @@ index 97dfb01..cb87d99 100644
  	for (pos = (char *)base; pos < (char *)base + len; pos += pgsize)
  		ACCESS_ONCE(*pos);
 -	signal(SIGBUS, s);
- } 
+ }
  
  static void *
 @@ -98,12 +84,12 @@ __mem_map_anom(void *base, size_t len, size_t pgsize,
@@ -189,7 +189,7 @@ index 0000000..c10f9fb
 +extern int syscall_mprotect(void *addr, size_t len, int prot);
 \ No newline at end of file
 diff --git a/runtime/kthread.c b/runtime/kthread.c
-index 7851d66..aa949e4 100644
+index 5d958bb..d6ad14d 100644
 --- a/runtime/kthread.c
 +++ b/runtime/kthread.c
 @@ -13,6 +13,7 @@
