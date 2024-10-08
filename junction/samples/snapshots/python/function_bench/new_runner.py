@@ -31,5 +31,4 @@ with open("/serverless/chan0", "r+") as f:
             f.write("OK")
             continue
         json_req = json.loads(cmd)
-        ret = main.function_handler(json_req)
         f.write(str(main.function_handler(json_req)))
