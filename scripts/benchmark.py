@@ -482,21 +482,66 @@ class Test:
 
         return f"/tmp/{func_id}"
 
+    def jrun(self,
+             jargs,
+             cmd,
+             log,
+             ip_alloc=None,
+             quiet=False,
+             idx=0,
+             bg=False):
+        if ip_alloc is None:
+            ip_alloc = IPAllocator()
+
+        client = None
+
+        server_ip = ip_alloc.next()
+        client_ip = ip_alloc.next()
+
+        server_cfg = f"/tmp/server{idx}.config"
+        client_cfg = f"/tmp/client{idx+1}.config"
+
+        procs = []
+
+        if hasattr(self, 'run_client'):
+            gen_lc_config(client_cfg, client_ip, ip_alloc.get_netmask(),
+                          ip_alloc.get_base())
+            client = self.run_client(client_cfg, client_ip, server_ip,
+                                     f"{log}_client")
+            if bg:
+                procs.append(client)
+
+        gen_lc_config(server_cfg, server_ip, ip_alloc.get_netmask(),
+                      ip_alloc.get_base())
+
+        if bg:
+            server = run_async(
+                f"sudo -E {JRUN} {server_cfg} {jargs} -- {cmd} >> {log} 2>&1")
+            procs.append(server)
+        else:
+            run(f"sudo -E {JRUN} {server_cfg} {jargs} -- {cmd} >> {log} 2>&1")
+
+        if client and not bg:
+            client.wait()
+
+        return procs
+
     def snapshot_elf(self, output_log: str):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()} {self._env()}"
         chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
         prefix = self.snapshot_prefix()
 
-        run(f"sudo -E {JRUN} {CALADAN_CONFIG} {junction_args} {chroot_args} --snapshot-prefix {prefix} -- {self.cmd} >> {output_log}_snap_elf 2>&1"
-            )
+        self.jrun(f"{junction_args} {chroot_args} --snapshot-prefix {prefix}",
+                  self.cmd, f"{output_log}_snap_elf")
 
     def snapshot_jif(self, output_log: str):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()} {self._env()}"
         chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
         prefix = self.snapshot_prefix()
 
-        run(f"sudo -E {JRUN} {CALADAN_CONFIG} {junction_args} {chroot_args} --jif --madv_remap --snapshot-prefix {prefix} -- {self.cmd} >> {output_log}_snap_jif 2>&1"
-            )
+        self.jrun(
+            f"{junction_args} {chroot_args} --jif --madv_remap --snapshot-prefix {prefix}",
+            self.cmd, f"{output_log}_snap_jif")
 
     def process_itree(self, output_log: str):
         prefix = self.snapshot_prefix(with_chroot=True)
@@ -523,8 +568,8 @@ class Test:
 
         if cold: dropcache()
 
-        run(f"sudo -E {JRUN} {CALADAN_CONFIG_NOTS} -r {junction_args} {chroot_args} -- {prefix}.metadata {prefix}.elf >> {output_log}_elf 2>&1"
-            )
+        self.jrun(f"-r {junction_args} {chroot_args}",
+                  f"{prefix}.metadata {prefix}.elf", f"{output_log}_elf")
 
     def userspace_restore_jif(self,
                               output_log: str,
@@ -551,8 +596,8 @@ class Test:
 
         if cold: dropcache()
 
-        run(f"sudo -E {JRUN} {CALADAN_CONFIG_NOTS} {junction_args} {mem_flags} {chroot_args} --jif -r -- {prefix}.jm {jif_fname} >> {output_log}_jif 2>&1"
-            )
+        self.jrun(f"{junction_args} {mem_flags} {chroot_args} --jif -r",
+                  f"{prefix}.jm {jif_fname}", f"{output_log}_jif")
 
     def jifpager_restore_jif(self,
                              output_log: str,
@@ -580,18 +625,24 @@ class Test:
         chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
 
         procs = []
-        for idx, sapp in enumerate(second_apps):
-            caladan_config = f"/tmp/beconf_{idx}.conf"
 
-            ip = addr_to_str(2066548225 + idx)  # "123.45.6.1"
-            run(f"sed 's/host_addr.*/host_addr {ip}/' {CALADAN_CONFIG_NOTS} | sed 's/host_netmask.*/host_netmask 255.255.0.0/' > {caladan_config}"
-                )
+        ip_alloc = IPAllocator()
+
+        n = 0
+        for idx, sapp in enumerate(second_apps):
             junction_args = f"--function_arg '{sapp.args}' --function_name {sapp.id()}"
             prefix = sapp.snapshot_prefix()
-            procs.append(
-                run_async(
-                    f"sudo -E {JRUN} {caladan_config} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {prefix}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k_second_app_{sapp.id()} 2>&1"
-                ))
+
+            p = self.jrun(f"{chroot_args} {junction_args} --jif -rk",
+                          f"{prefix}.jm {prefix}_itrees_ord{suffix}.jif",
+                          f"{output_log}_itrees_jif_k_second_app_{sapp.id()}",
+                          idx=n,
+                          bg=True)
+
+            n += len(p)
+
+            for proc in p:
+                procs.append(proc)
 
         for proc, app in zip(procs, second_apps):
             proc.wait()
@@ -600,8 +651,11 @@ class Test:
         jifpager_reset()
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         prefix = self.snapshot_prefix()
-        run(f"sudo -E {JRUN} {CALADAN_CONFIG_NOTS} {chroot_args} {junction_args} --jif -rk -- {prefix}.jm {prefix}_itrees_ord{suffix}.jif >> {output_log}_itrees_jif_k  2>&1"
-            )
+
+        self.jrun(f"{chroot_args} {junction_args} --jif -rk",
+                  f"{prefix}.jm {prefix}_itrees_ord{suffix}.jif",
+                  f"{output_log}_itrees_jif_k",
+                  idx=n)
 
         stats = open("/sys/kernel/jif_pager/stats")
         stats = json.loads(stats.readlines()[0])
@@ -641,6 +695,10 @@ class Test:
             self.process_fault_order(output_log)
 
     def generate_images(self, output_log: str):
+        if hasattr(self, 'run_client'):
+            kill_iok()
+            run_iok(hugepages=True, directpath=True)
+
         if ARGS.elf_baseline:
             self.snapshot_elf(output_log)
 
@@ -659,6 +717,10 @@ class Test:
         self.process_fault_order(output_log, itrees=False)
 
     def restore_image(self, output_log: str, second_apps=[]):
+        if hasattr(self, 'run_client'):
+            kill_iok()
+            run_iok(hugepages=True, directpath=True)
+
         if ARGS.elf_baseline:
             self.restore_elf(output_log)
 
@@ -758,6 +820,24 @@ class NodeFBenchTest(Test):
             env=f"NODE_PATH={NODE_PATH}")
 
 
+class PyGRPCFBenchTest(Test):
+
+    def __init__(self, name: str, **args):
+        self.client = f"{ROOT_DIR}/bin/venv/bin/python3 {BUILD_DIR}/junction/samples/snapshots/python/function_bench/client.py"
+        super().__init__(
+            'pygrpc', name,
+            f"{ROOT_DIR}/bin/venv/bin/python3 -u {BUILD_DIR}/junction/samples/snapshots/python/function_bench/server.py {name}",
+            json.dumps(args), "")
+
+    def run_client(self, client_cfg, client_ip, server_ip, log):
+        chroot_args = f"--chroot={CHROOT_DIR}" if ARGS.use_chroot else ""
+        client = run_async(
+            f"sudo -E {JRUN} {client_cfg} {chroot_args} -- {self.client} {addr_to_str(server_ip)} > {log} 2>&1"
+        )
+        time.sleep(1)
+        return client
+
+
 class ResizerTest(Test):
 
     @classmethod
@@ -791,15 +871,19 @@ TESTS = [
    NodeFBenchTest("float_operation", N=300),
    NodeFBenchTest("image_processing", path=prefix_fbench('dataset/image/animal-dog.jpg')),
    NodeFBenchTest("json_serdes", json_path=prefix_fbench('json_serdes/2.json')),
-   PyFBenchTest("chameleon", num_of_rows=3, num_of_cols=4),
+   PyFBenchTest("chameleon", num_of_rows=10, num_of_cols=15),
    PyFBenchTest("float_operation", N=300),
-   PyFBenchTest("pyaes", length_of_message=20, num_of_iterations=3),
+   PyFBenchTest("pyaes", length_of_message=100, num_of_iterations=3),
    PyFBenchTest("matmul", N=300),
    PyFBenchTest( "json_serdes", json_path=prefix_fbench('json_serdes/2.json')),
    PyFBenchTest("lr_training", dataset_path=prefix_fbench('dataset/amzn_fine_food_reviews/reviews10mb.csv')),
    PyFBenchTest("image_processing",path=prefix_fbench('dataset/image/animal-dog.jpg')),
    PyFBenchTest("linpack", N=300),
+   PyFBenchTest("helloworld", message="Hello, world!"),
 
+   PyGRPCFBenchTest("helloworld", message="Hello, world!"),
+   PyGRPCFBenchTest("chameleon", num_of_rows=10, num_of_cols=15),
+   PyGRPCFBenchTest("pyaes", length_of_message=100, num_of_iterations=3),
    # cnn and rnn serving take too long to run
    # PyFBenchTest("rnn_serving", '{{ "language": "Scottish", "start_letters": "ABCDEFGHIJKLMNOP", "parameter_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/model/rnn_params.pkl', 'dataset/model/rnn_model.pth'))),
    # PyFBenchTest("cnn_serving", '{{ "img_path": "{}", "model_path": "{}"}}'.format(prefix_fbench('dataset/image/animal-dog.jpg', 'dataset/model/rnn_model.squeezenet_weights_tf_dim_ordering_tf_kernels.h5'))),
@@ -930,6 +1014,22 @@ def gen_be_config(file, ip, mask, gw):
         "runtime_priority be",
         "runtime_quantum_us 0",
         "enable_transparent_hugepages 1",
+    ]
+    with open(file, "w") as f:
+        f.write("\n".join(cfg))
+
+
+def gen_lc_config(file, ip, mask, gw):
+    lc_kthreads = 1
+    cfg = [
+        f"host_addr {addr_to_str(ip)}",
+        f"host_netmask {addr_to_str(mask)}",
+        f"host_gateway {addr_to_str(gw)}",
+        f"runtime_kthreads {lc_kthreads}",
+        "runtime_spinning_kthreads 0",
+        "runtime_guaranteed_kthreads 0",
+        "runtime_priority lc",
+        "runtime_quantum_us 0",
     ]
     with open(file, "w") as f:
         f.write("\n".join(cfg))

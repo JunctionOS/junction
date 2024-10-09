@@ -143,6 +143,7 @@ void JunctionMain(int argc, char *argv[]) {
 
     proc = std::move(*tmp);
     LOG(INFO) << "snapshot: restored process with pid=" << proc->get_pid();
+    timings().first_function_start = Time::Now();
   } else if (!args.empty()) {
     if (!function_arg.empty()) {
       Status<void> ret = SetupServerlessChannel(0);

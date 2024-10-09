@@ -22,6 +22,8 @@ foreach(f IN ITEMS ${CMAKE_CURRENT_SOURCE_DIR}/)
     file(COPY ${f} DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
 endforeach()
 
+execute_process(COMMAND ${CMAKE_SOURCE_DIR}/bin/venv/bin/python3 -m grpc_tools.protoc -I=${CMAKE_CURRENT_BINARY_DIR} --python_out=${CMAKE_CURRENT_BINARY_DIR} --grpc_python_out=${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/helloworld.proto)
+
 set(fb_run
   "${CMAKE_CURRENT_BINARY_DIR}/run.py"
 )

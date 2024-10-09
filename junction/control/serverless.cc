@@ -28,8 +28,6 @@ class FunctionChannel {
   FunctionChannel() = default;
   // Userspace API
   Status<size_t> Read(std::span<std::byte> buf, bool nonblocking) {
-    if (unlikely(!timings().first_function_start))
-      timings().first_function_start = Time::Now();
     rt::SpinGuard g(lock_);
     while (true) {
       if (request_.size()) {
