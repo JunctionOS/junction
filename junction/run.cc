@@ -14,13 +14,6 @@
 
 namespace junction {
 
-namespace {
-
-// Start trampoline with zero arg registers; some binaries need this
-extern "C" void junction_exec_start(void *entry_arg);
-
-}  // namespace
-
 Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, std::vector<std::string_view> &argv,
     const std::vector<std::string_view> &envp, bool is_init) {

@@ -20,9 +20,24 @@ import psutil
 import shlex
 from minio import Minio
 
+import pandas as pd
 import matplotlib as mpl
 
 mpl.use("Agg")
+import matplotlib.pyplot as plt
+
+from termcolor import colored
+
+
+def custom_excepthook(type, value, traceback):
+    if type is AssertionError:
+        print(colored(f'AssertionError: {value}', 'red'))
+    else:
+        sys.__excepthook__(type, value, traceback)
+
+
+# Override the default excepthook
+sys.excepthook = custom_excepthook
 
 SCRIPT_DIR = os.path.split(os.path.realpath(__file__))[0]
 ROOT_DIR = os.path.split(SCRIPT_DIR)[0]
@@ -213,6 +228,12 @@ def addr_to_str(ip):
                                 ip & 0xff)
 
 
+def chroot_args():
+    if not ARGS.use_chroot:
+        return ""
+    return f" --chroot={CHROOT_DIR} --cache_linux_fs"
+
+
 def run(cmd, quiet=False):
     if not quiet:
         print(cmd)
@@ -253,6 +274,7 @@ def get_vfio_pci():
     # find first MLX Vf
     cmd = "lspci -D | grep Mellanox | grep 'Virtual' | head -n1 | awk '{print $1}'"
     pci = run_quiet(cmd).decode("utf-8").strip()
+    assert pci, "couldn't find Mellanox VF to use"
 
     # confirm it is bound to vfio-pci
     cmd = "lspci -k -s %s | grep 'Kernel driver in use' | awk -F ': ' '{print $2}'" % pci
@@ -272,7 +294,7 @@ def run_iok(directpath: bool = False,
             )
     run(f"sudo chmod 777 /tmp/iokernel0.log || true")
     hugepages = "" if hugepages else "nohugepages"
-    cgexec = 'cgexec -g memory:junction' if cgroup else ''
+    cgexec = 'cgexec -g memory:junction_iokernel' if cgroup else ''
 
     if directpath:
         try:
@@ -343,6 +365,10 @@ def build_loadgen():
     run(f"make -C {CALADAN_DIR} -j {ncpu}")
 
 
+def mem_thresh():
+    return int(psutil.virtual_memory().total * 0.9)
+
+
 def prefix_fbench(fname: str):
     return PATH_TO_FBENCH + fname
 
@@ -408,6 +434,7 @@ def start_minio_server():
 
 def kill_mem_cgroup():
     run("sudo rmdir /sys/fs/cgroup/memory/junction")
+    run("sudo rmdir /sys/fs/cgroup/memory/junction_iokernel")
 
 
 def kill_minio():
@@ -416,7 +443,10 @@ def kill_minio():
 
 def setup_mem_cgroup():
     run("sudo mkdir -p /sys/fs/cgroup/memory/junction")
+    run("sudo mkdir -p /sys/fs/cgroup/memory/junction_iokernel")
     atexit.register(kill_mem_cgroup)
+    run(f"echo {mem_thresh()}| sudo tee /sys/fs/cgroup/memory/junction/memory.limit_in_bytes"
+        )
 
 
 def kill_chroot():
@@ -607,19 +637,18 @@ class Test:
 
     def snapshot_elf(self, output_log: str):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()} {self._env()}"
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
-        prefix = self.snapshot_prefix()
-
-        self.jrun(f"{junction_args} {chroot_args} --snapshot-prefix {prefix}",
-                  self.cmd, f"{output_log}_snap_elf")
-
-    def snapshot_jif(self, output_log: str):
-        junction_args = f"--function_arg '{self.args}' --function_name {self.id()} {self._env()}"
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
         prefix = self.snapshot_prefix()
 
         self.jrun(
-            f"{junction_args} {chroot_args} --jif --madv_remap --snapshot-prefix {prefix}",
+            f"{junction_args} {chroot_args()} --snapshot-prefix {prefix}",
+            self.cmd, f"{output_log}_snap_elf")
+
+    def snapshot_jif(self, output_log: str):
+        junction_args = f"--function_arg '{self.args}' --function_name {self.id()} {self._env()}"
+        prefix = self.snapshot_prefix()
+
+        self.jrun(
+            f"{junction_args} {chroot_args()} --jif --madv_remap --snapshot-prefix {prefix}",
             self.cmd, f"{output_log}_snap_jif")
 
     def process_itree(self, output_log: str):
@@ -642,12 +671,11 @@ class Test:
 
     def restore_elf(self, output_log: str, cold: bool = True):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
         prefix = self.snapshot_prefix()
 
         if cold: dropcache()
 
-        self.jrun(f"-r {junction_args} {chroot_args}",
+        self.jrun(f"-r {junction_args} {chroot_args()}",
                   f"{prefix}.metadata {prefix}.elf", f"{output_log}_elf")
 
     def userspace_restore_jif(self,
@@ -667,7 +695,6 @@ class Test:
             return fname
 
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
         prefix = self.snapshot_prefix()
         mem_flags = f"--stackswitch --mem-trace --mem-trace-out {prefix}.ord" if trace else ""
 
@@ -675,7 +702,7 @@ class Test:
 
         if cold: dropcache()
 
-        self.jrun(f"{junction_args} {mem_flags} {chroot_args} --jif -r",
+        self.jrun(f"{junction_args} {mem_flags} {chroot_args()} --jif -r",
                   f"{prefix}.jm {jif_fname}", f"{output_log}_jif")
 
     def jifpager_restore_jif(self,
@@ -701,7 +728,6 @@ class Test:
             dropcache()
 
         suffix = "_reorder" if reorder else ""
-        chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
 
         procs = []
 
@@ -717,7 +743,7 @@ class Test:
             junction_args = f"--function_arg '{sapp.args}' --function_name {sapp.id()}"
             prefix = sapp.snapshot_prefix()
 
-            p = self.jrun(f"{chroot_args} {junction_args} --jif -rk",
+            p = self.jrun(f"{chroot_args()} {junction_args} --jif -rk",
                           f"{prefix}.jm {prefix}_itrees_ord{suffix}.jif",
                           f"{output_log}_itrees_jif_k_second_app_{sapp.id()}",
                           idx=n,
@@ -737,7 +763,7 @@ class Test:
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         prefix = self.snapshot_prefix()
 
-        self.jrun(f"{chroot_args} {junction_args} --jif -rk",
+        self.jrun(f"{chroot_args()} {junction_args} --jif -rk",
                   f"{prefix}.jm {prefix}_itrees_ord{suffix}.jif",
                   f"{output_log}_itrees_jif_k",
                   idx=n,
@@ -931,9 +957,8 @@ class PyGRPCFBenchTest(Test):
             do_second_apps=False)
 
     def run_client(self, client_cfg, client_ip, server_ip, log):
-        chroot_args = f"--chroot={CHROOT_DIR}" if ARGS.use_chroot else ""
         client = run_async(
-            f"sudo -E {JRUN} {client_cfg} {chroot_args} -- {self.client} {addr_to_str(server_ip)} > {log} 2>&1"
+            f"sudo -E {JRUN} {client_cfg} {chroot_args()} -- {self.client} {addr_to_str(server_ip)} > {log} 2>&1"
         )
         time.sleep(1)
         return client
@@ -1074,6 +1099,8 @@ class RunningProc:
 
 
 def setup_async_images(apps, copies_per_app: int, cfg):
+    if cfg['same_image']:
+        return
     suffix = get_img_suffix(cfg)
     path = CHROOT_DIR if ARGS.use_chroot else ""
 
@@ -1084,6 +1111,8 @@ def setup_async_images(apps, copies_per_app: int, cfg):
 
 
 def rm_async_images(apps, copies_per_app, cfg):
+    if cfg['same_image']:
+        return
     suffix = get_img_suffix(cfg)
     path = CHROOT_DIR if ARGS.use_chroot else ""
 
@@ -1093,22 +1122,30 @@ def rm_async_images(apps, copies_per_app, cfg):
             os.unlink(f"{path}{img}{i}.jif")
 
 
+def clear_mem_cgroup(name):
+    file = f"/sys/fs/cgroup/memory/{name}/memory.max_usage_in_bytes"
+    run(f"echo 0 | sudo tee {file} > /dev/null")
+
+
+def get_mem_cgroup(name):
+    file = f"/sys/fs/cgroup/memory/{name}/memory.max_usage_in_bytes"
+    with open(file, "r") as f:
+        return int(int(f.readlines()[0]))
+
+
 def clear_cgroup():
-    run(f"echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
-        )
+    clear_mem_cgroup("junction")
+    clear_mem_cgroup("junction_iokernel")
 
 
 def get_and_reset_memusage():
-    with open("/sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes",
-              "r") as f:
-        usage = int(int(f.readlines()[0]))
-    run("echo 0 | sudo tee /sys/fs/cgroup/memory/junction/memory.max_usage_in_bytes"
-        )
+    usage = get_mem_cgroup("junction") + get_mem_cgroup("junction_iokernel")
+    clear_mem_cgroup("junction")
+    clear_mem_cgroup("junction_iokernel")
     return usage
 
 
-def gen_be_config(file, ip, mask, gw):
-    be_kthreads = 2  # add extra kthread to help avoid network timeouts
+def gen_be_config(file, ip, mask, gw, be_kthreads=2):
     cfg = [
         f"host_addr {addr_to_str(ip)}",
         f"host_netmask {addr_to_str(mask)}",
@@ -1117,7 +1154,7 @@ def gen_be_config(file, ip, mask, gw):
         "runtime_spinning_kthreads 0",
         "runtime_guaranteed_kthreads 0",
         "runtime_priority be",
-        "runtime_quantum_us 0",
+        "runtime_quantum_us 2000",
         "enable_transparent_hugepages 1",
     ]
     with open(file, "w") as f:
@@ -1185,7 +1222,6 @@ def restore_images_async(output_prefix: str,
     set_trace(0)
 
     path = CHROOT_DIR if ARGS.use_chroot else ""
-    chroot_args = f" --chroot={CHROOT_DIR} --cache_linux_fs" if ARGS.use_chroot else ""
 
     jifpager_reset()
 
@@ -1205,10 +1241,18 @@ def restore_images_async(output_prefix: str,
             caladan_config = f"/tmp/{app.id()}_{i}.config"
             ip = ip_alloc.next()
             gen_be_config(caladan_config, ip, ip_alloc.get_netmask(),
-                          ip_alloc.get_base())
+                          ip_alloc.get_base(), 1 if "node" in app.id() else 2)
             output = f"{output_prefix}_{app.id()}_{i}"
+
+            predash_args = " --jif -r"
+            postdash_args = f"{prefix}.jm {img}.jif"
+
+            if False:
+                predash_args = f"{app._env()} --jif --snapshot-prefix {prefix}"
+                postdash_args = app.cmd
+
             proc = run_async(
-                f"sudo -E {'cgexec -g memory:junction' if cgroup else ''} {JRUN} {caladan_config} {chroot_args} {junction_args} --jif -r -- {prefix}.jm {img}.jif >> {output} 2>&1"
+                f"sudo -E {'cgexec -g memory:junction' if cgroup else ''} {JRUN} {caladan_config} {chroot_args()} {junction_args} {predash_args} -- {postdash_args}  >> {output} 2>&1"
             )
             procs.append(RunningProc(proc, app, output, ip))
 
@@ -1263,7 +1307,7 @@ def run_loadgen_async(output_prefix: str,
                       runtime: int = None):
     loadgen_kthreads = 4
     depth = 5
-    runtime = runtime or 20
+    runtime = runtime or 10
 
     assert loadgen_kthreads % 2 == 0, "with HT enabled need even #"
 
@@ -1316,17 +1360,27 @@ def run_loadgen_async(output_prefix: str,
     return procs
 
 
-def run_cfg(output_log, tests, cfg, copies_per_app, runtime=None):
-    if not cfg['same_image']:
+def clean_running():
+    os.system("sudo pkill junc")
+    kill_iok()
+
+
+def run_cfg(output_log,
+            tests,
+            cfg,
+            copies_per_app,
+            runtime=None,
+            nosetup=False):
+    if not nosetup:
         setup_async_images(tests, copies_per_app, cfg)
 
     if cfg.get("cold", True):
         dropcache()
 
-    mem_recorder = start_vmstat(output_log)
-
     kill_iok()
     run_iok(hugepages=False, directpath=True, cgroup=True)
+
+    mem_recorder = start_vmstat(output_log)
 
     ip_alloc = IPAllocator()
     app_procs = restore_images_async(output_log,
@@ -1362,7 +1416,7 @@ def run_cfg(output_log, tests, cfg, copies_per_app, runtime=None):
         time.sleep(0.1)
     print("Clean up done")
 
-    if not cfg['same_image']:
+    if not nosetup:
         rm_async_images(tests, copies_per_app, cfg)
 
 
@@ -1823,7 +1877,14 @@ def main(tests, name=""):
         parse_sharing_logs(result_dir)
 
 
+def is_running_as_root():
+    return os.geteuid() == 0
+
+
 if __name__ == "__main__":
+    if is_running_as_root():
+        print("re-run without root")
+        exit(-1)
     ARGS = parser.parse_args()
     if ARGS.dirs:
         for d in ARGS.dirs:
