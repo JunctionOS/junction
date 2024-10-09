@@ -22,9 +22,6 @@ def function_handler(request_json):
     num_of_rows = request_json['num_of_rows']
     num_of_cols = request_json['num_of_cols']
 
-    # 128-bit key (16 bytes)
-    KEY = b'\xa1\xf6%\x8c\x87}_\xcd\x89dHE8\xbf\xc9,'
-
     start = time()
     tmpl = PageTemplate(BIGTABLE_ZPT)
 
@@ -47,7 +44,7 @@ def main():
         return
     json_string = sys.argv[1]
     json_req = json.loads(json_string)
-    print(function_handler(json_req))
+    function_handler(json_req)
 
 
 if __name__ == "__main__":
