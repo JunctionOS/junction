@@ -254,6 +254,7 @@ Status<void> Process::JoinProcessGroup(pid_t pgid) {
   DecRefCountPid(pgid_);
   IncRefCountPid(pgid);
   pgid_ = pgid;
+  return {};
 }
 
 void Process::ProcessFinish() {

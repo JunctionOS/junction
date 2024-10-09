@@ -4,6 +4,7 @@ extern "C" {
 #include <poll.h>
 #include <sched.h>
 #include <signal.h>
+#include <sys/capability.h>
 #include <sys/epoll.h>
 #include <sys/resource.h>
 #include <sys/socket.h>
@@ -212,6 +213,7 @@ long usys_setuid(uid_t uid);
 long usys_setgroups(size_t size, const gid_t *list);
 long usys_setresuid(uid_t ruid, uid_t euid, uid_t suid);
 long usys_setresgid(gid_t rgid, gid_t egid, gid_t sgid);
+long usys_capget(cap_user_header_t hdrp, cap_user_data_t datap);
 
 // Signals
 long usys_rt_sigaction(int sig, const struct k_sigaction *action,

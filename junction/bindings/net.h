@@ -81,6 +81,15 @@ class UDPConn {
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
+
+  Status<size_t> ReadvFrom(std::span<const iovec> iov, netaddr *raddr,
+                           bool peek, bool nonblocking) {
+    ssize_t ret = udp_readv_from2(c_, iov.data(), static_cast<int>(iov.size()),
+                                  raddr, peek, nonblocking);
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    return ret;
+  }
+
   // Writes a datagram and sets to remote address.
   Status<size_t> WriteTo(std::span<const std::byte> buf, const netaddr *raddr,
                          bool nonblocking = false) {

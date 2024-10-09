@@ -169,3 +169,6 @@ renameat
 renameat2
 setresuid
 setresgid
+capget
+capset:::stub
+prctl:::stub

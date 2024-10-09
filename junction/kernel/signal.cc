@@ -50,8 +50,8 @@ constexpr k_sigset_t kSignalIgnoreMask =
     MultiSignalMask(SIGCONT, SIGCHLD, SIGWINCH, SIGURG);
 
 enum class SignalAction : int {
-  kStop,       // pause the thread on delivery
-  kContinue,   // continue the thread if stopped
+  kStop,  // pause the thread on delivery
+  // kContinue,   // continue the thread if stopped
   kCoredump,   // terminate the process, and generate a core dump
   kTerminate,  // terminate the process
   kIgnore,     // do nothing

@@ -195,6 +195,12 @@ class TCPSocket : public Socket {
         return IPPROTO_TCP;
       case SO_TYPE:
         return SOCK_STREAM;
+      case SO_ERROR:
+        if (state_ == SocketState::kSockConnected) {
+          Status<void> ret = TcpConn().GetStatus();
+          return ret ? 0 : ret.error().code();
+        }
+        /* fallthrough */
       default:
         return MakeError(EINVAL);
     }

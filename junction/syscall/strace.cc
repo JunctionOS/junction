@@ -6,6 +6,8 @@ extern "C" {
 #include <sched.h>
 #include <signal.h>
 #include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 }
 
 #include <map>
@@ -190,6 +192,28 @@ const std::map<int, std::string> fcntls{
     VAL(F_SET_FILE_RW_HINT),
 };
 
+const std::map<int, std::string> sock_domains{
+    VAL(AF_UNIX),   VAL(AF_LOCAL),     VAL(AF_INET),    VAL(AF_AX25),
+    VAL(AF_IPX),    VAL(AF_APPLETALK), VAL(AF_X25),     VAL(AF_INET6),
+    VAL(AF_DECnet), VAL(AF_KEY),       VAL(AF_NETLINK), VAL(AF_PACKET),
+    VAL(AF_RDS),    VAL(AF_PPPOX),     VAL(AF_LLC),     VAL(AF_IB),
+    VAL(AF_MPLS),   VAL(AF_CAN),       VAL(AF_TIPC),    VAL(AF_BLUETOOTH),
+    VAL(AF_ALG),    VAL(AF_VSOCK),     VAL(AF_KCM),     VAL(AF_XDP),
+};
+
+const std::map<int, std::string> sock_types{
+    VAL(SOCK_STREAM), VAL(SOCK_DGRAM), VAL(SOCK_SEQPACKET),
+    VAL(SOCK_RAW),    VAL(SOCK_RDM),   VAL(SOCK_PACKET),
+};
+
+const std::map<int, std::string> msg_flags{
+    VAL(MSG_CMSG_CLOEXEC), VAL(MSG_DONTWAIT), VAL(MSG_ERRQUEUE),
+    VAL(MSG_OOB),          VAL(MSG_PEEK),     VAL(MSG_TRUNC),
+    VAL(MSG_WAITALL),      VAL(MSG_CONFIRM),  VAL(MSG_DONTROUTE),
+    VAL(MSG_EOR),          VAL(MSG_MORE),     VAL(MSG_NOSIGNAL),
+    VAL(MSG_OOB),
+};
+
 const char *sigmap[] = {
     "SIGHUP",  "SIGINT",    "SIGQUIT", "SIGILL",    "SIGTRAP", "SIGABRT",
     "SIGBUS",  "SIGFPE",    "SIGKILL", "SIGUSR1",   "SIGSEGV", "SIGUSR2",
@@ -205,6 +229,17 @@ void PrintValMap(const std::map<int, std::string> &map, int val,
     ss << it->second;
   else
     ss << val;
+}
+
+void PrintArg(int op, SocketDomain, rt::Logger &ss) {
+  PrintValMap(sock_domains, op, ss);
+}
+
+void PrintArg(int op, SocketType, rt::Logger &ss) {
+  int type = op & ~(SOCK_NONBLOCK | SOCK_CLOEXEC);
+  PrintValMap(sock_types, type, ss);
+  if (op & SOCK_NONBLOCK) ss << "|SOCK_NONBLOCK";
+  if (op & SOCK_CLOEXEC) ss << "|SOCK_CLOEXEC";
 }
 
 void PrintArg(int advice, MAdviseHint, rt::Logger &ss) {
@@ -238,6 +273,10 @@ bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
     ss << name;
   }
   return done_one;
+}
+
+void PrintArg(int op, MessageFlag, rt::Logger &ss) {
+  PrintFlagArr(msg_flags, op, ss);
 }
 
 void PrintArg(int prot, ProtFlag, rt::Logger &ss) {

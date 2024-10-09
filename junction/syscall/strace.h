@@ -25,6 +25,9 @@ enum class CloneFlag : int {};
 enum class FutexOp : int {};
 enum class IoctlOp : int {};
 enum class FcntlOp : int {};
+enum class SocketDomain : int {};
+enum class SocketType : int {};
+enum class MessageFlag : int {};
 
 template <typename U>
 inline void PrintArg(const char **array, U, rt::Logger &ss) {
@@ -72,6 +75,9 @@ void PrintArg(int advice, MAdviseHint, rt::Logger &ss);
 void PrintArg(int op, FutexOp, rt::Logger &ss);
 void PrintArg(unsigned int op, IoctlOp, rt::Logger &ss);
 void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss);
+void PrintArg(int op, SocketDomain, rt::Logger &ss);
+void PrintArg(int op, SocketType, rt::Logger &ss);
+void PrintArg(int op, MessageFlag, rt::Logger &ss);
 
 template <typename U>
 inline void PrintArg(struct timespec *t, U, rt::Logger &ss) {

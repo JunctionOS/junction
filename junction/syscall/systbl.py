@@ -105,6 +105,14 @@ TYPE_ARR.update({
     ("futex", 1): 'static_cast<strace::FutexOp>',
     ("ioctl", 1): 'static_cast<strace::IoctlOp>',
     ("fcntl", 1): 'static_cast<strace::FcntlOp>',
+    ("socket", 0): 'static_cast<strace::SocketDomain>',
+    ("socket", 1): 'static_cast<strace::SocketType>',
+    ("send", 3): 'static_cast<strace::MessageFlag>',
+    ("sendto", 3): 'static_cast<strace::MessageFlag>',
+    ("sendmsg", 2): 'static_cast<strace::MessageFlag>',
+    ("recv", 3): 'static_cast<strace::MessageFlag>',
+    ("recvfrom", 3): 'static_cast<strace::MessageFlag>',
+    ("recvmsg", 2): 'static_cast<strace::MessageFlag>',
 })
 
 SKIP_STRACE_TARGET = [

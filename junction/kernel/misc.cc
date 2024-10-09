@@ -121,4 +121,20 @@ long usys_setresgid(gid_t rgid, gid_t egid, gid_t sgid) {
   return 0;
 }
 
+long usys_capget(cap_user_header_t hdrp, cap_user_data_t datap) {
+  if (!datap) return 0;
+
+  datap[0].effective = 0xffffffff;
+  datap[0].permitted = 0xffffffff;
+  datap[0].inheritable = 0xffffffff;
+
+  if (hdrp->version > _LINUX_CAPABILITY_VERSION_1) {
+    datap[1].effective = 0xffffffff;
+    datap[1].permitted = 0xffffffff;
+    datap[1].inheritable = 0xffffffff;
+  }
+
+  return 0;
+}
+
 }  // namespace junction

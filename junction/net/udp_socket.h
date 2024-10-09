@@ -71,6 +71,17 @@ class UDPSocket : public Socket {
     return ret;
   }
 
+  Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
+                           bool nonblocking) override {
+    if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
+    netaddr ra;
+    Status<size_t> ret =
+        conn_.ReadvFrom(iov, raddr ? &ra : nullptr, peek, nonblocking);
+    if (unlikely(!ret)) return ret;
+    if (raddr) raddr.FromNetAddr(ra);
+    return ret;
+  }
+
   Status<size_t> WriteTo(std::span<const std::byte> buf,
                          const SockAddrPtr raddr, bool nonblocking) override {
     if (!conn_.is_valid()) {
@@ -125,7 +136,7 @@ class UDPSocket : public Socket {
     }
   }
 
-  // TODO(jsf): Writev, WritevTo, Readv
+  // TODO(jsf): Writev, WritevTo
 
  private:
   void SetupPollSource() override {
