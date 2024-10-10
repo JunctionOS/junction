@@ -79,6 +79,9 @@ void PrintArg(int op, SocketDomain, rt::Logger &ss);
 void PrintArg(int op, SocketType, rt::Logger &ss);
 void PrintArg(int op, MessageFlag, rt::Logger &ss);
 
+void PrintArg(const struct sockaddr *addr, rt::Logger &ss);
+
+
 template <typename U>
 inline void PrintArg(struct timespec *t, U, rt::Logger &ss) {
   if (!t) {
@@ -86,6 +89,16 @@ inline void PrintArg(struct timespec *t, U, rt::Logger &ss) {
     return;
   }
   ss << "{tv_sec=" << t->tv_sec << ", tv_nsec=" << t->tv_nsec << "}";
+}
+
+template <typename U>
+inline void PrintArg(const struct sockaddr *addr, U, rt::Logger &ss) {
+  PrintArg(addr, ss);
+}
+
+template <typename U>
+inline void PrintArg(struct sockaddr *addr, U, rt::Logger &ss) {
+  PrintArg(addr, ss);
 }
 
 template <int N, typename Ret, typename... UsysArgs, typename ArgT>

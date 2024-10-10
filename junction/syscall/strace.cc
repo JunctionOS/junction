@@ -231,6 +231,32 @@ void PrintValMap(const std::map<int, std::string> &map, int val,
     ss << val;
 }
 
+struct sockaddr_in {
+  short sin_family;
+  unsigned short sin_port;
+  struct {
+    unsigned int s_addr;
+  } sin_addr;
+  char sin_zero[8];
+};
+
+void PrintArg(const struct sockaddr *addr, rt::Logger &ss) {
+  if (!addr) {
+    ss << "NULL";
+    return;
+  }
+  if (addr->sa_family != AF_INET) {
+    ss << "{unknown_type: " << addr->sa_family << "}";
+    return;
+  }
+
+  auto sin = reinterpret_cast<const sockaddr_in *>(addr);
+  char str[IP_ADDR_STR_LEN];
+  char *ip = ip_addr_to_str(ntoh32(sin->sin_addr.s_addr), str);
+
+  ss << ip << ":" << ntoh16(sin->sin_port);
+}
+
 void PrintArg(int op, SocketDomain, rt::Logger &ss) {
   PrintValMap(sock_domains, op, ss);
 }
