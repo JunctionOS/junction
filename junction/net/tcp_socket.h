@@ -286,8 +286,11 @@ class TCPSocket : public Socket {
       }
 
       if (unlikely(!c)) {
-        LOG(ERR) << "failed to restore TCP socket  " << laddr.ip << ":"
-                 << laddr.port << " <-> " << raddr.ip << ":" << raddr.port;
+        char lstr[IP_ADDR_STR_LEN], rstr[IP_ADDR_STR_LEN];
+        char *lip = ip_addr_to_str(laddr.ip, lstr);
+        char *rip = ip_addr_to_str(raddr.ip, rstr);
+        LOG(ERR) << "failed to restore TCP socket  " << lip << ":" << laddr.port
+                 << " <-> " << rip << ":" << raddr.port;
         BUG();
       }
       v_ = std::move(*c);
@@ -296,7 +299,9 @@ class TCPSocket : public Socket {
       ar(addr_, is_shut_, backlog_);
       Status<rt::TCPQueue> q = rt::TCPQueue::Listen(addr_, backlog_);
       if (unlikely(!q)) {
-        LOG(ERR) << "failed to restore TCP listen socket @ " << addr_.ip << ":"
+        char str[IP_ADDR_STR_LEN];
+        char *ip = ip_addr_to_str(addr_.ip, str);
+        LOG(ERR) << "failed to restore TCP listen socket @ " << ip << ":"
                  << addr_.port;
         BUG();
       }
