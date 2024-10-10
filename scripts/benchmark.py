@@ -18,6 +18,7 @@ import multiprocessing
 import contextlib
 import psutil
 import shlex
+from minio import Minio
 
 import matplotlib as mpl
 
@@ -50,6 +51,14 @@ CONFIG = {
 }
 
 DROPCACHE = 1
+
+MINIO_BUCKET = "bucket"
+MINIO_DATA_PATH = "/fast/data/"
+MINIO = f"{BIN_DIR}/bin/minio"
+MINIO_IP = "192.168.255.255"
+MINIO_MASK = "255.255.0.0"
+MINIO_GATEWAY = "192.168.0.1"
+MINIO_SERVER = None
 
 parser = argparse.ArgumentParser(
     prog='jif_benchmark', description='benchmark restore times with JIFs')
@@ -236,6 +245,7 @@ def run_async(cmd):
 
 
 def kill_iok():
+    run("(sudo pkill junction_run && sleep 1) || true")
     run("(sudo pkill iokerneld && sleep 1) || true")
 
 
@@ -333,8 +343,75 @@ def build_loadgen():
     run(f"make -C {CALADAN_DIR} -j {ncpu}")
 
 
+def prefix_fbench(fname: str):
+    return PATH_TO_FBENCH + fname
+
+
+OBJECTS = [
+    prefix_fbench('dataset/image/img3.jpeg'),
+    prefix_fbench('json_serdes/2.json'),
+    prefix_fbench('dataset/amzn_fine_food_reviews/dataset2.csv'),
+    prefix_fbench('dataset/video/vid2.mp4'),
+]
+
+
+def start_minio_server():
+    global MINIO_SERVER
+    if MINIO_SERVER:
+        return
+
+    path = f"{CHROOT_DIR}/{MINIO_DATA_PATH}" if ARGS.use_chroot else MINIO_DATA_PATH
+    minio = run_async(f"sudo -E {MINIO} server {path} > /dev/null 2>&1")
+    time.sleep(1)
+
+    client = Minio('localhost:9000',
+                   access_key='minioadmin',
+                   secret_key='minioadmin',
+                   secure=False)
+
+    if not client.bucket_exists(MINIO_BUCKET):
+        client.make_bucket(MINIO_BUCKET)
+
+    for obj in OBJECTS:
+        client.fput_object("bucket", os.path.basename(obj), obj)
+
+    run("sudo pkill minio")
+
+    time.sleep(1)
+
+    minio_cfg = "/tmp/minio.config"
+
+    cfg = [
+        f"host_addr {MINIO_IP}",
+        f"host_netmask {MINIO_MASK}",
+        f"host_gateway {MINIO_GATEWAY}",
+        f"runtime_kthreads 2",  # seems like minio does gc sometimes
+        "runtime_spinning_kthreads 0",
+        "runtime_guaranteed_kthreads 0",
+        "runtime_priority lc",
+        "runtime_quantum_us 0",
+    ]
+
+    with open(minio_cfg, "w") as f:
+        f.write("\n".join(cfg))
+
+    chroot_args = f" --chroot={CHROOT_DIR}" if ARGS.use_chroot else ""
+
+    MINIO_SERVER = run_async(
+        f"sudo -E {JRUN} {minio_cfg} {chroot_args} --env 'PATH=$PATH:/usr/bin/' -- {MINIO} server {MINIO_DATA_PATH} > /dev/null 2>&1"
+    )
+
+    atexit.register(kill_minio)
+
+    time.sleep(1)
+
+
 def kill_mem_cgroup():
     run("sudo rmdir /sys/fs/cgroup/memory/junction")
+
+
+def kill_minio():
+    run(f"sudo pkill junction_run || true")
 
 
 def setup_mem_cgroup():
@@ -415,10 +492,6 @@ def dropcache():
         run("echo 3 | sudo tee /proc/sys/vm/drop_caches")
 
 
-def prefix_fbench(fname: str):
-    return PATH_TO_FBENCH + fname
-
-
 # Test definitions
 
 
@@ -430,7 +503,9 @@ class Test:
                  name: str,
                  cmd: str,
                  arg_map,
-                 new_version_fn=lambda x: x):
+                 new_version_fn=lambda x: x,
+                 s3=False,
+                 do_second_apps=True):
         """
         punch out a template of tests, where the arg_map is a map from arg_name -> arg
         return a list of Tests
@@ -447,7 +522,9 @@ class Test:
                  args: str,
                  arg_name: str = "",
                  env: str = "",
-                 new_version_fn=lambda x: x):
+                 new_version_fn=lambda x: x,
+                 s3=False,
+                 do_second_apps=True):
         self.lang = lang
         self.name = name
         self.raw_cmd = cmd
@@ -456,6 +533,8 @@ class Test:
         self.stop_count = 2 if lang == 'java' else 1
         self.arg_name = arg_name
         self.env = env
+        self.s3 = s3
+        self.do_second_apps = do_second_apps
 
     def id(self):
         if self.arg_name:
@@ -628,6 +707,11 @@ class Test:
 
         ip_alloc = IPAllocator()
 
+        for app in second_apps:
+            if app.s3:
+                start_minio_server()
+                break
+
         n = 0
         for idx, sapp in enumerate(second_apps):
             junction_args = f"--function_arg '{sapp.args}' --function_name {sapp.id()}"
@@ -637,7 +721,8 @@ class Test:
                           f"{prefix}.jm {prefix}_itrees_ord{suffix}.jif",
                           f"{output_log}_itrees_jif_k_second_app_{sapp.id()}",
                           idx=n,
-                          bg=True)
+                          bg=True,
+                          ip_alloc=ip_alloc)
 
             n += len(p)
 
@@ -655,7 +740,8 @@ class Test:
         self.jrun(f"{chroot_args} {junction_args} --jif -rk",
                   f"{prefix}.jm {prefix}_itrees_ord{suffix}.jif",
                   f"{output_log}_itrees_jif_k",
-                  idx=n)
+                  idx=n,
+                  ip_alloc=ip_alloc)
 
         stats = open("/sys/kernel/jif_pager/stats")
         stats = json.loads(stats.readlines()[0])
@@ -699,6 +785,9 @@ class Test:
             kill_iok()
             run_iok(hugepages=True, directpath=True)
 
+        if self.s3:
+            start_minio_server()
+
         if ARGS.elf_baseline:
             self.snapshot_elf(output_log)
 
@@ -720,6 +809,9 @@ class Test:
         if hasattr(self, 'run_client'):
             kill_iok()
             run_iok(hugepages=True, directpath=True)
+
+        if self.s3:
+            start_minio_server()
 
         if ARGS.elf_baseline:
             self.restore_elf(output_log)
@@ -777,7 +869,7 @@ class Test:
                                               reorder=True,
                                               second_apps=[function])
 
-            if second_apps:
+            if second_apps and self.do_second_apps:
                 self.jifpager_restore_jif(f"{output_log}_sa",
                                           minor=False,
                                           prefault=False,
@@ -788,46 +880,55 @@ class Test:
             # self.jifpager_restore_jif(output_log, minor=False, prefault=False, cold=True, reorder=True, second_apps=second_apps)
             # self.jifpager_restore_jif(f"{output_log}_self", minor=False, prefault=False, cold=True, reorder=False, second_apps=second_apps)
 
-            self.jifpager_restore_jif(f"{output_log}_self",
-                                      minor=False,
-                                      prefault=False,
-                                      cold=True,
-                                      reorder=False,
-                                      second_apps=[self])
+            if self.do_second_apps:
+                self.jifpager_restore_jif(f"{output_log}_self",
+                                          minor=False,
+                                          prefault=False,
+                                          cold=True,
+                                          reorder=False,
+                                          second_apps=[self])
 
 
 class PyFBenchTest(Test):
 
-    def __init__(self, name: str, **args):
+    def __init__(self, name: str, s3=False, do_second_apps=True, **args):
         new_version_fn = lambda cmd: cmd.replace('run.py', 'new_runner.py')
         super().__init__(
             'python',
             name,
-            f"{ROOT_DIR}/bin/venv/bin/python3 {BUILD_DIR}/junction/samples/snapshots/python/function_bench/run.py {name}",
+            f"{ROOT_DIR}/bin/venv/bin/python3 -u  {BUILD_DIR}/junction/samples/snapshots/python/function_bench/run.py {name}",
             json.dumps(args),
             "",
-            new_version_fn=new_version_fn)
+            new_version_fn=new_version_fn,
+            s3=s3,
+            do_second_apps=do_second_apps)
 
 
 class NodeFBenchTest(Test):
 
-    def __init__(self, name: str, **args):
+    def __init__(self, name: str, s3=False, do_second_apps=True, **args):
         super().__init__(
             'node',
             name,
             f"{NODE_BIN} --expose-gc {BUILD_DIR}/junction/samples/snapshots/node/function_bench/run.js {name}",
             json.dumps(args),
-            env=f"NODE_PATH={NODE_PATH}")
+            env=f"NODE_PATH={NODE_PATH}",
+            s3=s3,
+            do_second_apps=do_second_apps)
 
 
 class PyGRPCFBenchTest(Test):
 
-    def __init__(self, name: str, **args):
+    def __init__(self, name: str, s3=False, **args):
         self.client = f"{ROOT_DIR}/bin/venv/bin/python3 {BUILD_DIR}/junction/samples/snapshots/python/function_bench/client.py"
         super().__init__(
-            'pygrpc', name,
+            'pygrpc',
+            name,
             f"{ROOT_DIR}/bin/venv/bin/python3 -u {BUILD_DIR}/junction/samples/snapshots/python/function_bench/server.py {name}",
-            json.dumps(args), "")
+            json.dumps(args),
+            "",
+            s3=s3,
+            do_second_apps=False)
 
     def run_client(self, client_cfg, client_ip, server_ip, log):
         chroot_args = f"--chroot={CHROOT_DIR}" if ARGS.use_chroot else ""
@@ -880,6 +981,10 @@ TESTS = [
    PyFBenchTest("image_processing",path=prefix_fbench('dataset/image/animal-dog.jpg')),
    PyFBenchTest("linpack", N=300),
    PyFBenchTest("helloworld", message="Hello, world!"),
+   PyFBenchTest("json_serdes_s3", s3=True, json_file='2.json', minio_addr=f'{MINIO_IP}:9000'),
+   PyFBenchTest("image_rotate_s3", s3=True, image='img3.jpeg',  minio_addr=f'{MINIO_IP}:9000'),
+   PyFBenchTest("lr_training_s3", s3=True, data='dataset2.csv', minio_addr=f'{MINIO_IP}:9000'),
+   PyFBenchTest("video_processing_s3", s3=True, vid='vid2.mp4', minio_addr=f'{MINIO_IP}:9000'),
 
    PyGRPCFBenchTest("helloworld", message="Hello, world!"),
    PyGRPCFBenchTest("chameleon", num_of_rows=10, num_of_cols=15),
@@ -1723,7 +1828,8 @@ if __name__ == "__main__":
     if ARGS.dirs:
         for d in ARGS.dirs:
             if ARGS.do_microbench:
-                plot_workloads(d, parse_microbenchmark_times(d))
+                data = parse_microbenchmark_times(d)
+                plot_workloads(d, data)
             if ARGS.do_density:
                 plot_density(d, parse_density_logs(d))
             if ARGS.do_sharing:
@@ -1752,6 +1858,6 @@ if __name__ == "__main__":
             for test in tests:
                 print(test)
 
-        run_iok()
+        run_iok(directpath=True)
         setup_chroot()
         main(tests)
