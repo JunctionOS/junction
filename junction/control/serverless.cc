@@ -48,6 +48,7 @@ class FunctionChannel {
   }
 
   Status<size_t> Write(std::span<const std::byte> buf) {
+    BUG_ON(!buf.size());
     Time end = Time::Now();
     if (unlikely(!timings().first_function_end))
       timings().first_function_end = end;
@@ -64,6 +65,7 @@ class FunctionChannel {
 
   // Junction kernel API
   std::string DoRequest(std::string cmd) {
+    BUG_ON(cmd.size() == 0);
     rt::SpinGuard g(lock_);
     request_ = std::move(cmd);
     MarkStart();
@@ -352,6 +354,12 @@ void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
   }
 
   PrintTimes(chan.get_latencies(), GetCfg().GetArg("function_name"));
+
+  if (GetCfg().GetBool("keep_alive")) {
+    proc->Signal(SIGCONT);
+    rt::WaitForever();
+  }
+
   syscall_exit(0);
 }
 
