@@ -22,11 +22,10 @@ def function_handler(request_json):
     for loops in range(num_of_iterations):
         aes = pyaes.AESModeOfOperationCTR(KEY)
         ciphertext = aes.encrypt(message)
-        # print(ciphertext)
 
-        aes = pyaes.AESModeOfOperationCTR(KEY)
-        plaintext = aes.decrypt(ciphertext)
-        # print(plaintext)
+        # reap does a single iteration of encryption, no decrypt
+        # aes = pyaes.AESModeOfOperationCTR(KEY)
+        # plaintext = aes.decrypt(ciphertext)
         aes = None
 
     latency = time() - start

@@ -349,7 +349,7 @@ def prefix_fbench(fname: str):
 
 OBJECTS = [
     prefix_fbench('dataset/image/img3.jpeg'),
-    prefix_fbench('json_serdes/2.json'),
+    prefix_fbench('json_serdes/1.json'),
     prefix_fbench('dataset/amzn_fine_food_reviews/dataset2.csv'),
     prefix_fbench('dataset/video/vid2.mp4'),
 ]
@@ -974,14 +974,14 @@ TESTS = [
    NodeFBenchTest("json_serdes", json_path=prefix_fbench('json_serdes/2.json')),
    PyFBenchTest("chameleon", num_of_rows=10, num_of_cols=15),
    PyFBenchTest("float_operation", N=300),
-   PyFBenchTest("pyaes", length_of_message=100, num_of_iterations=3),
+   PyFBenchTest("pyaes", length_of_message=100, num_of_iterations=1), # reap does one iteration
    PyFBenchTest("matmul", N=300),
    PyFBenchTest( "json_serdes", json_path=prefix_fbench('json_serdes/2.json')),
    PyFBenchTest("lr_training", dataset_path=prefix_fbench('dataset/amzn_fine_food_reviews/reviews10mb.csv')),
    PyFBenchTest("image_processing",path=prefix_fbench('dataset/image/animal-dog.jpg')),
    PyFBenchTest("linpack", N=300),
    PyFBenchTest("helloworld", message="Hello, world!"),
-   PyFBenchTest("json_serdes_s3", s3=True, json_file='2.json', minio_addr=f'{MINIO_IP}:9000'),
+   PyFBenchTest("json_serdes_s3", s3=True, json_file='1.json', minio_addr=f'{MINIO_IP}:9000'),
    PyFBenchTest("image_rotate_s3", s3=True, image='img3.jpeg',  minio_addr=f'{MINIO_IP}:9000'),
    PyFBenchTest("lr_training_s3", s3=True, data='dataset2.csv', minio_addr=f'{MINIO_IP}:9000'),
    PyFBenchTest("video_processing_s3", s3=True, vid='vid2.mp4', minio_addr=f'{MINIO_IP}:9000'),

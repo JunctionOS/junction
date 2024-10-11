@@ -48,7 +48,6 @@ def function_handler(request_json):
     start = time()
 
     minio.fget_object('bucket', vid, path)
-
     video_processing(path)
 
     latency = time() - start

@@ -41,7 +41,6 @@ def function_handler(request_json):
 
         start = time()
         df['train'] = df['Text'].apply(cleanup)
-
         tfidf_vect = TfidfVectorizer(min_df=100).fit(df['train'])
         train = tfidf_vect.transform(df['train'])
         model = LogisticRegression()
