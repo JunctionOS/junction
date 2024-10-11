@@ -120,7 +120,11 @@ po::options_description GetOptions() {
        "name of function being run")                               //
       ("keep_alive", po::bool_switch()->default_value(false), "")  //
       ("dispatch_addr", po::value<std::string>()->default_value(""),
-       "addr of serverless function dispatcher (ip:port)");
+       "addr of serverless function dispatcher (ip:port)")
+      ("cwd", po::value<std::string>()->default_value(""),
+       "current working directory at start");  //
+
+
   return desc;
 }
 

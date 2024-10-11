@@ -855,15 +855,20 @@ Status<void> InitFs(
 
   FSRoot::InitFsRoot(std::move(*tmp));
 
-  // Use the current cwd.
-  if (GetCfg().get_chroot_path() == "/") {
-    char buf[PATH_MAX];
-    char *cwd = getcwd(buf, sizeof(buf));
-    if (cwd == nullptr) return MakeError(errno);
+  std::string req_cwd = JunctionCfg::GetArg("cwd");
 
-    // Get the corresponding inode.
+  // If the user didn't specify a cwd and isn't using a chroot, use the existing cwd.
+  if (!req_cwd.size() && GetCfg().get_chroot_path() == "/") {
+    char buf[PATH_MAX];
+    if (getcwd(buf, sizeof(buf)) == nullptr) return MakeError(errno);
+    req_cwd = buf;
+  }
+
+  // Change the internal cwd in Junction
+  if (req_cwd.size()) {
+   // Get the corresponding inode.
     Status<std::shared_ptr<Inode>> ino =
-        LookupInode(FSRoot::GetGlobalRoot(), cwd, true);
+        LookupInode(FSRoot::GetGlobalRoot(), req_cwd, true);
     if (!ino) return MakeError(ino);
     if (!(*ino)->is_dir()) return MakeError(ENOTDIR);
     FSRoot::GetGlobalRoot().SetCwd(

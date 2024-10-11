@@ -83,8 +83,8 @@ class alignas(kCacheLineSize) JunctionCfg {
   void Print();
 
   static JunctionCfg &get() { return singleton_; };
-  std::string GetArg(const std::string &arg);
-  bool GetBool(const std::string &name);
+  static std::string GetArg(const std::string &arg);
+  static bool GetBool(const std::string &name);
 
  private:
   // Hot state
