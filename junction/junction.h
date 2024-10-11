@@ -67,6 +67,8 @@ class alignas(kCacheLineSize) JunctionCfg {
     return snapshot_prefix_;
   }
 
+  [[nodiscard]] bool using_chroot() const { return chroot_path.size() > 0; }
+
   [[nodiscard]] const std::string &get_function_name() const {
     return function_name_;
   }
@@ -94,9 +96,9 @@ class alignas(kCacheLineSize) JunctionCfg {
   bool restore_populate_;
   uid_t gid_;
   uid_t uid_;
+  std::string chroot_path;
 
   // Cold state
-  std::string chroot_path;
   std::string fs_config_path;
   std::string interp_path;
   std::string glibc_path;

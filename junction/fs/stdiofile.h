@@ -17,34 +17,19 @@ constexpr int kStdErrFileNo = STDERR_FILENO;
 
 class StdIOFile : public File {
  public:
-  StdIOFile(int fd, FileMode mode);
+  StdIOFile(unsigned int flags, FileMode mode,
+            std::shared_ptr<DirectoryEntry> dent);
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override;
   Status<size_t> Write(std::span<const std::byte> buf, off_t *off) override;
   Status<void> Stat(struct stat *statbuf) const override;
   Status<void> Sync() override;
 
-  [[nodiscard]] int get_fd() const { return fd_; }
-
  private:
   friend class cereal::access;
 
-  template <class Archive>
-  void save(Archive &ar) const {
-    ar(fd_, get_mode(), cereal::base_class<File>(this));
-  }
-
-  template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<StdIOFile> &construct) {
-    int fd;
-    FileMode mode;
-    ar(fd, mode);
-    construct(fd, mode);
-
-    ar(cereal::base_class<File>(construct.ptr()));
-  }
-
-  int fd_;
+  void save(cereal::BinaryOutputArchive &ar) const;
+  static void load_and_construct(cereal::BinaryInputArchive &ar,
+                                 cereal::construct<StdIOFile> &construct);
 };
 
 }  // namespace junction

@@ -740,6 +740,8 @@ ino_t AllocateInodeNumber();
 
 class Process;
 
+std::shared_ptr<File> OpenStdio(unsigned flags, FileMode mode);
+
 // LookupInode finds an inode for a path
 Status<std::shared_ptr<Inode>> LookupInode(const FSRoot &fs,
                                            std::string_view path,

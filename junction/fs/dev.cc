@@ -8,6 +8,7 @@
 #include "junction/base/arch.h"
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
+#include "junction/fs/stdiofile.h"
 
 namespace junction {
 
@@ -111,6 +112,7 @@ const std::map<dev_t, FactoryPtr> CharacterDevices{
     {MakeDevice(1, 5), MakeFile<CDevZeroFile>},
     {MakeDevice(1, 8), MakeFile<CDevRandomFile>},
     {MakeDevice(1, 9), MakeFile<CDevURandomFile>},
+    {MakeDevice(5, 1), MakeFile<StdIOFile>},
 };
 
 }  // namespace

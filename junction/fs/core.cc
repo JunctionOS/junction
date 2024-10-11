@@ -9,6 +9,7 @@
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
 #include "junction/fs/procfs/procfs.h"
+#include "junction/fs/stdiofile.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/snapshot/snapshot.h"
@@ -226,11 +227,14 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
     return idir->get_entry_ref().Open(flags, fmode);
   }
 
-  if (flags & kFlagCreate)
-    return idir->Create(name, flags, mode & ~fs.get_umask(), fmode);
-
   Status<std::shared_ptr<DirectoryEntry>> in = idir->LookupDent(name);
-  if (!in) return MakeError(ENOENT);
+  if (!in) {
+    if (flags & kFlagCreate)
+      return idir->Create(name, flags, mode & ~fs.get_umask(), fmode);
+    return MakeError(ENOENT);
+  }
+
+  if (flags & kFlagExclusive) return MakeError(EINVAL);
 
   if ((*in)->get_inode_ref().is_symlink()) {
     if (!must_be_dir && (flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
@@ -457,8 +461,7 @@ long usys_open(const char *pathname, int flags, mode_t mode) {
   if (!f) return MakeCError(f);
   if (flags & kFlagAppend) {
     Status<off_t> ret = (*f)->Seek(0, SeekFrom::kEnd);
-    if (!ret) return MakeCError(ret);
-    (*f)->get_off_ref() = *ret;
+    if (ret) (*f)->get_off_ref() = *ret;
   }
   FileTable &ftbl = p.get_file_table();
   return ftbl.Insert(std::move(*f), (flags & kFlagCloseExec) > 0);
@@ -690,6 +693,11 @@ Status<void> LinuxFSMount(std::shared_ptr<IDir> pos,
   return linuxfs::MountLinux(*dir.get(), std::string(name), host_path);
 }
 
+std::shared_ptr<DirectoryEntry> console_dent_;
+std::shared_ptr<File> OpenStdio(unsigned flags, FileMode mode) {
+  return std::make_shared<StdIOFile>(flags, mode, console_dent_);
+}
+
 Status<void> SetupDevices(std::shared_ptr<IDir> root) {
   std::shared_ptr<IDir> memfs = memfs::MkFolder(*root.get(), "dev");
 
@@ -704,6 +712,20 @@ Status<void> SetupDevices(std::shared_ptr<IDir> root) {
     return ret;
   if (Status<void> ret = memfs->MkNod("urandom", mode, MakeDevice(1, 9)); !ret)
     return ret;
+  if (Status<void> ret = memfs->MkNod("console", mode, MakeDevice(5, 1)); !ret)
+    return ret;
+
+  Status<std::shared_ptr<DirectoryEntry>> ret = memfs->LookupDent("console");
+  if (!ret) panic("just added it");
+  console_dent_ = std::move(*ret);
+
+  if (Status<void> ret = memfs->SymLink("stdin", "/proc/self/fd/0"); !ret)
+    return ret;
+  if (Status<void> ret = memfs->SymLink("stdout", "/proc/self/fd/1"); !ret)
+    return ret;
+  if (Status<void> ret = memfs->SymLink("stderr", "/proc/self/fd/2"); !ret)
+    return ret;
+
   return {};
 }
 
@@ -857,7 +879,8 @@ Status<void> InitFs(
 
   std::string req_cwd = JunctionCfg::GetArg("cwd");
 
-  // If the user didn't specify a cwd and isn't using a chroot, use the existing cwd.
+  // If the user didn't specify a cwd and isn't using a chroot, use the existing
+  // cwd.
   if (!req_cwd.size() && GetCfg().get_chroot_path() == "/") {
     char buf[PATH_MAX];
     if (getcwd(buf, sizeof(buf)) == nullptr) return MakeError(errno);
@@ -866,7 +889,7 @@ Status<void> InitFs(
 
   // Change the internal cwd in Junction
   if (req_cwd.size()) {
-   // Get the corresponding inode.
+    // Get the corresponding inode.
     Status<std::shared_ptr<Inode>> ino =
         LookupInode(FSRoot::GetGlobalRoot(), req_cwd, true);
     if (!ino) return MakeError(ino);

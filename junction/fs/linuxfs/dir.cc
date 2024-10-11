@@ -53,7 +53,8 @@ class DirectoryIterator {
       if (unlikely(!stat)) return MakeError(stat);
 
       if (stat->st_dev != last_dev) {
-        if (!allowed_devs.count(stat->st_dev)) continue;
+        if (!GetCfg().using_chroot() && !allowed_devs.count(stat->st_dev))
+          continue;
         last_dev = stat->st_dev;
       }
 

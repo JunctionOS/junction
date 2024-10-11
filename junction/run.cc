@@ -29,16 +29,10 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   if (!proc) return MakeError(proc);
 
   // Create and insert STDIN, STDOUT, STDERR files
-  std::shared_ptr<StdIOFile> fin =
-      std::make_shared<StdIOFile>(kStdInFileNo, FileMode::kRead);
-  std::shared_ptr<StdIOFile> fout =
-      std::make_shared<StdIOFile>(kStdOutFileNo, FileMode::kWrite);
-  std::shared_ptr<StdIOFile> ferr =
-      std::make_shared<StdIOFile>(kStdErrFileNo, FileMode::kWrite);
   FileTable &ftbl = (**proc).get_file_table();
-  ftbl.Insert(std::move(fin));
-  ftbl.Insert(std::move(fout));
-  ftbl.Insert(std::move(ferr));
+  ftbl.Insert(OpenStdio(0, FileMode::kRead));
+  ftbl.Insert(OpenStdio(0, FileMode::kWrite));
+  ftbl.Insert(OpenStdio(0, FileMode::kWrite));
 
   // Exec program image
   Status<ExecInfo> ret = Exec(**proc, (*proc)->get_mem_map(), path, argv, envp);

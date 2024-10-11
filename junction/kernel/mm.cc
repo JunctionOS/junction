@@ -647,6 +647,17 @@ intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
                    off_t offset) {
   MemoryMap &mm = myproc().get_mem_map();
 
+  // Silently turn shmem requests into anonymous private memory.
+  if ((flags & MAP_SHARED) && fd == -1) {
+    flags &= ~MAP_SHARED;
+    flags |= MAP_ANONYMOUS;
+  } else if ((flags & MAP_SHARED_VALIDATE) == MAP_SHARED_VALIDATE) {
+    // MAP_SHARED_VALIDATE happens to be (MAP_ANONYMOUS | MAP_SHARED). Remove
+    // the anonymous flag so we hit the correct case below. Note that if fd is
+    // -1 then we hit the case above instead of here.
+    flags &= ~MAP_ANONYMOUS;
+  }
+
   // Map anonymous memory.
   if ((flags & MAP_ANONYMOUS) != 0) {
     Status<void *> ret = TracerGuardCheck(
