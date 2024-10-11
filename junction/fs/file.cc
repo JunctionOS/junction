@@ -106,10 +106,15 @@ int FileTable::Insert(std::shared_ptr<File> f, bool cloexec, size_t lowest) {
 }
 
 void FileTable::InsertAt(int fd, std::shared_ptr<File> f, bool cloexec) {
-  rt::SpinGuard g(lock_);
-  if (static_cast<size_t>(fd) >= farr_->len) Resize(fd + 1);
-  farr_->files[fd] = std::move(f);
-  if (cloexec) close_on_exec_.set(fd);
+  bool invalidate;
+  {
+    rt::SpinGuard g(lock_);
+    if (static_cast<size_t>(fd) >= farr_->len) Resize(fd + 1);
+    invalidate = !!farr_->files[fd];
+    farr_->files[fd] = std::move(f);
+    if (cloexec) close_on_exec_.set(fd);
+  }
+  if (invalidate) myproc().get_procfs().NotifyFDDestroy(fd);
 }
 
 bool FileTable::Remove(int fd) {
@@ -127,12 +132,14 @@ bool FileTable::Remove(int fd) {
     // Clear close-on-exec.
     close_on_exec_.clear(fd);
   }
+  myproc().get_procfs().NotifyFDDestroy(fd);
   return true;
 }
 
 void FileTable::RemoveRange(int low, int high) {
   assert(low >= 0 && high >= 0);
   std::vector<std::shared_ptr<File>> tmp;
+  std::vector<int> tmp_fd;
   {
     rt::SpinGuard g(lock_);
     int max = farr_->len - 1;
@@ -144,8 +151,11 @@ void FileTable::RemoveRange(int low, int high) {
       if (!farr_->files[fd]) continue;
       tmp.emplace_back(std::move(farr_->files[fd]));
       close_on_exec_.clear(fd);
+      tmp_fd.push_back(fd);
     }
   }
+  auto &procfs = myproc().get_procfs();
+  for (auto &fd : tmp_fd) procfs.NotifyFDDestroy(fd);
 }
 
 void FileTable::SetCloseOnExecRange(int low, int high) {

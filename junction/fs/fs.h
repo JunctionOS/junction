@@ -106,7 +106,6 @@ class Inode : public std::enable_shared_from_this<Inode> {
   // True if this inode can be dropped during snapshotting.
   virtual bool SnapshotPrunable() { return false; }
 
- protected:
   template <class Derived>
   [[nodiscard]] std::shared_ptr<Derived> shared_from_base() {
     return std::static_pointer_cast<Derived>(shared_from_this());

@@ -121,18 +121,18 @@ class ThreadDir : public memfs::MemIDir {
   pid_t tid_;
 };
 
-#if 0
 // /proc/<pid>/fd
 class FDDir : public memfs::MemIDir {
  public:
   FDDir(Token t) : MemIDir(t, 0555) {}
   ~FDDir() override = default;
 
-  Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(std::string_view name)
-  override {
+  Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(
+      std::string_view name) override {
     Status<std::shared_ptr<Process>> tmp = GetProcess();
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<Process> &proc = *tmp;
+    if (proc->exited()) return MakeError(ESTALE);
 
     std::optional<int> fd = ParseInt(name);
     if (!fd) return MakeError(ENOENT);
@@ -140,35 +140,73 @@ class FDDir : public memfs::MemIDir {
     FileTable &ftbl = proc->get_file_table();
     File *f = ftbl.Get(*fd);
     if (!f) return MakeError(ENOENT);
-    return GetFDLink(*f, *fd).get_this();
+    return AddEntry(*f, *fd)->shared_from_this();
   }
+
+  bool SnapshotPrunable() override { return true; }
 
   std::vector<dir_entry> GetDents() override {
     Status<std::shared_ptr<Process>> tmp = GetProcess();
     if (!tmp) return {};
     std::shared_ptr<Process> &proc = *tmp;
+    if (proc->exited()) return {};
 
-    std::vector<dir_entry> ret;
     FileTable &ftbl = proc->get_file_table();
-    ftbl.ForEach([&](File &f, int fd) {
-      ret.emplace_back(std::to_string(fd), 0, kTypeSymLink | 0777);
-    });
-    return ret;
+    dynamic_bitmap present(ftbl.GetLen());
+
+    // Update the dentry cache.
+    {
+      rt::ScopedLock g(lock_);
+
+      ftbl.ForEach([&](File &f, int fd) {
+        if (unlikely(static_cast<size_t>(fd) >= present.size()))
+          present.resize(static_cast<size_t>(fd) * 2 + 1);
+        present.set(fd);
+        if (!check_entry(fd)) AddEntry(f, fd);
+      });
+
+      for_each_set_bit(fds_with_symlink_inodes_, [&](size_t i) {
+        if (!present.test(i)) DeleteEntry(i);
+      });
+    }
+    return MemIDir::GetDents();
+  }
+
+  void NotifyFdInvalidated(int fd) {
+    rt::ScopedLock g(lock_);
+    if (check_entry(fd)) DeleteEntry(fd);
   }
 
  private:
-  DirectoryEntry &GetFDLink(File &f, int fd) {
-    ProcFSData &data = f.get_procfs();
-    if (!data.ent_) {
-      Status<std::shared_ptr<ISoftLink>> ino = memfs::CreateISoftLink(f.get_filename());
-      data.ent_ = InsertLockedNoCheck(std::to_string(fd), std::move(*ino));
-    }
-    return *data.ent_.get();
+  class FDLink : public memfs::MemISoftLink {
+    using MemISoftLink::MemISoftLink;
+    bool SnapshotPrunable() override { return true; }
+  };
+
+  DirectoryEntry *AddEntry(File &f, int fd) {
+    assert(lock_.IsHeld());
+    if (fds_with_symlink_inodes_.size() <= static_cast<size_t>(fd))
+      fds_with_symlink_inodes_.resize(1 + fd * 2);
+    fds_with_symlink_inodes_.set(fd);
+    return AddDentLockedNoCheck(std::to_string(fd),
+                                std::make_shared<FDLink>(f.get_filename()));
+  }
+
+  void DeleteEntry(int fd) {
+    assert(lock_.IsHeld());
+    Status<DirectoryEntry *> dent = FindRaw(std::to_string(fd));
+    if (dent) UnlinkAndDispose(*dent);
+    fds_with_symlink_inodes_.clear(fd);
+  }
+
+  [[nodiscard]] bool check_entry(size_t fd) {
+    if (fds_with_symlink_inodes_.size() <= fd) return false;
+    return fds_with_symlink_inodes_.test(fd);
   }
 
   Status<std::shared_ptr<Process>> GetProcess();
+  dynamic_bitmap fds_with_symlink_inodes_;
 };
-#endif
 
 // /proc/<pid>/task
 class TaskDir : public memfs::MemIDir {
@@ -243,6 +281,11 @@ class ProcessDir : public memfs::MemIDir {
 
   bool is_dead() const { return proc_.use_count() == 0; }
 
+  void NotifyFdInvalidated(int fd) {
+    if (!fd_dir_) return;
+    fd_dir_->NotifyFdInvalidated(fd);
+  }
+
  protected:
   void DoInitialize() override {
     if (is_dead()) return;
@@ -251,7 +294,9 @@ class ProcessDir : public memfs::MemIDir {
     AddDentLockedNoCheck(
         "cmdline", std::make_shared<ProcFSInode<GetCmdLine>>(0444, get_this()));
     AddIDirLockedNoCheck<TaskDir>(std::string(kTaskDirName));
-    // AddDentLockedNoCheck>(std::string(kFDDirName));
+    DirectoryEntry *de = AddIDirLockedNoCheck<FDDir>(std::string(kFDDirName));
+    fd_dir_ =
+        static_cast<FDDir &>(de->get_inode_ref()).shared_from_base<FDDir>();
   }
 
  private:
@@ -272,6 +317,7 @@ class ProcessDir : public memfs::MemIDir {
   }
 
   std::weak_ptr<Process> proc_;
+  std::shared_ptr<FDDir> fd_dir_;
 };
 
 // /proc
@@ -335,13 +381,16 @@ Status<std::shared_ptr<Process>> TaskDir::GetProcess() {
   return dir.GetProcess();
 }
 
-#if 0
 Status<std::shared_ptr<Process>> FDDir::GetProcess() {
-  ProcessDir &dir = 
+  ProcessDir &dir =
       static_cast<ProcessDir &>(get_entry_ref().get_parent_dir_locked());
   return dir.GetProcess();
 }
-#endif
+
+void ProcDirNotify(DirectoryEntry &ent, int fd) {
+  ProcessDir &pdir = static_cast<ProcessDir &>(ent.get_inode_ref());
+  pdir.NotifyFdInvalidated(fd);
+}
 
 class SysRootDir : public memfs::MemIDir {
  public:

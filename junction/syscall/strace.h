@@ -81,7 +81,6 @@ void PrintArg(int op, MessageFlag, rt::Logger &ss);
 
 void PrintArg(const struct sockaddr *addr, rt::Logger &ss);
 
-
 template <typename U>
 inline void PrintArg(struct timespec *t, U, rt::Logger &ss) {
   if (!t) {

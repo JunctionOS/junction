@@ -356,12 +356,14 @@ class FileTable {
 
   // Returns a raw pointer to a file for a given fd number. Returns nullptr
   // if the file does not exist. This fast path does not refcount the file.
-  File *Get(int fd);
+  [[nodiscard]] File *Get(int fd);
+
+  [[nodiscard]] size_t GetLen() const;
 
   // Returns a shared pointer to a file for a given fd number. Typically this
   // is used for dup() or clone() system calls. If the file does not exist,
   // the shared pointer will be empty.
-  std::shared_ptr<File> Dup(int fd);
+  [[nodiscard]] std::shared_ptr<File> Dup(int fd);
 
   // Inserts a file into the file table and refcounts it. Returns the fd number.
   int Insert(std::shared_ptr<File> f, bool cloexec = false, size_t lowest = 0);
@@ -431,6 +433,13 @@ inline File *FileTable::Get(int fd) {
   const FArr *tbl = rcup_.get();
   if (unlikely(static_cast<size_t>(fd) >= tbl->len)) return nullptr;
   return tbl->files[fd].get();
+}
+
+inline size_t FileTable::GetLen() const {
+  rt::RCURead l;
+  rt::RCUReadGuard g(l);
+  const FArr *tbl = rcup_.get();
+  return tbl->len;
 }
 
 template <typename F>

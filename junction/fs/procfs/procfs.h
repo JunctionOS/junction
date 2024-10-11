@@ -9,10 +9,16 @@ class IDir;
 
 namespace procfs {
 
+void ProcDirNotify(DirectoryEntry &ent, int fd);
+
 class ProcFSData {
  public:
   ProcFSData() = default;
   ~ProcFSData();
+
+  inline void NotifyFDDestroy(int fd) {
+    if (ent_) ProcDirNotify(*ent_.get(), fd);
+  }
 
  private:
   friend class ProcRootDir;
