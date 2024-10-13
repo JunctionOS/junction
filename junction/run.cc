@@ -75,6 +75,7 @@ std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
   ld_path_s << ":/lib/x86_64-linux-gnu"
             << ":/usr/lib"
             << ":/usr/lib/x86_64-linux-gnu"
+            << ":/usr/local/lib"
             << ":/usr/lib/jvm/java-17-openjdk-amd64/lib"
             << ":/usr/lib/jvm/java-18-openjdk-amd64/lib"
             << ":/usr/lib/jvm/java-19-openjdk-amd64/lib"

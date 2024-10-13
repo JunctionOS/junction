@@ -269,13 +269,13 @@ Status<void> init() {
   ret = InitUnixTime();
   if (unlikely(!ret)) return ret;
 
+  ret = init_seccomp();
+  if (unlikely(!ret)) return ret;
+
   ret = InitControlServer();
   if (unlikely(!ret)) return ret;
 
-  ret = InitChannelClient();
-  if (unlikely(!ret)) return ret;
-
-  return init_seccomp();
+  return InitChannelClient();
 }
 
 }  // namespace junction

@@ -317,7 +317,7 @@ void PrintArg(int op, FutexOp, rt::Logger &ss) {
   int cmd = op & FUTEX_CMD_MASK;
   PrintValMap(futex_flags, cmd, ss);
 
-  if (op & FUTEX_PRIVATE_FLAG) ss << "|FUTEX_PRIVATE_FLAG";
+  if (op & FUTEX_PRIVATE_FLAG) ss << "|FUTEX_PRIVATE";
   if (op & FUTEX_CLOCK_REALTIME) ss << "|FUTEX_CLOCK_REALTIME";
 }
 

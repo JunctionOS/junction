@@ -9,8 +9,9 @@ extern "C" {
 namespace junction::rt {
 
 Logger::~Logger() {
-  buf_ << '\n';
-  syscall_write(1, buf_.span().data(), buf_.span().size());
+  RuntimeLibcGuard guard_;
+  *buf_ << '\n';
+  syscall_write(1, buf_->span().data(), buf_->span().size());
 }
 
 }  // namespace junction::rt

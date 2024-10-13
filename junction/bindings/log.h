@@ -7,6 +7,7 @@ extern "C" {
 }
 
 #include <iomanip>
+#include <optional>
 #include <spanstream>
 
 #include "junction/bindings/runtime.h"
@@ -20,23 +21,25 @@ class Logger {
   explicit Logger(int level) noexcept {
     uint64_t us = microtime();
     RuntimeLibcGuard guard_;
-    buf_ << "[" << std::setw(3) << (int)(us / ONE_SECOND) << "." << std::setw(6)
-         << std::setfill('0') << (int)(us % ONE_SECOND) << "] CPU "
-         << std::setw(2) << std::setfill('0') << sched_getcpu() << "| <"
-         << level << "> ";
+    buf_.emplace(storage_);
+    *buf_ << "[" << std::setw(3) << (int)(us / ONE_SECOND) << "."
+          << std::setw(6) << std::setfill('0') << (int)(us % ONE_SECOND)
+          << "] CPU " << std::setw(2) << std::setfill('0') << sched_getcpu()
+          << "| <" << level << "> ";
   }
   ~Logger();
 
   template <typename T>
   Logger &operator<<(T const &value) {
     RuntimeLibcGuard guard_;
-    buf_ << value;
+    *buf_ << value;
     return *this;
   }
 
  private:
   std::array<char, kMaxLogBuf> storage_;
-  std::ospanstream buf_{storage_};
+  // buf_ is optional so that we can construct it under the RuntimeLibcGuard.
+  std::optional<std::ospanstream> buf_;
 };
 
 // LOG appends a line to the log at the specified log level.

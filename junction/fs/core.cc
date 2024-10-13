@@ -445,8 +445,7 @@ long usys_openat(int dirfd, const char *pathname, int flags, mode_t mode) {
   if (!f) return MakeCError(f);
   if (flags & kFlagAppend) {
     Status<off_t> ret = (*f)->Seek(0, SeekFrom::kEnd);
-    if (!ret) return MakeCError(ret);
-    (*f)->get_off_ref() = *ret;
+    if (ret) (*f)->get_off_ref() = *ret;
   }
   FileTable &ftbl = p.get_file_table();
   return ftbl.Insert(std::move(*f), (flags & kFlagCloseExec) > 0);

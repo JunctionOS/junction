@@ -46,7 +46,7 @@ Status<std::shared_ptr<Socket>> CreateSocket(int domain, int type,
   if (unlikely(domain == AF_NETLINK))
     return CreateNetlinkSocket(type, flags, protocol);
 
-  if (unlikely(domain != AF_INET)) return MakeError(EINVAL);
+  if (unlikely(domain != AF_INET)) return MakeError(EAFNOSUPPORT);
   if (type == SOCK_STREAM)
     return std::make_shared<TCPSocket>(flags);
   else if (type == SOCK_DGRAM)
