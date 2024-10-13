@@ -1,7 +1,7 @@
-From ac9571666d7484f0358e49ad27209081b619f8b6 Mon Sep 17 00:00:00 2001
+From 59013d135ad5f55e60afd2c0da50c9415eee7962 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 14 Mar 2023 10:23:33 -0400
-Subject: [PATCH 14/41] support external polling for tcp/udp sockets
+Subject: [PATCH 14/44] support external polling for tcp/udp sockets
 
 ---
  inc/runtime/poll.h   | 23 ++++++++++++
@@ -14,7 +14,7 @@ Subject: [PATCH 14/41] support external polling for tcp/udp sockets
  7 files changed, 191 insertions(+), 8 deletions(-)
 
 diff --git a/inc/runtime/poll.h b/inc/runtime/poll.h
-index 8658690d..86046ef4 100644
+index 8658690..86046ef 100644
 --- a/inc/runtime/poll.h
 +++ b/inc/runtime/poll.h
 @@ -9,6 +9,29 @@
@@ -48,7 +48,7 @@ index 8658690d..86046ef4 100644
  	spinlock_t		lock;
  	struct list_head	triggered;
 diff --git a/inc/runtime/tcp.h b/inc/runtime/tcp.h
-index 338fdf34..4d01ca24 100644
+index 338fdf3..4d01ca2 100644
 --- a/inc/runtime/tcp.h
 +++ b/inc/runtime/tcp.h
 @@ -5,6 +5,7 @@
@@ -70,7 +70,7 @@ index 338fdf34..4d01ca24 100644
 +			                    poll_notif_fn_t clearfn, unsigned long data);
 +
 diff --git a/inc/runtime/udp.h b/inc/runtime/udp.h
-index 1e15c460..2aa84efa 100644
+index 1e15c46..2aa84ef 100644
 --- a/inc/runtime/udp.h
 +++ b/inc/runtime/udp.h
 @@ -9,6 +9,7 @@
@@ -91,7 +91,7 @@ index 1e15c460..2aa84efa 100644
  /*
   * UDP Parallel API
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index 0565354c..3528b3dc 100644
+index c3104af..32bca48 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
 @@ -3,6 +3,7 @@
@@ -167,7 +167,7 @@ index 0565354c..3528b3dc 100644
  
  	/* prevent ingress receive and error dispatch (after RCU period) */
 @@ -645,6 +661,9 @@ void tcp_qclose(tcpqueue_t *q)
- 		tcp_conn_destroy(c);
+ 		tcp_close(c);
  	}
  
 +	q->poll_src.set_fn = NULL;
@@ -176,7 +176,7 @@ index 0565354c..3528b3dc 100644
  	kref_put(&q->ref, tcp_queue_release_ref);
  }
  
-@@ -886,6 +905,10 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
+@@ -888,6 +907,10 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
  		      c->tx_last_ack + c->tx_last_win + c->winmax / 4)) {
  		do_ack = true;
  	}
@@ -187,7 +187,7 @@ index 0565354c..3528b3dc 100644
  	spin_unlock_np(&c->lock);
  
  	if (do_ack)
-@@ -1115,6 +1138,10 @@ static void tcp_write_finish(tcpconn_t *c)
+@@ -1117,6 +1140,10 @@ static void tcp_write_finish(tcpconn_t *c)
  
  	tcp_timer_update(c);
  	waitq_release_start(&c->tx_wq, &waiters);
@@ -198,7 +198,7 @@ index 0565354c..3528b3dc 100644
  	spin_unlock_np(&c->lock);
  
  	tcp_tx_fast_retransmit_finish(c, retransmit);
-@@ -1229,6 +1256,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
+@@ -1232,6 +1259,7 @@ void tcp_conn_fail(tcpconn_t *c, int err)
  	if (!c->tx_closed) {
  		store_release(&c->tx_closed, true);
  		waitq_release(&c->tx_wq);
@@ -206,7 +206,7 @@ index 0565354c..3528b3dc 100644
  	}
  
  	/* will be freed by the writer if one is busy */
-@@ -1260,6 +1288,7 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
+@@ -1264,6 +1292,7 @@ void tcp_conn_shutdown_rx(tcpconn_t *c)
  	if (c->rx_closed)
  		return;
  
@@ -214,7 +214,7 @@ index 0565354c..3528b3dc 100644
  	c->rx_closed = true;
  	waitq_release(&c->rx_wq);
  }
-@@ -1291,6 +1320,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
+@@ -1297,6 +1326,7 @@ static int tcp_conn_shutdown_tx(tcpconn_t *c)
  	else
  		WARN();
  
@@ -222,7 +222,7 @@ index 0565354c..3528b3dc 100644
  	c->tx_closed = true;
  	waitq_release(&c->tx_wq);
  
-@@ -1375,6 +1405,10 @@ void tcp_close(tcpconn_t *c)
+@@ -1381,6 +1411,10 @@ void tcp_close(tcpconn_t *c)
  	if (ret)
  		tcp_conn_fail(c, -ret);
  	tcp_conn_shutdown_rx(c);
@@ -233,7 +233,7 @@ index 0565354c..3528b3dc 100644
  	spin_unlock_np(&c->lock);
  
  	tcp_conn_put(c);
-@@ -1400,6 +1434,55 @@ void tcpq_set_nonblocking(tcpqueue_t *q, bool nonblocking)
+@@ -1406,6 +1440,55 @@ void tcpq_set_nonblocking(tcpqueue_t *q, bool nonblocking)
  	spin_unlock_np(&q->l);
  }
  
@@ -290,7 +290,7 @@ index 0565354c..3528b3dc 100644
   * tcp_init_late - starts the TCP worker thread
   *
 diff --git a/runtime/net/tcp.h b/runtime/net/tcp.h
-index e9fd3ef3..625281bd 100644
+index e9fd3ef..625281b 100644
 --- a/runtime/net/tcp.h
 +++ b/runtime/net/tcp.h
 @@ -92,6 +92,8 @@ struct tcpconn {
@@ -303,7 +303,7 @@ index e9fd3ef3..625281bd 100644
  	bool			rx_closed;
  	bool			rx_exclusive;
 diff --git a/runtime/net/tcp_in.c b/runtime/net/tcp_in.c
-index d3fac688..0499c1d9 100644
+index d3fac68..0499c1d 100644
 --- a/runtime/net/tcp_in.c
 +++ b/runtime/net/tcp_in.c
 @@ -7,6 +7,8 @@
@@ -348,7 +348,7 @@ index d3fac688..0499c1d9 100644
  		if (++c->acks_delayed_cnt >= 2) {
  			do_ack = true;
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index ad356607..e79e6330 100644
+index ad35660..e79e633 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -3,6 +3,7 @@
@@ -510,5 +510,5 @@ index ad356607..e79e6330 100644
  /*
   * Parallel API
 -- 
-2.43.0
+2.34.1
 
