@@ -19,7 +19,7 @@ namespace junction::procfs {
 inline static constexpr std::string_view kTaskDirName = "task";
 inline static constexpr std::string_view kFDDirName = "fd";
 
-std::string GetMemInfo(IDir *) {
+std::string GetMemInfo() {
   auto free = kMemoryMappingSize - myproc().get_mem_map().VirtualUsage();
   std::stringstream ss;
   ss << "MemTotal:       " << std::setw(8) << kMemoryMappingSize / 1024
@@ -35,14 +35,8 @@ std::string GetMemInfo(IDir *) {
   return ss.str();
 }
 
-std::string GetMounts(IDir *) {
+std::string GetMounts() {
   return "tmpfs / tmpfs rw,nosuid,nodev,inode64 0 0\n";
-}
-
-std::string GetMacAddr(IDir *) {
-  auto &mac = netcfg.mac.addr;
-  return std::format("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}", mac[0],
-                     mac[1], mac[2], mac[3], mac[4], mac[5]);
 }
 
 std::optional<int> ParseInt(std::string_view s) {
@@ -56,33 +50,41 @@ ProcFSData::~ProcFSData() {
   if (ent_) ent_->get_parent_dir_locked().Unmount(ent_->get_name_locked());
 }
 
-std::string GetPidString(IDir *) { return std::to_string(myproc().get_pid()); }
+std::string GetPidString() { return std::to_string(myproc().get_pid()); }
 
-template <std::string (*Gen)(IDir *)>
-class ProcFSLink : public ISoftLink {
- public:
-  ProcFSLink(mode_t mode, std::shared_ptr<IDir> parent = {})
-      : ISoftLink(mode, AllocateInodeNumber()), parent_(std::move(parent)) {}
-
+class ProcFSLink : public memfs::MemISoftLink {
+  using MemISoftLink::MemISoftLink;
   bool SnapshotPrunable() override { return true; }
+  Status<void> GetStats(struct stat *buf) const override {
+    InodeToStats(*this, buf);
+    return {};
+  }
+};
 
-  std::string ReadLink() const override { return Gen(parent_.get()); };
+class ProcFSDir : public memfs::MemIDir {
+  using MemIDir::MemIDir;
+  bool SnapshotPrunable() override { return true; }
+};
 
+class ProcFSGenLink : public ISoftLink {
+ public:
+  ProcFSGenLink(mode_t mode, std::function<std::string()> func)
+      : ISoftLink(mode, AllocateInodeNumber()), gen_(std::move(func)) {}
+  std::string ReadLink() const override { return gen_(); };
   Status<void> GetStats(struct stat *buf) const override {
     InodeToStats(*this, buf);
     return {};
   }
 
  private:
-  std::shared_ptr<IDir> parent_;
+  std::function<std::string()> gen_;
 };
 
-template <std::string (*Gen)(IDir *)>
 class ProcFSInode : public Inode {
  public:
-  ProcFSInode(mode_t mode, std::shared_ptr<IDir> parent = {})
+  ProcFSInode(mode_t mode, std::function<std::string()> func)
       : Inode(kTypeRegularFile | mode, AllocateInodeNumber()),
-        parent_(std::move(parent)) {}
+        gen_(std::move(func)) {}
 
   Status<void> GetStats(struct stat *buf) const override {
     InodeToStats(*this, buf);
@@ -95,36 +97,27 @@ class ProcFSInode : public Inode {
   Status<std::shared_ptr<File>> Open(
       uint32_t flags, FileMode mode,
       std::shared_ptr<DirectoryEntry> dent) override {
-    return std::make_shared<SeqFile>(flags, std::move(dent),
-                                     Gen(parent_.get()));
+    return std::make_shared<SeqFile>(flags, std::move(dent), gen_());
   }
 
  private:
-  std::shared_ptr<IDir> parent_;
+  std::function<std::string()> gen_;
 };
 
-// /proc/<pid>/task/<tid>
-class ThreadDir : public memfs::MemIDir {
- public:
-  ThreadDir(Token token, Thread &t)
-      : MemIDir(token, 0555),
-        proc_(t.get_process().weak_from_this()),
-        tid_(t.get_tid()) {}
+template <typename Func>
+std::shared_ptr<Inode> MakeInode(mode_t mode, Func func) {
+  return std::make_shared<ProcFSInode>(mode, std::forward<Func>(func));
+}
 
-  bool SnapshotPrunable() override { return true; }
-
- protected:
-  void DoInitialize() override {}
-
- private:
-  std::weak_ptr<Process> proc_;
-  pid_t tid_;
-};
+template <typename Func>
+std::shared_ptr<Inode> MakeLink(mode_t mode, Func func) {
+  return std::make_shared<ProcFSGenLink>(mode, std::forward<Func>(func));
+}
 
 // /proc/<pid>/fd
-class FDDir : public memfs::MemIDir {
+class FDDir : public ProcFSDir {
  public:
-  FDDir(Token t) : MemIDir(t, 0555) {}
+  FDDir(Token t) : ProcFSDir(t, 0555) {}
   ~FDDir() override = default;
 
   Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(
@@ -142,8 +135,6 @@ class FDDir : public memfs::MemIDir {
     if (!f) return MakeError(ENOENT);
     return AddEntry(*f, *fd)->shared_from_this();
   }
-
-  bool SnapshotPrunable() override { return true; }
 
   std::vector<dir_entry> GetDents() override {
     Status<std::shared_ptr<Process>> tmp = GetProcess();
@@ -178,18 +169,13 @@ class FDDir : public memfs::MemIDir {
   }
 
  private:
-  class FDLink : public memfs::MemISoftLink {
-    using MemISoftLink::MemISoftLink;
-    bool SnapshotPrunable() override { return true; }
-  };
-
   DirectoryEntry *AddEntry(File &f, int fd) {
     assert(lock_.IsHeld());
     if (fds_with_symlink_inodes_.size() <= static_cast<size_t>(fd))
       fds_with_symlink_inodes_.resize(1 + fd * 2);
     fds_with_symlink_inodes_.set(fd);
     return AddDentLockedNoCheck(std::to_string(fd),
-                                std::make_shared<FDLink>(f.get_filename()));
+                                std::make_shared<ProcFSLink>(f.get_filename()));
   }
 
   void DeleteEntry(int fd) {
@@ -209,12 +195,10 @@ class FDDir : public memfs::MemIDir {
 };
 
 // /proc/<pid>/task
-class TaskDir : public memfs::MemIDir {
+class TaskDir : public ProcFSDir {
  public:
-  TaskDir(Token t) : MemIDir(t, 0555) {}
+  TaskDir(Token t) : ProcFSDir(t, 0555) {}
   ~TaskDir() override = default;
-
-  bool SnapshotPrunable() override { return true; }
 
   Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(
       std::string_view name) override {
@@ -229,7 +213,7 @@ class TaskDir : public memfs::MemIDir {
       return GetThreadDir(***th).shared_from_this();
     }
     DoInitCheckLocked();
-    return MemIDir::LookupMissLocked(name);
+    return ProcFSDir::LookupMissLocked(name);
   }
 
   std::vector<dir_entry> GetDents() override {
@@ -243,7 +227,7 @@ class TaskDir : public memfs::MemIDir {
       rt::ScopedLock g(lock_);
       proc->ForEachThread([&](Thread &t) { GetThreadDir(t); });
     }
-    return MemIDir::GetDents();
+    return ProcFSDir::GetDents();
   }
 
  protected:
@@ -255,7 +239,7 @@ class TaskDir : public memfs::MemIDir {
     ProcFSData &data = t.get_procfs();
     if (!data.ent_) {
       data.ent_ =
-          AddIDirLockedNoCheck<ThreadDir>(std::to_string(t.get_tid()), t)
+          AddIDirLockedNoCheck<ProcFSDir>(std::to_string(t.get_tid()), 0555)
               ->shared_from_this();
     }
     return *data.ent_.get();
@@ -265,10 +249,10 @@ class TaskDir : public memfs::MemIDir {
 };
 
 // /proc/<pid>
-class ProcessDir : public memfs::MemIDir {
+class ProcessDir : public ProcFSDir {
  public:
   ProcessDir(Token t, Process &p)
-      : MemIDir(t, 0555), proc_(p.weak_from_this()) {}
+      : ProcFSDir(t, 0555), proc_(p.weak_from_this()) {}
   ~ProcessDir() override = default;
 
   Status<std::shared_ptr<Process>> GetProcess() {
@@ -276,8 +260,6 @@ class ProcessDir : public memfs::MemIDir {
     if (!proc) return MakeError(ESTALE);
     return std::move(proc);
   }
-
-  bool SnapshotPrunable() override { return true; }
 
   bool is_dead() const { return proc_.use_count() == 0; }
 
@@ -289,10 +271,10 @@ class ProcessDir : public memfs::MemIDir {
  protected:
   void DoInitialize() override {
     if (is_dead()) return;
+    AddDentLockedNoCheck("exe",
+                         MakeLink(0777, [p = proc_] { return GetExe(p); }));
     AddDentLockedNoCheck(
-        "exe", std::make_shared<ProcFSLink<GetExe>>(0777, get_this()));
-    AddDentLockedNoCheck(
-        "cmdline", std::make_shared<ProcFSInode<GetCmdLine>>(0444, get_this()));
+        "cmdline", MakeInode(0444, [p = proc_] { return GetCmdLine(p); }));
     AddIDirLockedNoCheck<TaskDir>(std::string(kTaskDirName));
     DirectoryEntry *de = AddIDirLockedNoCheck<FDDir>(std::string(kFDDirName));
     fd_dir_ =
@@ -300,18 +282,14 @@ class ProcessDir : public memfs::MemIDir {
   }
 
  private:
-  static std::string GetExe(IDir *parent) {
-    assert(parent);
-    ProcessDir &dir = static_cast<ProcessDir &>(*parent);
-    std::shared_ptr<Process> p = dir.proc_.lock();
+  static std::string GetExe(std::weak_ptr<Process> proc) {
+    std::shared_ptr<Process> p = proc.lock();
     if (!p) return "[stale]";
     return std::string(p->get_mem_map().get_bin_path());
   }
 
-  static std::string GetCmdLine(IDir *parent) {
-    assert(parent);
-    ProcessDir &dir = static_cast<ProcessDir &>(*parent);
-    std::shared_ptr<Process> p = dir.proc_.lock();
+  static std::string GetCmdLine(std::weak_ptr<Process> proc) {
+    std::shared_ptr<Process> p = proc.lock();
     if (!p) return "[stale]";
     return std::string(p->get_mem_map().get_cmd_line());
   }
@@ -321,9 +299,9 @@ class ProcessDir : public memfs::MemIDir {
 };
 
 // /proc
-class ProcRootDir : public memfs::MemIDir {
+class ProcRootDir : public ProcFSDir {
  public:
-  ProcRootDir(Token t) : MemIDir(t, 0555) {}
+  ProcRootDir(Token t) : ProcFSDir(t, 0555) {}
 
   Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(
       std::string_view name) override {
@@ -336,10 +314,8 @@ class ProcRootDir : public memfs::MemIDir {
     }
 
     DoInitCheckLocked();
-    return MemIDir::LookupMissLocked(name);
+    return ProcFSDir::LookupMissLocked(name);
   }
-
-  bool SnapshotPrunable() override { return true; }
 
   std::vector<dir_entry> GetDents() override {
     DoInitCheck();
@@ -353,12 +329,9 @@ class ProcRootDir : public memfs::MemIDir {
 
  protected:
   void DoInitialize() override {
-    AddDentLockedNoCheck("self",
-                         std::make_shared<ProcFSLink<GetPidString>>(0777));
-    AddDentLockedNoCheck("stat",
-                         std::make_shared<ProcFSInode<GetMemInfo>>(0444));
-    AddDentLockedNoCheck("mounts",
-                         std::make_shared<ProcFSInode<GetMounts>>(0444));
+    AddDentLockedNoCheck("self", MakeLink(0777, GetPidString));
+    AddDentLockedNoCheck("stat", MakeInode(0444, GetMemInfo));
+    AddDentLockedNoCheck("mounts", MakeInode(0444, GetMounts));
   }
 
  private:
@@ -388,24 +361,46 @@ Status<std::shared_ptr<Process>> FDDir::GetProcess() {
 }
 
 void ProcDirNotify(DirectoryEntry &ent, int fd) {
-  ProcessDir &pdir = static_cast<ProcessDir &>(ent.get_inode_ref());
+  ProcessDir &pdir = fast_cast<ProcessDir &>(ent.get_inode_ref());
   pdir.NotifyFdInvalidated(fd);
 }
 
-class SysRootDir : public memfs::MemIDir {
- public:
-  SysRootDir(Token t) : MemIDir(t, 0555) {}
+std::shared_ptr<IDir> MkFolder(IDir &parent, std::string name, mode_t mode) {
+  std::shared_ptr<DirectoryEntry> de =
+      parent.AddIDirNoCheck<ProcFSDir>(std::move(name), mode);
+  return static_cast<IDir &>(de->get_inode_ref()).get_this();
+}
 
-  bool SnapshotPrunable() override { return true; }
+class SysRootDir : public ProcFSDir {
+ public:
+  SysRootDir(Token t) : ProcFSDir(t, 0555) {}
 
  protected:
   void DoInitialize() override {
-    auto classdirent = AddIDirLockedNoCheck<MemIDir>("class", 0655);
-    auto &classdir = static_cast<IDir &>(classdirent->get_inode_ref());
-    auto netdir = memfs::MkFolder(classdir, "net", 0655);
-    auto ethdir = memfs::MkFolder(*netdir.get(), "eth0", 0655);
-    ethdir->Link("address", std::make_shared<ProcFSInode<GetMacAddr>>(
-                                0444, ethdir->get_this()));
+    auto ent = AddIDirLockedNoCheck<ProcFSDir>("class", 0655);
+    auto dir = MkFolder(static_cast<IDir &>(ent->get_inode_ref()), "net", 0655);
+    dir = MkFolder(*dir.get(), "eth0", 0655);
+    dir->Link("address", MakeInode(0444, GetMacAddr));
+
+    ent = AddIDirLockedNoCheck<ProcFSDir>("devices", 0655);
+    dir = MkFolder(static_cast<IDir &>(ent->get_inode_ref()), "system", 0655);
+    dir = MkFolder(*dir.get(), "cpu", 0655);
+    std::shared_ptr<Inode> cpuListIno = MakeInode(0444, GetCpus);
+    dir->Link("online", cpuListIno);
+    dir->Link("possible", std::move(cpuListIno));
+  }
+
+ private:
+  static std::string GetCpus() {
+    size_t cores = rt::RuntimeMaxCores();
+    if (cores == 1) return "0\n";
+    return std::format("0-{}\n", cores - 1);
+  }
+
+  static std::string GetMacAddr() {
+    auto &mac = netcfg.mac.addr;
+    return std::format("{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}\n", mac[0],
+                       mac[1], mac[2], mac[3], mac[4], mac[5]);
   }
 };
 
