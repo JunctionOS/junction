@@ -71,6 +71,7 @@ class ProcFSGenLink : public ISoftLink {
   ProcFSGenLink(mode_t mode, std::function<std::string()> func)
       : ISoftLink(mode, AllocateInodeNumber()), gen_(std::move(func)) {}
   std::string ReadLink() const override { return gen_(); };
+  bool SnapshotPrunable() override { return true; }
   Status<void> GetStats(struct stat *buf) const override {
     InodeToStats(*this, buf);
     return {};
