@@ -1,16 +1,116 @@
-From 41cf60d428f1019de3fd54a811c983e3fbbf8d30 Mon Sep 17 00:00:00 2001
+From cfc65241cb30df3570585c69ef437f919468a399 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 1 Oct 2024 22:00:23 -0400
 Subject: [PATCH 43/43] net updates
 
 ---
- inc/runtime/tcp.h |  32 ++++++++--
- inc/runtime/udp.h |  22 +++++--
- runtime/net/tcp.c | 152 +++++++++++++++++++++++++++-------------------
- runtime/net/udp.c |  16 ++---
- runtime/stat.c    |   2 +-
- 5 files changed, 142 insertions(+), 82 deletions(-)
+ bindings/rust/src/tcp.rs    |  20 ++++-
+ bindings/rust/src/thread.rs |   2 +-
+ bindings/rust/src/udp.rs    |   8 +-
+ inc/runtime/tcp.h           |  32 ++++++--
+ inc/runtime/udp.h           |  22 +++++-
+ runtime/net/tcp.c           | 152 +++++++++++++++++++++---------------
+ runtime/net/udp.c           |  16 ++--
+ runtime/stat.c              |   2 +-
+ 8 files changed, 164 insertions(+), 90 deletions(-)
 
+diff --git a/bindings/rust/src/tcp.rs b/bindings/rust/src/tcp.rs
+index 1c96709..fe83e8c 100644
+--- a/bindings/rust/src/tcp.rs
++++ b/bindings/rust/src/tcp.rs
+@@ -98,21 +98,33 @@ impl TcpConnection {
+ impl<'a> Read for &'a TcpConnection {
+     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+         isize_to_result(unsafe {
+-            ffi::tcp_read(self.0, buf.as_mut_ptr() as *mut c_void, buf.len() as _) as _
++            ffi::tcp_read2(
++                self.0,
++                buf.as_mut_ptr() as *mut c_void,
++                buf.len() as _,
++                false,
++                false,
++            ) as _
+         })
+     }
+ }
+ impl Read for TcpConnection {
+     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+         isize_to_result(unsafe {
+-            ffi::tcp_read(self.0, buf.as_mut_ptr() as *mut c_void, buf.len() as _) as _
++            ffi::tcp_read2(
++                self.0,
++                buf.as_mut_ptr() as *mut c_void,
++                buf.len() as _,
++                false,
++                false,
++            ) as _
+         })
+     }
+ }
+ impl<'a> Write for &'a TcpConnection {
+     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+         isize_to_result(unsafe {
+-            ffi::tcp_write(self.0, buf.as_ptr() as *const c_void, buf.len() as _) as _
++            ffi::tcp_write2(self.0, buf.as_ptr() as *const c_void, buf.len() as _, false) as _
+         })
+     }
+     fn flush(&mut self) -> io::Result<()> {
+@@ -122,7 +134,7 @@ impl<'a> Write for &'a TcpConnection {
+ impl Write for TcpConnection {
+     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+         isize_to_result(unsafe {
+-            ffi::tcp_write(self.0, buf.as_ptr() as *const c_void, buf.len() as _)
++            ffi::tcp_write2(self.0, buf.as_ptr() as *const c_void, buf.len() as _, false)
+         })
+     }
+     fn flush(&mut self) -> io::Result<()> {
+diff --git a/bindings/rust/src/thread.rs b/bindings/rust/src/thread.rs
+index 6452bca..e7ce0c6 100644
+--- a/bindings/rust/src/thread.rs
++++ b/bindings/rust/src/thread.rs
+@@ -6,7 +6,7 @@ use std::{mem, panic, ptr};
+ use super::*;
+ 
+ pub(crate) fn thread_self() -> *mut ffi::thread_t {
+-    let t: * mut ffi::thread_t;
++    let t: *mut ffi::thread_t;
+     unsafe {
+         asm!("mov {0:r}, QWORD PTR gs:[rip + {1}]", out(reg) t, sym ffi::__perthread___self);
+     }
+diff --git a/bindings/rust/src/udp.rs b/bindings/rust/src/udp.rs
+index d24b98a..61fb1d8 100644
+--- a/bindings/rust/src/udp.rs
++++ b/bindings/rust/src/udp.rs
+@@ -58,12 +58,13 @@ impl UdpConnection {
+     pub fn read_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddrV4)> {
+         let mut raddr = ffi::netaddr { ip: 0, port: 0 };
+         isize_to_result(unsafe {
+-            ffi::udp_read_from(
++            ffi::udp_read_from2(
+                 self.0,
+                 buf.as_mut_ptr() as *mut c_void,
+                 buf.len() as _,
+                 &mut raddr as *mut _,
+-		false,
++                false,
++                false,
+             )
+         })
+         .map(|u| (u, SocketAddrV4::new(raddr.ip.into(), raddr.port)))
+@@ -75,11 +76,12 @@ impl UdpConnection {
+             port: remote_addr.port(),
+         };
+         isize_to_result(unsafe {
+-            ffi::udp_write_to(
++            ffi::udp_write_to2(
+                 self.0,
+                 buf.as_ptr() as *const c_void as *mut c_void,
+                 buf.len() as _,
+                 &mut raddr as *mut _,
++                false,
+             )
+         })
+     }
 diff --git a/inc/runtime/tcp.h b/inc/runtime/tcp.h
 index 432edef..8cc2541 100644
 --- a/inc/runtime/tcp.h

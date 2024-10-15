@@ -1,18 +1,18 @@
-From 6b1978e10ded4380524aeeff09455fe2ed55c3ed Mon Sep 17 00:00:00 2001
+From 2ac717a78bc3c55e6ddb01d8910c2061de2aa83a Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 29 Nov 2022 15:59:55 -0500
 Subject: [PATCH 05/43] base/runtime - make all runtime syscalls from a set
  instruction range
 
 ---
- Makefile           |  5 +++--
- base/mem.c         | 22 ++++---------------
- base/syscall.S     | 54 ++++++++++++++++++++++++++++++++++++++++++++++
- inc/base/syscall.h | 21 ++++++++++++++++++
- runtime/kthread.c  |  5 +++--
- runtime/preempt.c  | 33 ++++++++++++++++++++++++----
+ Makefile           |  5 ++--
+ base/mem.c         | 24 ++++---------------
+ base/syscall.S     | 57 ++++++++++++++++++++++++++++++++++++++++++++++
+ inc/base/syscall.h | 21 +++++++++++++++++
+ runtime/kthread.c  |  5 ++--
+ runtime/preempt.c  | 33 +++++++++++++++++++++++----
  runtime/stack.c    |  7 +++---
- 7 files changed, 118 insertions(+), 29 deletions(-)
+ 7 files changed, 122 insertions(+), 30 deletions(-)
  create mode 100644 base/syscall.S
  create mode 100644 inc/base/syscall.h
 
@@ -40,7 +40,7 @@ index f3e4bd2..a5341f1 100644
  dep = $(obj:.o=.d)
  
 diff --git a/base/mem.c b/base/mem.c
-index 6266fb1..b923018 100644
+index 6266fb1..6a5e5ce 100644
 --- a/base/mem.c
 +++ b/base/mem.c
 @@ -18,6 +18,7 @@
@@ -84,7 +84,7 @@ index 6266fb1..b923018 100644
  }
  
  static void *
-@@ -98,12 +84,12 @@ __mem_map_anom(void *base, size_t len, size_t pgsize,
+@@ -98,17 +84,17 @@ __mem_map_anom(void *base, size_t len, size_t pgsize,
  	  return MAP_FAILED;
  	}
  
@@ -100,12 +100,18 @@ index 6266fb1..b923018 100644
  		  mask ? NNUMA + 1 : 0, MPOL_MF_STRICT | MPOL_MF_MOVE))
  		goto fail;
  
+ 	if (cfg_transparent_hugepages_enabled && (pgsize > PGSIZE_4KB)) {
+-	  if (madvise(addr, len, MADV_HUGEPAGE))
++	  if (syscall_madvise(addr, len, MADV_HUGEPAGE))
+ 	    goto fail;
+ 	}
+ 
 diff --git a/base/syscall.S b/base/syscall.S
 new file mode 100644
-index 0000000..d98d2e4
+index 0000000..df53b75
 --- /dev/null
 +++ b/base/syscall.S
-@@ -0,0 +1,54 @@
+@@ -0,0 +1,57 @@
 +
 +#include <asm/unistd_64.h>
 +
@@ -141,6 +147,9 @@ index 0000000..d98d2e4
 +.globl syscall_rt_sigreturn
 +syscall_rt_sigreturn:
 +	movl    $__NR_rt_sigreturn, %eax
++        // Invalidate the alternate signal stack entry in this frame
++        // so the kernel doesn't change it.
++	movl    $4, 24(%rsp)
 +	syscall
 +	ret
 +
