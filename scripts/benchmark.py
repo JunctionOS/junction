@@ -13,18 +13,15 @@ import stat
 import subprocess
 import sys
 import time
-import numpy as np
 import multiprocessing
 import contextlib
 import psutil
 import shlex
 from minio import Minio
 
-import pandas as pd
 import matplotlib as mpl
 
 mpl.use("Agg")
-import matplotlib.pyplot as plt
 
 from termcolor import colored
 
@@ -51,7 +48,7 @@ CALADAN_DIR = f"{ROOT_DIR}/lib/caladan"
 CHROOT_DIR = f"{ROOT_DIR}/chroot"
 RESULT_DIR = f"{ROOT_DIR}/results"
 RESULT_LINK = f"{ROOT_DIR}/results/run.recent"
-NODE_BIN = f"/usr/bin/node"
+NODE_BIN = "/usr/bin/node"
 NODE_PATH = f"{ROOT_DIR}/bin/node_modules"
 LOADGEN_PATH = f"{CALADAN_DIR}/apps/synthetic/target/release/synthetic"
 
@@ -207,7 +204,6 @@ DENSITY_CONFIG_SET = {
         'cold': True,
         'reorder': False,
         'minor': False,
-        'reorder': False,
     },
     "sharing_libs_only": {
         'same_image': False,
@@ -216,7 +212,6 @@ DENSITY_CONFIG_SET = {
         'cold': True,
         'reorder': False,
         'minor': False,
-        'reorder': False,
     },
 }
 
@@ -290,16 +285,15 @@ def run_iok(directpath: bool = False,
         return
     run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh nouintr")
     if not hugepages:
-        run(f"echo 0 | sudo tee /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages > /dev/null"
-            )
-    run(f"sudo chmod 777 /tmp/iokernel0.log || true")
+        run("echo 0 | sudo tee /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages > /dev/null")
+    run("sudo chmod 777 /tmp/iokernel0.log || true")
     hugepages = "" if hugepages else "nohugepages"
     cgexec = 'cgexec -g memory:junction_iokernel' if cgroup else ''
 
     if directpath:
         try:
             pci = get_vfio_pci()
-        except:
+        except Exception:
             assert False, "Failed to find Mellanox virtual NIC (rerun setup_vfs script)"
 
         run(f"sudo {cgexec} {CALADAN_DIR}/iokerneld ias nobw {hugepages} vfio nicpci {pci} > /tmp/iokernel0.log 2>&1 &"
@@ -357,7 +351,7 @@ def build_loadgen():
 
     with pushd(f"{CALADAN_DIR}/apps/synthetic"):
         run("cargo clean")
-        run(f"cargo b -r")
+        run("cargo b -r")
 
     run(r"sed -i '/^FLAGS += -march=native/a\FLAGS += -flto=auto' " +
         f"{CALADAN_DIR}/build/shared.mk")
@@ -387,7 +381,7 @@ def start_minio_server():
         return
 
     path = f"{CHROOT_DIR}/{MINIO_DATA_PATH}" if ARGS.use_chroot else MINIO_DATA_PATH
-    minio = run_async(f"sudo -E {MINIO} server {path} > /dev/null 2>&1")
+    _minio = run_async(f"sudo -E {MINIO} server {path} > /dev/null 2>&1")
     time.sleep(1)
 
     client = Minio('localhost:9000',
@@ -411,7 +405,7 @@ def start_minio_server():
         f"host_addr {MINIO_IP}",
         f"host_netmask {MINIO_MASK}",
         f"host_gateway {MINIO_GATEWAY}",
-        f"runtime_kthreads 2",  # seems like minio does gc sometimes
+        "runtime_kthreads 2",  # seems like minio does gc sometimes
         "runtime_spinning_kthreads 0",
         "runtime_guaranteed_kthreads 0",
         "runtime_priority lc",
@@ -438,7 +432,7 @@ def kill_mem_cgroup():
 
 
 def kill_minio():
-    run(f"sudo pkill junction_run || true")
+    run("sudo pkill junction_run || true")
 
 
 def setup_mem_cgroup():
@@ -673,7 +667,8 @@ class Test:
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
         prefix = self.snapshot_prefix()
 
-        if cold: dropcache()
+        if cold:
+            dropcache()
 
         self.jrun(f"-r {junction_args} {chroot_args()}",
                   f"{prefix}.metadata {prefix}.elf", f"{output_log}_elf")
@@ -700,7 +695,8 @@ class Test:
 
         jif_fname = construct_jif_fname(self, itrees, reorder)
 
-        if cold: dropcache()
+        if cold:
+            dropcache()
 
         self.jrun(f"{junction_args} {mem_flags} {chroot_args()} --jif -r",
                   f"{prefix}.jm {jif_fname}", f"{output_log}_jif")
@@ -881,7 +877,7 @@ class Test:
                     reorder=True)
 
             if False:
-                for tag, function in [("simple", FLOAT_OPERATION),
+                for tag, function in [("simple", "float_operation"),
                                       ("self", self)]:
                     self.jifpager_restore_jif(
                         f"{output_log}_prefault_reorder_{tag}",
@@ -916,9 +912,10 @@ class Test:
 
 
 class PyFBenchTest(Test):
-
     def __init__(self, name: str, s3=False, do_second_apps=True, **args):
-        new_version_fn = lambda cmd: cmd.replace('run.py', 'new_runner.py')
+        def new_version_fn(cmd):
+            return cmd.replace('run.py', 'new_runner.py')
+
         super().__init__(
             'python',
             name,
@@ -1058,7 +1055,7 @@ def kill_pid_and_kids(pid, force_kill=False):
     try:
         kids = subprocess.check_output(
             shlex.split(f"ps -o pid --ppid {pid} --noheaders")).splitlines()
-    except:
+    except Exception:
         kids = []
     for i in kids:
         kill_pid_and_kids(int(i.strip()))
@@ -1209,9 +1206,9 @@ def restore_images_async(output_prefix: str,
                          wait_for_apps: bool = False):
     cold = cfg['cold']
     minor = cfg['minor']
-    reorder = cfg['reorder']
+    _reorder = cfg['reorder']
     prefault = cfg['prefault']
-    itrees = cfg['itrees']
+    _itrees = cfg['itrees']
     same_image = cfg['same_image']
 
     set_fault_around(1)
@@ -1221,7 +1218,7 @@ def restore_images_async(output_prefix: str,
     set_wait_for_pages(1)
     set_trace(0)
 
-    path = CHROOT_DIR if ARGS.use_chroot else ""
+    _path = CHROOT_DIR if ARGS.use_chroot else ""
 
     jifpager_reset()
 
@@ -1397,8 +1394,8 @@ def run_cfg(output_log,
                                  runtime=runtime)
 
     print("Waiting for loadgen(s) to terminate")
-    for l in lg_procs:
-        l.wait()
+    for loadgen_proc in lg_procs:
+        loadgen_proc.wait()
 
     kill_pid_and_kids(mem_recorder.pid)
     kill_pid_and_kids(mem_recorder.pid, True)
@@ -1471,7 +1468,6 @@ def run_sharing(result_dir: str, tests, count):
         'cold': True,
         'reorder': True,
         'minor': True,
-        'reorder': True,
     })
     for app in tests:
         output_log = f"{result_dir}/sharing2_{count}"
@@ -1504,11 +1500,11 @@ def parse_sharing_logs(result_dir):
         with open(f"{result_dir}/{filename}", "r") as f:
             lines = f.readlines()
         for line in lines:
-            if not line.startswith("RPS: "): continue
+            if not line.startswith("RPS: "):
+                continue
             return int(line.split()[1])
         assert False, f"{filename} has no RPS."
 
-    c = 0
     baseline = defaultdict(dict)
     results = defaultdict(dict)
     for app in apps:
@@ -1569,21 +1565,21 @@ def get_one_log(log_name: str):
 
     progs = {}
     prev_restore = None
-    for l in dat:
-        if "DATA  " not in l:
-            if "restore time" in l:
-                prev_restore = l
+    for line in dat:
+        if "DATA  " not in line:
+            if "restore time" in line:
+                prev_restore = line
             continue
-        lx = l.split("DATA  ")[-1].strip()
+        lx = line.split("DATA  ")[-1].strip()
         xx = json.loads(lx)
         assert xx[
             "program"] not in progs, f"{xx['program']} already in {progs}"
 
         if prev_restore:
-            l = prev_restore.split("restore time")[1].split()
-            xx["metadata_restore"] = int(l[2])
-            xx["data_restore"] = int(l[4])
-            xx["fs_restore"] = int(l[6])
+            line = prev_restore.split("restore time")[1].split()
+            xx["metadata_restore"] = int(line[2])
+            xx["data_restore"] = int(line[4])
+            xx["fs_restore"] = int(line[6])
             prev_restore = None
 
         progs[xx["program"]] = xx
@@ -1799,10 +1795,10 @@ def plot_workloads(result_dir: str, data):
             bottom = 0
             if SUM or SLOWDOWN:
                 if FUNCTION_ONLY:
-                    sm = next(l[0] for l in stack if l[1] == "function")
+                    sm = next(line[0] for line in stack if line[1] == "function")
                 else:
-                    sm = sum(l[0] for l in stack
-                             if l[0] is not None)  # - WARM_ITER
+                    sm = sum(line[0] for line in stack
+                             if line[0] is not None)  # - WARM_ITER
                 if SLOWDOWN:
                     sm /= WARM_ITER
                 ax.bar(label, sm, color=get_colors("slowdown"))
@@ -1901,16 +1897,15 @@ if __name__ == "__main__":
         arg_name_regex = re.compile(
             ARGS.arg_name_filter) if ARGS.arg_name_filter else None
 
-        name_filter = lambda t: name_regex.search(
-            t.name) if name_regex else lambda x: True
-        lang_filter = lambda t: lang_regex.search(
-            t.lang) if lang_regex else lambda x: True
-        arg_name_filter = (
-            lambda t: arg_name_regex.search(t.arg_name)
-            if t.arg_name else True) if arg_name_regex else lambda x: True
+        def name_filter(test) -> bool:
+            return name_regex.search(test.name) if name_regex else True
+        def lang_filter(test) -> bool:
+            return lang_regex.search(test.lang) if lang_regex else True
+        def arg_name_filter(test) -> bool:
+            return arg_name_regex.search(test.arg_name) if arg_name_regex else True
+        def combined_filter(test):
+            return name_filter(test) and lang_filter(test) and arg_name_filter(test)
 
-        combined_filter = lambda t: name_filter(t) and lang_filter(
-            t) and arg_name_filter(t)
         tests = list(filter(combined_filter, TESTS))
 
         assert len(tests) > 0, "No tests to run!"
