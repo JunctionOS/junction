@@ -12,6 +12,7 @@ extern "C" {
 #include <sys/statfs.h>
 #include <sys/sysinfo.h>
 #include <sys/time.h>
+#include <sys/times.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <time.h>
@@ -82,8 +83,6 @@ long usys_link(const char *oldpath, const char *newpath);
 long usys_linkat(int olddirfd, const char *oldpath, int newdirfd,
                  const char *newpath, int flags);
 long usys_unlink(const char *pathname);
-long usys_chown(const char *pathname, uid_t owner, gid_t group);
-long usys_chmod(const char *pathname, mode_t mode);
 long usys_getcwd(char *buf, size_t size);
 long usys_umask(mode_t mask);
 
@@ -194,6 +193,7 @@ long usys_settimeofday(const struct timeval *tv, const struct timezone *tz);
 long usys_clock_getres(clockid_t clockid, struct timespec *res);
 long usys_clock_gettime(clockid_t clockid, struct timespec *tp);
 time_t usys_time(time_t *tloc);
+long usys_times(struct tms *buf);
 
 // Misc
 ssize_t usys_getrandom(char *buf, size_t buflen, unsigned int flags);

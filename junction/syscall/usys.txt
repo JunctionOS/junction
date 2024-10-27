@@ -62,8 +62,11 @@ link
 linkat
 unlink
 unlinkat
-chown
-chmod
+chown:::stub
+fchownat:::stub
+chmod:::stub
+fchmod:::stub
+fchmodat:::stub
 getcwd
 umask
 dup
@@ -172,3 +175,4 @@ setresgid
 capget
 capset:::stub
 prctl:::stub
+times

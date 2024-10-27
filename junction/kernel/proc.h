@@ -664,6 +664,7 @@ class Process : public std::enable_shared_from_this<Process> {
     assert(!!lock);
     assert(si.si_signo != SIGCONT);
     bool needs_ipi = shared_sig_q_.Enqueue(si);
+    if (si.si_signo == SIGCHLD) child_waiters_.WakeAll();
     lock.Unlock();
 
     rt::ScopedLock g(child_thread_lock_);

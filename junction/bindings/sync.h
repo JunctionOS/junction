@@ -766,10 +766,6 @@ class SharedMutex {
   WaitQueue shared_queue_;
 };
 
-// forward declaration
-template <Wakeable T>
-class WakeOnTimeout;
-
 class ConditionVariable {
  public:
   ConditionVariable() noexcept = default;

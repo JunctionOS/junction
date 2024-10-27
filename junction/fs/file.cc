@@ -636,16 +636,6 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
   }
 }
 
-long usys_chown(const char *pathname, uid_t owner, gid_t group) {
-  LOG_ONCE(WARN) << "chown: no-op";
-  return 0;
-}
-
-long usys_chmod(const char *pathname, mode_t mode) {
-  LOG_ONCE(WARN) << "chmod: no-op";
-  return 0;
-}
-
 long usys_close_range(int first, int last, unsigned int flags) {
   if (unlikely(flags & ~CLOSE_RANGE_CLOEXEC)) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();

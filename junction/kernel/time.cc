@@ -31,6 +31,14 @@ long usys_clock_getres([[maybe_unused]] clockid_t clockid,
   return 0;
 }
 
+long usys_times(struct tms *buf) {
+  buf->tms_stime = 0;
+  buf->tms_cutime = buf->tms_cstime = 0;
+  buf->tms_utime = myproc().GetRuntime().Seconds() *
+                   static_cast<double>(sysconf(_SC_CLK_TCK));
+  return 0;
+}
+
 long usys_clock_gettime(clockid_t clockid, struct timespec *tp) {
   if (clockid == CLOCK_THREAD_CPUTIME_ID) {
     *tp = mythread().GetRuntime().Timespec();

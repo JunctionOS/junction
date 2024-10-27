@@ -251,7 +251,7 @@ Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
   uintptr_t phdr_va = 0;
   phdr = FindPHDRByType(*phdrs, kPTypeSelf);
   if (!phdr) phdr = phdrs->front();
-  phdr_va = phdr->vaddr + std::get<0>(*ret);
+  phdr_va = phdr->vaddr + std::get<0>(*ret) + hdr->phoff - phdr->offset;
 
   DLOG(DEBUG) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
 

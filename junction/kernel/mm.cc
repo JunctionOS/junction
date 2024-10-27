@@ -407,11 +407,6 @@ Status<uintptr_t> MemoryMap::SetBreak(uintptr_t brk_addr) {
   rt::UniqueLock ul(mu_, rt::InterruptOrLock);
   if (!ul) return MakeError(EINTR);
 
-  // Make sure we don't overlap with an mmapped region.
-  auto it = vmareas_.upper_bound(brk_addr_);
-  if (it != vmareas_.end() && it->second.start < PageAlign(newbrk))
-    return brk_addr_;
-
   uintptr_t oldbrk = brk_addr_;
 
   // Stop here if the mapping has not changed after alignment.
@@ -419,6 +414,11 @@ Status<uintptr_t> MemoryMap::SetBreak(uintptr_t brk_addr) {
     brk_addr_ = newbrk;
     return brk_addr_;
   }
+
+  // Make sure we don't overlap with an mmapped region.
+  auto it = vmareas_.upper_bound(brk_addr_);
+  if (it != vmareas_.end() && it->second.start < PageAlign(newbrk))
+    return brk_addr_;
 
   if (newbrk > oldbrk) {
     // Grow the heap mapping.
