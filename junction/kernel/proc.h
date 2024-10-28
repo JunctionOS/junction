@@ -53,14 +53,32 @@ inline bool SignalIfOwned(struct kthread *k, const thread_t *th) {
   return found;
 }
 
+struct Credential {
+  Credential() : ruid(0), euid(0), suid(0), rgid(0), egid(0), sgid(0) {}
+  Credential(uid_t uid, gid_t gid)
+      : ruid(uid), euid(uid), suid(uid), rgid(gid), egid(gid), sgid(gid) {}
+  uid_t ruid;
+  uid_t euid;
+  uid_t suid;
+  gid_t rgid;
+  gid_t egid;
+  gid_t sgid;
+  std::vector<gid_t> supplementary_groups;
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(ruid, euid, suid, rgid, egid, sgid, supplementary_groups);
+  }
+};
+
 class ThreadRef;
 
 // Thread is a UNIX thread object.
 class Thread {
  public:
-  Thread(std::shared_ptr<Process> proc, pid_t tid)
+  Thread(std::shared_ptr<Process> proc, pid_t tid, const Credential &cred)
       : proc_(std::move(proc)), tid_(tid) {
-    InitCold();
+    InitCold(cred);
   }
   ~Thread();
 
@@ -79,6 +97,7 @@ class Thread {
 
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return cold().sighand_; }
   [[nodiscard]] procfs::ProcFSData &get_procfs() { return cold().procfs_data_; }
+  [[nodiscard]] Credential &get_creds() { return cold().creds_; }
 
   void set_child_tid(uint32_t *tid) { cold().child_tid_ = tid; }
   void set_xstate(int xstate) { cold().xstate_ = xstate; }
@@ -274,6 +293,7 @@ class Thread {
     bool has_fsbase = GetCaladanThread()->has_fsbase;
     ar(has_fsbase);
     if (has_fsbase) ar(GetCaladanThread()->tf.fsbase);
+    ar(get_creds());
   }
 
   Thread(std::shared_ptr<Process> &&proc, pid_t tid,
@@ -291,6 +311,7 @@ class Thread {
     ar(has_fsbase);
     GetCaladanThread()->has_fsbase = has_fsbase;
     if (GetCaladanThread()->has_fsbase) ar(GetCaladanThread()->tf.fsbase);
+    ar(get_creds());
   }
 
   // Take a reference to this Thread.
@@ -304,9 +325,12 @@ class Thread {
   // Cold per-thread data that is stored outside of the Thread class.
   struct ThreadColdData {
     ThreadColdData(Thread &th) : sighand_(th) {}
+    ThreadColdData(Thread &th, const Credential &cred)
+        : sighand_(th), creds_(cred) {}
     int xstate_;  // exit state
     int stopped_rax_;
     ThreadSignalHandler sighand_;
+    Credential creds_;
     std::atomic<size_t> ref_count_{1};
     // Data for procfs entries for this thread.
     procfs::ProcFSData procfs_data_;
@@ -323,6 +347,9 @@ class Thread {
         GetCaladanThread()->junction_cold_state_buf);
   }
 
+  void InitCold(const Credential &creds) {
+    new (&cold()) ThreadColdData(*this, creds);
+  }
   void InitCold() { new (&cold()) ThreadColdData(*this); }
 
   void DestroyCold() { (&cold())->~ThreadColdData(); }
@@ -492,8 +519,8 @@ class Process : public std::enable_shared_from_this<Process> {
   // Create a vforked process from this one.
   Status<std::shared_ptr<Process>> CreateProcessVfork(rt::ThreadWaker &&w);
 
-  Status<Thread *> CreateThreadMain();
-  Status<Thread *> CreateThread();
+  Status<Thread *> CreateThreadMain(const Credential &cred);
+  Status<Thread *> CreateThread(const Credential &cred);
   Thread &CreateTestThread();
 
   void FinishExec(std::shared_ptr<MemoryMap> &&new_mm);

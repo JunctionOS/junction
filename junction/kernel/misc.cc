@@ -81,43 +81,63 @@ long usys_prlimit64([[maybe_unused]] pid_t pid, int resource,
   return 0;
 }
 
-long usys_getuid() { return GetCfg().get_uid(); }
-long usys_geteuid() { return GetCfg().get_uid(); }
-long usys_getgid() { return GetCfg().get_gid(); }
-long usys_getegid() { return GetCfg().get_gid(); }
+long usys_getuid() { return mythread().get_creds().ruid; }
+long usys_geteuid() { return mythread().get_creds().euid; }
+long usys_getgid() { return mythread().get_creds().rgid; }
+long usys_getegid() { return mythread().get_creds().egid; }
 
 long usys_setgid(gid_t gid) {
-  if (gid != GetCfg().get_gid()) return -EINVAL;
+  Credential &creds = mythread().get_creds();
+  creds.rgid = creds.egid = creds.sgid = gid;
+  return 0;
+}
+
+long usys_setegid(gid_t gid) {
+  mythread().get_creds().egid = gid;
   return 0;
 }
 
 long usys_setuid(uid_t uid) {
-  if (uid != GetCfg().get_gid()) return -EINVAL;
+  Credential &creds = mythread().get_creds();
+  creds.ruid = creds.euid = creds.suid = uid;
+  return 0;
+}
+
+long usys_seteuid(uid_t uid) {
+  mythread().get_creds().euid = uid;
   return 0;
 }
 
 long usys_setgroups(size_t size, const gid_t *list) {
-  if (size != 1 || list[0] != GetCfg().get_gid()) return -EINVAL;
+  std::vector<gid_t> &groups = mythread().get_creds().supplementary_groups;
+  groups.resize(size);
+  std::memcpy(groups.data(), list, sizeof(gid_t) * size);
   return 0;
 }
 
+long usys_getgroups(int size, gid_t *list) {
+  std::vector<gid_t> &groups = mythread().get_creds().supplementary_groups;
+  size_t nr_gids = groups.size();
+  if (size) {
+    if (size < static_cast<ssize_t>(nr_gids)) return -EINVAL;
+    std::memcpy(list, groups.data(), sizeof(gid_t) * nr_gids);
+  }
+  return nr_gids;
+}
+
 long usys_setresuid(uid_t ruid, uid_t euid, uid_t suid) {
-  if (static_cast<int>(ruid) != -1 && ruid != GetCfg().get_uid())
-    return -EINVAL;
-  if (static_cast<int>(euid) != -1 && euid != GetCfg().get_uid())
-    return -EINVAL;
-  if (static_cast<int>(suid) != -1 && suid != GetCfg().get_uid())
-    return -EINVAL;
+  Credential &creds = mythread().get_creds();
+  if (static_cast<int>(ruid) != -1) creds.ruid = ruid;
+  if (static_cast<int>(euid) != -1) creds.euid = euid;
+  if (static_cast<int>(suid) != -1) creds.suid = suid;
   return 0;
 }
 
 long usys_setresgid(gid_t rgid, gid_t egid, gid_t sgid) {
-  if (static_cast<int>(rgid) != -1 && rgid != GetCfg().get_gid())
-    return -EINVAL;
-  if (static_cast<int>(egid) != -1 && egid != GetCfg().get_gid())
-    return -EINVAL;
-  if (static_cast<int>(sgid) != -1 && sgid != GetCfg().get_gid())
-    return -EINVAL;
+  Credential &creds = mythread().get_creds();
+  if (static_cast<int>(rgid) != -1) creds.rgid = rgid;
+  if (static_cast<int>(egid) != -1) creds.egid = egid;
+  if (static_cast<int>(sgid) != -1) creds.sgid = sgid;
   return 0;
 }
 

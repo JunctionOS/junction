@@ -152,8 +152,11 @@ geteuid
 getgid
 getegid
 setgid
+setegid
 setuid
+seteuid
 setgroups
+getgroups
 setfsuid:::stub
 setfsgid:::stub
 getxattr:::enotsup

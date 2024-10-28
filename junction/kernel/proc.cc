@@ -128,9 +128,9 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
     Status<std::shared_ptr<Process>> forkp =
         oldth.get_process().CreateProcessVfork(std::move(waker));
     if (!forkp) return MakeCError(forkp);
-    tptr = (*forkp)->CreateThreadMain();
+    tptr = (*forkp)->CreateThreadMain(oldth.get_creds());
   } else {
-    tptr = oldth.get_process().CreateThread();
+    tptr = oldth.get_process().CreateThread(oldth.get_creds());
   }
 
   if (!tptr) return MakeCError(tptr);
@@ -369,24 +369,25 @@ Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
 Thread &Process::CreateTestThread() {
   thread_t *th = thread_self();
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(shared_from_this(), 1);
+  Credential cred;
+  new (tstate) Thread(shared_from_this(), 1, cred);
   th->junction_thread = true;
   thread_map_[1] = tstate;
   return *tstate;
 }
 
-Status<Thread *> Process::CreateThreadMain() {
+Status<Thread *> Process::CreateThreadMain(const Credential &cred) {
   thread_t *th = thread_create(nullptr, 0);
   if (!th) return MakeError(ENOMEM);
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(shared_from_this(), get_pid());
+  new (tstate) Thread(shared_from_this(), get_pid(), cred);
   th->junction_thread = true;
   thread_map_[get_pid()] = tstate;
   return tstate;
 }
 
-Status<Thread *> Process::CreateThread() {
+Status<Thread *> Process::CreateThread(const Credential &cred) {
   thread_t *th = thread_create(nullptr, 0);
   if (unlikely(!th)) return MakeError(ENOMEM);
 
@@ -406,7 +407,7 @@ Status<Thread *> Process::CreateThread() {
       thread_free(th);
       return MakeError(1);
     }
-    new (tstate) Thread(shared_from_this(), *tid);
+    new (tstate) Thread(shared_from_this(), *tid, cred);
     th->junction_thread = true;
     thread_map_[*tid] = tstate;
   }

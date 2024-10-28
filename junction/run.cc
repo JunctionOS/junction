@@ -34,7 +34,8 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
     return MakeError(ret);
   }
 
-  Status<Thread *> tmp = (*proc)->CreateThreadMain();
+  Credential cred(GetCfg().get_uid(), GetCfg().get_gid());
+  Status<Thread *> tmp = (*proc)->CreateThreadMain(cred);
   if (!tmp) return MakeError(tmp);
   Thread &th = **tmp;
 
