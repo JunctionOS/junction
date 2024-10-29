@@ -12,7 +12,7 @@ class MemFSFile : public SeekableFile {
   MemFSFile(unsigned int flags, FileMode mode,
             std::shared_ptr<DirectoryEntry> dent)
       : SeekableFile(FileType::kNormal, flags, mode, std::move(dent)) {
-    assert(dynamic_cast<MemInode *>(&get_dent_ref().get_inode_ref()));
+    assert(dynamic_cast_guarded<MemInode *>(&get_dent_ref().get_inode_ref()));
   }
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {

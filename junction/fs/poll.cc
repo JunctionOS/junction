@@ -518,7 +518,7 @@ void PollSource::DetachEPollObservers() {
 }
 
 void EpollObserverSave(cereal::BinaryOutputArchive &ar, const PollObserver &o) {
-  assert(dynamic_cast<const detail::EPollObserver *>(&o) != nullptr);
+  assert(dynamic_cast_guarded<const detail::EPollObserver *>(&o) != nullptr);
   auto &oe = static_cast<const detail::EPollObserver &>(o);
   auto epf = std::static_pointer_cast<detail::EPollFile>(
       oe.epollf_->shared_from_this());

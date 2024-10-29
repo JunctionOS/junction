@@ -20,7 +20,7 @@ LinuxFile::LinuxFile(KernelFile &&f, int flags, FileMode mode,
                      std::shared_ptr<DirectoryEntry> dent) noexcept
     : SeekableFile(FileType::kNormal, flags, mode, std::move(dent)),
       fd_(f.GetFd()) {
-  assert(dynamic_cast<LinuxInode *>(&get_dent_ref().get_inode_ref()));
+  assert(dynamic_cast_guarded<LinuxInode *>(&get_dent_ref().get_inode_ref()));
   f.Release();
 }
 

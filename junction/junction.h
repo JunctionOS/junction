@@ -4,8 +4,10 @@
 #include <optional>
 #include <vector>
 
+#include "junction/base/compiler.h"
 #include "junction/base/error.h"
 #include "junction/bindings/net.h"
+#include "junction/bindings/runtime.h"
 
 #ifndef CUSTOM_GLIBC_INTERPRETER_PATH
 #define CUSTOM_GLIBC_INTERPRETER_PATH
@@ -133,4 +135,40 @@ Status<void> InitChannelClient();
 Status<std::unique_ptr<Process>> InitTestProc();
 void MarkRuntimeReady();
 [[nodiscard]] bool IsRuntimeReady();
+
+// statically cast an instance of type T to type U in release mode, dynamically
+// cast in debug mode.
+template <typename U, typename T>
+U fast_cast(T &&t) {
+  if constexpr (is_debug_build()) {
+    rt::RuntimeLibcGuard g;
+    return dynamic_cast<U>(std::forward<T>(t));
+  }
+  return static_cast<U>(std::forward<T>(t));
+}
+
+template <typename U, typename T>
+U dynamic_cast_guarded(T &&t) {
+  rt::RuntimeLibcGuard g;
+  return dynamic_cast<U>(std::forward<T>(t));
+}
+
+template <typename U, typename T>
+const U fast_cast(const T &t) {
+  if constexpr (is_debug_build()) {
+    rt::RuntimeLibcGuard g;
+    return dynamic_cast<const U>(t);
+  }
+  return static_cast<const U>(t);
+}
+
+template <typename U, typename T>
+std::shared_ptr<U> fast_pointer_cast(std::shared_ptr<T> t) {
+  if constexpr (is_debug_build()) {
+    rt::RuntimeLibcGuard g;
+    return std::dynamic_pointer_cast<U>(std::move(t));
+  }
+  return std::static_pointer_cast<U>(std::move(t));
+}
+
 }  // namespace junction

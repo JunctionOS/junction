@@ -18,27 +18,6 @@ constexpr bool is_debug_build() {
 #endif
 }
 
-// statically cast an instance of type T to type U in release mode, dynamically
-// cast in debug mode.
-template <typename U, typename T>
-U fast_cast(T &&t) {
-  if constexpr (is_debug_build()) return dynamic_cast<U>(std::forward<T>(t));
-  return static_cast<U>(std::forward<T>(t));
-}
-
-template <typename U, typename T>
-const U fast_cast(const T &t) {
-  if constexpr (is_debug_build()) return dynamic_cast<const U>(t);
-  return static_cast<const U>(t);
-}
-
-template <typename U, typename T>
-std::shared_ptr<U> fast_pointer_cast(std::shared_ptr<T> t) {
-  if constexpr (is_debug_build())
-    return std::dynamic_pointer_cast<U>(std::move(t));
-  return std::static_pointer_cast<U>(std::move(t));
-}
-
 // Force the compiler to access a memory location.
 template <typename T>
 T volatile &access_once(T &t)

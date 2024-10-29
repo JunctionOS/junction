@@ -15,6 +15,7 @@ extern "C" {
 
 #include "junction/base/intrusive.h"
 #include "junction/fs/file.h"
+#include "junction/junction.h"
 #include "junction/snapshot/cereal.h"
 
 namespace junction {

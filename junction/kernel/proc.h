@@ -384,7 +384,7 @@ class Thread {
 
   inline KernelSignalTf &CastTfToKernelSig() const {
     if constexpr (is_debug_build())
-      return dynamic_cast<KernelSignalTf &>(*cur_trapframe_);
+      return dynamic_cast_guarded<KernelSignalTf &>(*cur_trapframe_);
     return reinterpret_cast<KernelSignalTf &>(*cur_trapframe_);
   }
 
