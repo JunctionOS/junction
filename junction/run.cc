@@ -81,6 +81,8 @@ std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
 
   std::ostringstream path_s;
   path_s << path_prefix << JUNCTION_INSTALL_DIR << "/bin";
+  path_s << ":/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/"
+            "snap/bin";
 
   std::ostringstream ld_preload_s;
   if (GetCfg().get_preload_path().size())

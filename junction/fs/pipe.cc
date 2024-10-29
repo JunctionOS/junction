@@ -136,6 +136,7 @@ Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking,
 
 Status<size_t> Pipe::Write(std::span<const std::byte> buf, bool nonblocking) {
   size_t n;
+  if (buf.size() == 0) return 0;
   while (true) {
     // Write to the channel (without locking).
     Status<size_t> ret = chan_.Write(buf);

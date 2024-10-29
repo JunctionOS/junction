@@ -136,18 +136,14 @@ bool FileTable::Remove(int fd) {
   return true;
 }
 
-void FileTable::RemoveRange(int low, int high) {
-  assert(low >= 0 && high >= 0);
+void FileTable::RemoveRange(size_t low, size_t high) {
   std::vector<std::shared_ptr<File>> tmp;
   std::vector<int> tmp_fd;
   {
     rt::SpinGuard g(lock_);
-    int max = farr_->len - 1;
-    low = std::min(low, max);
-    high = std::min(high, max);
-
+    high = std::min(high, farr_->len - 1);
     tmp.reserve(high - low + 1);
-    for (int fd = low; fd <= high; fd++) {
+    for (size_t fd = low; fd <= high; fd++) {
       if (!farr_->files[fd]) continue;
       tmp.emplace_back(std::move(farr_->files[fd]));
       close_on_exec_.clear(fd);
@@ -158,17 +154,12 @@ void FileTable::RemoveRange(int low, int high) {
   for (auto &fd : tmp_fd) procfs.NotifyFDDestroy(fd);
 }
 
-void FileTable::SetCloseOnExecRange(int low, int high) {
-  assert(low >= 0 && high >= 0);
+void FileTable::SetCloseOnExecRange(size_t low, size_t high) {
   rt::SpinGuard g(lock_);
 
-  int max = farr_->len;
-  low = std::min(low, max);
-  high = std::min(high, max);
-
-  for (int fd = low; fd <= high; fd++) {
+  high = std::min(high, farr_->len - 1);
+  for (size_t fd = low; fd <= high; fd++)
     if (farr_->files[fd]) close_on_exec_.set(fd);
-  }
 }
 
 void FileTable::SetCloseOnExec(int fd) {
