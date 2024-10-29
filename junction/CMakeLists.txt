@@ -143,6 +143,8 @@ set(CUSTOM_GLIBC_INTERPRETER_PATH
   "${CMAKE_SOURCE_DIR}/install/bin/ld.so"
 )
 
+add_compile_definitions(JUNCTION_INSTALL_DIR=\"${CMAKE_SOURCE_DIR}/install\")
+
 if(EXISTS ${CUSTOM_GLIBC_INTERPRETER_PATH})
   message("Setting custom ld.so interpreter to ${CUSTOM_GLIBC_INTERPRETER_PATH}")
   add_compile_definitions(CUSTOM_GLIBC_INTERPRETER_PATH=\"${CUSTOM_GLIBC_INTERPRETER_PATH}\")

@@ -62,8 +62,12 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
 
 std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
   // Initialize environment and arguments
-  std::stringstream ld_path_s;
-  ld_path_s << "LD_LIBRARY_PATH=";
+  constexpr std::string_view ld_path_prefix = "LD_LIBRARY_PATH=";
+  constexpr std::string_view path_prefix = "PATH=";
+  constexpr std::string_view ld_preload_prefix = "LD_PRELOAD=";
+
+  std::ostringstream ld_path_s;
+  ld_path_s << ld_path_prefix;
   if (GetCfg().get_glibc_path().size()) ld_path_s << GetCfg().get_glibc_path();
   if (GetCfg().get_ld_path().size()) ld_path_s << ":" << GetCfg().get_ld_path();
   ld_path_s << ":/lib/x86_64-linux-gnu"
@@ -74,16 +78,33 @@ std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
             << ":/usr/lib/jvm/java-18-openjdk-amd64/lib"
             << ":/usr/lib/jvm/java-19-openjdk-amd64/lib"
             << ":/usr/lib/jvm/java-21-openjdk-amd64/lib";
-  std::string ld_path = ld_path_s.str();
 
-  const std::vector<std::string> &cfg_envp = GetCfg().get_binary_envp();
+  std::ostringstream path_s;
+  path_s << path_prefix << JUNCTION_INSTALL_DIR << "/bin";
 
-  std::vector<std::string> envp;
-  envp.reserve(2 + cfg_envp.size());
-  envp.emplace_back(std::move(ld_path));
+  std::ostringstream ld_preload_s;
   if (GetCfg().get_preload_path().size())
-    envp.emplace_back("LD_PRELOAD=" + GetCfg().get_preload_path());
-  for (const std::string &s : cfg_envp) envp.emplace_back(s);
+    ld_preload_s << ld_preload_prefix << GetCfg().get_preload_path();
+
+  // Add user supplied environment vars
+  const std::vector<std::string> &cfg_envp = GetCfg().get_binary_envp();
+  std::vector<std::string> envp;
+  envp.reserve(3 + cfg_envp.size());
+
+  for (const std::string &s : cfg_envp) {
+    if (s.starts_with(ld_path_prefix))
+      ld_path_s << ":" << s.substr(ld_path_prefix.length());
+    else if (s.starts_with(path_prefix))
+      path_s << ":" << s.substr(path_prefix.length());
+    else if (ld_preload_s.tellp() > 0 && s.starts_with(ld_preload_prefix))
+      ld_preload_s << ":" << s.substr(ld_preload_prefix.length());
+    else
+      envp.emplace_back(s);
+  }
+
+  envp.emplace_back(ld_path_s.str());
+  envp.emplace_back(path_s.str());
+  if (ld_preload_s.tellp() > 0) envp.emplace_back(ld_preload_s.str());
 
   std::vector<std::string_view> envp_view;
   envp_view.reserve(envp.size());
