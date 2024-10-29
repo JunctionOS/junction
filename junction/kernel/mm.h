@@ -154,6 +154,17 @@ class alignas(kCacheLineSize) MemoryMap {
     vmareas_.clear();
   }
 
+  // Free all VMAs from this memory map. Must be called by Exec when replacing
+  // one non-reloc binary with another.
+  void UnmapAll() {
+    rt::ScopedLock g(mu_);
+    for (auto const &[end, vma] : vmareas_) {
+      Status<void> ret = KernelMUnmap(vma.Addr(), vma.Length());
+      if (!ret) LOG(ERR) << "mm: munmap failed with error " << ret.error();
+    }
+    vmareas_.clear();
+  }
+
   // SetBreak sets the break address (for the heap). It returns the new address
   // on success, the old address on failure, or EINTR if interrupted.
   Status<uintptr_t> SetBreak(uintptr_t brk_addr);
@@ -210,7 +221,7 @@ class alignas(kCacheLineSize) MemoryMap {
   // Returns true if this page fault is handled by the MM.
   bool HandlePageFault(uintptr_t addr, int required_prot, Time time);
 
-  [[nodiscard]] std::string_view get_bin_path() const { return binary_path_; }
+  [[nodiscard]] std::string get_bin_path() const;
 
   [[nodiscard]] std::string_view get_cmd_line() const { return cmd_line_; }
 
@@ -222,9 +233,9 @@ class alignas(kCacheLineSize) MemoryMap {
     nr_non_reloc_maps_++;
   };
 
-  void set_bin_path(const std::string_view &path,
-                    std::vector<std::string_view> &argv) {
-    binary_path_ = std::string(path);
+  void set_bin_path(std::shared_ptr<DirectoryEntry> binary_path,
+                    const std::vector<std::string_view> &argv) {
+    binary_path_ = std::move(binary_path);
     size_t len = 0;
     for (auto &arg : argv) len += arg.size() + 1;
     cmd_line_.reserve(len);
@@ -264,28 +275,10 @@ class alignas(kCacheLineSize) MemoryMap {
  private:
   friend class cereal::access;
   friend class PageAccessTracer;
-  template <class Archive>
-  void save(Archive &ar) const {
-    ar(mm_start_, mm_end_ - mm_start_, brk_addr_, binary_path_, cmd_line_);
-    ar(vmareas_);
-  }
 
-  template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<MemoryMap> &construct) {
-    uintptr_t mm_start, len;
-    ar(mm_start, len);
-
-    RegisterMMRegion(mm_start, len);
-
-    Status<void *> ret =
-        KernelMMap(reinterpret_cast<void *>(mm_start), len, PROT_NONE, 0);
-    if (!ret) throw std::bad_alloc();
-
-    construct(*ret, len);
-    ar(construct->brk_addr_, construct->binary_path_, construct->cmd_line_);
-    ar(construct->vmareas_);
-  }
+  void save(cereal::BinaryOutputArchive &ar) const;
+  static void load_and_construct(cereal::BinaryInputArchive &ar,
+                                 cereal::construct<MemoryMap> &construct);
 
   // Find a free range of memory of size @len, returns the start address of that
   // range.
@@ -316,7 +309,7 @@ class alignas(kCacheLineSize) MemoryMap {
   uintptr_t brk_addr_;
   std::map<uintptr_t, VMArea> vmareas_;
   std::unique_ptr<PageAccessTracer> tracer_;
-  std::string binary_path_;
+  std::shared_ptr<DirectoryEntry> binary_path_;
   std::string cmd_line_;
   bool is_non_reloc_{false};
 

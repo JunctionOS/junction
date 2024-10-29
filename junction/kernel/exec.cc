@@ -140,21 +140,55 @@ void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
 
 }  // namespace
 
-Status<elf_data> TryLoadBin(Process &p, MemoryMap &mm,
-                            std::string_view pathname,
-                            std::vector<std::string_view> &argv,
-                            bool must_be_reloc,
-                            size_t max_depth = kMaxInterpFollow) {
+struct ExecContext {
+  ExecContext(FSRoot &fs, std::vector<std::string_view> &args)
+      : fs(fs), argv_view_(std::move(args)) {}
+  ExecContext(FSRoot &fs, std::vector<std::string> &args)
+      : fs(fs), argv_(std::move(args)) {}
+
+  FSRoot &fs;
+  JunctionFile file;
+  elf_header hdr;
+
+  const std::vector<std::string_view> &get_argv_view() {
+    if (argv_.size() && !argv_view_.size()) {
+      argv_view_.reserve(argv_.size());
+      for (auto &arg : argv_) argv_view_.emplace_back(arg);
+    }
+    return argv_view_;
+  }
+
+  void PrependArgs(std::vector<std::string_view> &tokens) {
+    TakeArgvOwnership();
+    argv_.insert(argv_.begin(), tokens.begin(), tokens.end());
+  }
+
+  void TakeArgvOwnership() {
+    if (!argv_.size()) {
+      argv_.reserve(argv_view_.size());
+      for (auto &arg : argv_view_) argv_.emplace_back(arg);
+    }
+    argv_view_.clear();
+  }
+
+ private:
+  std::vector<std::string> argv_;
+  std::vector<std::string_view> argv_view_;
+};
+
+Status<void> ResolveElf(std::shared_ptr<DirectoryEntry> dent, ExecContext &ctx,
+                        bool must_be_reloc,
+                        size_t max_depth = kMaxInterpFollow) {
   Status<JunctionFile> file =
-      JunctionFile::Open(p.get_fs(), pathname, 0, FileMode::kRead);
+      JunctionFile::Open(std::move(dent), 0, FileMode::kRead);
   if (!file) return MakeError(file);
 
-  auto edata = LoadELF(mm, *file, p.get_fs(), pathname, must_be_reloc);
-  if (edata) {
-    // Record pathname in proc
-    mm.set_bin_path(pathname, argv);
-    return edata;
+  Status<void> ret = CheckELFLoad(*file, ctx.hdr, must_be_reloc);
+  if (ret) {
+    ctx.file = std::move(*file);
+    return {};
   }
+
   if (max_depth == 0) return MakeError(ELOOP);
 
   file->Seek(0);
@@ -166,22 +200,25 @@ Status<elf_data> TryLoadBin(Process &p, MemoryMap &mm,
   std::getline(instream, s);
   std::vector<std::string_view> tokens = split(s, ' ', 1);
 
-  argv.insert(argv.begin(), tokens.begin(), tokens.end());
+  Status<std::shared_ptr<DirectoryEntry>> path =
+      LookupDirEntry(ctx.fs, tokens[0]);
+  if (!path) return MakeError(path);
 
-  return TryLoadBin(p, mm, tokens[0], argv, must_be_reloc, max_depth - 1);
+  ctx.PrependArgs(tokens);
+  return ResolveElf(std::move(*path), ctx, must_be_reloc, max_depth - 1);
 }
 
-Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
-                      std::vector<std::string_view> &argv,
-                      const std::vector<std::string_view> &envp,
-                      bool must_be_reloc) {
-  auto edata = TryLoadBin(p, mm, pathname, argv, must_be_reloc);
+Status<ExecInfo> FinishExec(MemoryMap &mm, ExecContext &ctx,
+                            const std::vector<std::string_view> &envp) {
+  Status<elf_data> edata = DoELFLoad(mm, ctx.file, ctx.fs, ctx.hdr);
+  // Record pathname.
   if (!edata) return MakeError(edata);
+
+  mm.set_bin_path(ctx.file.get_dent(), ctx.get_argv_view());
 
   // Create the first thread
   uint64_t entry =
       edata->interp ? edata->interp->entry_addr : edata->entry_addr;
-
   // setup a stack
   Status<void *> guard =
       mm.MMapAnonymous(nullptr, kStackSize + kStackSize, PROT_NONE, 0);
@@ -193,62 +230,102 @@ Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   if (!ret) return MakeError(ret);
   uint64_t sp = reinterpret_cast<uint64_t>(rsp) + kStackSize;
 
-  SetupStack(&sp, argv, envp, *edata);
+  SetupStack(&sp, ctx.get_argv_view(), envp, *edata);
   return {{sp, entry}};
 }
 
-long usys_execve(const char *filename, const char *argv[], const char *envp[]) {
-  // allocate new memory map
-  Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
-  if (!mm) return MakeCError(mm);
+Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
+                      std::vector<std::string_view> &argv,
+                      const std::vector<std::string_view> &envp,
+                      bool must_be_reloc) {
+  ExecContext ctx(p.get_fs(), argv);
+  Status<std::shared_ptr<DirectoryEntry>> path =
+      LookupDirEntry(ctx.fs, pathname);
+  if (!path) return MakeError(path);
+  Status<void> ret = ResolveElf(std::move(*path), ctx, must_be_reloc);
+  if (!ret) return MakeError(ret);
+  return FinishExec(mm, ctx, envp);
+}
 
-  // turn argv and envp in string_view vectors, memory must remain valid until
-  // after Exec returns
-  std::vector<std::string_view> argv_view;
-  const char **ptr = argv;
-  while (*ptr) argv_view.emplace_back(*ptr++);
+long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
+              const char *argv[], const char *envp[]) {
+  assert(IsOnStack(GetSyscallStack()));
 
-  std::vector<std::string_view> envp_view;
-  ptr = envp;
-  while (*ptr) envp_view.emplace_back(*ptr++);
+  // We can allocate a thread_tf on the syscall stack but not the
+  // FunctionCallTf wrapper. Use the Thread instance's fcall_tf.
+  thread_tf start_tf;
 
-  Process &p = myproc();
+  Thread &myth = mythread();
+  Process &p = myth.get_process();
   MemoryMap &old_mm = p.get_mem_map();
 
-  // If exec was called from a process with a non-relocatable executable (that
-  // is not in vfork) then we can safely replace it with another non-relocatable
-  // executable.
-  size_t nr_non_reloc = MemoryMap::get_nr_non_reloc();
-  if (nr_non_reloc && old_mm.is_non_reloc() && !p.in_vfork_preexec())
-    nr_non_reloc--;
+  {
+    // allocate new memory map
+    Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
+    if (!mm) return MakeCError(mm);
 
-  Status<ExecInfo> ret =
-      Exec(p, **mm, filename, argv_view, envp_view, nr_non_reloc > 0);
-  if (!ret) {
-    if (unlikely((**mm).is_non_reloc() && old_mm.is_non_reloc())) {
-      LOG(ERR) << "exec: failed while replacing existing non-reloc map with a "
-                  "new one";
-      syscall_exit(-1);
+    // turn argv and envp in string_view vectors, memory must remain valid until
+    // after Exec returns
+    std::vector<std::string_view> argv_s;
+    const char **ptr = argv;
+    while (*ptr) argv_s.emplace_back(*ptr++);
+
+    // If exec was called from a process with a non-relocatable executable (that
+    // is not in vfork) then we can safely replace it with another
+    // non-relocatable executable.
+    size_t nr_non_reloc = MemoryMap::get_nr_non_reloc();
+    if (nr_non_reloc && old_mm.is_non_reloc() && !p.in_vfork_preexec())
+      nr_non_reloc--;
+
+    ExecContext ctx(p.get_fs(), argv_s);
+    Status<void> ret = ResolveElf(std::move(dent), ctx, nr_non_reloc > 0);
+    if (!ret) return MakeCError(ret);
+
+    std::vector<std::string_view> envp_view;
+    std::vector<std::string> envp_s;
+
+    // We are replacing a non-reloc MM with another non-reloc MM.
+    // We need to free existing memory first, since it may overlap.
+    bool replace_non_reloc =
+        old_mm.is_non_reloc() && ctx.hdr.type != kETypeDynamic;
+    if (replace_non_reloc) {
+      // Log while the memory is still available.
+      if (unlikely(GetCfg().strace_enabled()))
+        LogSyscall("execve", &usys_execve, (strace::PathName *)filename, argv,
+                   envp);
+
+      ctx.TakeArgvOwnership();
+
+      ptr = envp;
+      while (*ptr) envp_s.emplace_back(*ptr++);
+      envp_view.reserve(envp_s.size());
+      envp_view.insert(envp_view.end(), envp_s.begin(), envp_s.end());
+
+      // Stop any other threads that may be using memory from the old MM.
+      p.KillThreadsAndWait();
+      old_mm.UnmapAll();
+    } else {
+      ptr = envp;
+      while (*ptr) envp_view.emplace_back(*ptr++);
     }
-    return MakeCError(ret);
-  }
 
-  // The syscall has suceeded.
-  if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall(0, "execve", &usys_execve, (strace::PathName *)filename, argv,
-               envp);
+    Status<ExecInfo> regs = FinishExec(**mm, ctx, envp_view);
 
-  // Finish exec from a different stack, since this stack may be unmapped when
-  // replacing a proc's MM
-  RunOnSyscallStack([regs = *ret, mm = std::move(*mm)]() mutable {
-    Thread &myth = mythread();
+    if (!regs) {
+      if (replace_non_reloc) {
+        LOG(ERR) << "failed to replace non-relocatable image";
+        syscall_exit(-1);
+      }
+      return MakeCError(regs);
+    }
+
+    // The syscall has suceeded.
+    if (unlikely(GetCfg().strace_enabled() && !replace_non_reloc))
+      LogSyscall(0, "execve", &usys_execve, (strace::PathName *)filename, argv,
+                 envp);
 
     // Complete the exec
-    myth.get_process().FinishExec(std::move(mm));
-
-    // We can allocate a thread_tf on the syscall stack but not the
-    // FunctionCallTf wrapper. Use the Thread instance's fcall_tf.
-    thread_tf start_tf;
+    p.FinishExec(std::move(*mm));
 
     // clear argument registers
     start_tf.rdi = 0;
@@ -258,18 +335,34 @@ long usys_execve(const char *filename, const char *argv[], const char *envp[]) {
     start_tf.r8 = 0;
     start_tf.r9 = 0;
 
-    start_tf.rsp = std::get<0>(regs);
-    start_tf.rip = std::get<1>(regs);
+    start_tf.rsp = std::get<0>(*regs);
+    start_tf.rip = std::get<1>(*regs);
+  }
 
-    // Set entry_regs to start_tf and use fcall_tf to unwind.
-    myth.ReplaceEntryRegs(start_tf).JmpUnwindSysret(myth);
+  // Set entry_regs to start_tf and use fcall_tf to unwind.
+  myth.ReplaceEntryRegs(start_tf).JmpUnwindSysret(myth);
+  std::unreachable();
+}
+
+long usys_execve(const char *filename, const char *argv[], const char *envp[]) {
+  // Exec may destroy the current stack, switch before proceeding.
+  return CallOnSyscallStack([&] {
+    Status<std::shared_ptr<DirectoryEntry>> dent =
+        LookupDirEntry(myproc().get_fs(), filename);
+    if (!dent) return static_cast<long>(MakeCError(dent));
+    return DoExecve(std::move(*dent), filename, argv, envp);
   });
 }
 
 long usys_execveat(int fd, const char *filename, const char *argv[],
                    const char *envp[], int flags) {
-  // TODO: support when Junction supports openat
-  return -ENOSYS;
+  // Exec may destroy the current stack, switch before proceeding.
+  return CallOnSyscallStack([&] {
+    Status<std::shared_ptr<DirectoryEntry>> dent =
+        LookupDirEntry(myproc(), fd, filename);
+    if (!dent) return static_cast<long>(MakeCError(dent));
+    return DoExecve(std::move(*dent), filename, argv, envp);
+  });
 }
 
 }  // namespace junction

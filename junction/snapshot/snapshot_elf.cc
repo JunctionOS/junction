@@ -212,7 +212,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
   // Temporary hack: the elf loader will create entries in this fake map,
   // allowing the actual memory map to be restored by cereal.
   MemoryMap mm(nullptr, kMemoryMappingSize);
-  Status<elf_data> ret = LoadELF(mm, *elf, p->get_fs(), elf_path);
+  Status<elf_data> ret = LoadELF(mm, *elf, p->get_fs());
   if (GetCfg().restore_populate()) {
     mm.ForEachVMA([](const VMArea &vma) {
       if (!(vma.prot & PROT_READ)) return;

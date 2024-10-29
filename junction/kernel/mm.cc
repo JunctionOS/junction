@@ -395,6 +395,16 @@ std::vector<VMArea> MemoryMap::get_vmas() {
   return tmp;
 }
 
+std::string MemoryMap::get_bin_path() const {
+  if (!binary_path_) return "[STALE]";
+  std::string out;
+  out.reserve(PATH_MAX);
+  std::ostringstream ss(std::move(out));
+  Status<void> ret = binary_path_->GetFullPath(ss);
+  if (unlikely(!ret)) return "[STALE]";
+  return ss.str();
+}
+
 Status<uintptr_t> MemoryMap::SetBreak(uintptr_t brk_addr) {
   // NOTE: Must save the unaligned address, but the mapping will still be
   // aligned to a page boundary.
@@ -600,6 +610,43 @@ Status<uintptr_t> MemoryMap::FindFreeRange(void *hint, size_t len) {
   uintptr_t addr = prev_start - len;
   if (addr < brk_addr_) return MakeError(ENOMEM);
   return addr;
+}
+
+void MemoryMap::save(cereal::BinaryOutputArchive &ar) const {
+  ar(mm_start_, mm_end_ - mm_start_, brk_addr_, cmd_line_);
+  ar(vmareas_);
+  if (!binary_path_ || binary_path_->WillBeSerialized())
+    ar(true, binary_path_);
+  else
+    ar(false, get_bin_path());
+}
+
+void MemoryMap::load_and_construct(cereal::BinaryInputArchive &ar,
+                                   cereal::construct<MemoryMap> &construct) {
+  uintptr_t mm_start, len;
+  ar(mm_start, len);
+
+  RegisterMMRegion(mm_start, len);
+
+  Status<void *> ret =
+      KernelMMap(reinterpret_cast<void *>(mm_start), len, PROT_NONE, 0);
+  if (!ret) throw std::bad_alloc();
+
+  construct(*ret, len);
+  ar(construct->brk_addr_, construct->cmd_line_);
+  ar(construct->vmareas_);
+
+  bool hasdent;
+  ar(hasdent);
+  if (hasdent) {
+    ar(construct->binary_path_);
+  } else {
+    std::string path;
+    ar(path);
+    Status<std::shared_ptr<DirectoryEntry>> dent =
+        LookupDirEntry(FSRoot::GetGlobalRoot(), path);
+    if (dent) construct->binary_path_ = std::move(*dent);
+  }
 }
 
 std::ostream &operator<<(std::ostream &os, const VMArea &vma) {

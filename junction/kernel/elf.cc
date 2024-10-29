@@ -35,14 +35,20 @@ constexpr bool HeaderIsValid(const elf_header &hdr) {
 }
 
 // ReadHeader reads and validates the header of the ELF file
-Status<elf_header> ReadHeader(JunctionFile &f) {
-  elf_header hdr;
+Status<void> ReadHeader(JunctionFile &f, elf_header &hdr) {
   Status<void> ret = ReadFull(f, writable_byte_view(hdr));
-  if (!ret) return MakeError(ret);
-  if (!HeaderIsValid(hdr)) {
+  if (ret && !HeaderIsValid(hdr)) {
     DLOG(DEBUG) << "elf: invalid/unsupported ELF file.";
     return MakeError(EINVAL);
   }
+  return ret;
+}
+
+// ReadHeader reads and validates the header of the ELF file
+Status<elf_header> ReadHeader(JunctionFile &f) {
+  elf_header hdr;
+  Status<void> ret = ReadHeader(f, hdr);
+  if (!ret) return MakeError(ret);
   return hdr;
 }
 
@@ -211,23 +217,26 @@ std::optional<elf_phdr> FindPHDRByType(const std::vector<elf_phdr> &v,
 
 }  // namespace
 
-Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
-                         std::string_view path, bool must_be_reloc) {
+Status<void> CheckELFLoad(JunctionFile &file, elf_header &out,
+                          bool must_be_reloc) {
   // Load the ELF header.
-  Status<elf_header> hdr = ReadHeader(file);
-  if (!hdr) return MakeError(hdr);
-
-  bool reloc = hdr->type == kETypeDynamic;
-  // Check if the ELF type is supported.
-  if (hdr->type != kETypeExec && !reloc) return MakeError(EINVAL);
-
-  if (!reloc && must_be_reloc) {
-    LOG(ERR) << "Attempted to load multiple non-relocatable binaries";
-    return MakeError(EINVAL);
+  Status<void> ret = ReadHeader(file, out);
+  if (ret) {
+    bool reloc = out.type == kETypeDynamic;
+    // Check if the ELF type is supported.
+    if (out.type != kETypeExec && !reloc) return MakeError(EINVAL);
+    if (!reloc && must_be_reloc) {
+      LOG(ERR) << "Cannot load multiple non-relocatable binaries";
+      return MakeError(EINVAL);
+    }
   }
+  return ret;
+}
 
+Status<elf_data> DoELFLoad(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
+                           const elf_header &hdr) {
   // Load the PHDR table.
-  Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(file, *hdr);
+  Status<std::vector<elf_phdr>> phdrs = ReadPHDRs(file, hdr);
   if (!phdrs) return MakeError(phdrs);
 
   // Load the interpreter (if present).
@@ -241,6 +250,7 @@ Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
     interp_data = *data;
   }
 
+  bool reloc = hdr.type == kETypeDynamic;
   if (!reloc) mm.mark_non_reloc();
 
   // Load the PHDR segments.
@@ -251,17 +261,15 @@ Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
   uintptr_t phdr_va = 0;
   phdr = FindPHDRByType(*phdrs, kPTypeSelf);
   if (!phdr) phdr = phdrs->front();
-  phdr_va = phdr->vaddr + std::get<0>(*ret) + hdr->phoff - phdr->offset;
-
-  DLOG(DEBUG) << "gdb: add-symbol-file " << path << " -o " << std::get<0>(*ret);
+  phdr_va = phdr->vaddr + std::get<0>(*ret) + hdr.phoff - phdr->offset;
 
   // Success, return metadata.
   return elf_data{.map_base{std::get<0>(*ret)},
                   .map_len{std::get<1>(*ret)},
-                  .entry_addr{hdr->entry + std::get<0>(*ret)},
+                  .entry_addr{hdr.entry + std::get<0>(*ret)},
                   .phdr_addr{phdr_va},
-                  .phdr_num{hdr->phnum},
-                  .phdr_entsz{hdr->phsize},
+                  .phdr_num{hdr.phnum},
+                  .phdr_entsz{hdr.phsize},
                   .interp{std::move(interp_data)}};
 }
 

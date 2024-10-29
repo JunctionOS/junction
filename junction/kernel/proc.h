@@ -605,6 +605,7 @@ class Process : public std::enable_shared_from_this<Process> {
 
   Status<void> WaitForFullStop();
   Status<void> WaitForNthStop(size_t stopcount);
+  void KillThreadsAndWait();
 
   // mark all threads as ready to run
   void RunThreads() {

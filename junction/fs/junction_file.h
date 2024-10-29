@@ -26,6 +26,16 @@ class JunctionFile {
     return JunctionFile(std::move(*f));
   }
 
+  // Open creates a new file descriptor attached to a file path.
+  static Status<JunctionFile> Open(std::shared_ptr<DirectoryEntry> dent,
+                                   int flags, FileMode mode) {
+    Status<std::shared_ptr<File>> f = dent->Open(flags, mode);
+    if (!f) return MakeError(f);
+    return JunctionFile(std::move(*f));
+  }
+
+  JunctionFile() = default;
+
   explicit JunctionFile(std::shared_ptr<File> &&f) noexcept
       : f_(std::move(f)) {}
   ~JunctionFile() = default;
@@ -62,6 +72,10 @@ class JunctionFile {
     if (!ret) return MakeError(ret);
     off_ = *ret;
     return {};
+  }
+
+  [[nodiscard]] std::shared_ptr<DirectoryEntry> get_dent() const {
+    return f_->get_dent();
   }
 
  private:

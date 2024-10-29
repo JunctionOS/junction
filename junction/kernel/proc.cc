@@ -477,11 +477,25 @@ void Process::NotifyParentWait(unsigned int state, int status) {
   parent_->SignalLocked(std::move(lock), sig);
 }
 
+void Process::KillThreadsAndWait() {
+  bool in_proc = IsJunctionThread() && this == &myproc();
+  rt::SpinGuard g(child_thread_lock_);
+
+  // Kill any threads besides this one.
+  for (const auto &[pid, th] : thread_map_)
+    if (!in_proc || pid != mythread().get_tid()) th->Kill();
+
+  size_t wait_for = in_proc ? 1 : 0;
+  // Wait for other threads to exit.
+  rt::Wait(child_thread_lock_, exec_waker_,
+           [&] { return thread_map_.size() == wait_for; });
+}
+
 void Process::DoExit(int status) {
   // notify threads
   {
     rt::SpinGuard g(child_thread_lock_);
-    if (exited_) return;
+    if (exited_ || exec_waker_) return;
 
     xstate_ = status;
     store_release(&exited_, true);

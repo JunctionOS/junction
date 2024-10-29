@@ -273,7 +273,10 @@ void PrintArg(int advice, MAdviseHint, rt::Logger &ss) {
 }
 
 void PrintArg(int signo, SignalNumber, rt::Logger &ss) {
-  ss << sigmap[signo - 1];
+  if (static_cast<size_t>(signo) <= ARRAY_SIZE(sigmap))
+    ss << sigmap[signo - 1];
+  else
+    ss << "SIGRT" << signo;
 }
 
 void PrintArg(const char *arg, PathName *, rt::Logger &ss) {

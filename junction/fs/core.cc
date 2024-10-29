@@ -249,7 +249,7 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
 
 }  // namespace
 
-// LookupInode finds an inode for a path
+// LookupDirEntry finds a dirent for a path
 Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(const FSRoot &fs,
                                                        std::string_view path,
                                                        bool chase_link) {
@@ -259,32 +259,17 @@ Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(const FSRoot &fs,
   return WalkPath(fs, GetPathDir(fs, path), spath, chase_link || must_be_dir);
 }
 
-// LookupInode finds an inode for a path
-Status<std::shared_ptr<Inode>> LookupInode(const FSRoot &fs,
-                                           std::string_view path,
-                                           bool chase_link) {
-  if (!PathIsValid(path)) return MakeError(EINVAL);
-  bool must_be_dir;
-  std::vector<std::string_view> spath = SplitPath(path, &must_be_dir);
-  auto ret =
-      WalkPath(fs, GetPathDir(fs, path), spath, chase_link || must_be_dir);
-  if (ret) return (*ret)->get_inode();
-  return MakeError(ret);
-}
-
-// LookupInode finds an inode for a path
-Status<std::shared_ptr<Inode>> LookupInode(Process &p, int dirfd,
-                                           std::string_view path,
-                                           bool chase_link) {
+// LookupDirEntry finds a dirent for a path
+Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(Process &p, int dirfd,
+                                                       std::string_view path,
+                                                       bool chase_link) {
   if (!PathIsValid(path)) return MakeError(EINVAL);
   Status<std::shared_ptr<IDir>> pathd = GetPathDirAt(p, dirfd, path);
   if (!pathd) return MakeError(pathd);
   bool must_be_dir;
   std::vector<std::string_view> spath = SplitPath(path, &must_be_dir);
-  auto ret =
-      WalkPath(p.get_fs(), std::move(*pathd), spath, chase_link || must_be_dir);
-  if (ret) return (*ret)->get_inode();
-  return MakeError(ret);
+  return WalkPath(p.get_fs(), std::move(*pathd), spath,
+                  chase_link || must_be_dir);
 }
 
 // Opens a file that does nothing.

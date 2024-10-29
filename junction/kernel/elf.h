@@ -104,8 +104,20 @@ enum {
   kFlagRead = 4,   // Read permission
 };
 
+// Check if file is a valid ELF file and can be loaded.
+Status<void> CheckELFLoad(JunctionFile &file, elf_header &out,
+                          bool must_be_reloc);
+
+// Load an ELF file into memory (used after CheckELFLoad).
+Status<elf_data> DoELFLoad(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
+                           const elf_header &hdr);
+
 // Load an ELF object file into memory. Returns metadata if successful.
-Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs,
-                         std::string_view path, bool must_be_reloc = false);
+inline Status<elf_data> LoadELF(MemoryMap &mm, JunctionFile &file, FSRoot &fs) {
+  elf_header hdr;
+  Status<void> ret = CheckELFLoad(file, hdr, false);
+  if (!ret) return MakeError(ret);
+  return DoELFLoad(mm, file, fs, hdr);
+}
 
 }  // namespace junction

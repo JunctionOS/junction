@@ -742,17 +742,32 @@ class Process;
 
 std::shared_ptr<File> OpenStdio(unsigned flags, FileMode mode);
 
-// LookupInode finds an inode for a path
-Status<std::shared_ptr<Inode>> LookupInode(const FSRoot &fs,
-                                           std::string_view path,
-                                           bool chase_link = true);
-
-// LookupInode finds an inode for a path
-Status<std::shared_ptr<Inode>> LookupInode(Process &p, int dirfd,
-                                           std::string_view path,
-                                           bool chase_link = true);
-
 Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(const FSRoot &fs,
                                                        std::string_view path,
                                                        bool chase_link = true);
+
+Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(Process &p, int dirfd,
+                                                       std::string_view path,
+                                                       bool chase_link = true);
+
+// LookupInode finds an inode for a path
+inline Status<std::shared_ptr<Inode>> LookupInode(const FSRoot &fs,
+                                                  std::string_view path,
+                                                  bool chase_link = true) {
+  Status<std::shared_ptr<DirectoryEntry>> ret =
+      LookupDirEntry(fs, path, chase_link);
+  if (!ret) return MakeError(ret);
+  return (*ret)->get_inode();
+}
+
+// LookupInode finds an inode for a path
+inline Status<std::shared_ptr<Inode>> LookupInode(Process &p, int dirfd,
+                                                  std::string_view path,
+                                                  bool chase_link = true) {
+  Status<std::shared_ptr<DirectoryEntry>> ret =
+      LookupDirEntry(p, dirfd, path, chase_link);
+  if (!ret) return MakeError(ret);
+  return (*ret)->get_inode();
+}
+
 }  // namespace junction
