@@ -176,13 +176,13 @@ Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
   LOG(INFO) << "stopping proc with pid " << pid;
 
   // TODO(snapshot): child procs, if any exist, should also be stopped + waited.
-  p->Signal(SIGSTOP);
+  p->JobControlStop();
   p->WaitForFullStop();
   auto f = finally([&] {
     if (GetCfg().snapshot_terminate())
       p->DoExit(0);
     else
-      p->Signal(SIGCONT);
+      p->JobControlContinue();
   });
   return SnapshotProcToELF(p.get(), metadata_path, elf_path);
 }

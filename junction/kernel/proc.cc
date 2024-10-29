@@ -305,10 +305,9 @@ Status<void> Process::WaitForFullStop() {
 }
 
 Status<void> Process::WaitForNthStop(size_t stopcount) {
-  stopcount = stopcount * 2 - 1;
   rt::SpinGuard g(child_thread_lock_);
   rt::Wait(child_thread_lock_, stopped_threads_,
-           [&]() { return stopped_gen_ >= stopcount || exited_; });
+           [&]() { return stop_cnt_ >= stopcount || exited_; });
   if (exited_) return MakeError(ESRCH);
   return {};
 }

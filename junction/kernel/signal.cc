@@ -449,7 +449,7 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
     case SignalAction::kIgnore:
       return std::nullopt;
     case SignalAction::kStop:
-      p.JobControlStop();
+      p.JobControlStop(true);
       return std::nullopt;
     case SignalAction::kTerminate:
     case SignalAction::kCoredump:

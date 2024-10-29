@@ -318,7 +318,7 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
   chan.DoRequest(std::string{arg});
 
   if (GetCfg().mem_trace()) {
-    proc->Signal(SIGSTOP);
+    proc->JobControlStop();
     BUG_ON(!proc->WaitForFullStop());
     BUG_ON(!proc->get_mem_map().DumpTracerReport());
   }
@@ -342,7 +342,7 @@ void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
   for (size_t i = 0; i < 10; i++) chan.DoRequest(std::string{arg});
 
   chan.SnapshotPrepare();
-  proc->Signal(SIGSTOP);
+  proc->JobControlStop();
   BUG_ON(!proc->WaitForFullStop());
 
   Status<void> ret = TakeSnapshot(proc.get());

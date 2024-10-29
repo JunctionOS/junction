@@ -653,11 +653,12 @@ class Process : public std::enable_shared_from_this<Process> {
     for (const auto &[pid, th] : thread_map_) func(*th);
   }
 
-  void JobControlStop() {
+  void JobControlStop(bool user_sig = false) {
     rt::ScopedLock g(child_thread_lock_);
     if (is_stopped()) return;
     stopped_gen_ += 1;
     SignalAllThreads();
+    if (user_sig) stop_cnt_++;
   }
 
   void JobControlContinue() {
@@ -858,6 +859,7 @@ class Process : public std::enable_shared_from_this<Process> {
   rt::WaitQueue stopped_threads_;
   unsigned int stopped_count_{0};
   size_t stopped_gen_{0};
+  size_t stop_cnt_{0};
 
   // Protected by parent_'s shared_sig_q_lock_
   std::shared_ptr<Process> parent_;
