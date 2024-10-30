@@ -1,7 +1,7 @@
-From 1ef06c9f014fd60c53025eca99f2d6cbf1b69b72 Mon Sep 17 00:00:00 2001
+From 0d81d12b170692545165fbba4f4f0bf9a0184f6d Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 4 Jan 2023 14:08:13 -0500
-Subject: [PATCH 10/33] remove shim tls implementation
+Subject: [PATCH 10/44] remove shim tls implementation
 
 ---
  shim/tls.c | 116 -----------------------------------------------------
@@ -10,7 +10,7 @@ Subject: [PATCH 10/33] remove shim tls implementation
 
 diff --git a/shim/tls.c b/shim/tls.c
 deleted file mode 100644
-index e8112aef..00000000
+index 83634ef..0000000
 --- a/shim/tls.c
 +++ /dev/null
 @@ -1,116 +0,0 @@
@@ -33,7 +33,7 @@ index e8112aef..00000000
 -static DEFINE_BITMAP(allocated_keys, MAX_KEYS);
 -static size_t nr_alloc;
 -static DEFINE_SPINLOCK(key_lock);
--static destfn destructors[MAX_KEYS];
+-// static destfn destructors[MAX_KEYS];
 -
 -struct key_data {
 -	void *data;
@@ -57,8 +57,10 @@ index e8112aef..00000000
 -	bitmap_set(allocated_keys, key);
 -	store_release(&key_gens[key], key_gens[key] + 1);
 -	nr_alloc++;
--	destructors[key] = destructor;
 -	shim_spin_unlock_np(&key_lock);
+-
+-	if (destructor)
+-		log_debug_once("pthread key: no destructor support");
 -
 -	*key_out = key;
 -	return 0;
@@ -113,8 +115,6 @@ index e8112aef..00000000
 -	bitmap_clear(allocated_keys, key);
 -	nr_alloc--;
 -	store_release(&key_gens[key], key_gens[key] + 1);
--	if (destructors[key])
--		log_warn_ratelimited("unimplemented: pthread_key_delete with destructor");
 -	shim_spin_unlock_np(&key_lock);
 -	return 0;
 -}
@@ -131,5 +131,5 @@ index e8112aef..00000000
 -	return 0;
 -}
 -- 
-2.39.2
+2.43.0
 

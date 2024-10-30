@@ -399,6 +399,7 @@ std::string MemoryMap::get_bin_path() const {
   if (!binary_path_) return "[STALE]";
   std::string out;
   out.reserve(PATH_MAX);
+  rt::RuntimeLibcGuard g;
   std::ostringstream ss(std::move(out));
   Status<void> ret = binary_path_->GetFullPath(ss);
   if (unlikely(!ret)) return "[STALE]";

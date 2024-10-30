@@ -185,9 +185,7 @@ if not pid:
         print(e)
         exit(-1)
 
-try:
- for filename, real_start in get_offsets(offsets_from_junction_map()):
+# for filename, real_start in get_offsets(offsets_from_junction_map()):
+#    outf(f"add-symbol-file {filename} -o {hex(real_start)}")
+for filename, real_start in get_offsets(offsets_from_linux_map(pid)):
     outf(f"add-symbol-file {filename} -o {hex(real_start)}")
-except:
- for filename, real_start in get_offsets(offsets_from_linux_map(pid)):
-      outf(f"add-symbol-file {filename} -o {hex(real_start)}")

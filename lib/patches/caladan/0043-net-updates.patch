@@ -1,18 +1,17 @@
-From cfc65241cb30df3570585c69ef437f919468a399 Mon Sep 17 00:00:00 2001
+From eb24da1791c95496c9a59f61f58e62b3a3db39ef Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 1 Oct 2024 22:00:23 -0400
-Subject: [PATCH 43/43] net updates
+Subject: [PATCH 43/44] net updates
 
 ---
- bindings/rust/src/tcp.rs    |  20 ++++-
- bindings/rust/src/thread.rs |   2 +-
- bindings/rust/src/udp.rs    |   8 +-
- inc/runtime/tcp.h           |  32 ++++++--
- inc/runtime/udp.h           |  22 +++++-
- runtime/net/tcp.c           | 152 +++++++++++++++++++++---------------
- runtime/net/udp.c           |  16 ++--
- runtime/stat.c              |   2 +-
- 8 files changed, 164 insertions(+), 90 deletions(-)
+ bindings/rust/src/tcp.rs |  20 ++++--
+ bindings/rust/src/udp.rs |   8 ++-
+ inc/runtime/tcp.h        |  32 +++++++--
+ inc/runtime/udp.h        |  22 ++++--
+ runtime/net/tcp.c        | 152 ++++++++++++++++++++++-----------------
+ runtime/net/udp.c        |  16 +++--
+ runtime/stat.c           |   2 +-
+ 7 files changed, 163 insertions(+), 89 deletions(-)
 
 diff --git a/bindings/rust/src/tcp.rs b/bindings/rust/src/tcp.rs
 index 1c96709..fe83e8c 100644
@@ -64,19 +63,6 @@ index 1c96709..fe83e8c 100644
          })
      }
      fn flush(&mut self) -> io::Result<()> {
-diff --git a/bindings/rust/src/thread.rs b/bindings/rust/src/thread.rs
-index 6452bca..e7ce0c6 100644
---- a/bindings/rust/src/thread.rs
-+++ b/bindings/rust/src/thread.rs
-@@ -6,7 +6,7 @@ use std::{mem, panic, ptr};
- use super::*;
- 
- pub(crate) fn thread_self() -> *mut ffi::thread_t {
--    let t: * mut ffi::thread_t;
-+    let t: *mut ffi::thread_t;
-     unsafe {
-         asm!("mov {0:r}, QWORD PTR gs:[rip + {1}]", out(reg) t, sym ffi::__perthread___self);
-     }
 diff --git a/bindings/rust/src/udp.rs b/bindings/rust/src/udp.rs
 index d24b98a..61fb1d8 100644
 --- a/bindings/rust/src/udp.rs
@@ -188,10 +174,10 @@ index 7702fbe..bde1aba 100644
  extern ssize_t udp_write(udpconn_t *c, const void *buf, size_t len);
  extern void udp_shutdown(udpconn_t *c);
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index 072a143..e9b419c 100644
+index 0f67bd8..fef0aeb 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
-@@ -862,11 +862,21 @@ struct netaddr tcp_remote_addr(tcpconn_t *c)
+@@ -864,11 +864,21 @@ struct netaddr tcp_remote_addr(tcpconn_t *c)
  	return c->e.raddr;
  }
  
@@ -215,7 +201,7 @@ index 072a143..e9b419c 100644
  			spin_unlock_np(&c->lock);
  			return -EAGAIN;
  		}
-@@ -877,7 +887,12 @@ static int tcp_wait_rx(tcpconn_t *c) {
+@@ -879,7 +889,12 @@ static int tcp_wait_rx(tcpconn_t *c) {
  		}
  	}
  
@@ -229,7 +215,7 @@ index 072a143..e9b419c 100644
  }
  
  /**
-@@ -885,32 +900,31 @@ static int tcp_wait_rx(tcpconn_t *c) {
+@@ -887,32 +902,31 @@ static int tcp_wait_rx(tcpconn_t *c) {
   * @c: the TCP connection
   * @buf: a buffer to store the read data
   * @len: the length of @buf
@@ -274,7 +260,7 @@ index 072a143..e9b419c 100644
  	}
  
  	spin_unlock_np(&c->lock);
-@@ -929,43 +943,39 @@ static size_t iov_len(const struct iovec *iov, int iovcnt)
+@@ -931,43 +945,39 @@ static size_t iov_len(const struct iovec *iov, int iovcnt)
  }
  
  /**
@@ -333,7 +319,7 @@ index 072a143..e9b419c 100644
  
  		iov_off += tocopy;
  		mbuf_off += tocopy;
-@@ -973,39 +983,37 @@ ssize_t tcp_readv_peek(tcpconn_t *c, const struct iovec *iov,
+@@ -975,39 +985,37 @@ ssize_t tcp_readv_peek(tcpconn_t *c, const struct iovec *iov,
  
  		if (mbuf_off == mbuf_length(m)) {
  			m = list_next(&c->rxq, m, link);
@@ -384,7 +370,7 @@ index 072a143..e9b419c 100644
  
  	/* pop off the mbufs that will be read */
  	while (readlen < len) {
-@@ -1063,25 +1071,30 @@ static void tcp_read_finish(tcpconn_t *c, struct mbuf *m)
+@@ -1065,25 +1073,30 @@ static void tcp_read_finish(tcpconn_t *c, struct mbuf *m)
  }
  
  /**
@@ -418,7 +404,7 @@ index 072a143..e9b419c 100644
  
  	/* check if connection was closed */
  	if (ret <= 0)
-@@ -1116,22 +1129,30 @@ ssize_t tcp_read(tcpconn_t *c, void *buf, size_t len)
+@@ -1118,22 +1131,30 @@ ssize_t tcp_read(tcpconn_t *c, void *buf, size_t len)
   * @c: the TCP connection
   * @iov: a pointer to the IO vector
   * @iovcnt: the number of vectors in @iov
@@ -454,7 +440,7 @@ index 072a143..e9b419c 100644
  
  	/* check if connection was closed */
  	if (len <= 0)
-@@ -1188,7 +1209,7 @@ ssize_t tcp_readv(tcpconn_t *c, const struct iovec *iov, int iovcnt)
+@@ -1190,7 +1211,7 @@ ssize_t tcp_readv(tcpconn_t *c, const struct iovec *iov, int iovcnt)
  	return len;
  }
  
@@ -463,7 +449,7 @@ index 072a143..e9b419c 100644
  {
  	int ret;
  	spin_lock_np(&c->lock);
-@@ -1203,7 +1224,7 @@ static int tcp_write_wait(tcpconn_t *c, size_t *winlen)
+@@ -1205,7 +1226,7 @@ static int tcp_write_wait(tcpconn_t *c, size_t *winlen)
  			c->zero_wnd_ts = microtime();
  			tcp_timer_update(c);
  		}
@@ -472,7 +458,7 @@ index 072a143..e9b419c 100644
  			spin_unlock_np(&c->lock);
  			return -EAGAIN;
  		}
-@@ -1275,21 +1296,22 @@ static void tcp_write_finish(tcpconn_t *c)
+@@ -1277,21 +1298,22 @@ static void tcp_write_finish(tcpconn_t *c)
  }
  
  /**
@@ -498,7 +484,7 @@ index 072a143..e9b419c 100644
  	if (ret)
  		return ret;
  
-@@ -1303,22 +1325,24 @@ ssize_t tcp_write(tcpconn_t *c, const void *buf, size_t len)
+@@ -1305,22 +1327,24 @@ ssize_t tcp_write(tcpconn_t *c, const void *buf, size_t len)
  }
  
  /**

@@ -244,6 +244,13 @@ Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   if (!path) return MakeError(path);
   Status<void> ret = ResolveElf(std::move(*path), ctx, must_be_reloc);
   if (!ret) return MakeError(ret);
+
+  if (unlikely(GetCfg().strace_enabled())) {
+    Status<std::string> filename = ctx.file.get_dent()->GetPathStr();
+    BUG_ON(!filename);
+    LogSyscallDirect("execve", *filename, ctx.get_argv_view(), envp);
+  }
+
   return FinishExec(mm, ctx, envp);
 }
 
@@ -310,7 +317,6 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
     }
 
     Status<ExecInfo> regs = FinishExec(**mm, ctx, envp_view);
-
     if (!regs) {
       if (replace_non_reloc) {
         LOG(ERR) << "failed to replace non-relocatable image";
@@ -323,6 +329,9 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
     if (unlikely(GetCfg().strace_enabled() && !replace_non_reloc))
       LogSyscall(0, "execve", &usys_execve, (strace::PathName *)filename, argv,
                  envp);
+
+    // Unset a previous child tid pointer for this reused thread.
+    myth.set_child_tid(nullptr);
 
     // Complete the exec
     p.FinishExec(std::move(*mm));

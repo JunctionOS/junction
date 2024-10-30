@@ -43,6 +43,19 @@ inline void PrintArg(const char **array, U, rt::Logger &ss) {
   ss << "]";
 }
 
+template <typename U>
+inline void PrintList(const U &array, rt::Logger &ss) {
+  ss << "[";
+  int cnt = 0;
+  for (const auto &el : array) {
+    if (cnt++ != 0) {
+      ss << ", ";
+    }
+    ss << el;
+  }
+  ss << "]";
+}
+
 // Default: print any syscall argument using the defined type in usys.h.
 template <typename T, typename U>
 inline void PrintArg(const T arg, const U, rt::Logger &ss) {
@@ -78,6 +91,11 @@ void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss);
 void PrintArg(int op, SocketDomain, rt::Logger &ss);
 void PrintArg(int op, SocketType, rt::Logger &ss);
 void PrintArg(int op, MessageFlag, rt::Logger &ss);
+
+inline void PrintArg(const std::vector<std::string_view> &arg,
+                     const std::vector<std::string_view> &, rt::Logger &ss) {
+  PrintList(arg, ss);
+}
 
 void PrintArg(const struct sockaddr *addr, rt::Logger &ss);
 
@@ -138,6 +156,43 @@ void LogSyscall(std::string_view name, Ret (*fn)(UsysArgs...),
     auto args_t = std::make_tuple(args...);
     strace::UnpackArgs<n_args - 1>(logger, fn, args_t);
   }
+  logger << ")";
+}
+
+template <typename... Args>
+void LogSyscallDirect(long retval, std::string_view name, Args... args) {
+  rt::Logger logger(LOG_INFO);
+  if (likely(IsJunctionThread()))
+    logger << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] ";
+  logger << name << "(";
+  [[maybe_unused]] size_t i = 0;
+
+  (
+      [&logger, &i, n = sizeof...(args)](auto arg) {
+        strace::PrintArg(arg, arg, logger);
+        if (++i != n) logger << ", ";
+      }(args),
+      ...);
+
+  logger << ") = " << retval;
+  if ((long)retval < 0) logger << " [" << Error(-((long)retval)) << "]";
+}
+
+template <typename... Args>
+void LogSyscallDirect(std::string_view name, Args... args) {
+  rt::Logger logger(LOG_INFO);
+  if (likely(IsJunctionThread()))
+    logger << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] ";
+  logger << name << "(";
+  [[maybe_unused]] size_t i = 0;
+
+  (
+      [&](auto arg) {
+        strace::PrintArg(arg, arg, logger);
+        if (++i != sizeof...(args)) logger << ", ";
+      }(args),
+      ...);
+
   logger << ")";
 }
 
