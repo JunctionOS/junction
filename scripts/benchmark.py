@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/env python3
 
 from collections import defaultdict
 from datetime import datetime
@@ -109,6 +109,13 @@ parser.add_argument(
     help=
     'do the jipager experiment with prefetching and reordering of the intervals mentioned in the ordering segment'
 )
+parser.add_argument(
+    '--kernel-fragment',
+    action=argparse.BooleanOptionalAction,
+    default=True,
+    help=
+    'do the jipager experiment with fragmented VMAs prefetching and reordering of the intervals mentioned in the ordering segment'
+)
 parser.add_argument('--redo-snapshot',
                     action=argparse.BooleanOptionalAction,
                     default=True,
@@ -168,6 +175,7 @@ RESTORE_CONFIG_SET = [
     ("prefault_minor_itrees_jif_k",
      "JIF\nkernel\n(w/ prefetch)\nprefault minor"),
     ("prefault_reorder_itrees_jif_k", "JIF\nkernel\nprefetch)\n(w/ reorder)"),
+    ("prefault_fragmented_jif_k", "JIF\nkernel\nprefetch)\n(frag VMAs)"),
     ("prefault_reorder_minor_itrees_jif_k",
      "JIF k\nFully cold + \nall optimizations"),
     ("prefault_reorder_minor_sa_itrees_jif_k",
@@ -661,10 +669,10 @@ class Test:
         itrees = "_itrees" if itrees else ""
         prefix = self.snapshot_prefix(with_chroot=True)
 
-        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}{itrees}.jif {prefix}{itrees}_ord_reorder.jif add-ord --setup-prefetch {prefix}.ord >> {output_log}_add_ord_reord 2>&1"
-            )
-        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}{itrees}.jif {prefix}{itrees}_ord.jif add-ord {prefix}.ord >> {output_log}_add_ord 2>&1 "
-            )
+        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}{itrees}.jif {prefix}{itrees}_ord_reorder.jif add-ord --setup-prefetch {prefix}.ord >> {output_log}_add_ord_reord 2>&1")
+        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}{itrees}.jif {prefix}{itrees}_ord.jif add-ord {prefix}.ord >> {output_log}_add_ord 2>&1")
+        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}.jif {prefix}_fragmented_ord_reorder.jif add-ord --fragment --setup-prefetch {prefix}.ord >> {output_log}_add_ord_reord 2>&1")
+        run(f"stdbuf -e0 -i0 -o0 {BUILD_DIR}/jiftool {prefix}.jif {prefix}_fragmented_ord.jif add-ord --fragment {prefix}.ord >> {output_log}_add_ord 2>&1")
 
     def restore_elf(self, output_log: str, cold: bool = True):
         junction_args = f"--function_arg '{self.args}' --function_name {self.id()}"
@@ -714,6 +722,7 @@ class Test:
                              wait_for_pages: bool = False,
                              reorder: bool = True,
                              trace: bool = False,
+                             fragmented: bool = False,
                              second_apps=[]):
         set_fault_around(1 if fault_around else 0)
         set_prefault(1 if prefault else 0)
@@ -727,6 +736,7 @@ class Test:
             dropcache()
 
         suffix = "_reorder" if reorder else ""
+        name = 'fragmented' if fragmented else 'itrees'
 
         procs = []
 
@@ -743,8 +753,8 @@ class Test:
             prefix = sapp.snapshot_prefix()
 
             p = self.jrun(f"{chroot_args()} {junction_args} --jif -rk",
-                          f"{prefix}.jm {prefix}_itrees_ord{suffix}.jif",
-                          f"{output_log}_itrees_jif_k_second_app_{sapp.id()}",
+                          f"{prefix}.jm {prefix}_{name}_ord{suffix}.jif",
+                          f"{output_log}_{name}_jif_k_second_app_{sapp.id()}",
                           idx=n,
                           bg=True,
                           ip_alloc=ip_alloc)
@@ -763,8 +773,8 @@ class Test:
         prefix = self.snapshot_prefix()
 
         self.jrun(f"{chroot_args()} {junction_args} --jif -rk",
-                  f"{prefix}.jm {prefix}_itrees_ord{suffix}.jif",
-                  f"{output_log}_itrees_jif_k",
+                  f"{prefix}.jm {prefix}_{name}_ord{suffix}.jif",
+                  f"{output_log}_{name}_jif_k",
                   idx=n,
                   ip_alloc=ip_alloc)
 
@@ -787,7 +797,7 @@ class Test:
         stats["prefault"] = prefault
         stats["cold"] = cold
         stats['key'] = self.id()
-        with open(f"{output_log}_itrees_jif_k_kstats", "a") as f:
+        with open(f"{output_log}_{name}_jif_k_kstats", "a") as f:
             f.write(json.dumps(stats))
             f.write('\n')
 
@@ -879,6 +889,18 @@ class Test:
                     prefault=True,
                     cold=True,
                     reorder=True)
+
+            if ARGS.kernel_fragment:
+                # Prefault pages with reordered contiguous data section
+                # self.jifpager_restore_jif(f"{output_log}_prefault_reorder,
+                # prefault=True, cold=True, reorder=True)
+                self.jifpager_restore_jif(
+                    f"{output_log}_prefault",
+                    minor=True,
+                    prefault=True,
+                    cold=True,
+                    reorder=True,
+                    fragmented=True)
 
             if False:
                 for tag, function in [("simple", "float_operation"),
@@ -1592,7 +1614,8 @@ def get_one_log(log_name: str):
     try:
         with open(log_name) as x:
             dat = x.read().splitlines()
-    except BaseException:
+    except BaseException as e:
+        print(f'failed to open/read log {log_name}: {e}')
         return {}
 
     progs = {}
@@ -1751,12 +1774,14 @@ def parse_microbenchmark_times(result_dir: str):
     out = defaultdict(dict)
 
     for tag, name in RESTORE_CONFIG_SET:
-        for prog, d in get_one_log(
-                f"{result_dir}/restore_images_{tag}").items():
+        for prog, d in get_one_log(f"{result_dir}/restore_images_{tag}").items():
+            print(f'adding {prog} {tag}')
             out[prog][tag] = getstats(d)
         get_kstats(f"{result_dir}/restore_images_{tag}_kstats", out, tag)
 
     pprint(out)
+    for tag, exp in out.items():
+        pprint(list(exp.keys()))
     return out
 
 
