@@ -320,6 +320,8 @@ with open(USYS_LIST) as f:
             target = emit_errno_target(name, dispatch_file, "ENOTSUP")
         elif len(ns) > 1 and ns[1] == "eopnotsup":
             target = emit_errno_target(name, dispatch_file, "EOPNOTSUPP")
+        elif len(ns) > 1 and ns[1] == "enosys_quiet":
+            target = emit_errno_target(name, dispatch_file, "ENOSYS")
         elif len(ns) > 1 and ns[1] == "stub":
             target = emit_stub_target(name, dispatch_file)
         elif len(ns) > 1 and ns[1] == "custom":

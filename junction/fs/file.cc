@@ -237,6 +237,15 @@ ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
   return static_cast<ssize_t>(*ret);
 }
 
+ssize_t usys_preadv(int fd, struct iovec *iov, int iovcnt, off_t offset) {
+  FileTable &ftbl = myproc().get_file_table();
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || !f->is_readable())) return -EBADF;
+  Status<size_t> ret = f->Readv({iov, static_cast<size_t>(iovcnt)}, &offset);
+  if (!ret) return MakeCError(ret);
+  return static_cast<ssize_t>(*ret);
+}
+
 Status<void> File::Truncate(off_t newlen) {
   if (ino_) return ino_->SetSize(static_cast<size_t>(newlen));
   return MakeError(EINVAL);

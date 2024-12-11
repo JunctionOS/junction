@@ -34,6 +34,7 @@ writev
 pwritev
 pwritev2
 pread64
+preadv
 sendfile
 lseek
 fsync
@@ -179,3 +180,7 @@ capget
 capset:::stub
 prctl:::stub
 times
+msync:::stub
+sched_setaffinity:::stub
+set_robust_list:::enosys_quiet
+rseq:::enosys_quiet
