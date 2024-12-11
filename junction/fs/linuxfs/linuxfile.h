@@ -33,9 +33,8 @@ class LinuxFile : public SeekableFile {
 
   template <class Archive>
   void save(Archive &ar) const {
-    Status<std::string> ret = get_dent_ref().GetPathStr();
-    if (!ret) throw std::runtime_error("stale linuxfile handle");
-    ar(get_flags(), get_mode(), *ret);
+    ar(get_flags(), get_mode());
+    save_dent_path(ar);
     ar(cereal::base_class<SeekableFile>(this));
   }
 
@@ -44,19 +43,15 @@ class LinuxFile : public SeekableFile {
                                  cereal::construct<LinuxFile> &construct) {
     int flags;
     FileMode mode;
-    std::string path;
+    ar(flags, mode);
 
-    ar(flags, mode, path);
-    Status<std::shared_ptr<DirectoryEntry>> ret =
-        LookupDirEntry(FSRoot::GetGlobalRoot(), path);
-    if (unlikely(!ret))
-      throw std::runtime_error("bad lookup on linuxfile restore");
+    std::shared_ptr<DirectoryEntry> dent = restore_dent_path(ar);
 
-    LinuxInode *inode = fast_cast<LinuxInode *>(&(*ret)->get_inode_ref());
+    LinuxInode *inode = fast_cast<LinuxInode *>(&dent->get_inode_ref());
     Status<KernelFile> f = linux_root_fd.OpenAt(inode->get_path(), flags, mode);
     if (unlikely(!f)) throw std::runtime_error("failed to reopen linux file");
 
-    construct(std::move(*f), flags, mode, std::move(*ret));
+    construct(std::move(*f), flags, mode, std::move(dent));
     ar(cereal::base_class<SeekableFile>(construct.ptr()));
   }
 

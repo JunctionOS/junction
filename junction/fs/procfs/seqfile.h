@@ -28,20 +28,17 @@ class SeqFile : public File {
 
   template <class Archive>
   void save(Archive &ar) const {
-    Status<std::string> ret = get_dent_ref().GetPathStr();
-    if (!ret) throw std::runtime_error("seqfile has a stale handle");
-    ar(output_, *ret, cereal::base_class<File>(this));
+    save_dent_path(ar);
+    ar(output_, cereal::base_class<File>(this));
   }
 
   template <class Archive>
   static void load_and_construct(Archive &ar,
                                  cereal::construct<SeqFile> &construct) {
-    std::string output, path;
-    ar(output, path);
-    auto ret = LookupDirEntry(FSRoot::GetGlobalRoot(), path);
-    if (unlikely(!ret))
-      throw std::runtime_error("bad lookup on seqfile restore");
-    construct(0, std::move(*ret), std::move(output));
+    std::string output;
+    std::shared_ptr<DirectoryEntry> dent = restore_dent_path(ar);
+    ar(output);
+    construct(0, std::move(dent), std::move(output));
     ar(cereal::base_class<File>(construct.ptr()));
   }
 

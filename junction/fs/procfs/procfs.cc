@@ -25,6 +25,7 @@ std::string GetMemInfo() {
   ss << "MemTotal:       " << std::setw(8) << kMemoryMappingSize / 1024
      << " kB\n";
   ss << "MemFree:        " << std::setw(8) << free / 1024 << " kB\n";
+  ss << "MemAvailable:   " << std::setw(8) << free / 1024 << " kB\n";
 
   // Fake remaining ones:
   ss << "Buffers:               0 kB\n";
@@ -80,6 +81,74 @@ class ProcFSGenLink : public ISoftLink {
  private:
   std::function<std::string()> gen_;
 };
+
+class ProcMemFile : public SeekableFile {
+ public:
+  ProcMemFile(unsigned int flags, FileMode mode,
+              std::shared_ptr<DirectoryEntry> dent)
+      : SeekableFile(FileType::kNormal, flags, mode, std::move(dent)) {}
+
+  Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
+    std::memcpy(buf.data(), reinterpret_cast<void *>(*off), buf.size());
+    return buf.size();
+  }
+
+  Status<size_t> Write(std::span<const std::byte> buf, off_t *off) override {
+    std::memcpy(reinterpret_cast<void *>(*off), buf.data(), buf.size());
+    return buf.size();
+  }
+
+  [[nodiscard]] size_t get_size() const override { return 0; }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    save_dent_path(ar);
+    ar(get_mode());
+    ar(cereal::base_class<SeekableFile>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(Archive &ar,
+                                 cereal::construct<ProcMemFile> &construct) {
+    FileMode mode;
+    std::shared_ptr<DirectoryEntry> dent = restore_dent_path(ar);
+    ar(mode);
+    construct(0, mode, std::move(dent));
+    ar(cereal::base_class<SeekableFile>(construct.ptr()));
+  }
+};
+
+class ProcMemInode : public Inode {
+ public:
+  ProcMemInode() : Inode(kTypeRegularFile | 0600, AllocateInodeNumber()) {}
+
+  Status<void> GetStats(struct stat *buf) const override {
+    InodeToStats(*this, buf);
+    return {};
+  }
+
+  bool SnapshotPrunable() override { return true; }
+
+  // Open a file for this inode.
+  Status<std::shared_ptr<File>> Open(
+      uint32_t flags, FileMode mode,
+      std::shared_ptr<DirectoryEntry> dent) override {
+    return std::make_shared<ProcMemFile>(flags, mode, std::move(dent));
+  }
+
+  static std::shared_ptr<Inode> GetSingleton() {
+    if (likely(singleton_.load(std::memory_order_relaxed))) return singleton_;
+    auto ino = std::make_shared<ProcMemInode>();
+    std::shared_ptr<Inode> empty;
+    singleton_.compare_exchange_strong(empty, std::move(ino));
+    return singleton_.load(std::memory_order_relaxed);
+  }
+
+ private:
+  static std::atomic<std::shared_ptr<Inode>> singleton_;
+};
+
+std::atomic<std::shared_ptr<Inode>> ProcMemInode::singleton_;
 
 class ProcFSInode : public Inode {
  public:
@@ -278,7 +347,9 @@ class ProcessDir : public ProcFSDir {
         "cmdline", MakeInode(0444, [p = proc_] { return GetCmdLine(p); }));
     AddDentLockedNoCheck(
         "maps", MakeInode(0444, [p = proc_] { return GetMemMaps(p); }));
+    AddDentLockedNoCheck("mem", ProcMemInode::GetSingleton());
     AddIDirLockedNoCheck<TaskDir>(std::string(kTaskDirName));
+    AddDentLockedNoCheck("cgroup", MakeInode(0444, [] { return "0::/\n"; }));
     DirectoryEntry *de = AddIDirLockedNoCheck<FDDir>(std::string(kFDDirName));
     fd_dir_ =
         static_cast<FDDir &>(de->get_inode_ref()).shared_from_base<FDDir>();
@@ -339,7 +410,7 @@ class ProcRootDir : public ProcFSDir {
  protected:
   void DoInitialize() override {
     AddDentLockedNoCheck("self", MakeLink(0777, GetPidString));
-    AddDentLockedNoCheck("stat", MakeInode(0444, GetMemInfo));
+    AddDentLockedNoCheck("meminfo", MakeInode(0444, GetMemInfo));
     AddDentLockedNoCheck("mounts", MakeInode(0444, GetMounts));
   }
 
@@ -424,3 +495,5 @@ void MakeSysFS(IDir &root, std::string mount_name) {
 }  // namespace junction::procfs
 
 // namespace junction::procfs
+
+CEREAL_REGISTER_TYPE(junction::procfs::ProcMemFile);

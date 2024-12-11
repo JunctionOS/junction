@@ -306,6 +306,23 @@ Status<long> File::Ioctl(unsigned long request, char *argp) {
   return MakeError(EINVAL);
 }
 
+void File::save_dent_path(cereal::BinaryOutputArchive &ar) const {
+  Status<std::string> ret = get_dent_ref().GetPathStr();
+  if (!ret) throw std::runtime_error("stale file handle");
+  ar(*ret);
+}
+
+std::shared_ptr<DirectoryEntry> File::restore_dent_path(
+    cereal::BinaryInputArchive &ar) {
+  std::string path;
+  ar(path);
+  Status<std::shared_ptr<DirectoryEntry>> ret =
+      LookupDirEntry(FSRoot::GetGlobalRoot(), path);
+  if (unlikely(!ret))
+    throw std::runtime_error("failed to find file on restore at path " + path);
+  return std::move(*ret);
+}
+
 struct linux_dirent64 {
   ino64_t d_ino;           /* 64-bit inode number */
   off64_t d_off;           /* 64-bit offset to next structure */

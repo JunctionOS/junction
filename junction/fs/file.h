@@ -239,6 +239,10 @@ class File : public std::enable_shared_from_this<File> {
   virtual void NotifyFlagsChanging(unsigned int oldflags,
                                    unsigned int newflags) {}
 
+  void save_dent_path(cereal::BinaryOutputArchive &ar) const;
+  static std::shared_ptr<DirectoryEntry> restore_dent_path(
+      cereal::BinaryInputArchive &ar);
+
  private:
   virtual void SetupPollSource() {}
 
