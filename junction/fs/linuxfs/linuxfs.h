@@ -32,7 +32,8 @@ class LinuxInode : public Inode {
       : Inode(stat.st_mode, stat.st_ino),
         path_(std::move(path)),
         size_(stat.st_size),
-        mtime_(stat.st_mtime) {
+        mtime_(stat.st_mtime),
+        dev_(stat.st_dev) {
     assert(!is_symlink() && !is_dir());
   }
 
@@ -49,6 +50,7 @@ class LinuxInode : public Inode {
     buf->st_size = get_size();
     buf->st_nlink = 1;
     buf->st_mtime = mtime_;
+    buf->st_dev = dev_;
     return {};
   }
 
@@ -65,6 +67,7 @@ class LinuxInode : public Inode {
   const std::string path_;
   const off_t size_;
   const time_t mtime_;
+  const dev_t dev_;
 };
 
 class LinuxIDir : public memfs::MemIDir {

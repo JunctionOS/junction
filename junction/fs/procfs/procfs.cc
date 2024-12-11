@@ -276,6 +276,8 @@ class ProcessDir : public ProcFSDir {
                          MakeLink(0777, [p = proc_] { return GetExe(p); }));
     AddDentLockedNoCheck(
         "cmdline", MakeInode(0444, [p = proc_] { return GetCmdLine(p); }));
+    AddDentLockedNoCheck(
+        "maps", MakeInode(0444, [p = proc_] { return GetMemMaps(p); }));
     AddIDirLockedNoCheck<TaskDir>(std::string(kTaskDirName));
     DirectoryEntry *de = AddIDirLockedNoCheck<FDDir>(std::string(kFDDirName));
     fd_dir_ =
@@ -293,6 +295,12 @@ class ProcessDir : public ProcFSDir {
     std::shared_ptr<Process> p = proc.lock();
     if (!p) return "[stale]";
     return std::string(p->get_mem_map().get_cmd_line());
+  }
+
+  static std::string GetMemMaps(std::weak_ptr<Process> proc) {
+    std::shared_ptr<Process> p = proc.lock();
+    if (!p) return "[stale]";
+    return p->get_mem_map().GetMappingsString();
   }
 
   std::weak_ptr<Process> proc_;

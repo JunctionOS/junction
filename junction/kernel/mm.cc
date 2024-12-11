@@ -12,6 +12,7 @@
 
 extern "C" {
 #include <sys/mman.h>
+#include <sys/sysmacros.h>
 }
 
 #include <iomanip>
@@ -651,10 +652,34 @@ void MemoryMap::load_and_construct(cereal::BinaryInputArchive &ar,
 }
 
 std::ostream &operator<<(std::ostream &os, const VMArea &vma) {
-  uintptr_t offset = vma.type == VMType::kFile ? vma.offset : 0;
-  return os << std::hex << "0x" << vma.start << "-0x" << vma.end << " "
-            << vma.ProtString() << " " << std::setw(8) << offset << " "
-            << vma.TypeString();
+  uintptr_t offset = 0;
+  ino_t inum = 0;
+  int dev_major = 0;
+  int dev_minor = 0;
+  if (vma.type == VMType::kFile) {
+    offset = vma.offset;
+    struct stat buf;
+    if (vma.file->Stat(&buf)) {
+      inum = buf.st_ino;
+      dev_major = major(buf.st_dev);
+      dev_minor = minor(buf.st_dev);
+    }
+  }
+
+  return os << std::hex << vma.start << "-" << vma.end << " "
+            << vma.ProtString() << " " << std::setfill('0') << std::setw(8)
+            << std::right << offset << " " << std::setw(2) << dev_major << ":"
+            << std::setw(2) << dev_minor << " " << std::dec << std::setfill(' ')
+            << std::setw(26) << std::left << inum << " " << vma.TypeString();
+}
+
+std::string MemoryMap::GetMappingsString() {
+  std::ostringstream ss;
+  {
+    rt::ScopedSharedLock g(mu_);
+    for (auto const &[end, vma] : vmareas_) ss << vma << "\n";
+  }
+  return ss.str();
 }
 
 void MemoryMap::LogMappings() {

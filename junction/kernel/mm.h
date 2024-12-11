@@ -198,6 +198,7 @@ class alignas(kCacheLineSize) MemoryMap {
 
   // LogMappings prints all the mappings to the log.
   void LogMappings();
+  std::string GetMappingsString();
 
   // Start a tracer on this memory map. Sets all permissions in the kernel to
   // PROT_NONE and updates permissions when page faults occur. All threads must
