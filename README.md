@@ -33,7 +33,7 @@ Clone the Junction repo and run the following script that installs needed packag
 scripts/install.sh
 ```
 
-Install rust if needed.
+Install rust.
 ```
 curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain=nightly
 ```
@@ -47,7 +47,7 @@ scripts/build.sh
 
 In order to run Junction, the core scheduler must be running. Run the following command in a seperate window:
 ```
-lib/caladan/scripts/setup_machine.sh
+sudo lib/caladan/scripts/setup_machine.sh
 sudo lib/caladan/iokerneld ias
 ```
 Note that the arguments that you provide to the core scheduler will vary depending on your network configuration (see [networking](#Networking-Options)).
