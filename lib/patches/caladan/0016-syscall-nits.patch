@@ -1,0 +1,86 @@
+From 747911afd5a62f783ace409260128750a46e6927 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Tue, 4 Apr 2023 02:26:06 +0000
+Subject: [PATCH 16/35] syscall nits
+
+---
+ base/syscall.S     | 17 +++++++++++++----
+ inc/base/syscall.h | 27 ++++++++++++++++++++++++++-
+ 2 files changed, 39 insertions(+), 5 deletions(-)
+
+diff --git a/base/syscall.S b/base/syscall.S
+index 6783386..9bf30d9 100644
+--- a/base/syscall.S
++++ b/base/syscall.S
+@@ -7,13 +7,22 @@
+ base_syscall_start:
+ 
+ .align 16
+-.globl syscall_write
+-.type syscall_write, @function
+-syscall_write:
+-	movl	$__NR_write, %eax
++.globl syscall_pwritev2
++.type syscall_pwritev2, @function
++syscall_pwritev2:
++	movl	$__NR_pwritev2, %eax
++	movq    %rcx, %r10
+ 	syscall
+ 	ret
+ 
++.align 16
++.globl syscall_writev
++.type syscall_writev, @function
++syscall_writev:
++        movl    $__NR_writev, %eax
++        syscall
++        ret
++
+ .align 16
+ .globl syscall_mmap
+ syscall_mmap:
+diff --git a/inc/base/syscall.h b/inc/base/syscall.h
+index 3d67b37..7f2de80 100644
+--- a/inc/base/syscall.h
++++ b/inc/base/syscall.h
+@@ -6,6 +6,7 @@
+ 
+ #include <stddef.h>
+ #include <sys/types.h>
++#include <sys/uio.h>
+ 
+ #include <base/compiler.h>
+ 
+@@ -22,4 +23,28 @@ extern int syscall_ioctl(int fd, unsigned long int request, void *arg);
+ extern int syscall_madvise(void *addr, size_t length, int advice);
+ extern int syscall_mprotect(void *addr, size_t len, int prot);
+ extern void syscall_exit(int status) __noreturn;
+-extern ssize_t syscall_write(int fd, const void *buf, size_t count);
++extern ssize_t syscall_pwritev2(int fd, const struct iovec *iov, int iovcnt,
++	                            off_t offset_lo, off_t offset_hi, int flags);
++
++extern ssize_t syscall_writev(int fd, const struct iovec *iov, int iovcnt);
++
++static inline ssize_t syscall_pwrite(int fd, const void *buf, size_t count,
++	                                 off_t offset)
++{
++	const struct iovec iov = {
++		.iov_base = (void *)buf,
++		.iov_len = count
++	};
++
++	return syscall_pwritev2(fd, &iov, 1, offset, 0, 0);
++}
++
++static inline ssize_t syscall_write(int fd, const void *buf, size_t count)
++{
++	const struct iovec iov = {
++		.iov_base = (void *)buf,
++		.iov_len = count
++	};
++
++	return syscall_writev(fd, &iov, 1);
++}
+-- 
+2.43.0
+

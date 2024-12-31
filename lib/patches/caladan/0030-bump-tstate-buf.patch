@@ -1,0 +1,25 @@
+From 497e7fabbf09895b026424f9296ca4b9cda725ae Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 20 Jun 2024 19:27:11 -0400
+Subject: [PATCH 30/35] bump tstate buf
+
+---
+ inc/runtime/thread.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 5e4d0cd..4bad3ba 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -120,7 +120,7 @@ struct thread {
+     bool        xsave_area_in_use:1;
+     atomic8_t        interrupt_state;
+     struct thread_tf    *entry_regs;
+-    unsigned long    junction_tstate_buf[22];
++    unsigned long    junction_tstate_buf[25];
+     struct stack        *stack;
+     uint16_t        last_cpu;
+     uint16_t        cur_kthread;
+-- 
+2.43.0
+

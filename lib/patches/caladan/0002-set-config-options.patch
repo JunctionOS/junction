@@ -1,27 +1,25 @@
-From 0e13a9296befe53b726db288112795c04b3fa47b Mon Sep 17 00:00:00 2001
+From e1216b0bdd017b665a3c9b2f1cc2a47f559a3f16 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 21 Nov 2022 00:00:45 -0500
-Subject: [PATCH 02/44] set config options
+Subject: [PATCH 02/35] set config options
 
 ---
- build/config             |  6 +++---
+ build/config             |  8 ++++----
  build/init_submodules.sh | 12 ++++++------
- 2 files changed, 9 insertions(+), 9 deletions(-)
+ 2 files changed, 10 insertions(+), 10 deletions(-)
 
 diff --git a/build/config b/build/config
-index 023e2e1..3e741d8 100644
+index 22d357f..008a756 100644
 --- a/build/config
 +++ b/build/config
-@@ -1,7 +1,7 @@
+@@ -1,16 +1,16 @@
  # build configuration options (set to y for "yes", n for "no")
  
  # Enable Mellanox ConnectX-4,5 NIC Support
 -CONFIG_MLX5=n
 +CONFIG_MLX5=y
- # Enable Mellanox ConnectX-3 NIC Support
- CONFIG_MLX4=n
  # Enable SPDK NVMe support
-@@ -9,8 +9,8 @@ CONFIG_SPDK=n
+ CONFIG_SPDK=n
  # Enable debug build mode (slower but enables several runtime checks)
  CONFIG_DEBUG=n
  # Enable additional compiler optimizations (may reduce compatibility)
@@ -32,8 +30,12 @@ index 023e2e1..3e741d8 100644
 +CONFIG_DIRECTPATH=y
  # Build with clang instead of gcc
  CONFIG_CLANG=n
+ # Build with split TX pool
+-CONFIG_SPLIT_TX=n
+\ No newline at end of file
++CONFIG_SPLIT_TX=y
 diff --git a/build/init_submodules.sh b/build/init_submodules.sh
-index 3bda0b2..08019e3 100755
+index c23e789..2ce610e 100755
 --- a/build/init_submodules.sh
 +++ b/build/init_submodules.sh
 @@ -67,12 +67,12 @@ export EXTRA_LDFLAGS=

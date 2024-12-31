@@ -1,0 +1,27 @@
+From 3b4335c00be0086c8854e2b3bf809f908f109587 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Fri, 17 Feb 2023 17:01:44 -0500
+Subject: [PATCH 12/35] enlarge stacks
+
+---
+ runtime/defs.h | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/runtime/defs.h b/runtime/defs.h
+index 60ef403..2cc0a67 100644
+--- a/runtime/defs.h
++++ b/runtime/defs.h
+@@ -30,8 +30,8 @@
+  */
+ 
+ #define RUNTIME_MAX_THREADS		100000
+-#define RUNTIME_STACK_SIZE		256 * KB
+-#define RUNTIME_GUARD_SIZE		256 * KB
++#define RUNTIME_STACK_SIZE		512 * KB
++#define RUNTIME_GUARD_SIZE		512 * KB
+ #define RUNTIME_RQ_SIZE			32
+ #define RUNTIME_MAX_TIMERS		4096
+ #define RUNTIME_SCHED_POLL_ITERS	0
+-- 
+2.43.0
+

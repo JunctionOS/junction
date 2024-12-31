@@ -1,0 +1,40 @@
+From ba95ef9269ff986ae39e6f18be29617eb4cbbed8 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sat, 18 Feb 2023 21:50:32 -0500
+Subject: [PATCH 13/35] extend struct thread to support extended register
+ saving
+
+---
+ inc/runtime/thread.h | 3 +++
+ runtime/sched.c      | 1 +
+ 2 files changed, 4 insertions(+)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 4682377..9985884 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -116,6 +116,9 @@ struct thread {
+     uint64_t        run_start_tsc;
+     uint64_t        ready_tsc;
+     uint64_t        tlsvar;
++     // Trapframe used by junction to stash registers on syscall entry
++    struct thread_tf	junction_tf;
++    void 		*xsave_area;
+ #ifdef GC
+     struct list_node    gc_link;
+     unsigned int        onk;
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 2bf05f0..83d0e7b 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -814,6 +814,7 @@ static __always_inline thread_t *__thread_create(void)
+ 	th->thread_ready = false;
+ 	th->thread_running = false;
+ 	th->tlsvar = 0;
++	th->xsave_area = NULL;
+ 
+ 	return th;
+ }
+-- 
+2.43.0
+

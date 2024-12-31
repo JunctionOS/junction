@@ -1,0 +1,187 @@
+From deafd21181cf34b0f8194c7950aa3e4e4ffe72bc Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Wed, 29 May 2024 23:24:12 -0400
+Subject: [PATCH 28/35] support MSG_PEEK
+
+---
+ inc/runtime/tcp.h |  1 +
+ inc/runtime/udp.h |  2 +-
+ runtime/net/tcp.c | 35 +++++++++++++++++++++++++++++++----
+ runtime/net/udp.c | 24 ++++++++++++++++--------
+ runtime/stat.c    |  2 +-
+ 5 files changed, 50 insertions(+), 14 deletions(-)
+
+diff --git a/inc/runtime/tcp.h b/inc/runtime/tcp.h
+index 4d01ca2..a106170 100644
+--- a/inc/runtime/tcp.h
++++ b/inc/runtime/tcp.h
+@@ -38,6 +38,7 @@ extern int tcp_get_status(tcpconn_t *c);
+ extern ssize_t tcp_read(tcpconn_t *c, void *buf, size_t len);
+ extern ssize_t tcp_write(tcpconn_t *c, const void *buf, size_t len);
+ extern ssize_t tcp_readv(tcpconn_t *c, const struct iovec *iov, int iovcnt);
++extern ssize_t tcp_read_peek(tcpconn_t *c, void *buf, size_t len);
+ extern ssize_t tcp_writev(tcpconn_t *c, const struct iovec *iov, int iovcnt);
+ extern int tcp_shutdown(tcpconn_t *c, int how);
+ extern void tcp_abort(tcpconn_t *c);
+diff --git a/inc/runtime/udp.h b/inc/runtime/udp.h
+index 2aa84ef..7702fbe 100644
+--- a/inc/runtime/udp.h
++++ b/inc/runtime/udp.h
+@@ -41,7 +41,7 @@ extern struct netaddr udp_local_addr(udpconn_t *c);
+ extern struct netaddr udp_remote_addr(udpconn_t *c);
+ extern int udp_set_buffers(udpconn_t *c, int read_mbufs, int write_mbufs);
+ extern ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
+-			     struct netaddr *raddr);
++			     struct netaddr *raddr, bool peek);
+ extern ssize_t udp_write_to(udpconn_t *c, const void *buf, size_t len,
+ 			    const struct netaddr *raddr);
+ extern ssize_t udp_read(udpconn_t *c, void *buf, size_t len);
+diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
+index b5be566..b0a1d61 100644
+--- a/runtime/net/tcp.c
++++ b/runtime/net/tcp.c
+@@ -865,11 +865,11 @@ struct netaddr tcp_remote_addr(tcpconn_t *c)
+ }
+ 
+ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
+-			     struct list_head *q, struct mbuf **mout)
++			     struct list_head *q, struct mbuf **mout, void *peek_buf)
+ {
+ 	int ret;
+ 	struct mbuf *m;
+-	size_t readlen = 0;
++	size_t tocopy, readlen = 0;
+ 	bool do_ack = false;
+ 
+ 	*mout = NULL;
+@@ -894,6 +894,18 @@ static ssize_t tcp_read_wait(tcpconn_t *c, size_t len,
+ 		return -c->err;
+ 	}
+ 
++	if (unlikely(peek_buf != NULL)) {
++		list_for_each(&c->rxq, m, link) {
++			tocopy = MIN(mbuf_length(m), len - readlen);
++			memcpy(peek_buf + readlen, mbuf_data(m), tocopy);
++			readlen += tocopy;
++			if (len == readlen)
++				break;
++		}
++		spin_unlock_np(&c->lock);
++		return readlen;
++	}
++
+ 	/* pop off the mbufs that will be read */
+ 	while (readlen < len) {
+ 		m = list_top(&c->rxq, struct mbuf, link);
+@@ -949,6 +961,21 @@ static void tcp_read_finish(tcpconn_t *c, struct mbuf *m)
+ 	waitq_release_finish(&waiters);
+ }
+ 
++/**
++ * tcp_read_peek - reads data from a TCP connection without consuming the data.
++ * @c: the TCP connection
++ * @buf: a buffer to store the read data
++ * @len: the length of @buf
++ *
++ * Returns the number of bytes read, 0 if the connection is closed, or < 0
++ * if an error occurred.
++ */
++ssize_t tcp_read_peek(tcpconn_t *c, void *buf, size_t len)
++{
++	struct mbuf *m;
++	return tcp_read_wait(c, len, NULL, &m, buf);
++}
++
+ /**
+  * tcp_read - reads data from a TCP connection
+  * @c: the TCP connection
+@@ -968,7 +995,7 @@ ssize_t tcp_read(tcpconn_t *c, void *buf, size_t len)
+ 	list_head_init(&q);
+ 
+ 	/* wait for data to become available */
+-	ret = tcp_read_wait(c, len, &q, &m);
++	ret = tcp_read_wait(c, len, &q, &m, NULL);
+ 
+ 	/* check if connection was closed */
+ 	if (ret <= 0)
+@@ -1029,7 +1056,7 @@ ssize_t tcp_readv(tcpconn_t *c, const struct iovec *iov, int iovcnt)
+ 	list_head_init(&q);
+ 
+ 	/* wait for data to become available */
+-	len = tcp_read_wait(c, len, &q, &m);
++	len = tcp_read_wait(c, len, &q, &m, NULL);
+ 
+ 	/* check if connection was closed */
+ 	if (len <= 0)
+diff --git a/runtime/net/udp.c b/runtime/net/udp.c
+index eb279b2..f1c3918 100644
+--- a/runtime/net/udp.c
++++ b/runtime/net/udp.c
+@@ -327,7 +327,7 @@ int udp_set_buffers(udpconn_t *c, int read_mbufs, int write_mbufs)
+  * is >= @len in size. If the socket has been shutdown, returns 0.
+  */
+ ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
+-                      struct netaddr *raddr)
++                      struct netaddr *raddr, bool peek)
+ {
+ 	ssize_t ret;
+ 	struct mbuf *m;
+@@ -359,11 +359,15 @@ ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
+ 		return -c->inq_err;
+ 	}
+ 
+-	/* pop an mbuf and deliver the payload */
+-	m = mbufq_pop_head(&c->inq);
+-	if (--c->inq_len == 0 && !c->shutdown)
+-		poll_clear(&c->poll_src, POLLIN);
+-	spin_unlock_np(&c->inq_lock);
++	if (likely(!peek)) {
++		/* pop an mbuf and deliver the payload */
++		m = mbufq_pop_head(&c->inq);
++		if (--c->inq_len == 0 && !c->shutdown)
++			poll_clear(&c->poll_src, POLLIN);
++		spin_unlock_np(&c->inq_lock);
++	} else {
++		m = mbufq_peak_head(&c->inq);
++	}
+ 
+ 	ret = MIN(len, mbuf_length(m));
+ 	memcpy(buf, mbuf_data(m), ret);
+@@ -377,7 +381,11 @@ ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
+ 			       c->e.raddr.port == raddr->port);
+ 		}
+ 	}
+-	mbuf_free(m);
++
++	if (likely(!peek))
++		mbuf_free(m);
++	else
++		spin_unlock_np(&c->inq_lock);
+ 	return ret;
+ }
+ 
+@@ -501,7 +509,7 @@ ssize_t udp_write_to(udpconn_t *c, const void *buf, size_t len,
+  */
+ ssize_t udp_read(udpconn_t *c, void *buf, size_t len)
+ {
+-	return udp_read_from(c, buf, len, NULL);
++	return udp_read_from(c, buf, len, NULL, false);
+ }
+ 
+ /**
+diff --git a/runtime/stat.c b/runtime/stat.c
+index abc273b..917bc4a 100644
+--- a/runtime/stat.c
++++ b/runtime/stat.c
+@@ -202,7 +202,7 @@ static void stat_worker_udp(void *arg)
+ 	}
+ 
+ 	while (true) {
+-		ret = udp_read_from(c, buf, payload_size, &raddr);
++		ret = udp_read_from(c, buf, payload_size, &raddr, false);
+ 		if (ret < cmd_len)
+ 			continue;
+ 		if (strncmp(buf, "stat", cmd_len) != 0)
+-- 
+2.43.0
+

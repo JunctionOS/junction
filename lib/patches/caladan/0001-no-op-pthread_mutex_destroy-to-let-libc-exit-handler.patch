@@ -1,7 +1,7 @@
-From ba23bebc85b7a7c01d74f889a85e1f7dc59f77dd Mon Sep 17 00:00:00 2001
+From e438a39f950932ebc9f8cb6faae556e87718fb8c Mon Sep 17 00:00:00 2001
 From: Gohar Irfan Chaudhry <girfan@mit.edu>
 Date: Tue, 8 Nov 2022 14:39:42 -0500
-Subject: [PATCH 01/33] no-op pthread_mutex_destroy to let libc exit handlers
+Subject: [PATCH 01/35] no-op pthread_mutex_destroy to let libc exit handlers
  succeed
 
 ---
@@ -9,7 +9,7 @@ Subject: [PATCH 01/33] no-op pthread_mutex_destroy to let libc exit handlers
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/shim/sync.c b/shim/sync.c
-index 30053f1e..2bb76b49 100644
+index 30053f1..2bb76b4 100644
 --- a/shim/sync.c
 +++ b/shim/sync.c
 @@ -81,7 +81,7 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex)
@@ -22,5 +22,5 @@ index 30053f1e..2bb76b49 100644
  }
  
 -- 
-2.39.2
+2.43.0
 
