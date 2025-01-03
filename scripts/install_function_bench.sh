@@ -17,5 +17,8 @@ npm install sharp
 popd
 
 pushd ${ROOT_DIR}/bin/bin
-wget https://dl.min.io/server/minio/release/linux-amd64/minio
+if [ ! -f "minio" ]; then
+  wget -O minio.download https://dl.min.io/server/minio/release/linux-amd64/minio
+  mv minio.download minio
+fi
 popd

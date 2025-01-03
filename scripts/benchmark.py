@@ -285,8 +285,8 @@ def run_iok(directpath: bool = False,
         return
     run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh nouintr")
     if not hugepages:
-        run("echo 0 | sudo tee /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages > /dev/null")
-    run("sudo chmod 777 /tmp/iokernel0.log || true")
+        run("echo 128 | sudo tee /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages > /dev/null")
+    run("sudo rm -f /tmp/iokernel0.log")
     hugepages = "" if hugepages else "nohugepages"
     cgexec = 'cgexec -g memory:junction_iokernel' if cgroup else ''
 
@@ -798,6 +798,7 @@ class Test:
                                       minor=i % 2 == 0,
                                       fault_around=False,
                                       trace=True)
+            run(f"sudo rm -f /tmp/ord")
             run(f"sudo cat /sys/kernel/debug/mem_trace {path}.ord > /tmp/ord")
             run(f"sort -n /tmp/ord | sudo tee {path}.ord > /dev/null")
             self.process_fault_order(output_log)
@@ -1170,6 +1171,7 @@ def gen_lc_config(file, ip, mask, gw):
         "runtime_priority lc",
         "runtime_quantum_us 0",
     ]
+    os.system(f"sudo rm -f {file}")
     with open(file, "w") as f:
         f.write("\n".join(cfg))
 
