@@ -84,7 +84,7 @@ parser.add_argument('--use-chroot',
                     help='use the chroot\'ed filesystem')
 parser.add_argument('--elf-baseline',
                     action=argparse.BooleanOptionalAction,
-                    default=True,
+                    default=False,
                     help='run an ELF baseline')
 parser.add_argument('--jif-userspace-baseline',
                     action=argparse.BooleanOptionalAction,
@@ -162,6 +162,8 @@ RESTORE_CONFIG_SET = [
     ("itrees_jif_k", "JIF\nkernel"),
     ("sa_itrees_jif_k", "JIF k\nFunction bench\npreviously run"),
     ("self_itrees_jif_k", "JIF k\nThis function\npreviously run"),
+    ("plusminor_self_itrees_jif_k",
+     "JIF k\nThis function\npreviously run\nplusminor"),
     ("prefault_itrees_jif_k", "JIF\nkernel\n(w/ prefetch)"),
     ("prefault_minor_itrees_jif_k",
      "JIF\nkernel\n(w/ prefetch)\nprefault minor"),
@@ -285,7 +287,8 @@ def run_iok(directpath: bool = False,
         return
     run(f"sudo {CALADAN_DIR}/scripts/setup_machine.sh nouintr")
     if not hugepages:
-        run("echo 128 | sudo tee /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages > /dev/null")
+        run("echo 128 | sudo tee /sys/devices/system/node/node*/hugepages/hugepages-2048kB/nr_hugepages > /dev/null"
+            )
     run("sudo rm -f /tmp/iokernel0.log")
     hugepages = "" if hugepages else "nohugepages"
     cgexec = 'cgexec -g memory:junction_iokernel' if cgroup else ''
@@ -908,19 +911,35 @@ class Test:
                                           minor=False,
                                           prefault=False,
                                           cold=True,
-                                          reorder=False,
+                                          reorder=True,
+                                          second_apps=[self])
+                self.jifpager_restore_jif(f"{output_log}_plusminor_self",
+                                          minor=True,
+                                          prefault=False,
+                                          cold=True,
+                                          reorder=True,
                                           second_apps=[self])
 
 
 class PyFBenchTest(Test):
-    def __init__(self, name: str, s3=False, do_second_apps=True, **args):
+
+    def __init__(self,
+                 display_name: str,
+                 s3=False,
+                 do_second_apps=True,
+                 fname=None,
+                 **args):
+
         def new_version_fn(cmd):
             return cmd.replace('run.py', 'new_runner.py')
+
+        if fname is None:
+            fname = display_name
 
         super().__init__(
             'python',
             name,
-            f"{ROOT_DIR}/bin/venv/bin/python3 -u  {BUILD_DIR}/junction/samples/snapshots/python/function_bench/run.py {name}",
+            f"{ROOT_DIR}/bin/venv/bin/python3 -u  {BUILD_DIR}/junction/samples/snapshots/python/function_bench/run.py {fname}",
             json.dumps(args),
             "",
             new_version_fn=new_version_fn,
@@ -996,6 +1015,8 @@ TESTS = [
    NodeFBenchTest("image_processing", path=prefix_fbench('dataset/image/animal-dog.jpg')),
    NodeFBenchTest("json_serdes", json_path=prefix_fbench('json_serdes/2.json')),
    PyFBenchTest("chameleon", num_of_rows=10, num_of_cols=15),
+
+
    PyFBenchTest("float_operation", N=300),
    PyFBenchTest("pyaes", length_of_message=100, num_of_iterations=1), # reap does one iteration
    PyFBenchTest("matmul", N=300),
@@ -1023,6 +1044,15 @@ TESTS = [
         + ResizerTest.template('java', f"/usr/bin/java -cp {BUILD_DIR}/junction/samples/snapshots/java/jar/jna-5.14.0.jar {BUILD_DIR}/junction/samples/snapshots/java/resizer/Resizer.java", RESIZER_IMAGES, new_version_fn = lambda x: x + " --new_version") \
         + ResizerTest.template('go', f"{BUILD_DIR}/junction/samples/snapshots/go/resizer", RESIZER_IMAGES, new_version_fn=lambda x: x + " --new_version")
 
+"""
+for iters in [1, 100, 500]:
+    for pages in [1, 100, 1000, 10000, 100000, 1000000]:
+        TESTS.append(
+            PyFBenchTest(f"synthetic{pages}_{iters}",
+                         fname="synthetic",
+                         num_pages=pages,
+                         ops_per_page=iters))
+"""
 
 def run_microbenchmark(result_dir: str, tests):
     for app in tests:
@@ -1797,7 +1827,8 @@ def plot_workloads(result_dir: str, data):
             bottom = 0
             if SUM or SLOWDOWN:
                 if FUNCTION_ONLY:
-                    sm = next(line[0] for line in stack if line[1] == "function")
+                    sm = next(line[0] for line in stack
+                              if line[1] == "function")
                 else:
                     sm = sum(line[0] for line in stack
                              if line[0] is not None)  # - WARM_ITER
@@ -1901,12 +1932,17 @@ if __name__ == "__main__":
 
         def name_filter(test) -> bool:
             return name_regex.search(test.name) if name_regex else True
+
         def lang_filter(test) -> bool:
             return lang_regex.search(test.lang) if lang_regex else True
+
         def arg_name_filter(test) -> bool:
-            return arg_name_regex.search(test.arg_name) if arg_name_regex else True
+            return arg_name_regex.search(
+                test.arg_name) if arg_name_regex else True
+
         def combined_filter(test):
-            return name_filter(test) and lang_filter(test) and arg_name_filter(test)
+            return name_filter(test) and lang_filter(test) and arg_name_filter(
+                test)
 
         tests = list(filter(combined_filter, TESTS))
 
