@@ -119,11 +119,8 @@ po::options_description GetOptions() {
       ("function_name", po::value<std::string>()->default_value("func"),
        "name of function being run")                               //
       ("keep_alive", po::bool_switch()->default_value(false), "")  //
-      ("dispatch_addr", po::value<std::string>()->default_value(""),
-       "addr of serverless function dispatcher (ip:port)")(
-          "cwd", po::value<std::string>()->default_value(""),
-          "current working directory at start");  //
-
+      ("cwd", po::value<std::string>()->default_value(""),
+       "current working directory at start");  //
   return desc;
 }
 
@@ -194,8 +191,6 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
     LOG(WARN) << "Enabling stack switching for memory tracing";
     stack_switching = true;
   }
-
-  func_dispatch_addr = vm["dispatch_addr"].as<std::string>();
 
   return {};
 }

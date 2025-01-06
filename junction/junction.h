@@ -75,13 +75,6 @@ class alignas(kCacheLineSize) JunctionCfg {
     return function_name_;
   }
 
-  [[nodiscard]] Status<netaddr> get_dispatch_netaddr() const {
-    netaddr addr;
-    int ret = str_to_netaddr(func_dispatch_addr.c_str(), &addr);
-    if (ret) return MakeError(-ret);
-    return addr;
-  }
-
   static void PrintOptions();
   Status<void> FillFromArgs(int argc, char *argv[]);
   void Print();
@@ -118,7 +111,6 @@ class alignas(kCacheLineSize) JunctionCfg {
   int snapshot_on_stop_;
   bool mem_trace_;
   std::string snapshot_prefix_;
-  std::string func_dispatch_addr;
   std::string function_name_;
   static JunctionCfg singleton_;
 };

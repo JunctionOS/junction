@@ -24,15 +24,7 @@ exp1x1 = "expand1x1"
 exp3x3 = "expand3x3"
 relu = "relu_"
 
-
-PATH_TO_FBENCH = str(
-    os.path.dirname(
-        os.path.dirname(
-            os.path.dirname(
-                os.path.realpath(__file__)))))
-
 # Modular function for Fire Node
-
 
 def fire_module(x, fire_id, squeeze=16, expand=64):
     s_id = 'fire' + str(fire_id) + '-'
@@ -61,7 +53,7 @@ def fire_module(x, fire_id, squeeze=16, expand=64):
 def SqueezeNet(include_top=True, weights='imagenet',
                input_tensor=None, input_shape=None,
                pooling=None,
-               classes=1000):
+               classes=1000, weights_path=None):
     """Instantiates the SqueezeNet architecture.
     """
 
@@ -141,8 +133,6 @@ def SqueezeNet(include_top=True, weights='imagenet',
 
     # load weights
     if weights == 'imagenet':
-        weights_path = f"{
-            PATH_TO_FBENCH}/dataset/model/squeezenet_weights_tf_dim_ordering_tf_kernels.h5"
         model.load_weights(weights_path)
 
         if K.image_data_format() == 'channels_first':
@@ -150,9 +140,9 @@ def SqueezeNet(include_top=True, weights='imagenet',
     return model
 
 
-def predict(img_local_path):
+def predict(img_local_path, weights_path):
     start = time()
-    model = SqueezeNet(weights='imagenet')
+    model = SqueezeNet(weights='imagenet', weights_path=weights_path)
     img = image.load_img(img_local_path, target_size=(227, 227))
     x = image.img_to_array(img)
     x = np.expand_dims(x, axis=0)
@@ -165,8 +155,8 @@ def predict(img_local_path):
 
 def function_handler(request_json):
     img_path = request_json['img_path']
-    model_path = request_json['model_path']
+    weights_path = request_json['model_path']
 
-    latency, result = predict(img_path)
+    latency, result = predict(img_path, weights_path)
 
     return f"latency: {latency}"
