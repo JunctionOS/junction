@@ -1,28 +1,30 @@
-From 17e5fe34a04ab786b51a49ec1ad220a606160a48 Mon Sep 17 00:00:00 2001
+From b2da651d57da4116a5de9e33ff8f4da2808e412c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 9 Oct 2024 18:29:54 -0400
-Subject: [PATCH 35/35] udp readv
+Subject: [PATCH 35/35] udp readv and writev
 
 ---
- inc/runtime/udp.h |  2 ++
- runtime/net/udp.c | 71 +++++++++++++++++++++++++++++++++++++++++++++++
- 2 files changed, 73 insertions(+)
+ inc/runtime/udp.h |   4 ++
+ runtime/net/udp.c | 147 ++++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 151 insertions(+)
 
 diff --git a/inc/runtime/udp.h b/inc/runtime/udp.h
-index bde1aba..38eb5b0 100644
+index bde1aba..70bced8 100644
 --- a/inc/runtime/udp.h
 +++ b/inc/runtime/udp.h
-@@ -45,6 +45,8 @@ extern ssize_t udp_read_from2(udpconn_t *c, void *buf, size_t len,
+@@ -45,6 +45,10 @@ extern ssize_t udp_read_from2(udpconn_t *c, void *buf, size_t len,
  			     struct netaddr *raddr, bool peek, bool nonblocking);
  extern ssize_t udp_write_to2(udpconn_t *c, const void *buf, size_t len,
  			    const struct netaddr *raddr, bool nonblocking);
++extern ssize_t udp_writev_to2(udpconn_t *c, const struct iovec *iov, int iovcnt,
++                     const struct netaddr *raddr, bool nonblocking);
 +extern ssize_t udp_readv_from2(udpconn_t *c, const struct iovec *iov, int iovcnt,
 +                      struct netaddr *raddr, bool peek, bool nonblocking);
  
  static inline ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
  			     struct netaddr *raddr)
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index 0926388..dde3737 100644
+index 0926388..3300c64 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -390,6 +390,77 @@ ssize_t udp_read_from2(udpconn_t *c, void *buf, size_t len,
@@ -103,6 +105,89 @@ index 0926388..dde3737 100644
  static void udp_tx_release_mbuf(struct mbuf *m)
  {
  	udpconn_t *c = (udpconn_t *)m->release_data;
+@@ -413,6 +484,82 @@ static void udp_tx_release_mbuf(struct mbuf *m)
+ 		udp_conn_put(c);
+ }
+ 
++ssize_t udp_writev_to2(udpconn_t *c, const struct iovec *iov, int iovcnt,
++                     const struct netaddr *raddr, bool nonblocking)
++{
++	struct netaddr addr;
++	ssize_t ret;
++	struct mbuf *m;
++	size_t len = 0;
++	int i;
++
++	for (i = 0; i < iovcnt; i++)
++		len += iov[i].iov_len;
++
++	if (len > udp_get_payload_size())
++		return -EMSGSIZE;
++	if (!raddr) {
++		if (c->e.match == TRANS_MATCH_3TUPLE)
++			return -EDESTADDRREQ;
++		addr = c->e.raddr;
++	} else {
++		addr = *raddr;
++		/* rewrite loopback address */
++		if (addr.ip == MAKE_IP_ADDR(127, 0, 0, 1))
++			addr.ip = netcfg.addr;
++	}
++
++	spin_lock_np(&c->outq_lock);
++	nonblocking |= c->nonblocking;
++
++	/* block until there is an actionable event */
++	while (c->outq_len >= c->outq_cap && !c->shutdown) {
++		if (nonblocking) {
++			spin_unlock_np(&c->outq_lock);
++			return -EAGAIN;
++		}
++		ret = waitq_wait(&c->outq_wq, &c->outq_lock);
++		if (unlikely(ret)) {
++			spin_unlock_np(&c->outq_lock);
++			return ret;
++		}
++	}
++
++	/* is the socket shutdown? */
++	if (c->shutdown) {
++		spin_unlock_np(&c->outq_lock);
++		return -EPIPE;
++	}
++
++	if (++c->outq_len >= c->outq_cap) {
++		spin_lock(&c->inq_lock);
++		poll_clear(&c->poll_src, POLLOUT);
++		spin_unlock(&c->inq_lock);
++	}
++	spin_unlock_np(&c->outq_lock);
++
++	m = net_tx_alloc_mbuf_sz(udp_headroom(), len);
++	if (unlikely(!m))
++		return -ENOBUFS;
++
++	/* write datagram payload */
++	for (i = 0; i < iovcnt; i++)
++		memcpy(mbuf_put(m, iov[i].iov_len),
++		       iov[i].iov_base, iov[i].iov_len);
++
++	/* override mbuf release method */
++	m->release = udp_tx_release_mbuf;
++	m->release_data = (unsigned long)c;
++
++	ret = udp_send_raw(m, len, c->e.laddr, addr);
++	if (unlikely(ret)) {
++		net_tx_release_mbuf(m);
++		return ret;
++	}
++
++	return len;
++}
++
+ /**
+  * udp_write_to - writes to a UDP socket
+  * @c: the UDP socket
 -- 
 2.43.0
 

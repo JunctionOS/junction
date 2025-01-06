@@ -60,6 +60,12 @@ class UDPSocket : public Socket {
     return conn_.Write(buf);
   }
 
+  Status<size_t> Writev(std::span<const iovec> iov,
+                        [[maybe_unused]] off_t *off) override {
+    if (unlikely(!conn_.is_valid())) return MakeError(EDESTADDRREQ);
+    return conn_.WritevTo(iov, nullptr, is_nonblocking());
+  }
+
   Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
                           bool peek, bool nonblocking) override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
@@ -95,6 +101,22 @@ class UDPSocket : public Socket {
       return conn_.WriteTo(buf, &*ra, nonblocking);
     }
     return conn_.WriteTo(buf, nullptr, nonblocking);
+  }
+
+  Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
+                          bool nonblocking) override {
+    if (!conn_.is_valid()) {
+      Status<rt::UDPConn> ret = rt::UDPConn::Listen({0, 0});
+      if (unlikely(!ret)) return MakeError(ret);
+      ReplaceConn(std::move(*ret));
+    }
+
+    if (raddr) {
+      Status<netaddr> ra = raddr.ToNetAddr();
+      if (unlikely(!ra)) return MakeError(ra);
+      return conn_.WritevTo(iov, &*ra, nonblocking);
+    }
+    return conn_.WritevTo(iov, nullptr, nonblocking);
   }
 
   Status<void> Shutdown([[maybe_unused]] int how) override {

@@ -215,6 +215,37 @@ ssize_t usys_sendmsg(int sockfd, const struct msghdr *msg, int flags) {
   return static_cast<ssize_t>(*ret);
 }
 
+ssize_t usys_sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
+                      int flags) {
+  bool nonblocking = flags & kMsgDontWait;
+  flags &= ~(kMsgNoSignal | kMsgDontWait);
+  if (unlikely(flags != 0)) {
+    LOG_ONCE(WARN) << "sendmsg ignoring flags " << flags;
+    return -EINVAL;
+  }
+
+  auto sock_ret = FDToSocket(sockfd);
+  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  Socket &s = sock_ret.value().get();
+
+  for (unsigned int i = 0; i < vlen; i++) {
+    struct msghdr *msg = &msgvec[i].msg_hdr;
+    if (msg->msg_control || msg->msg_controllen)
+      LOG_ONCE(WARN) << "sendmsg: ignoring control message";
+    const SockAddrPtr p = SockAddrPtr::asConst(
+        reinterpret_cast<const sockaddr *>(msg->msg_name), &msg->msg_namelen);
+    Status<size_t> ret =
+        s.WritevTo({msg->msg_iov, msg->msg_iovlen}, p, nonblocking);
+    if (!ret) {
+      if (i > 0) return i;
+      return MakeCError(ret);
+    }
+    msgvec[i].msg_len = *ret;
+  }
+
+  return vlen;
+}
+
 long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen) {
   return DoAccept(sockfd, addr, addrlen);
 }

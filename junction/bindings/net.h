@@ -99,6 +99,18 @@ class UDPConn {
     return ret;
   }
 
+  Status<size_t> WritevTo(std::span<const iovec> iov, const netaddr *raddr,
+                          bool nonblocking = false) {
+    ssize_t ret = udp_writev_to2(c_, iov.data(), static_cast<int>(iov.size()),
+                                 raddr, nonblocking);
+    if (ret < 0) return MakeError(static_cast<int>(-ret));
+    return ret;
+  }
+
+  Status<size_t> Writev(std::span<const iovec> iov, bool nonblocking = false) {
+    return WritevTo(iov, nullptr, nonblocking);
+  }
+
   // Reads a datagram.
   Status<size_t> Read(std::span<std::byte> buf) { return ReadFrom(buf, NULL); }
   // Writes a datagram.

@@ -87,6 +87,7 @@ recvfrom
 recvmsg
 sendto
 sendmsg
+sendmmsg
 accept
 accept4
 shutdown
