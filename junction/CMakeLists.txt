@@ -163,6 +163,8 @@ if (WRITEABLE_LINUX_FS)
   add_compile_definitions(WRITEABLE_LINUX_FS="1")
 endif()
 
+# add_compile_definitions(FUNCTION_PROFILING="1")
+
 # Build all modules
 add_subdirectory(base)
 add_subdirectory(bindings)

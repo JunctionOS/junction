@@ -1,6 +1,8 @@
 
 #include "junction/control/serverless.h"
 
+#include <cpuid.h>
+
 #include "junction/base/error.h"
 #include "junction/base/format.h"
 #include "junction/bindings/log.h"
@@ -8,6 +10,7 @@
 #include "junction/fs/file.h"
 #include "junction/fs/fs.h"
 #include "junction/kernel/proc.h"
+#include "junction/perf.h"
 #include "junction/snapshot/snapshot.h"
 
 namespace junction {
@@ -22,6 +25,39 @@ std::string from_byte_span(std::span<const std::byte> byte_span) {
   return std::string(reinterpret_cast<const char *>(byte_span.data()),
                      byte_span.size());
 }
+
+uint32_t getL3CacheSize() {
+  uint32_t eax, ebx, ecx, edx;
+
+  // EAX=4, ECX=3: Querying L3 cache
+  uint32_t cache_type;
+  ecx = 3;  // L3 cache level
+  __cpuid_count(4, ecx, eax, ebx, ecx, edx);
+
+  cache_type = eax & 0x1F;  // Bits 0–4 define cache type
+
+  if (cache_type == 0)
+    throw std::runtime_error("could not determine cache type");
+
+  // Calculate cache size
+  uint32_t sets = ecx + 1;
+  uint32_t ways = ((ebx >> 22) & 0x3FF) + 1;
+  uint32_t physical_line_partitions = ((ebx >> 12) & 0x3FF) + 1;
+  uint32_t line_size = (ebx & 0xFFF) + 1;
+  BUG_ON(line_size != kCacheLineSize);
+
+  return ways * physical_line_partitions * line_size * sets;
+}
+
+#pragma GCC push_options
+#pragma GCC optimize("O0")
+void ClearCaches() {
+  size_t size = 100 * getL3CacheSize();
+  std::unique_ptr<std::byte[]> buf =
+      std::make_unique_for_overwrite<std::byte[]>(size);
+  std::memset(buf.get(), 0xff, size);
+}
+#pragma GCC pop_options
 
 class FunctionChannel {
  public:
@@ -315,7 +351,40 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
   }
 
   FunctionChannel &chan = fino->get_chan();
+
+#ifdef FUNCTION_PROFILING
+  std::vector<std::pair<std::string, PerfEventMon>> evmons;
+  evmons.emplace_back("L1D Miss", L1DMonitor(true, true));
+  evmons.emplace_back("dTLB Miss", TLBMonitor(true, true));
+  evmons.emplace_back("L2 Miss", L2MissMonitor());
+  evmons.emplace_back("LL Miss", LLMonitor(true, true));
+
+  std::vector<std::vector<uint64_t>> samples;
+  samples.resize(evmons.size());
+
+  auto sample = [&] {
+    for (size_t i = 0; i < evmons.size(); i++)
+      samples[i].push_back(evmons[i].second.Sample());
+  };
+
+  sample();
   chan.DoRequest(std::string{arg});
+  sample();
+  chan.DoRequest(std::string{arg});
+  sample();
+  ClearCaches();
+  sample();
+  chan.DoRequest(std::string{arg});
+  sample();
+
+  for (size_t i = 0; i < evmons.size(); i++) {
+    LOG(INFO) << evmons[i].first << ": cold " << samples[i][1] - samples[i][0]
+              << " warm: " << samples[i][2] - samples[i][1]
+              << " flushed: " << samples[i][4] - samples[i][3];
+  }
+#else
+  chan.DoRequest(std::string{arg});
+#endif
 
   if (GetCfg().mem_trace()) {
     proc->JobControlStop();

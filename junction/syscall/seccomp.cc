@@ -57,11 +57,18 @@ static struct sock_filter trap[] = {TRAP};
 
 // Filter for core junction functionality.
 static struct sock_filter junction_core[] = {
-    ALLOW_JUNCTION_SYSCALL(mmap),       ALLOW_JUNCTION_SYSCALL(munmap),
-    ALLOW_JUNCTION_SYSCALL(mprotect),   ALLOW_JUNCTION_SYSCALL(madvise),
-    ALLOW_JUNCTION_SYSCALL(openat),     ALLOW_JUNCTION_SYSCALL(close),
-    ALLOW_JUNCTION_SYSCALL(preadv2),    ALLOW_JUNCTION_SYSCALL(pread64),
+    ALLOW_JUNCTION_SYSCALL(mmap),
+    ALLOW_JUNCTION_SYSCALL(munmap),
+    ALLOW_JUNCTION_SYSCALL(mprotect),
+    ALLOW_JUNCTION_SYSCALL(madvise),
+    ALLOW_JUNCTION_SYSCALL(openat),
+    ALLOW_JUNCTION_SYSCALL(close),
+    ALLOW_JUNCTION_SYSCALL(preadv2),
+    ALLOW_JUNCTION_SYSCALL(pread64),
     ALLOW_JUNCTION_SYSCALL(exit_group),
+#ifdef FUNCTION_PROFILING
+    ALLOW_JUNCTION_SYSCALL(perf_event_open),
+#endif
 };
 
 constexpr size_t filterMax =
