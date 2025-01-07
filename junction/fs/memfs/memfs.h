@@ -67,8 +67,9 @@ class MemInode : public Inode {
       // Only record accesses to parts of the file that existed when tracing
       // started.
       if (it != traced_inodes_.end() && off_s < it->second) {
-        myproc().get_mem_map().RecordHit(
-            buf_ + off_s, std::min(n, it->second - off_s), Time::Now());
+        myproc().get_mem_map().RecordHit(buf_ + off_s,
+                                         std::min(n, it->second - off_s),
+                                         Time::Now(), PROT_READ);
       }
     }
     std::memcpy(buf.data(), buf_ + *off, n);
@@ -93,8 +94,9 @@ class MemInode : public Inode {
       // Only record accesses to parts of the file that existed when tracing
       // started.
       if (it != traced_inodes_.end() && off < it->second) {
-        myproc().get_mem_map().RecordHit(
-            buf_ + off, std::min(buf.size(), it->second - off), Time::Now());
+        myproc().get_mem_map().RecordHit(buf_ + off,
+                                         std::min(buf.size(), it->second - off),
+                                         Time::Now(), PROT_WRITE);
       }
     }
     std::memcpy(buf_ + off, buf.data(), buf.size());

@@ -226,12 +226,14 @@ Status<void> MemoryMap::DumpTracerReport() {
   return {};
 }
 
-void MemoryMap::RecordHit(void *addr, size_t len, Time time) {
+void MemoryMap::RecordHit(void *addr, size_t len, Time time,
+                          int required_prot) {
   assert(tracer_);
   uintptr_t page = PageAlignDown(reinterpret_cast<uintptr_t>(addr));
   uintptr_t end = PageAlign(reinterpret_cast<uintptr_t>(addr) + len);
   rt::ScopedLock ul(mu_);
-  for (; page < end; page += kPageSize) tracer_->RecordHit(page, time);
+  for (; page < end; page += kPageSize)
+    tracer_->RecordHit(page, time, required_prot);
 }
 
 // This function is called when there is a SIGSEGV and
@@ -273,10 +275,14 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
 
   // An mprotect may have forced us to remap an already touched page as
   // PROT_NONE. Record the hit regardless and restore permissions.
-  tracer_->RecordHit(addr, time);
+  tracer_->RecordHit(addr, time, required_prot);
+
+  int reprot = vma.prot;
+  // Don't restore write permissions unless this fault was a write.
+  if (required_prot != PROT_WRITE) reprot &= ~PROT_WRITE;
 
   Status<void> ret =
-      KernelMProtect(reinterpret_cast<void *>(addr), kPageSize, vma.prot);
+      KernelMProtect(reinterpret_cast<void *>(addr), kPageSize, reprot);
   if (unlikely(!ret)) {
     LOG(ERR) << " failed to restore permission to page" << ret.error();
     return false;

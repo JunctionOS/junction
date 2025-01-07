@@ -103,10 +103,11 @@ class PageAccessTracer {
 
   // Record a new page being accessed
   // Updates the hit time to the earliest time if an existing hit exists.
-  void RecordHit(uintptr_t page, Time t) {
+  void RecordHit(uintptr_t page, Time t, int fault_type) {
     assert(IsPageAligned(page));
     auto [it, inserted] = access_at_.try_emplace(page, t);
     it->second = std::min(it->second, t);
+    if (fault_type == PROT_WRITE) page_writes_.insert(page);
   }
 
   const std::unordered_map<uintptr_t, Time> &get_trace() const {
@@ -117,10 +118,15 @@ class PageAccessTracer {
     for (const auto &[page_addr, time] : access_at_)
       os << std::dec << time.Microseconds() << ": 0x" << std::hex << page_addr
          << "\n";
+    size_t total = access_at_.size();
+    size_t writes = page_writes_.size();
+    os << "# Total accesses: " << std::dec << total << " writes: " << writes
+       << " (" << (writes * 100) / total << "%)\n";
   }
 
  private:
   std::unordered_map<uintptr_t, Time> access_at_;
+  std::unordered_set<uintptr_t> page_writes_;
 };
 
 inline std::ostream &operator<<(std::ostream &os,
@@ -210,7 +216,7 @@ class alignas(kCacheLineSize) MemoryMap {
 
   [[nodiscard]] Status<void> DumpTracerReport();
 
-  void RecordHit(void *addr, size_t len, Time t);
+  void RecordHit(void *addr, size_t len, Time t, int fault_type);
 
   [[nodiscard]] bool TraceEnabled() const { return !!tracer_; }
 

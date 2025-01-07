@@ -37,12 +37,37 @@ LinuxFile::~LinuxFile() { ksys_close(fd_); }
   return buf.st_size;
 }
 
-void TouchPages(std::span<std::byte> buf) {
-  uintptr_t start = PageAlignDown(reinterpret_cast<uintptr_t>(buf.data()));
-  char *pg = reinterpret_cast<char *>(start);
-  char *end = reinterpret_cast<char *>(buf.data() + buf.size_bytes());
-  [[maybe_unused]] volatile char c;
-  for (; pg < end; pg += kPageSize) c = access_once(*pg);
+Status<size_t> __attribute__((cold))
+TraceLinuxRead(int fd, std::span<std::byte> buf, off_t *off) {
+  // Read one page at a time during tracing.
+  off_t loff = *off;
+  size_t read = 0;
+  while (buf.size()) {
+    size_t to_read = std::min(
+        buf.size(), PageAlign(reinterpret_cast<uintptr_t>(buf.data()) + 1) -
+                        reinterpret_cast<uintptr_t>(buf.data()));
+
+    // Touch the page before reading into it.
+    volatile char *data = reinterpret_cast<volatile char *>(buf.data());
+    volatile char c;
+    c = access_once(*data);
+    *data = c;
+
+    ssize_t ret = ksys_pread(fd, buf.data(), to_read, loff);
+    if (ret < 0) {
+      // If there is an error, we can bail without updating *off.
+      if (ret == -EINTR) return MakeError(ERESTARTSYS);
+      return MakeError(-ret);
+    }
+
+    loff += ret;
+    read += ret;
+    if (static_cast<size_t>(ret) < to_read) break;
+    buf = buf.subspan(to_read);
+  }
+
+  *off = loff;
+  return read;
 }
 
 Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {
@@ -51,7 +76,7 @@ Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {
   // by the kernel in this case.
   // TODO(jf): consider gating this with a compile flag.
   if (IsJunctionThread() && unlikely(myproc().get_mem_map().TraceEnabled()))
-    TouchPages(buf);
+    return TraceLinuxRead(fd_, buf, off);
   ssize_t ret = ksys_pread(fd_, buf.data(), buf.size_bytes(), *off);
   if (ret < 0) {
     if (ret == -EINTR) return MakeError(ERESTARTSYS);
