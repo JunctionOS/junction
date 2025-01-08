@@ -38,6 +38,26 @@ class LinuxFile : public SeekableFile {
     ar(cereal::base_class<SeekableFile>(this));
   }
 
+  __noinline void EnableFd() {
+    assert(fd_ == -1);
+    LinuxInode *inode = fast_cast<LinuxInode *>(&get_inode_ref());
+    Status<KernelFile> f =
+        linux_root_fd.OpenAt(inode->get_path(), get_flags(), get_mode());
+    if (unlikely(!f)) throw std::runtime_error("failed to reopen linux file");
+    fd_ = f->GetFd();
+    f->Release();
+  }
+
+  inline void CheckFd() {
+    if (unlikely(fd_ == -1)) EnableFd();
+  }
+
+  // Restore constructor (deferred FD open).
+  LinuxFile(int flags, FileMode mode,
+            std::shared_ptr<DirectoryEntry> dent) noexcept
+      : SeekableFile(FileType::kNormal, flags, mode, std::move(dent)),
+        fd_(-1) {}
+
   template <class Archive>
   static void load_and_construct(Archive &ar,
                                  cereal::construct<LinuxFile> &construct) {
@@ -46,12 +66,7 @@ class LinuxFile : public SeekableFile {
     ar(flags, mode);
 
     std::shared_ptr<DirectoryEntry> dent = restore_dent_path(ar);
-
-    LinuxInode *inode = fast_cast<LinuxInode *>(&dent->get_inode_ref());
-    Status<KernelFile> f = linux_root_fd.OpenAt(inode->get_path(), flags, mode);
-    if (unlikely(!f)) throw std::runtime_error("failed to reopen linux file");
-
-    construct(std::move(*f), flags, mode, std::move(dent));
+    construct(flags, mode, std::move(dent));
     ar(cereal::base_class<SeekableFile>(construct.ptr()));
   }
 

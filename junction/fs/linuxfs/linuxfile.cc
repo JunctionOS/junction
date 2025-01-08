@@ -24,7 +24,9 @@ LinuxFile::LinuxFile(KernelFile &&f, int flags, FileMode mode,
   f.Release();
 }
 
-LinuxFile::~LinuxFile() { ksys_close(fd_); }
+LinuxFile::~LinuxFile() {
+  if (fd_ != -1) ksys_close(fd_);
+}
 
 [[nodiscard]] size_t LinuxFile::get_size() const {
   if constexpr (!linux_fs_writeable()) {
@@ -32,6 +34,7 @@ LinuxFile::~LinuxFile() { ksys_close(fd_); }
     return ino.get_size();
   }
   struct stat buf;
+  if (unlikely(fd_ == -1)) const_cast<LinuxFile *>(this)->EnableFd();
   int ret = ksys_newfstatat(fd_, "", &buf, AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW);
   if (unlikely(ret < 0)) LinuxFSPanic("bad stat", Error(-ret));
   return buf.st_size;
@@ -75,6 +78,7 @@ Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {
   // passing them to the kernel since the page fault handler won't be invoked
   // by the kernel in this case.
   // TODO(jf): consider gating this with a compile flag.
+  CheckFd();
   if (IsJunctionThread() && unlikely(myproc().get_mem_map().TraceEnabled()))
     return TraceLinuxRead(fd_, buf, off);
   ssize_t ret = ksys_pread(fd_, buf.data(), buf.size_bytes(), *off);
@@ -87,6 +91,7 @@ Status<size_t> LinuxFile::Read(std::span<std::byte> buf, off_t *off) {
 }
 
 Status<size_t> LinuxFile::Write(std::span<const std::byte> buf, off_t *off) {
+  CheckFd();
   ssize_t ret = ksys_pwrite(fd_, buf.data(), buf.size_bytes(), *off);
   if (ret < 0) return MakeError(-ret);
   *off += ret;
@@ -95,6 +100,7 @@ Status<size_t> LinuxFile::Write(std::span<const std::byte> buf, off_t *off) {
 
 Status<void *> LinuxFile::MMap(void *addr, size_t length, int prot, int flags,
                                off_t off) {
+  CheckFd();
   assert(!(flags & MAP_ANONYMOUS));
   intptr_t ret = ksys_mmap(addr, length, prot, flags, fd_, off);
   if (ret < 0) return MakeError(-ret);

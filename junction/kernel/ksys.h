@@ -336,7 +336,7 @@ inline Status<void> KernelMProtect(void *addr, size_t length, int prot) {
 // Pass mapping hints.
 inline Status<void> KernelMAdvise(void *addr, size_t length, int hint) {
   int ret = ksys_madvise(addr, length, hint);
-  if (ret < 0) return MakeError(ret);
+  if (ret < 0) return MakeError(-ret);
   return {};
 }
 

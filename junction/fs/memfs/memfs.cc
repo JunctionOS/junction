@@ -140,8 +140,9 @@ Status<void> MemInode::SetSize(size_t newlen) {
   size_t oldlen_p = PageAlign(size_);
   if (newlen_p < oldlen_p) {
     // Zero dropped blocks.
+    int advice = extent_offset_ == -1 ? MADV_DONTNEED : MADV_REMOVE;
     Status<void> ret =
-        KernelMAdvise(buf_ + newlen_p, oldlen_p - newlen_p, MADV_REMOVE);
+        KernelMAdvise(buf_ + newlen_p, oldlen_p - newlen_p, advice);
     if (unlikely(!ret))
       LOG(WARN) << "meminode: failed to remove pages " << ret.error();
   }
