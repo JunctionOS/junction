@@ -12,6 +12,6 @@ CODE_DIR=${ROOT_DIR}/junction
 find "${CODE_DIR}" -iname '*.h' -o -iname '*.cc' | xargs clang-format-16 -i &
 
 # fmt Python
-yapf3 --style pep8 -i scripts/benchmark.py
+#yapf3 --style pep8 -i scripts/benchmark.py
 
 wait

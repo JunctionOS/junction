@@ -1,6 +1,6 @@
 message(STATUS "Building junction syscall")
 
-find_package(Python3 3.12 REQUIRED COMPONENTS Interpreter)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 # Outputs syscall_tbl.cc to build/junction/syscall/syscall_tbl.cpp
 add_custom_command(

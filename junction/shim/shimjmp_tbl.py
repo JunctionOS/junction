@@ -43,8 +43,7 @@ dispatch_file += [
     f"void *shim_jmptbl[junction::CallNumber::NR_SHIM_CALL] = {'{'}"]
 for lx in fns:
     name = lx[1]
-    dispatch_file.append(f"\t[junction::CallNumber::{
-                         name}] = reinterpret_cast<void *>(&junction::shim_{name}),")
+    dispatch_file.append(f"\t[junction::CallNumber::{name}] = reinterpret_cast<void *>(&junction::shim_{name}),")
 dispatch_file.append("};")
 
 # finish file and write it out
@@ -83,8 +82,7 @@ with open(OUTPUT_FILE_SHIM, "w") as f:
             f.write(f"{', ' if idx > 0 else ''}{typ} {nm}")
         f.write(") {\n")
 
-        f.write(f"\tauto fn = reinterpret_cast<decltype({
-                fnName}) **>(0x202000 + 8 * junction::CallNumber::{fnName});\n")
+        f.write(f"\tauto fn = reinterpret_cast<decltype({fnName}) **>(0x202000 + 8 * junction::CallNumber::{fnName});\n")
 
         if "..." in args:
             assert args[-1] == "..."
@@ -110,8 +108,7 @@ with open(OUTPUT_FILE_SHIM, "w") as f:
         errVal = "nullptr" if isPtrTyp else "-1"
         castN = "reinterpret_cast<intptr_t>" if isPtrTyp else ""
 
-        f.write(f"\tif (__builtin_expect({castN}(ret) < 0, 0)) {
-                '{'} errno = -{castN}(ret); return {errVal}; {'}'}\n")
+        f.write(f"\tif (__builtin_expect({castN}(ret) < 0, 0)) {'{'} errno = -{castN}(ret); return {errVal}; {'}'}\n")
         f.write("\treturn ret;\n}\n\n")
 
     f.write("} // extern \"C\"")

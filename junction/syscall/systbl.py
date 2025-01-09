@@ -155,10 +155,8 @@ def genLogSyscallCall(pretty_name, with_ret, fnname):
 
 
 def emit_strace_target(pretty_name, function_name, output):
-    fn = f"\nextern \"C\" __attribute__((cold)) int64_t {
-        function_name}_trace(int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5) {'{'}"
-    runsyscall_cmd = f"\n\tint64_t ret = reinterpret_cast<sysfn_t>(&{
-        function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
+    fn = f"\nextern \"C\" __attribute__((cold)) int64_t {function_name}_trace(int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5) {'{'}"
+    runsyscall_cmd = f"\n\tint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 
     if STRACE_LOG_BEFORE_RETURN:
         fn += genLogSyscallCall(pretty_name, False, function_name)

@@ -1,6 +1,6 @@
 # Outputs shimjmp_tbl.cpp to build/junction/shim/shimjmp_tbl.cpp
 
-find_package(Python3 3.12 REQUIRED COMPONENTS Interpreter)
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
 
 add_custom_command(
     OUTPUT  shimjmp_tbl.cpp intercept.cc
