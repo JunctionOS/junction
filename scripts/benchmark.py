@@ -384,7 +384,8 @@ def start_minio_server():
         return
 
     path = f"{CHROOT_DIR}/{MINIO_DATA_PATH}" if ARGS.use_chroot else MINIO_DATA_PATH
-    _minio = run_async(f"sudo -E {MINIO} server {path} > /dev/null 2>&1")
+    os.system("sudo rm -f /tmp/minio.log")
+    _minio = run_async(f"sudo -E {MINIO} server {path} > /tmp/minio.log 2>&1")
     time.sleep(1)
 
     client = Minio('localhost:9000',
@@ -420,8 +421,9 @@ def start_minio_server():
 
     chroot_args = f" --chroot={CHROOT_DIR}" if ARGS.use_chroot else ""
 
+    os.system("sudo rm -f /tmp/minio_junction.log")
     MINIO_SERVER = run_async(
-        f"sudo -E {JRUN} {minio_cfg} {chroot_args} --env 'PATH=$PATH:/usr/bin/' -- {MINIO} server {MINIO_DATA_PATH} > /dev/null 2>&1"
+        f"sudo -E {JRUN} {minio_cfg} {chroot_args} --env 'PATH=$PATH:/usr/bin/' -- {MINIO} server {MINIO_DATA_PATH} > /tmp/minio_junction.log 2>&1"
     )
 
     atexit.register(kill_minio)
@@ -938,7 +940,7 @@ class PyFBenchTest(Test):
 
         super().__init__(
             'python',
-            name,
+            display_name,
             f"{ROOT_DIR}/bin/venv/bin/python3 -u  {BUILD_DIR}/junction/samples/snapshots/python/function_bench/run.py {fname}",
             json.dumps(args),
             "",
