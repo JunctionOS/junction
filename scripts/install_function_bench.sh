@@ -11,7 +11,6 @@ sudo -E apt install -y libgl1 python3-venv python3-grpcio python3-grpc-tools
 mkdir -p ${ROOT_DIR}/bin/
 python3 -m venv ${VENV_DIR}
 ${VENV_DIR}/bin/pip install chameleon pillow numpy pyaes six torch opencv-python scikit-learn pandas tensorflow grpcio grpcio-tools minio #[and-cuda]
-${VENV_DIR}/bin/pip install matplotlib psutil
 
 pushd ${ROOT_DIR}/bin/
 npm install sharp

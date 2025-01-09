@@ -42,13 +42,8 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
   )
 
   add_test(
-    NAME ${test_name}_add_itrees_ord
-    COMMAND sh -c "${JIFTOOL} $CHROOT_DIR/${JIF_ITREES} $CHROOT_DIR/${JIF_ITREES_ORD} add-ord $CHROOT_DIR/${ORD} --setup-prefetch  && ${READJIF} --check $CHROOT_DIR/${JIF_ITREES_ORD}"
-  )
-
-  add_test(
-    NAME ${test_name}_add_frag_ord
-    COMMAND sh -c "${JIFTOOL} $CHROOT_DIR/${JIF} $CHROOT_DIR/${JIF_FRAGMENTED_ORD} add-ord $CHROOT_DIR/${ORD}  --setup-prefetch --fragment && ${READJIF} --check $CHROOT_DIR/${JIF_FRAGMENTED_ORD} "
+    NAME ${test_name}_add_ord
+    COMMAND sh -c " ${JIFTOOL} $CHROOT_DIR/${JIF_ITREES} $CHROOT_DIR/${JIF_ITREES_ORD} add-ord $CHROOT_DIR/${ORD}  && ${READJIF} --check $CHROOT_DIR/${JIF_ITREES_ORD} && ${JIFTOOL} $CHROOT_DIR/${JIF} $CHROOT_DIR/${JIF_FRAGMENTED_ORD} add-ord $CHROOT_DIR/${ORD}  --fragment --chroot $CHROOT_DIR && ${READJIF} --check $CHROOT_DIR/${JIF_FRAGMENTED_ORD} "
   )
 
   add_test(
@@ -64,10 +59,9 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
   set_tests_properties(${test_name}_restore_elf PROPERTIES DEPENDS ${test_name}_snapshot_elf)
   set_tests_properties(${test_name}_build_itrees PROPERTIES DEPENDS ${test_name}_snapshot_jif)
   set_tests_properties(${test_name}_restore_jif PROPERTIES DEPENDS ${test_name}_snapshot_jif)
-  set_tests_properties(${test_name}_add_itrees_ord PROPERTIES DEPENDS "${test_name}_restore_jif;${test_name}_build_itrees")
-  set_tests_properties(${test_name}_add_frag_ord PROPERTIES DEPENDS ${test_name}_restore_jif)
-  set_tests_properties(${test_name}_restore_itrees_ord_jif PROPERTIES DEPENDS ${test_name}_add_itrees_ord)
-  set_tests_properties(${test_name}_restore_fragmented_ord_jif PROPERTIES DEPENDS ${test_name}_add_frag_ord)
+  set_tests_properties(${test_name}_add_ord PROPERTIES DEPENDS "${test_name}_restore_jif;${test_name}_build_itrees")
+  set_tests_properties(${test_name}_restore_itrees_ord_jif PROPERTIES DEPENDS ${test_name}_add_ord)
+  set_tests_properties(${test_name}_restore_fragmented_ord_jif PROPERTIES DEPENDS ${test_name}_add_ord)
 endmacro()
 
 macro(add_snapshot_restore_test test_name test_commands)
