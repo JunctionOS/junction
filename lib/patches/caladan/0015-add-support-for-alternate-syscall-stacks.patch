@@ -1,4 +1,4 @@
-From 7c5361a4e4eec76b73cf60683eaa260bb2abd92b Mon Sep 17 00:00:00 2001
+From a777189afcfbcc133805b353b1855b1e061464bb Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
 Subject: [PATCH 15/35] add support for alternate syscall stacks
@@ -31,13 +31,13 @@ index 453bd29..64ce727 100644
      unsigned int        main_thread:1;
      unsigned int        has_fsbase:1;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index 1732dd2..378fa31 100644
+index cbf240a..c88d746 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
 @@ -19,6 +19,7 @@ static size_t arp_static_sz;
  size_t arp_static_count;
  struct cfg_arp_static_entry *static_entries;
- int preferred_socket = 0;
+ int preferred_socket;
 +bool use_sigaltstack = false;
  
  /*
@@ -158,5 +158,5 @@ index 83d0e7b..0e0f2e7 100644
  
  	spin_lock(&myk()->lock);
 -- 
-2.43.0
+2.34.1
 

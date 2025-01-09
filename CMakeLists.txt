@@ -12,6 +12,17 @@ endif()
 
 project(junction C CXX ASM)
 
+# Check if the compiler is GNU
+if(NOT CMAKE_C_COMPILER_ID STREQUAL "GNU")
+    message(FATAL_ERROR "This project requires GCC as the C compiler.")
+endif()
+
+# Check GCC version
+if(CMAKE_C_COMPILER_VERSION VERSION_LESS 12.0)
+    message(FATAL_ERROR "GCC version 12 or higher is required. Detected version: ${CMAKE_C_COMPILER_VERSION}")
+endif()
+
+
 message(STATUS "Building junction")
 
 set(CMAKE_VERBOSE_MAKEFILE ON)

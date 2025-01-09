@@ -1,4 +1,4 @@
-From 386e01ad509c72cd30b64663e8d649c6b708331c Mon Sep 17 00:00:00 2001
+From e652caaf1187dd2e14c229bea12fee88dc9fc224 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
 Subject: [PATCH 18/35] preemption and signal updates
@@ -34,13 +34,13 @@ index cb909c0..9672efd 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index 378fa31..21e76b1 100644
+index c88d746..552fcbe 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
 @@ -19,7 +19,6 @@ static size_t arp_static_sz;
  size_t arp_static_count;
  struct cfg_arp_static_entry *static_entries;
- int preferred_socket = 0;
+ int preferred_socket;
 -bool use_sigaltstack = false;
  
  /*
@@ -263,5 +263,5 @@ index 32fdc84..9d7f1da 100644
  }
  
 -- 
-2.43.0
+2.34.1
 

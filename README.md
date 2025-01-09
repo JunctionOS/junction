@@ -69,7 +69,7 @@ This networking mode provides the best security, density, and performance for Ju
 You will need the PCI address of your NIC, which can be found by running `lspci | grep ConnectX`.
 If an interface is configured in Linux for this NIC, you will first need to bring it down by running `sudo ip link set down <ifname>`.
 
-Next, bind the NIC to the vfio driver:
+Next, bind the NIC to the vfio driver. If you encounter an ‘Invalid argument’ error, ensure that `intel_iommu=on` is added to your kernel boot parameters.
 ```
 sudo modprobe vfio-pci
 sudo lib/caladan/dpdk/usertools/dpdk-devbind.py -b vfio-pci <pci address>
