@@ -15,19 +15,6 @@ namespace strace {
 
 struct PathName {};
 struct FDPair {};
-enum class AtFD : int {};
-enum class ProtFlag : int {};
-enum class MMapFlag : int {};
-enum class OpenFlag : int {};
-enum class SignalNumber : int {};
-enum class MAdviseHint : int {};
-enum class CloneFlag : int {};
-enum class FutexOp : int {};
-enum class IoctlOp : int {};
-enum class FcntlOp : int {};
-enum class SocketDomain : int {};
-enum class SocketType : int {};
-enum class MessageFlag : int {};
 
 template <typename U>
 inline void PrintArg(const char **array, U, rt::Logger &ss) {
@@ -77,20 +64,26 @@ inline void PrintArg(const char *arg, T, rt::Logger &ss) {
   ss << (const void *)arg;
 }
 
-void PrintArg(int fd, AtFD, rt::Logger &ss);
-void PrintArg(int prot, ProtFlag, rt::Logger &ss);
-void PrintArg(int flags, MMapFlag, rt::Logger &ss);
-void PrintArg(unsigned long flags, CloneFlag, rt::Logger &ss);
+#define DECLARE_STRACE_TYPE(type_name) \
+  enum class type_name : int {};       \
+  void PrintArg(int fd, type_name, rt::Logger &ss);
+
+DECLARE_STRACE_TYPE(AtFD);
+DECLARE_STRACE_TYPE(ProtFlag);
+DECLARE_STRACE_TYPE(MMapFlag);
+DECLARE_STRACE_TYPE(CloneFlag);
+DECLARE_STRACE_TYPE(EpollOp);
+DECLARE_STRACE_TYPE(OpenFlag);
+DECLARE_STRACE_TYPE(SignalNumber);
+DECLARE_STRACE_TYPE(MAdviseHint)
+DECLARE_STRACE_TYPE(FutexOp)
+DECLARE_STRACE_TYPE(IoctlOp)
+DECLARE_STRACE_TYPE(FcntlOp)
+DECLARE_STRACE_TYPE(SocketDomain)
+DECLARE_STRACE_TYPE(SocketType)
+DECLARE_STRACE_TYPE(MessageFlag)
+
 void PrintArg(int *fds, FDPair *, rt::Logger &ss);
-void PrintArg(int flags, OpenFlag, rt::Logger &ss);
-void PrintArg(int signo, SignalNumber, rt::Logger &ss);
-void PrintArg(int advice, MAdviseHint, rt::Logger &ss);
-void PrintArg(int op, FutexOp, rt::Logger &ss);
-void PrintArg(unsigned int op, IoctlOp, rt::Logger &ss);
-void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss);
-void PrintArg(int op, SocketDomain, rt::Logger &ss);
-void PrintArg(int op, SocketType, rt::Logger &ss);
-void PrintArg(int op, MessageFlag, rt::Logger &ss);
 
 inline void PrintArg(const std::vector<std::string_view> &arg,
                      const std::vector<std::string_view> &, rt::Logger &ss) {

@@ -214,6 +214,9 @@ const std::map<int, std::string> msg_flags{
     VAL(MSG_OOB),
 };
 
+const std::map<int, std::string> epoll_ctl_ops{
+    VAL(EPOLL_CTL_ADD), VAL(EPOLL_CTL_MOD), VAL(EPOLL_CTL_DEL)};
+
 const char *sigmap[] = {
     "SIGHUP",  "SIGINT",    "SIGQUIT", "SIGILL",    "SIGTRAP", "SIGABRT",
     "SIGBUS",  "SIGFPE",    "SIGKILL", "SIGUSR1",   "SIGSEGV", "SIGUSR2",
@@ -277,6 +280,10 @@ void PrintArg(int signo, SignalNumber, rt::Logger &ss) {
     ss << sigmap[signo - 1];
   else
     ss << "SIGRT" << signo;
+}
+
+void PrintArg(int op, EpollOp, rt::Logger &ss) {
+  PrintValMap(epoll_ctl_ops, op, ss);
 }
 
 void PrintArg(const char *arg, PathName *, rt::Logger &ss) {
