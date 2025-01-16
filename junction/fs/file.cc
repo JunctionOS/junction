@@ -297,22 +297,29 @@ Status<void> File::StatFS(struct statfs *buf) const {
 }
 
 Status<long> File::Ioctl(unsigned long request, char *argp) {
+  // Check if derived class wants to handle this ioctl.
+  if (Status<Status<long>> ret = OnIoctl(request, argp); ret) return *ret;
+
+  Status<long> ret;
+
   switch (request) {
     case TCGETS:
     case TIOCGPGRP:
       return MakeError(ENOTTY);
+    case FIONREAD:  // aka TIOCINQ
+      ret = get_input_bytes();
+      if (!ret) return ret;
+      *reinterpret_cast<int *>(argp) = *ret;
+      return 0;
+    case FIONBIO:
+      if (*reinterpret_cast<int *>(argp))
+        set_flag(kFlagNonblock);
+      else
+        clear_flag(kFlagNonblock);
+      return 0;
+    default:
+      return MakeError(EINVAL);
   }
-
-  if (request == FIONBIO) {
-    int nonblock = *reinterpret_cast<int *>(argp);
-    if (nonblock)
-      set_flag(kFlagNonblock);
-    else
-      clear_flag(kFlagNonblock);
-    return 0;
-  }
-
-  return MakeError(EINVAL);
 }
 
 void File::save_dent_path(cereal::BinaryOutputArchive &ar) const {

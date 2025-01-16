@@ -147,6 +147,7 @@ class FunctionChannel {
 
   [[nodiscard]] bool in_progress() const { return access_once(in_progress_); }
   [[nodiscard]] pid_t get_last_blocked_tid() const { return last_waiter_tid_; }
+  [[nodiscard]] size_t get_input_bytes() const { return request_.size(); }
 
   std::vector<uint64_t> get_latencies() {
     rt::SpinGuard g(lock_);
@@ -233,6 +234,7 @@ class FunctionInode : public Inode {
   }
 
   [[nodiscard]] FunctionChannel &get_chan() { return chan_; }
+  [[nodiscard]] const FunctionChannel &get_chan() const { return chan_; }
 
  private:
   int id_;
@@ -264,6 +266,12 @@ class FunctionChannelFile : public SeekableFile {
                        [[maybe_unused]] off_t *off) override {
     FunctionInode &ino = fast_cast<FunctionInode &>(get_inode_ref());
     return ino.get_chan().Write(buf);
+  }
+
+  [[nodiscard]] Status<size_t> get_input_bytes() const override {
+    const FunctionInode &ino =
+        fast_cast<const FunctionInode &>(get_inode_ref());
+    return ino.get_chan().get_input_bytes();
   }
 
   template <class Archive>

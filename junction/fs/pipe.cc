@@ -75,6 +75,9 @@ class Pipe {
 
   [[nodiscard]] bool is_empty() const { return chan_.is_empty(); }
   [[nodiscard]] bool is_full() const { return chan_.is_full(); }
+  [[nodiscard]] size_t get_readable_bytes() const {
+    return chan_.get_readable_bytes();
+  }
 
  private:
   bool reader_is_closed() const {
@@ -211,6 +214,10 @@ class PipeReaderFile : public File {
     memset(statbuf, 0, sizeof(*statbuf));
     statbuf->st_mode = S_IFIFO | S_IRUSR | S_IWUSR;
     return {};
+  }
+
+  [[nodiscard]] Status<size_t> get_input_bytes() const override {
+    return pipe_->get_readable_bytes();
   }
 
  private:

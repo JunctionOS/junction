@@ -37,6 +37,7 @@ class ByteChannel {
   [[nodiscard]] bool is_valid() const { return !buf_.empty(); }
   // Returns the size of this ByteChannel
   [[nodiscard]] size_t get_size() const { return size_; }
+  [[nodiscard]] size_t get_readable_bytes() const;
 
   // Reads bytes out of the channel. May return less than the bytes available.
   Status<size_t> Read(std::span<std::byte> buf, bool peek = false);
@@ -84,6 +85,11 @@ inline bool ByteChannel::is_full() const {
   return in_.load(std::memory_order_relaxed) -
              out_.load(std::memory_order_acquire) >=
          size_;
+}
+
+[[nodiscard]] inline size_t ByteChannel::get_readable_bytes() const {
+  return in_.load(std::memory_order_acquire) -
+         out_.load(std::memory_order_relaxed);
 }
 
 inline Status<size_t> ByteChannel::Read(std::span<std::byte> buf, bool peek) {
