@@ -192,6 +192,12 @@ const std::map<int, std::string> fcntls{
     VAL(F_SET_FILE_RW_HINT),
 };
 
+std::string GetFcntlName(int cmd) {
+  auto it = fcntls.find(cmd);
+  if (it != fcntls.end()) return it->second;
+  return std::to_string(cmd);
+}
+
 const std::map<int, std::string> sock_domains{
     VAL(AF_UNIX),   VAL(AF_LOCAL),     VAL(AF_INET),    VAL(AF_AX25),
     VAL(AF_IPX),    VAL(AF_APPLETALK), VAL(AF_X25),     VAL(AF_INET6),

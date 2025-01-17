@@ -120,6 +120,8 @@ constexpr void UnpackArgs(rt::Logger &ss, Ret (*fn)(UsysArgs...), ArgT &args,
   if (!last) ss << ", ";
 }
 
+std::string GetFcntlName(int cmd);
+
 }  // namespace strace
 
 template <typename Ret, typename... RegisterArgs, typename UsysRet,

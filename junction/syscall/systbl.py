@@ -113,6 +113,8 @@ TYPE_ARR.update({
     ("recv", 3): 'static_cast<strace::MessageFlag>',
     ("recvfrom", 3): 'static_cast<strace::MessageFlag>',
     ("recvmsg", 2): 'static_cast<strace::MessageFlag>',
+    ("epoll_ctl", 1): 'static_cast<strace::EpollOp>',
+    ("unshare", 0): 'static_cast<strace::CloneFlag>',
 })
 
 SKIP_STRACE_TARGET = [
