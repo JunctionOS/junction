@@ -312,13 +312,62 @@ class SoftLinkFile : public File {
 
 namespace detail {
 
+class file_desc {
+ public:
+  file_desc() = default;
+
+  // Keep default destructor because of copy and drop pattern with RCU-updates.
+  ~file_desc() = default;
+
+  // Object representing a File reference that is being dropped.
+  // Returned when an FD is installed the displaces another or an FD is
+  // explicitly closed.
+  class close_handle {
+   public:
+    close_handle() = default;
+    ~close_handle() { OnDescriptorClose(*this); }
+
+   private:
+    friend class file_desc;
+    close_handle(std::shared_ptr<File> file, int fd)
+        : file(std::move(file)), fd(fd) {}
+    std::shared_ptr<File> file;
+    int fd;
+  };
+
+  explicit operator bool() const { return !!file_; }
+  [[nodiscard]] File *get() const { return file_.get(); }
+  std::shared_ptr<File> get_sp() const { return file_; }
+
+  close_handle Replace(int this_fd, std::shared_ptr<File> file) {
+    return close_handle{std::exchange(file_, std::move(file)), this_fd};
+  }
+
+  close_handle Close(int this_fd) { return Replace(this_fd, nullptr); }
+
+  // only use when there is no existing file.
+  void Install(std::shared_ptr<File> file) {
+    assert(!file_);
+    file_ = std::move(file);
+  }
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(file_);
+  }
+
+ private:
+  static void OnDescriptorClose(close_handle &handle);
+
+  std::shared_ptr<File> file_;
+};
+
 struct file_array : public rt::RCUObject {
   explicit file_array(size_t cap);
   ~file_array();
 
   // Constructor for cereal
-  file_array(size_t len, size_t cap,
-             std::unique_ptr<std::shared_ptr<File>[]> &&files)
+  file_array(size_t len, size_t cap, std::unique_ptr<file_desc[]> &&files)
       : len(len), cap(cap), files(std::move(files)) {}
 
   template <class Archive>
@@ -332,16 +381,14 @@ struct file_array : public rt::RCUObject {
                                  cereal::construct<file_array> &construct) {
     size_t len, cap;
     ar(len, cap);
-    if (unlikely(cap >= ArrayMaxElements<std::shared_ptr<File>>()))
-      throw std::bad_alloc();
-    std::unique_ptr<std::shared_ptr<File>[]> arr =
-        std::make_unique<std::shared_ptr<File>[]>(cap);
+    if (unlikely(cap >= ArrayMaxElements<file_desc>())) throw std::bad_alloc();
+    std::unique_ptr<file_desc[]> arr = std::make_unique<file_desc[]>(cap);
     for (size_t i = 0; i < len; i++) ar(arr[i]);
     construct(len, cap, std::move(arr));
   }
 
   size_t len = 0, cap;
-  std::unique_ptr<std::shared_ptr<File>[]> files;
+  std::unique_ptr<file_desc[]> files;
 };
 
 std::unique_ptr<file_array> CopyFileArray(const file_array &src, size_t cap);
@@ -391,11 +438,10 @@ class FileTable {
   bool Remove(int fd);
 
   // Removes fds in the range low to high (inclusive).
-  void RemoveRange(size_t low, size_t high);
+  void RemoveRange(int low, int high);
 
-  // Destroy a file table by dropping its file array. Called only when the
-  // FileTable is no longer in use and will never be used again.
-  void Destroy() { farr_.reset(); }
+  // Destroy a file table by dropping its file array.
+  void Destroy() { RemoveRange(0, std::numeric_limits<int32_t>::max()); }
 
   // Sets an fd as close-on-exec.
   void SetCloseOnExec(int fd);

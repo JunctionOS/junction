@@ -32,10 +32,16 @@ namespace junction {
 
 namespace detail {
 
+void file_desc::OnDescriptorClose(file_desc::close_handle &handle) {
+  // Note that fd number may be reused at this point, only use in situations
+  // where that race is OK.
+  myproc().get_procfs().NotifyFDDestroy(handle.fd);
+}
+
 file_array::file_array(size_t cap) : cap(cap) {
   if (unlikely(cap > ArrayMaxElements<std::shared_ptr<File>>()))
     throw std::bad_alloc();
-  files.reset(new std::shared_ptr<File>[cap]());
+  files.reset(new file_desc[cap]());
 }
 
 file_array::~file_array() = default;
@@ -80,7 +86,7 @@ std::shared_ptr<File> FileTable::Dup(int fd) {
   rt::RCUReadGuard g(l);
   const FArr *tbl = rcup_.get();
   if (unlikely(static_cast<size_t>(fd) >= tbl->len)) return {};
-  return tbl->files[fd];
+  return tbl->files[fd].get_sp();
 }
 
 int FileTable::Insert(std::shared_ptr<File> f, bool cloexec, size_t lowest) {
@@ -93,7 +99,7 @@ int FileTable::Insert(std::shared_ptr<File> f, bool cloexec, size_t lowest) {
   // Find the first empty slot to insert the file.
   for (i = lowest; i < farr_->len; ++i) {
     if (!farr_->files[i]) {
-      farr_->files[i] = std::move(f);
+      farr_->files[i].Install(std::move(f));
       return static_cast<int>(i);
     }
   }
@@ -101,24 +107,22 @@ int FileTable::Insert(std::shared_ptr<File> f, bool cloexec, size_t lowest) {
   // Otherwise grow the table.
   Resize(i + 1);
   farr_->len = i + 1;
-  farr_->files[i] = std::move(f);
+  farr_->files[i].Install(std::move(f));
   return static_cast<int>(i);
 }
 
 void FileTable::InsertAt(int fd, std::shared_ptr<File> f, bool cloexec) {
-  bool invalidate;
+  detail::file_desc::close_handle tmp;
   {
     rt::SpinGuard g(lock_);
     if (static_cast<size_t>(fd) >= farr_->len) Resize(fd + 1);
-    invalidate = !!farr_->files[fd];
-    farr_->files[fd] = std::move(f);
+    tmp = farr_->files[fd].Replace(fd, std::move(f));
     if (cloexec) close_on_exec_.set(fd);
   }
-  if (invalidate) myproc().get_procfs().NotifyFDDestroy(fd);
 }
 
 bool FileTable::Remove(int fd) {
-  std::shared_ptr<File> tmp;  // so destructor is called without lock held
+  detail::file_desc::close_handle tmp;  // destructor called without lock held
   {
     rt::SpinGuard g(lock_);
 
@@ -127,31 +131,27 @@ bool FileTable::Remove(int fd) {
     if (!farr_->files[fd]) return false;
 
     // Remove the file.
-    tmp = std::move(farr_->files[fd]);
+    tmp = farr_->files[fd].Close(fd);
 
     // Clear close-on-exec.
     close_on_exec_.clear(fd);
   }
-  myproc().get_procfs().NotifyFDDestroy(fd);
   return true;
 }
 
-void FileTable::RemoveRange(size_t low, size_t high) {
-  std::vector<std::shared_ptr<File>> tmp;
-  std::vector<int> tmp_fd;
+void FileTable::RemoveRange(int low, int high) {
+  std::vector<detail::file_desc::close_handle> tmp;
+  assert(low >= 0 && high >= low);
   {
     rt::SpinGuard g(lock_);
-    high = std::min(high, farr_->len - 1);
+    high = std::min(high, static_cast<int>(farr_->len) - 1);
     tmp.reserve(high - low + 1);
-    for (size_t fd = low; fd <= high; fd++) {
+    for (int fd = low; fd <= high; fd++) {
       if (!farr_->files[fd]) continue;
-      tmp.emplace_back(std::move(farr_->files[fd]));
+      tmp.emplace_back(farr_->files[fd].Close(fd));
       close_on_exec_.clear(fd);
-      tmp_fd.push_back(fd);
     }
   }
-  auto &procfs = myproc().get_procfs();
-  for (auto &fd : tmp_fd) procfs.NotifyFDDestroy(fd);
 }
 
 void FileTable::SetCloseOnExecRange(size_t low, size_t high) {
@@ -181,10 +181,14 @@ void FileTable::ClearCloseOnExec(int fd) {
 }
 
 void FileTable::DoCloseOnExec() {
-  rt::SpinGuard g(lock_);
-  for_each_set_bit(close_on_exec_,
-                   [this](size_t i) { farr_->files[i].reset(); });
-  close_on_exec_.clear();
+  std::vector<detail::file_desc::close_handle> tmp;
+  {
+    rt::SpinGuard g(lock_);
+    for_each_set_bit(close_on_exec_, [this, &tmp](size_t i) {
+      tmp.emplace_back(farr_->files[i].Close(i));
+    });
+    close_on_exec_.clear();
+  }
 }
 
 //
@@ -662,6 +666,7 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
 
 long usys_close_range(int first, int last, unsigned int flags) {
   if (unlikely(flags & ~CLOSE_RANGE_CLOEXEC)) return -EINVAL;
+  if (unlikely(first < 0 || last < first)) return -EINVAL;
   FileTable &ftbl = myproc().get_file_table();
   if (flags & CLOSE_RANGE_CLOEXEC)
     ftbl.SetCloseOnExecRange(first, last);
