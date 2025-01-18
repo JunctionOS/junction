@@ -4,24 +4,26 @@
 
 namespace junction {
 
-rt::Spin adv_lock_lock_;
-std::map<Inode *, std::shared_ptr<AdvisoryLockContext>> adv_locks;
+AdvisoryLockMap &AdvisoryLockMap::Get() {
+  static AdvisoryLockMap adv_map;
+  return adv_map;
+}
 
-AdvisoryLockContext &GetAdvLockContext(Inode *ino) {
-  rt::SpinGuard g(adv_lock_lock_);
-  std::shared_ptr<AdvisoryLockContext> &ptr = adv_locks[ino];
+AdvisoryLockContext &AdvisoryLockMap::GetCtx(Inode *ino) {
+  rt::SpinGuard g(lock_);
+  std::shared_ptr<AdvisoryLockContext> &ptr = ctxs_[ino];
   if (!ptr) ptr.reset(new AdvisoryLockContext);
   return *ptr.get();
 }
 
-void AdvLockNotifyInodeDestroy(Inode *ino) {
-  rt::SpinGuard g(adv_lock_lock_);
-  adv_locks.erase(ino);
+void AdvisoryLockMap::NotifyInodeDestroy(Inode *ino) {
+  rt::SpinGuard g(lock_);
+  ctxs_.erase(ino);
 }
 
-void AdvLockNotifyProcDestroy(pid_t pid) {
-  rt::SpinGuard g(adv_lock_lock_);
-  for (auto &[ino, lock] : adv_locks) lock->DropLocksForPid(pid);
+void AdvisoryLockMap::NotifyProcDestroy(pid_t pid) {
+  rt::SpinGuard g(lock_);
+  for (auto &[ino, lock] : ctxs_) lock->DropLocksForPid(pid);
 }
 
 AdvisoryLock fromFlock(struct flock *fl, File *file) {
@@ -57,7 +59,7 @@ bool AdvisoryLockContext::ClearRange(ssize_t start, ssize_t end, pid_t pid) {
   std::vector<AdvisoryLock> new_locks;
   for (auto it = holders_.begin(); it != holders_.end();) {
     AdvisoryLock &cur = *it;
-    if (!cur.overlaps(start, end) || cur.pid != pid) {
+    if (cur.pid != pid || !cur.overlaps(start, end)) {
       it++;
       continue;
     }

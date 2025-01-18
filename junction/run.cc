@@ -72,6 +72,7 @@ std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {
   if (GetCfg().get_ld_path().size()) ld_path_s << ":" << GetCfg().get_ld_path();
   ld_path_s << ":/lib/x86_64-linux-gnu"
             << ":/usr/lib"
+            << ":/usr/lib64"
             << ":/usr/lib/x86_64-linux-gnu"
             << ":/usr/local/lib"
             << ":/usr/lib/jvm/java-17-openjdk-amd64/lib"

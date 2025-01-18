@@ -117,7 +117,7 @@ class Inode : public std::enable_shared_from_this<Inode> {
 
   AdvisoryLockContext &get_advisory_lock() {
     if (!has_advisory_lock_) has_advisory_lock_ = true;
-    return GetAdvLockContext(this);
+    return AdvisoryLockMap::Get().GetCtx(this);
   }
 
   void NotifyDescriptorClosed(Process &p);

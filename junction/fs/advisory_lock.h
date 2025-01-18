@@ -25,11 +25,6 @@ class File;
 class Inode;
 class AdvisoryLockContext;
 
-// Caller must have hold reference for ino.
-AdvisoryLockContext &GetAdvLockContext(Inode *ino);
-void AdvLockNotifyInodeDestroy(Inode *ino);
-void AdvLockNotifyProcDestroy(pid_t pid);
-
 struct AdvisoryLock {
   short type;
   ssize_t start;
@@ -87,6 +82,19 @@ class AdvisoryLockContext {
   rt::Spin lock_;
   rt::WaitQueue waiters_;
   std::vector<AdvisoryLock> holders_;
+};
+
+class AdvisoryLockMap {
+ public:
+  // Caller must have hold reference for ino.
+  AdvisoryLockContext &GetCtx(Inode *ino);
+  void NotifyInodeDestroy(Inode *ino);
+  void NotifyProcDestroy(pid_t pid);
+  static AdvisoryLockMap &Get();
+
+ private:
+  rt::Spin lock_;
+  std::map<Inode *, std::shared_ptr<AdvisoryLockContext>> ctxs_;
 };
 
 }  // namespace junction

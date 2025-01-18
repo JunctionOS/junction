@@ -324,7 +324,9 @@ class file_desc {
   class close_handle {
    public:
     close_handle() = default;
-    ~close_handle() { OnDescriptorClose(*this); }
+    ~close_handle() {
+      if (file) OnDescriptorClose(*this);
+    }
 
    private:
     friend class file_desc;

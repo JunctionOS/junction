@@ -300,11 +300,12 @@ Status<std::shared_ptr<File>> ISoftLink::Open(
 }
 
 void Inode::NotifyDescriptorClosed(Process &p) {
-  if (has_advisory_lock()) GetAdvLockContext(this).DropLocksForPid(p.get_pid());
+  if (has_advisory_lock())
+    AdvisoryLockMap::Get().GetCtx(this).DropLocksForPid(p.get_pid());
 }
 
 Inode::~Inode() {
-  if (has_advisory_lock()) AdvLockNotifyInodeDestroy(this);
+  if (has_advisory_lock()) AdvisoryLockMap::Get().NotifyInodeDestroy(this);
 }
 
 //
