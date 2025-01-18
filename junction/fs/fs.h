@@ -14,6 +14,7 @@ extern "C" {
 #include <vector>
 
 #include "junction/base/intrusive.h"
+#include "junction/fs/advisory_lock.h"
 #include "junction/fs/file.h"
 #include "junction/junction.h"
 #include "junction/snapshot/cereal.h"
@@ -50,9 +51,9 @@ class SoftLinkFile;
 // Inode is the base class for all inodes
 class Inode : public std::enable_shared_from_this<Inode> {
  public:
-  Inode(mode_t mode, ino_t inum) : mode_(mode), inum_(inum) {}
+  Inode(mode_t mode, ino_t inum) : inum_(inum), mode_(mode) {}
 
-  virtual ~Inode() = default;
+  virtual ~Inode();
 
   // Open a file for this inode.
   virtual Status<std::shared_ptr<File>> Open(
@@ -112,9 +113,19 @@ class Inode : public std::enable_shared_from_this<Inode> {
     return std::static_pointer_cast<Derived>(shared_from_this());
   }
 
+  [[nodiscard]] bool has_advisory_lock() const { return has_advisory_lock_; }
+
+  AdvisoryLockContext &get_advisory_lock() {
+    if (!has_advisory_lock_) has_advisory_lock_ = true;
+    return GetAdvLockContext(this);
+  }
+
+  void NotifyDescriptorClosed(Process &p);
+
  private:
-  const mode_t mode_;              // the type and mode
   const ino_t inum_;               // inode number
+  const mode_t mode_;              // the type and mode
+  bool has_advisory_lock_{false};  // An advisory lock exists for this inode
   std::atomic<nlink_t> nlink_{0};  // number of hard links to this inode
 };
 

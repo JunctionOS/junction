@@ -36,6 +36,8 @@ void file_desc::OnDescriptorClose(file_desc::close_handle &handle) {
   // Note that fd number may be reused at this point, only use in situations
   // where that race is OK.
   myproc().get_procfs().NotifyFDDestroy(handle.fd);
+  Inode *ino = handle.file->get_inode();
+  if (ino) ino->NotifyDescriptorClosed(myproc());
 }
 
 file_array::file_array(size_t cap) : cap(cap) {
@@ -298,6 +300,29 @@ Status<void> File::StatFS(struct statfs *buf) const {
   Status<void> stat = ino_->GetStatFS(buf);
   if (!stat) return MakeError(stat);
   return {};
+}
+
+long DoFlocks(File *f, unsigned long op, struct flock *fl) {
+  Inode *ino = f->get_inode();
+  if (!ino) return -EINVAL;
+
+  AdvisoryLockContext &ctx = ino->get_advisory_lock();
+  Status<void> ret;
+
+  switch (op) {
+    case F_SETLK:
+      ret = ctx.DoSet(fl, false, f);
+      break;
+    case F_SETLKW:
+      ret = ctx.DoSet(fl, true, f);
+    case F_GETLK:
+      ret = ctx.DoGet(fl, f);
+    default:
+      return -EINVAL;
+  }
+
+  if (!ret) return MakeCError(ret);
+  return 0;
 }
 
 Status<long> File::Ioctl(unsigned long request, char *argp) {
@@ -658,6 +683,10 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
         LOG_ONCE(WARN) << "fcntl: F_SETFL ignoring some flags " << arg;
       f->set_flags((f->get_flags() & ~kFlagNonblock) | (arg & kFlagNonblock));
       return 0;
+    case F_SETLK:
+    case F_SETLKW:
+    case F_GETLK:
+      return DoFlocks(f, cmd, reinterpret_cast<struct flock *>(arg));
     default:
       LOG_ONCE(WARN) << "Unsupported fcntl cmd " << cmd;
       return -EINVAL;

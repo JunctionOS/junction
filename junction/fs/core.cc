@@ -299,6 +299,14 @@ Status<std::shared_ptr<File>> ISoftLink::Open(
   return {};
 }
 
+void Inode::NotifyDescriptorClosed(Process &p) {
+  if (has_advisory_lock()) GetAdvLockContext(this).DropLocksForPid(p.get_pid());
+}
+
+Inode::~Inode() {
+  if (has_advisory_lock()) AdvLockNotifyInodeDestroy(this);
+}
+
 //
 // System call implementation
 //

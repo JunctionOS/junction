@@ -320,8 +320,7 @@ class file_desc {
   ~file_desc() = default;
 
   // Object representing a File reference that is being dropped.
-  // Returned when an FD is installed the displaces another or an FD is
-  // explicitly closed.
+  // Returned when an FD is closed or displaced by another.
   class close_handle {
    public:
     close_handle() = default;

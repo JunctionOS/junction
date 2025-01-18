@@ -290,6 +290,7 @@ rt::Spin Process::pid_map_lock_;
 std::map<pid_t, Process *> Process::pid_to_proc_;
 Process::~Process() {
   DeregisterProcess(*this);
+  AdvLockNotifyProcDestroy(get_pid());
   ReleasePid(pid_, pgid_, sid_);
 }
 

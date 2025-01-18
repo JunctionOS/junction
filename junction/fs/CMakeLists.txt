@@ -1,6 +1,7 @@
 message(STATUS "Building junction filesystem")
 
 add_library(fs
+  advisory_lock.cc
   core.cc
   dev.cc
   eventfd.cc
