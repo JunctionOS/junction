@@ -169,11 +169,15 @@ class MemIDir : public IDir {
   Status<void> MkNod(std::string_view name, mode_t mode, dev_t dev) override;
   Status<void> MkDir(std::string_view name, mode_t mode) override;
   Status<void> Unlink(std::string_view name) override;
+  Status<void> Unlink(DirectoryEntry *ent) override;
   Status<void> RmDir(std::string_view name) override;
   Status<void> SymLink(std::string_view name, std::string_view target) override;
   Status<void> Rename(IDir &src, std::string_view src_name,
                       std::string_view dst_name, bool replace) override;
   Status<void> Link(std::string_view name, std::shared_ptr<Inode> ino) override;
+  Status<std::shared_ptr<DirectoryEntry>> LinkReturn(
+      std::string_view name, std::shared_ptr<Inode> ino) override;
+
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                        mode_t mode, FileMode fmode) override;
   std::vector<dir_entry> GetDents() override;

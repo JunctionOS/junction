@@ -20,6 +20,21 @@ inline constexpr unsigned int kMsgPeek = MSG_PEEK;
 inline constexpr unsigned int kMsgDontWait = MSG_DONTWAIT;
 inline constexpr unsigned int kSockTypeMask = 0xf;
 
+enum class UnixSocketAddressType {
+  Unnamed = 0,   // No name assigned.
+  Pathname,  // Sockets using a path in the file system
+  Abstract,  // Sockets in the abstract namespace
+};
+
+enum class SocketState {
+  kSockUnbound = 0,
+  kSockBound,
+  kSockListening,
+  kSockConnected
+};
+
+using UnixSocketAddr = std::pair<UnixSocketAddressType, std::string>;
+
 struct SockAddrPtr {
   explicit SockAddrPtr() : addr(nullptr), addrlen(nullptr) {}
   SockAddrPtr(struct sockaddr *addr, socklen_t *addrlen)
@@ -31,6 +46,9 @@ struct SockAddrPtr {
   }
 
   Status<netaddr> ToNetAddr() const;
+  Status<UnixSocketAddr> ToUnixAddr() const;
+
+  void FromUnixAddr(const UnixSocketAddr &uaddr);
   void FromNetAddr(const netaddr &naddr);
 
   explicit operator bool() const noexcept {
@@ -50,6 +68,11 @@ struct SockAddrPtr {
   void set_size(size_t len) {
     assert(addrlen);
     *addrlen = len;
+  }
+
+  template <typename AddrType>
+  AddrType *asPtr() {
+    return reinterpret_cast<AddrType *>(addr);
   }
 
   struct sockaddr *addr;
@@ -118,6 +141,8 @@ class Socket : public File {
     return {};
   }
 
+  [[nodiscard]] std::string get_filename() const override { return "socket:"; }
+
  private:
   friend class cereal::access;
 
@@ -131,6 +156,9 @@ class Socket : public File {
     ar(cereal::base_class<File>(this));
   }
 };
+
+Status<std::shared_ptr<Socket>> CreateUnixSocket(int type, int protocol,
+                                                 int flags);
 
 }  // namespace junction
 

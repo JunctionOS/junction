@@ -38,6 +38,15 @@ Status<void> MemIDir::Unlink(std::string_view name) {
   return {};
 }
 
+Status<void> MemIDir::Unlink(DirectoryEntry *dent) {
+  DoInitCheck();
+  rt::ScopedLock g(lock_);
+  Status<std::shared_ptr<IDir>> dir = dent->get_parent_dir();
+  if (!dir || dir->get() != this) return MakeError(ENOENT);
+  UnlinkAndDispose(dent);
+  return {};
+}
+
 Status<void> MemIDir::RmDir(std::string_view name) {
   DoInitCheck();
   rt::ScopedLock g(lock_);
@@ -96,6 +105,14 @@ Status<void> MemIDir::Link(std::string_view name, std::shared_ptr<Inode> ino) {
   rt::ScopedLock g(lock_);
   if (is_stale()) return MakeError(ESTALE);
   return AddDentLocked(std::string(name), std::move(ino));
+}
+
+Status<std::shared_ptr<DirectoryEntry>> MemIDir::LinkReturn(
+    std::string_view name, std::shared_ptr<Inode> ino) {
+  DoInitCheck();
+  rt::ScopedLock g(lock_);
+  if (is_stale()) return MakeError(ESTALE);
+  return AddDentLockedReturn(std::string(name), std::move(ino));
 }
 
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,

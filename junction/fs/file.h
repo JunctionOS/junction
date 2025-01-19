@@ -59,6 +59,8 @@ inline constexpr unsigned int kFlagExclusive = O_EXCL;
 inline constexpr unsigned int kFlagNoFollow = O_NOFOLLOW;
 // File descriptor is purely a reference to this path.
 inline constexpr unsigned int kFlagPath = O_PATH;
+// Direct file access hint.
+inline constexpr unsigned int kFlagDirect = O_DIRECT;
 
 //
 // AT flags used with *at system calls (openat, newfstatat, etc).

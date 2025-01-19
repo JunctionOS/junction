@@ -249,6 +249,16 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
 
 }  // namespace
 
+Status<std::shared_ptr<DirectoryEntry>> InsertTo(const FSRoot &fs,
+                                                 std::string_view path,
+                                                 std::shared_ptr<Inode> ino) {
+  Status<Entry> newp = LookupEntry(fs, path);
+  if (!newp) return MakeError(newp);
+  auto &[dst_idir, dst_name, must_be_dir] = *newp;
+  if (must_be_dir) return MakeError(EINVAL);
+  return dst_idir->LinkReturn(dst_name, std::move(ino));
+}
+
 // LookupDirEntry finds a dirent for a path
 Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(const FSRoot &fs,
                                                        std::string_view path,
@@ -297,6 +307,22 @@ Status<std::shared_ptr<File>> ISoftLink::Open(
   for (auto it = paths.rbegin(); it != paths.rend(); it++) os << "/" << *it;
   if (paths.size() == 0) os << "/";
   return {};
+}
+
+void DirectoryEntry::RemoveFromParent() {
+  for (size_t i = 0; i < 10; i++) {
+    // This dirent may be moved while we are trying to unlink it.
+    Status<std::shared_ptr<IDir>> parent = get_parent_dir();
+    // Someone else already unlinked us.
+    if (!parent) return;
+
+    // Parent confirmed that this directory entry was removed;
+    if ((*parent)->Unlink(this)) {
+      assert(parent_.load().get() == nullptr);
+      return;
+    }
+  }
+  LOG(WARN) << "failed to remove dent from parent";
 }
 
 void Inode::NotifyDescriptorClosed(Process &p) {

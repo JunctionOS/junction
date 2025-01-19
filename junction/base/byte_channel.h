@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "junction/base/error.h"
+#include "junction/base/io.h"
 #include "junction/snapshot/cereal.h"
 
 namespace junction {
@@ -43,6 +44,8 @@ class ByteChannel {
   Status<size_t> Read(std::span<std::byte> buf, bool peek = false);
   // Writes bytes in to the channel. May return less than the bytes available.
   Status<size_t> Write(std::span<const std::byte> buf);
+  Status<size_t> Readv(std::span<iovec> iov, bool peek);
+  Status<size_t> Writev(std::span<const iovec> iov);
 
   template <class Archive>
   void save(Archive& ar) const {
@@ -132,6 +135,58 @@ inline Status<size_t> ByteChannel::Write(std::span<const std::byte> buf) {
   std::copy_n(buf.begin(), n, std::begin(buf_) + (in & mask_));
   in_.store(in + n, std::memory_order_release);
   return n;
+}
+
+inline Status<size_t> ByteChannel::Readv(std::span<iovec> iov, bool peek) {
+  size_t in = in_.load(std::memory_order_acquire);
+  size_t out = out_.load(std::memory_order_relaxed);
+  size_t n = in - out;
+  if (n == 0) return MakeError(EAGAIN);
+
+  size_t copied;
+  iovec src[2];
+  src[0].iov_base = buf_.data() + (out & mask_);
+
+  // Handle the case where the buffer wraps around.
+  size_t n_to_end = size_ - (out & mask_);
+  if (n > n_to_end) {
+    src[0].iov_len = n_to_end;
+    src[1].iov_base = buf_.data();
+    src[1].iov_len = n - n_to_end;
+    copied = GenericCopyv(std::span{src, 2}, iov);
+  } else {
+    src[0].iov_len = n;
+    copied = GenericCopyv(std::span{src, 1}, iov);
+  }
+
+  if (!peek) out_.store(out + copied, std::memory_order_release);
+  return copied;
+}
+
+inline Status<size_t> ByteChannel::Writev(std::span<const iovec> iov) {
+  size_t in = in_.load(std::memory_order_relaxed);
+  size_t out = out_.load(std::memory_order_acquire);
+  size_t n = size_ - (in - out);
+  if (n == 0) return MakeError(EAGAIN);
+
+  size_t copied;
+  iovec src[2];
+  src[0].iov_base = buf_.data() + (in & mask_);
+
+  // Handle the case where the buffer wraps around.
+  size_t n_to_end = size_ - (in & mask_);
+  if (n > n_to_end) {
+    src[0].iov_len = n_to_end;
+    src[1].iov_base = buf_.data();
+    src[1].iov_len = n - n_to_end;
+    copied = GenericCopyv(iov, std::span{src, 2});
+  } else {
+    src[0].iov_len = n;
+    copied = GenericCopyv(iov, std::span{src, 1});
+  }
+
+  in_.store(in + copied, std::memory_order_release);
+  return copied;
 }
 
 }  // namespace junction

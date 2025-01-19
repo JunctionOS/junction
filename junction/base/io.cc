@@ -10,14 +10,6 @@ namespace {
 
 constexpr int kStackSlots = 16;
 
-size_t SumIOV(std::span<const iovec> iov) {
-  size_t len = 0;
-  for (const iovec &e : iov) {
-    len += e.iov_len;
-  }
-  return len;
-}
-
 std::span<iovec> PullIOV(std::span<iovec> iov, size_t n) {
   for (auto it = iov.begin(); it < iov.end(); ++it) {
     if (n < it->iov_len) {
@@ -65,6 +57,35 @@ Status<void> DoFull(T &io, std::span<const iovec> iov) {
 }
 
 }  // namespace
+
+size_t GenericCopyv(std::span<const iovec> srcv, std::span<iovec> dstv) {
+  std::span<std::byte> dst;
+  std::span<const std::byte> src;
+  size_t read = 0;
+  while (true) {
+    if (!src.size()) {
+      if (!srcv.size()) break;
+      src = writable_span(srcv.front());
+      srcv = srcv.subspan(1);
+    }
+
+    if (!dst.size()) {
+      if (!dstv.size()) break;
+      dst = readable_span(dstv.front());
+      dstv = dstv.subspan(1);
+    }
+
+    size_t to_copy = std::min(src.size(), dst.size());
+    std::copy_n(src.begin(), to_copy, dst.begin());
+
+    src = src.subspan(to_copy);
+    dst = dst.subspan(to_copy);
+
+    read += to_copy;
+  }
+
+  return read;
+}
 
 Status<void> WritevFull(VectoredWriter &writer, std::span<const iovec> iov) {
   return DoFull<VectoredWriter, &VectoredWriter::Writev>(writer, iov);

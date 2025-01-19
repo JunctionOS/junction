@@ -16,6 +16,8 @@ extern "C" {
 #include "junction/net/tcp_socket.h"
 #include "junction/net/udp_socket.h"
 
+#define SUN_PATH_BYTES 108
+
 namespace junction {
 
 namespace {
@@ -28,6 +30,11 @@ struct sockaddr_in {
     unsigned int s_addr;
   } sin_addr;
   char sin_zero[8];
+};
+
+struct sockaddr_un {
+  sa_family_t sun_family;
+  char sun_path[SUN_PATH_BYTES];
 };
 
 Status<std::reference_wrapper<Socket>> FDToSocket(int fd) {
@@ -45,6 +52,8 @@ Status<std::shared_ptr<Socket>> CreateSocket(int domain, int type,
 
   if (unlikely(domain == AF_NETLINK))
     return CreateNetlinkSocket(type, flags, protocol);
+
+  if (domain == AF_UNIX) return CreateUnixSocket(type, protocol, flags);
 
   if (unlikely(domain != AF_INET)) return MakeError(EAFNOSUPPORT);
   if (type == SOCK_STREAM)
@@ -68,11 +77,50 @@ long DoAccept(int sockfd, sockaddr *addr, socklen_t *addrlen, int flags = 0) {
 }  // namespace
 
 Status<netaddr> SockAddrPtr::ToNetAddr() const {
-  if (unlikely(!addr || Family() != AF_INET || size() < sizeof(sockaddr_in))) {
+  if (unlikely(!addr || Family() != AF_INET || size() < sizeof(sockaddr_in)))
     return MakeError(EINVAL);
-  }
   const sockaddr_in *sin = reinterpret_cast<const sockaddr_in *>(addr);
   return netaddr{ntoh32(sin->sin_addr.s_addr), ntoh16(sin->sin_port)};
+}
+
+Status<UnixSocketAddr> SockAddrPtr::ToUnixAddr() const {
+  if (unlikely(!addr || Family() != AF_UNIX || size() <= sizeof(sa_family_t)))
+    return MakeError(EINVAL);
+  const sockaddr_un *sun = reinterpret_cast<const sockaddr_un *>(addr);
+
+  UnixSocketAddressType type = UnixSocketAddressType::Pathname;
+  size_t max_bytes = SUN_PATH_BYTES;
+  max_bytes = std::min(size() - offsetof(sockaddr_un, sun_path), max_bytes);
+
+  const char *fb = sun->sun_path;
+  if (*fb == '\0') {
+    fb++;
+    max_bytes--;
+    type = UnixSocketAddressType::Abstract;
+  }
+
+  return std::pair{type, std::string(fb, strnlen(fb, max_bytes))};
+}
+
+void SockAddrPtr::FromUnixAddr(const UnixSocketAddr &uaddr) {
+  sockaddr_un *uin = asPtr<sockaddr_un>();
+  uin->sun_family = AF_UNIX;
+  const auto &[type, name] = uaddr;
+
+  if (!name.size()) {
+    *addrlen = sizeof(uin->sun_family);
+    return;
+  }
+
+  size_t max_copy = size() - offsetof(sockaddr_un, sun_path);
+  char *dst = uin->sun_path;
+  if (type == UnixSocketAddressType::Abstract) {
+    *dst++ = '\0';
+    max_copy--;
+  }
+  max_copy = std::min(max_copy, name.size() + 1);
+  std::memcpy(dst, name.data(), max_copy);
+  *addrlen = sizeof(uin->sun_family) + name.size() + 1 + (dst - uin->sun_path);
 }
 
 void SockAddrPtr::FromNetAddr(const netaddr &naddr) {

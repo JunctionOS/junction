@@ -11,7 +11,9 @@ extern "C" {
 #include <memory>
 
 #include "junction/base/byte_channel.h"
+#include "junction/base/message_channel.h"
 #include "junction/fs/file.h"
+#include "junction/fs/pipe.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
 #include "junction/limits.h"
@@ -22,179 +24,10 @@ namespace junction {
 
 namespace {
 
-class Pipe {
- public:
-  friend class PipeReaderFile;
-  friend class PipeWriterFile;
-  friend class PipeSocketFile;
+using StreamPipe = WaitableChannel<ByteChannel, false>;
+using MsgPipe = WaitableChannel<MessageChannel<void>, false>;
 
-  explicit Pipe(size_t size) noexcept : chan_(size) {}
-  ~Pipe() = default;
-
-  Status<size_t> Read(std::span<std::byte> buf, bool nonblocking,
-                      bool peek = false);
-  Status<size_t> Write(std::span<const std::byte> buf, bool nonblocking);
-  void CloseReader();
-  void CloseWriter();
-
-  void AttachReadPoll(PollSource *p) {
-    assert(!read_poll_);
-    read_poll_ = p;
-    if (reader_is_closed()) return;
-    if (writer_is_closed())
-      read_poll_->Set(kPollHUp);
-    else if (!is_empty())
-      read_poll_->Set(kPollIn);
-  }
-
-  void AttachWritePoll(PollSource *p) {
-    assert(!write_poll_);
-    write_poll_ = p;
-    if (writer_is_closed()) return;
-    if (reader_is_closed())
-      write_poll_->Set(kPollErr);
-    else if (!is_full())
-      write_poll_->Set(kPollOut);
-  }
-
-  template <class Archive>
-  void save(Archive &ar) const {
-    ar(chan_.get_size(), chan_, reader_closed_, writer_closed_);
-  }
-
-  template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<Pipe> &construct) {
-    size_t sz;
-    ar(sz);
-    construct(sz);
-
-    Pipe &p = *construct.ptr();
-    ar(p.chan_, p.reader_closed_, p.writer_closed_);
-  }
-
-  [[nodiscard]] bool is_empty() const { return chan_.is_empty(); }
-  [[nodiscard]] bool is_full() const { return chan_.is_full(); }
-  [[nodiscard]] size_t get_readable_bytes() const {
-    return chan_.get_readable_bytes();
-  }
-
- private:
-  bool reader_is_closed() const {
-    return reader_closed_.load(std::memory_order_acquire);
-  }
-  bool writer_is_closed() const {
-    return writer_closed_.load(std::memory_order_acquire);
-  }
-
-  rt::Spin lock_;
-  ByteChannel chan_;
-  std::atomic<bool> reader_closed_{false};
-  std::atomic<bool> writer_closed_{false};
-  rt::ThreadWaker read_waker_;
-  rt::ThreadWaker write_waker_;
-  PollSource *read_poll_{nullptr};
-  PollSource *write_poll_{nullptr};
-};
-
-Status<size_t> Pipe::Read(std::span<std::byte> buf, bool nonblocking,
-                          bool peek) {
-  size_t n;
-  while (true) {
-    // Read from the channel (without locking).
-    Status<size_t> ret = chan_.Read(buf, peek);
-    if (ret) {
-      n = *ret;
-      break;
-    }
-
-    // Return if can't block.
-    if (nonblocking) {
-      if (writer_is_closed() && chan_.is_empty()) return 0;
-      return MakeError(EAGAIN);
-    }
-
-    // Channel is empty, block and wait.
-    assert(ret.error() == EAGAIN);
-    rt::SpinGuard guard(lock_);
-    bool signaled = !rt::WaitInterruptible(lock_, read_waker_, [this] {
-      return !chan_.is_empty() || writer_is_closed();
-    });
-    if (writer_is_closed() && chan_.is_empty()) return 0;
-    if (signaled) return MakeError(EINTR);
-  }
-
-  // Wake the writer and any pollers.
-  {
-    rt::SpinGuard guard(lock_);
-    if (chan_.is_empty()) read_poll_->Clear(kPollIn);
-    if (writer_is_closed()) return n;
-    if (!chan_.is_full()) {
-      write_poll_->Set(kPollOut);
-      write_waker_.Wake();
-    }
-  }
-  return n;
-}
-
-Status<size_t> Pipe::Write(std::span<const std::byte> buf, bool nonblocking) {
-  size_t n;
-  if (buf.size() == 0) return 0;
-  while (true) {
-    // Write to the channel (without locking).
-    Status<size_t> ret = chan_.Write(buf);
-    if (ret) {
-      n = *ret;
-      break;
-    }
-
-    // Return if can't block.
-    if (nonblocking) {
-      if (reader_is_closed()) return MakeError(EPIPE);
-      return MakeError(EAGAIN);
-    }
-
-    // Channel is full, block and wait.
-    assert(ret.error() == EAGAIN);
-    rt::SpinGuard guard(lock_);
-    bool signaled = !rt::WaitInterruptible(lock_, write_waker_, [this] {
-      return !chan_.is_full() || reader_is_closed();
-    });
-    if (reader_is_closed()) return MakeError(EPIPE);
-    if (signaled) return MakeError(EINTR);
-  }
-
-  // Wake the reader and any pollers.
-  {
-    rt::SpinGuard guard(lock_);
-    if (chan_.is_full()) write_poll_->Clear(kPollOut);
-    if (reader_is_closed()) return MakeError(EPIPE);
-    if (!chan_.is_empty()) {
-      read_poll_->Set(kPollIn);
-      read_waker_.Wake();
-    }
-  }
-  return n;
-}
-
-void Pipe::CloseReader() {
-  rt::SpinGuard guard(lock_);
-  reader_closed_.store(true, std::memory_order_release);
-  if (!writer_is_closed()) {
-    write_poll_->Set(kPollErr);  // POSIX requires this for pipe, not kPollRdHUp
-    write_waker_.Wake();
-  }
-}
-
-void Pipe::CloseWriter() {
-  rt::SpinGuard guard(lock_);
-  writer_closed_.store(true, std::memory_order_release);
-  if (!reader_is_closed()) {
-    read_poll_->Set(kPollHUp);
-    read_waker_.Wake();
-  }
-}
-
+template <class Pipe>
 class PipeReaderFile : public File {
  public:
   PipeReaderFile(std::shared_ptr<Pipe> pipe, int flags) noexcept
@@ -202,7 +35,7 @@ class PipeReaderFile : public File {
         pipe_(std::move(pipe)) {
     pipe_->AttachReadPoll(&get_poll_source());
   }
-  ~PipeReaderFile() override { pipe_->CloseReader(); }
+  ~PipeReaderFile() override { pipe_->CloseReader(&get_poll_source()); }
 
   Status<size_t> Read(std::span<std::byte> buf,
                       [[maybe_unused]] off_t *off) override {
@@ -214,10 +47,6 @@ class PipeReaderFile : public File {
     memset(statbuf, 0, sizeof(*statbuf));
     statbuf->st_mode = S_IFIFO | S_IRUSR | S_IWUSR;
     return {};
-  }
-
-  [[nodiscard]] Status<size_t> get_input_bytes() const override {
-    return pipe_->get_readable_bytes();
   }
 
  private:
@@ -240,6 +69,7 @@ class PipeReaderFile : public File {
   std::shared_ptr<Pipe> pipe_;
 };
 
+template <class Pipe>
 class PipeWriterFile : public File {
  public:
   PipeWriterFile(std::shared_ptr<Pipe> pipe, int flags) noexcept
@@ -247,7 +77,7 @@ class PipeWriterFile : public File {
         pipe_(std::move(pipe)) {
     pipe_->AttachWritePoll(&get_poll_source());
   }
-  ~PipeWriterFile() override { pipe_->CloseWriter(); }
+  ~PipeWriterFile() override { pipe_->CloseWriter(&get_poll_source()); }
 
   Status<size_t> Write(std::span<const std::byte> buf,
                        [[maybe_unused]] off_t *off) override {
@@ -281,14 +111,28 @@ class PipeWriterFile : public File {
 };
 
 std::pair<int, int> CreatePipe(int flags = 0) {
-  // Create the pipe (shared between the reader and writer file).
-  auto pipe = std::make_shared<Pipe>(kPipeSize);
+  std::shared_ptr<File> reader, writer;
 
-  // Create the reader file.
-  auto reader = std::make_shared<PipeReaderFile>(pipe, flags);
+  if (flags & kFlagDirect) {
+    // Create the pipe (shared between the reader and writer file).
+    auto pipe = std::make_shared<MsgPipe>(kPipeSize);
 
-  // Create the writer file.
-  auto writer = std::make_shared<PipeWriterFile>(std::move(pipe), flags);
+    // Create the reader file.
+    reader = std::make_shared<PipeReaderFile<MsgPipe>>(pipe, flags);
+
+    // Create the writer file.
+    writer = std::make_shared<PipeWriterFile<MsgPipe>>(std::move(pipe), flags);
+  } else {
+    // Create the pipe (shared between the reader and writer file).
+    auto pipe = std::make_shared<StreamPipe>(kPipeSize);
+
+    // Create the reader file.
+    reader = std::make_shared<PipeReaderFile<StreamPipe>>(pipe, flags);
+
+    // Create the writer file.
+    writer =
+        std::make_shared<PipeWriterFile<StreamPipe>>(std::move(pipe), flags);
+  }
 
   // Insert both files into the file table.
   FileTable &ftbl = myproc().get_file_table();
@@ -298,30 +142,30 @@ std::pair<int, int> CreatePipe(int flags = 0) {
   return std::make_pair(read_fd, write_fd);
 }
 
-class PipeSocketFile : public Socket {
+template <class Pipe>
+class PipeSocket : public Socket {
  public:
-  PipeSocketFile(std::shared_ptr<Pipe> rx, std::shared_ptr<Pipe> tx,
-                 int flags = 0)
+  PipeSocket(std::shared_ptr<Pipe> rx, std::shared_ptr<Pipe> tx, int flags = 0)
       : Socket(flags), rx_(std::move(rx)), tx_(std::move(tx)) {
     rx_->AttachReadPoll(&get_poll_source());
     tx_->AttachWritePoll(&get_poll_source());
   }
-  ~PipeSocketFile() override {
-    rx_->CloseReader();
-    tx_->CloseWriter();
+  ~PipeSocket() override {
+    rx_->CloseReader(&get_poll_source());
+    tx_->CloseWriter(&get_poll_source());
   }
 
   Status<void> Shutdown(int how) override {
     switch (how) {
       case SHUT_RD:
-        rx_->CloseReader();
+        rx_->CloseReader(&get_poll_source());
         break;
       case SHUT_WR:
-        tx_->CloseWriter();
+        tx_->CloseWriter(&get_poll_source());
         break;
       case SHUT_RDWR:
-        rx_->CloseReader();
-        tx_->CloseWriter();
+        rx_->CloseReader(&get_poll_source());
+        tx_->CloseWriter(&get_poll_source());
         break;
       default:
         return MakeError(EINVAL);
@@ -370,7 +214,7 @@ class PipeSocketFile : public Socket {
 
   template <class Archive>
   static void load_and_construct(Archive &ar,
-                                 cereal::construct<PipeSocketFile> &construct) {
+                                 cereal::construct<PipeSocket> &construct) {
     std::shared_ptr<Pipe> rx;
     std::shared_ptr<Pipe> tx;
     ar(rx, tx);
@@ -382,14 +226,22 @@ class PipeSocketFile : public Socket {
   std::shared_ptr<Pipe> tx_;
 };
 
-std::pair<int, int> CreatePipeSocket(int flags = 0) {
-  auto p1 = std::make_shared<Pipe>(kPipeSize);
-  auto p2 = std::make_shared<Pipe>(kPipeSize);
+std::pair<int, int> CreatePipeSocket(int flags, bool datagram) {
+  std::shared_ptr<File> pipe1, pipe2;
 
-  // Create the reader file.
-  auto pipe1 = std::make_shared<PipeSocketFile>(p1, p2, flags);
-  auto pipe2 =
-      std::make_shared<PipeSocketFile>(std::move(p2), std::move(p1), flags);
+  if (datagram) {
+    auto p1 = std::make_shared<MsgPipe>(kPipeSize);
+    auto p2 = std::make_shared<MsgPipe>(kPipeSize);
+    pipe1 = std::make_shared<PipeSocket<MsgPipe>>(p1, p2, flags);
+    pipe2 = std::make_shared<PipeSocket<MsgPipe>>(std::move(p2), std::move(p1),
+                                                  flags);
+  } else {
+    auto p1 = std::make_shared<StreamPipe>(kPipeSize);
+    auto p2 = std::make_shared<StreamPipe>(kPipeSize);
+    pipe1 = std::make_shared<PipeSocket<StreamPipe>>(p1, p2, flags);
+    pipe2 = std::make_shared<PipeSocket<StreamPipe>>(std::move(p2),
+                                                     std::move(p1), flags);
+  }
 
   // Insert both files into the file table.
   FileTable &ftbl = myproc().get_file_table();
@@ -410,7 +262,8 @@ long usys_pipe(int pipefd[2]) {
 
 long usys_pipe2(int pipefd[2], int flags) {
   // check for supported flags.
-  if ((flags & ~(kFlagNonblock | kFlagCloseExec)) != 0) return -EINVAL;
+  if ((flags & ~(kFlagNonblock | kFlagCloseExec | kFlagDirect)) != 0)
+    return -EINVAL;
   auto [read_fd, write_fd] = CreatePipe(flags);
   pipefd[0] = read_fd;
   pipefd[1] = write_fd;
@@ -420,8 +273,9 @@ long usys_pipe2(int pipefd[2], int flags) {
 long usys_socketpair(int domain, int type, [[maybe_unused]] int protocol,
                      int sv[2]) {
   if (domain != AF_UNIX) return -EAFNOSUPPORT;
-  if ((type & kSockTypeMask) != SOCK_STREAM) return -EINVAL;
-  auto [fd1, fd2] = CreatePipeSocket(type & ~kSockTypeMask);
+  bool datagram = (type & kSockTypeMask) == SOCK_DGRAM;
+  if (!datagram && (type & kSockTypeMask) != SOCK_STREAM) return -EINVAL;
+  auto [fd1, fd2] = CreatePipeSocket(type & ~kSockTypeMask, datagram);
   sv[0] = fd1;
   sv[1] = fd2;
   return 0;
@@ -429,6 +283,9 @@ long usys_socketpair(int domain, int type, [[maybe_unused]] int protocol,
 
 }  // namespace junction
 
-CEREAL_REGISTER_TYPE(junction::PipeReaderFile);
-CEREAL_REGISTER_TYPE(junction::PipeWriterFile);
-CEREAL_REGISTER_TYPE(junction::PipeSocketFile);
+CEREAL_REGISTER_TYPE(junction::PipeReaderFile<junction::StreamPipe>);
+CEREAL_REGISTER_TYPE(junction::PipeWriterFile<junction::StreamPipe>);
+CEREAL_REGISTER_TYPE(junction::PipeSocket<junction::StreamPipe>);
+CEREAL_REGISTER_TYPE(junction::PipeReaderFile<junction::MsgPipe>);
+CEREAL_REGISTER_TYPE(junction::PipeWriterFile<junction::MsgPipe>);
+CEREAL_REGISTER_TYPE(junction::PipeSocket<junction::MsgPipe>);

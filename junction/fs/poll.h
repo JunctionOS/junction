@@ -153,10 +153,32 @@ class PollSourceSet {
     for (auto &ps : sources_) ps->Clear(event_mask);
   }
 
-  [[nodiscard]] size_t size() const { return sources_.size(); }
+  explicit operator bool() const { return sources_.size(); }
 
  private:
   std::vector<PollSource *> sources_;
+};
+
+class SinglePollSource {
+ public:
+  void Attach(PollSource *p) {
+    assert(!source_);
+    source_ = p;
+  }
+
+  // May be called multiple times.
+  void Detach(PollSource *p) { source_ = nullptr; }
+
+  // Sets a mask of events and notifies (must be synchronized by caller).
+  void Set(unsigned int event_mask) { source_->Set(event_mask); }
+
+  // Clears a mask of events and notifies (must be synchronized by caller).
+  void Clear(unsigned int event_mask) { source_->Clear(event_mask); }
+
+  explicit operator bool() const { return source_; }
+
+ private:
+  PollSource *source_{nullptr};
 };
 
 inline void PollSource::Set(unsigned int event_mask) {

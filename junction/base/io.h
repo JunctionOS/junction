@@ -71,6 +71,14 @@ inline std::span<std::byte> readable_span(iovec iov) {
   return {reinterpret_cast<std::byte *>(iov.iov_base), iov.iov_len};
 }
 
+inline size_t SumIOV(std::span<const iovec> iov) {
+  size_t len = 0;
+  for (const iovec &e : iov) {
+    len += e.iov_len;
+  }
+  return len;
+}
+
 // ReadFull reads all of the bytes in a span.
 template <Reader T>
 Status<void> ReadFull(T &t, std::span<std::byte> buf) {
@@ -437,5 +445,20 @@ class VectoredWriter {
 };
 
 Status<void> WritevFull(VectoredWriter &writer, std::span<const iovec> iov);
+
+// Generic helper functions to copy to/from iovecs.
+size_t GenericCopyv(std::span<const iovec> srcv, std::span<iovec> dstv);
+
+inline size_t GenericWritev(std::span<const iovec> srcv,
+                            std::span<std::byte> dst) {
+  iovec iov = {dst.data(), dst.size()};
+  return GenericCopyv(srcv, std::span{&iov, 1});
+}
+
+inline size_t GenericReadv(std::span<const std::byte> src,
+                           std::span<iovec> dstv) {
+  const iovec iov = {const_cast<std::byte *>(src.data()), src.size()};
+  return GenericCopyv(std::span{&iov, 1}, dstv);
+}
 
 }  // namespace junction

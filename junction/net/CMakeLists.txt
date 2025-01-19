@@ -5,6 +5,7 @@ add_library(net
   net.cc
   netlink.cc
   caladan_poll.cc
+  unix_socket.cc
 )
 
 target_link_libraries(net

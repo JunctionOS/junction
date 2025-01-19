@@ -55,8 +55,7 @@ class TCPSocket : public Socket {
       return TcpConn().GetStatus();
     }
 
-    if (unlikely(state_ != SocketState::kSockUnbound &&
-                 state_ != SocketState::kSockBound))
+    if (unlikely(state_ == SocketState::kSockListening))
       return MakeError(EINVAL);
     Status<netaddr> na = addr.ToNetAddr();
     if (unlikely(!na)) return MakeError(na);
@@ -137,17 +136,16 @@ class TCPSocket : public Socket {
     return TcpConn().Write(buf);
   }
 
-  virtual Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
-                                  bool peek, bool nonblocking) override {
+  Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
+                          bool peek, bool nonblocking) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
     return TcpConn().Read(buf, peek, nonblocking);
   }
 
-  virtual Status<size_t> WriteTo(std::span<const std::byte> buf,
-                                 const SockAddrPtr raddr,
-                                 bool nonblocking) override {
+  Status<size_t> WriteTo(std::span<const std::byte> buf,
+                         const SockAddrPtr raddr, bool nonblocking) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
@@ -207,13 +205,6 @@ class TCPSocket : public Socket {
   }
 
  private:
-  enum class SocketState {
-    kSockUnbound,
-    kSockBound,
-    kSockListening,
-    kSockConnected
-  };
-
   void SetupPollSource() override {
     PollSource &s = get_poll_source();
     if (state_ == SocketState::kSockListening)

@@ -37,10 +37,12 @@ inline constexpr mode_t kTypeBlock = S_IFBLK;
 inline constexpr mode_t kTypeSymLink = S_IFLNK;
 // Pipe or FIFO.
 inline constexpr mode_t kTypeFIFO = S_IFIFO;
+// Socket.
+inline constexpr mode_t kTypeSocket = S_IFSOCK;
 
 // A mask of all type bits in the mode field.
 inline constexpr mode_t kTypeMask =
-    (S_IFREG | S_IFDIR | S_IFCHR | S_IFBLK | S_IFLNK | S_IFIFO);
+    (S_IFREG | S_IFDIR | S_IFCHR | S_IFBLK | S_IFLNK | S_IFIFO | S_IFSOCK);
 
 // Shift required to convert type bits to file types (eg DT_REG, etc.)
 inline constexpr uint32_t kTypeShift = 12;
@@ -282,6 +284,10 @@ class DirectoryEntry : public std::enable_shared_from_this<DirectoryEntry> {
   // True if this directory entry points to an inode that will be serialized.
   [[nodiscard]] bool WillBeSerialized();
 
+  // Intended to be called when the caller has a reference to the directory
+  // entry but not the parent.
+  void RemoveFromParent();
+
  private:
   friend class DentryMap<IDir>;
   rt::Spin lock_;
@@ -501,6 +507,7 @@ class IDir : public Inode, protected DentryMap<IDir> {
   virtual Status<void> MkDir(std::string_view name, mode_t mode) = 0;
   // Unlink removes a file.
   virtual Status<void> Unlink(std::string_view name) = 0;
+  virtual Status<void> Unlink(DirectoryEntry *ent) = 0;
   // RmDir remove a directory.
   virtual Status<void> RmDir(std::string_view name) = 0;
   // SymLink creates a symbolic link.
@@ -512,6 +519,9 @@ class IDir : public Inode, protected DentryMap<IDir> {
   // Link creates a hard link.
   virtual Status<void> Link(std::string_view name,
                             std::shared_ptr<Inode> ino) = 0;
+  // LinkReturn creates a hard link and returns the directory entry.
+  virtual Status<std::shared_ptr<DirectoryEntry>> LinkReturn(
+      std::string_view name, std::shared_ptr<Inode> ino) = 0;
   // Create makes a new normal file.
   virtual Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                                mode_t mode, FileMode fmode) = 0;
@@ -637,6 +647,17 @@ class IDir : public Inode, protected DentryMap<IDir> {
     auto sp = std::make_shared<DirectoryEntry>(std::move(name), get_entry(),
                                                std::move(ino));
     return Insert(std::move(sp));
+  }
+
+  // Create a directory entry for a non-folder inode in this IDir.
+  [[nodiscard]] Status<std::shared_ptr<DirectoryEntry>> AddDentLockedReturn(
+      std::string name, std::shared_ptr<Inode> ino) {
+    assert_locked();
+    assert(!ino->is_dir());
+    auto sp = std::make_shared<DirectoryEntry>(std::move(name), get_entry(),
+                                               std::move(ino));
+    if (Status<void> ret = Insert(sp); !ret) return MakeError(ret);
+    return std::move(sp);
   }
 
  private:
@@ -781,5 +802,11 @@ inline Status<std::shared_ptr<Inode>> LookupInode(Process &p, int dirfd,
   if (!ret) return MakeError(ret);
   return (*ret)->get_inode();
 }
+
+// Try to install inode at given path. All folders referenced in the path must
+// be created, and path itself must not reference a folder.
+Status<std::shared_ptr<DirectoryEntry>> InsertTo(const FSRoot &fs,
+                                                 std::string_view path,
+                                                 std::shared_ptr<Inode> ino);
 
 }  // namespace junction
