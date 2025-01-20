@@ -92,6 +92,10 @@ struct k_sigaction {
     sa_flags = 0;
   }
 
+  explicit operator bool() const {
+    return handler != kDefaultHandler || sa_flags;
+  }
+
   friend class cereal::access;
   template <class Archive>
   void serialize(Archive &ar) {
@@ -358,9 +362,25 @@ class alignas(kCacheLineSize) SignalTable {
  private:
   friend class cereal::access;
   template <class Archive>
-  void serialize(Archive &ar) {
-    for (size_t idx = 0; idx < kNumSignals; idx++) ar(table_[idx]);
+  void save(Archive &ar) const {
+    for (size_t idx = 0; idx < kNumSignals; idx++) {
+      if (table_[idx]) ar(true, idx, table_[idx]);
+    }
+    ar(false);
   }
+
+  template <class Archive>
+  void load(Archive &ar) {
+    bool has_next;
+    size_t idx;
+    while (true) {
+      ar(has_next);
+      if (!has_next) break;
+      ar(idx);
+      ar(table_[idx]);
+    }
+  }
+
   rt::Spin lock_;  // protects @table_
   k_sigaction table_[kNumSignals];
 };
