@@ -45,7 +45,7 @@ class WaitableChannel {
     size_t n;
     while (true) {
       // Read from the channel (without locking).
-      Status<size_t> ret = func();
+      Status<size_t> ret = func(chan_);
       if (ret) {
         n = *ret;
         break;
@@ -61,9 +61,10 @@ class WaitableChannel {
       assert(ret.error() == EAGAIN);
       rt::SpinGuard guard(lock_);
       bool signaled = !rt::WaitInterruptible(lock_, read_waker_, [this] {
-        return !chan_.is_empty() || writer_is_closed();
+        return !chan_.is_empty() || writer_is_closed() || reader_is_closed();
       });
-      if (writer_is_closed() && chan_.is_empty()) return 0;
+      if ((reader_is_closed() || writer_is_closed()) && chan_.is_empty())
+        return 0;
       if (signaled) return MakeError(EINTR);
     }
 
@@ -87,7 +88,7 @@ class WaitableChannel {
     ConditionalSpinGuard<MultiWriter> g(lock_);
     while (true) {
       // Write to the channel (without locking).
-      Status<size_t> ret = func();
+      Status<size_t> ret = func(chan_);
       if (ret) {
         n = *ret;
         break;
@@ -103,9 +104,9 @@ class WaitableChannel {
       assert(ret.error() == EAGAIN);
       ConditionalSpinGuard<!MultiWriter> guard(lock_);
       bool signaled = !rt::WaitInterruptible(lock_, write_waker_, [this] {
-        return !chan_.is_full() || reader_is_closed();
+        return !chan_.is_full() || reader_is_closed() || writer_is_closed();
       });
-      if (reader_is_closed()) return MakeError(EPIPE);
+      if (writer_is_closed() || reader_is_closed()) return MakeError(EPIPE);
       if (signaled) return MakeError(EINTR);
     }
 
@@ -124,21 +125,24 @@ class WaitableChannel {
 
   Status<size_t> Read(std::span<std::byte> buf, bool nonblocking,
                       bool peek = false) {
-    return DoRead(nonblocking, [&]() { return chan_.Read(buf, peek); });
+    return DoRead(nonblocking,
+                  [&](Channel &chan) { return chan.Read(buf, peek); });
   }
 
   Status<size_t> Readv(std::span<iovec> vec, bool nonblocking,
                        bool peek = false) {
-    return DoRead(nonblocking, [&]() { return chan_.Readv(vec, peek); });
+    return DoRead(nonblocking,
+                  [&](Channel &chan) { return chan.Readv(vec, peek); });
   }
 
   Status<size_t> Write(std::span<const std::byte> buf, bool nonblocking) {
     if (buf.size() == 0) return 0;
-    return DoWrite(nonblocking, [&]() { return chan_.Write(buf); });
+    return DoWrite(nonblocking, [&](Channel &chan) { return chan.Write(buf); });
   }
 
   Status<size_t> Writev(std::span<const iovec> vec, bool nonblocking) {
-    return DoWrite(nonblocking, [&]() { return chan_.Writev(vec); });
+    return DoWrite(nonblocking,
+                   [&](Channel &chan) { return chan.Writev(vec); });
   }
 
   void CloseReader(PollSource *p = nullptr);
@@ -245,6 +249,7 @@ inline void WaitableChannel<Channel, MultiWriter>::CloseWriter(PollSource *p) {
     read_waker_.Wake();
   }
   if (p) write_poll_.Detach(p);
+  WakeWriters();
 }
 
 template <class Channel, bool MultiWriter>
@@ -256,6 +261,7 @@ inline void WaitableChannel<Channel, MultiWriter>::CloseReader(PollSource *p) {
     WakeWriters();
   }
   if (p) read_poll_.Detach(p);
+  read_waker_.Wake();
 }
 
 }  // namespace

@@ -21,9 +21,9 @@ inline constexpr unsigned int kMsgDontWait = MSG_DONTWAIT;
 inline constexpr unsigned int kSockTypeMask = 0xf;
 
 enum class UnixSocketAddressType {
-  Unnamed = 0,   // No name assigned.
-  Pathname,  // Sockets using a path in the file system
-  Abstract,  // Sockets in the abstract namespace
+  Unnamed = 0,  // No name assigned.
+  Pathname,     // Sockets using a path in the file system
+  Abstract,     // Sockets in the abstract namespace
 };
 
 enum class SocketState {

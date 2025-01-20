@@ -7,7 +7,322 @@
 
 namespace junction {
 
-class UnixStreamSocket;
+inline constexpr size_t kStreamPipeSize = 4096;
+inline constexpr mode_t kMessagePipeSize = 4096;
+
+// Table that tracks unix sockets with abstract names (not file-system based)
+// for a given type of socket.
+template <class SockType>
+class UnixSocketTable {
+ public:
+  Status<void> Insert(std::string_view name, std::weak_ptr<SockType> ino) {
+    rt::SpinGuard g(lock_);
+    std::weak_ptr<SockType> &mp = tbl_[std::string(name)];
+    if (!mp.expired()) return MakeError(EADDRINUSE);
+    std::swap(mp, ino);
+    return {};
+  }
+
+  Status<UnixSocketAddr> NameAndInsert(std::weak_ptr<SockType> ino) {
+    constexpr size_t kLength = 40;
+    constexpr size_t kTries = 10;
+    std::string out;
+    out.resize(kLength);
+    std::span<std::byte> b(reinterpret_cast<std::byte *>(out.data()), kLength);
+
+    for (size_t i = 0; i < kTries; i++) {
+      if (!ReadRandom(b)) {
+        LOG(WARN) << "error getting random bytes";
+        rt::Sleep(100_us);
+        continue;
+      }
+      for (size_t i = 0; i < kLength; i++)
+        out[i] = 'a' + static_cast<uint8_t>(out[i]) % 26;
+      if (Insert(out, ino))
+        return UnixSocketAddr{UnixSocketAddressType::Abstract, std::move(out)};
+    }
+
+    return MakeError(EAGAIN);
+  }
+
+  std::weak_ptr<SockType> Find(std::string_view name) {
+    rt::SpinGuard g(lock_);
+    auto it = tbl_.find(name);
+    if (it != tbl_.end()) return it->second;
+    return {};
+  }
+
+  void Delete(std::string_view name) {
+    rt::SpinGuard g(lock_);
+    if (auto it = tbl_.find(name); it != tbl_.end()) tbl_.erase(it);
+  }
+
+ private:
+  rt::Spin lock_;
+  std::map<std::string, std::weak_ptr<SockType>, std::less<>> tbl_;
+};
+
+template <class SockType>
+class UnixSocketInode : public Inode {
+ public:
+  UnixSocketInode(std::weak_ptr<SockType> sock)
+      : Inode(kTypeSocket | 0600, AllocateInodeNumber()),
+        sock_(std::move(sock)) {}
+
+  Status<void> GetStats(struct stat *buf) const override {
+    InodeToStats(*this, buf);
+    return {};
+  }
+
+  // TODO: snapshot strategy.
+  //  bool SnapshotPrunable() override { return true; }
+
+  // Open a file for this inode.
+  Status<std::shared_ptr<File>> Open(
+      uint32_t flags, FileMode mode,
+      std::shared_ptr<DirectoryEntry> dent) override {
+    return MakeError(EINVAL);
+  }
+
+  std::weak_ptr<SockType> get_sock() { return sock_; }
+
+ private:
+  std::weak_ptr<SockType> sock_;
+};
+
+template <class SockType>
+Status<std::shared_ptr<SockType>> GetPeer(UnixSocketAddr &addr,
+                                          UnixSocketTable<SockType> &tbl) {
+  auto &[type, name] = addr;
+  std::shared_ptr<SockType> remote;
+  if (type == UnixSocketAddressType::Pathname) {
+    Status<std::shared_ptr<Inode>> ino = LookupInode(myproc().get_fs(), name);
+    if (!ino) return MakeError(ECONNREFUSED);
+    UnixSocketInode<SockType> *uino =
+        dynamic_cast<UnixSocketInode<SockType> *>(ino->get());
+    if (!uino) return MakeError(ECONNREFUSED);
+    remote = uino->get_sock().lock();
+  } else {
+    remote = tbl.Find(name).lock();
+  }
+  if (!remote) return MakeError(ECONNREFUSED);
+  return remote;
+}
+
+//
+// Support for Unix datagram sockets
+//
+using DatagramChannel = MessageChannel<UnixSocketAddr>;
+
+class UnixDatagramSocket;
+static UnixSocketTable<UnixDatagramSocket> dgram_tbl;
+
+class UnixDatagramSocket : public Socket {
+ public:
+  UnixDatagramSocket(int flags = 0) noexcept : Socket(flags) {
+    rx_.AttachReadPoll(&get_poll_source());
+  }
+
+  ~UnixDatagramSocket() override {
+    if (dent_)
+      dent_->RemoveFromParent();
+    else if (std::string &name = std::get<1>(local_name_); name.size())
+      dgram_tbl.Delete(name);
+
+    rx_.CloseReader(&get_poll_source());
+  }
+
+  Status<void> Bind(const SockAddrPtr addr) override {
+    if (unlikely(has_name())) return MakeError(EINVAL);
+
+    Status<UnixSocketAddr> a = addr.ToUnixAddr();
+    if (unlikely(!a)) return MakeError(a);
+    auto &[type, name] = *a;
+    std::shared_ptr<UnixSocketInode<UnixDatagramSocket>> ino;
+    if (type == UnixSocketAddressType::Pathname)
+      ino = std::make_shared<UnixSocketInode<UnixDatagramSocket>>(weak_this());
+    if (type == UnixSocketAddressType::Pathname) {
+      Status<std::shared_ptr<DirectoryEntry>> ret =
+          InsertTo(myproc().get_fs(), name, std::move(ino));
+      if (!ret) return MakeError(ret);
+      dent_ = std::move(*ret);
+    } else {
+      Status<void> ret = dgram_tbl.Insert(name, weak_this());
+      if (!ret) return MakeError(ret);
+    }
+    local_name_ = std::move(*a);
+    return {};
+  }
+
+  Status<void> Connect(const SockAddrPtr addr) override {
+    if (unlikely(has_peer())) return MakeError(EISCONN);
+
+    // Parse address.
+    Status<UnixSocketAddr> a = addr.ToUnixAddr();
+    if (unlikely(!a)) return MakeError(a);
+
+    // Generate a name for this side of the connection, if needed.
+    if (!has_name())
+      if (Status<void> ret = SetLocalName(); !ret) return ret;
+    return {};
+  }
+
+  Status<void> Shutdown(int how) override {
+    rx_.CloseReader();
+    return {};
+  }
+
+  Status<void> RemoteAddr(SockAddrPtr ptr) const override {
+    if (unlikely(!has_peer())) return MakeError(ENOTCONN);
+    if (unlikely(!ptr)) return MakeError(EINVAL);
+    ptr.FromUnixAddr(remote_name_);
+    return {};
+  }
+
+  Status<void> LocalAddr(SockAddrPtr ptr) const override {
+    if (unlikely(!ptr)) return MakeError(EINVAL);
+    ptr.FromUnixAddr(local_name_);
+    return {};
+  }
+
+  Status<size_t> Read(std::span<std::byte> buf,
+                      [[maybe_unused]] off_t *off = nullptr) override {
+    return rx_.Read(buf, is_nonblocking());
+  }
+
+  Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
+                          bool peek, bool nonblocking) override {
+    UnixSocketAddr rem;
+    Status<size_t> ret = rx_.DoRead(nonblocking, [&](DatagramChannel &chan) {
+      return chan.Read(buf, &rem, peek);
+    });
+    if (ret && raddr) raddr.FromUnixAddr(rem);
+    return ret;
+  }
+
+  Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
+                           bool nonblocking) override {
+    UnixSocketAddr rem;
+    Status<size_t> ret = rx_.DoRead(nonblocking, [&](DatagramChannel &chan) {
+      return chan.Readv(iov, peek, &rem);
+    });
+    if (ret && raddr) raddr.FromUnixAddr(rem);
+    return ret;
+  }
+
+  Status<size_t> Readv(std::span<iovec> iov,
+                       [[maybe_unused]] off_t *off) override {
+    return rx_.Readv(iov, is_nonblocking());
+  }
+
+  Status<size_t> Write(std::span<const std::byte> buf,
+                       [[maybe_unused]] off_t *off = nullptr) override {
+    Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer();
+    if (!tmp) return MakeError(tmp);
+    std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
+    return peer->rx_.DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+      return chan.Write(buf, &local_name_);
+    });
+  }
+
+  Status<size_t> WriteTo(std::span<const std::byte> buf,
+                         const SockAddrPtr raddr, bool nonblocking) override {
+    Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer(raddr);
+    if (!tmp) return MakeError(tmp);
+    std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
+    return peer->rx_.DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+      return chan.Write(buf, &local_name_);
+    });
+  }
+
+  Status<size_t> Writev(std::span<const iovec> iov,
+                        [[maybe_unused]] off_t *off = nullptr) override {
+    Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer();
+    if (!tmp) return MakeError(tmp);
+    std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
+    return peer->rx_.DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+      return chan.Writev(iov, &local_name_);
+    });
+  }
+
+  Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
+                          bool nonblocking) override {
+    Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer(raddr);
+    if (!tmp) return MakeError(tmp);
+    std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
+    return peer->rx_.DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+      return chan.Writev(iov, &local_name_);
+    });
+  }
+
+  Status<int> GetSockOpt(int level, int optname) const override {
+    if (level != SOL_SOCKET) return MakeError(EINVAL);
+    switch (optname) {
+      case SO_ACCEPTCONN:
+        return 0;
+      case SO_DOMAIN:
+        return AF_UNIX;
+      case SO_PROTOCOL:
+        return 0;
+      case SO_TYPE:
+        return SOCK_DGRAM;
+      case SO_ERROR:
+        return 0;
+      default:
+        return MakeError(EINVAL);
+    }
+  }
+
+ private:
+  [[nodiscard]] std::weak_ptr<UnixDatagramSocket> weak_this() {
+    return std::static_pointer_cast<UnixDatagramSocket>(shared_from_this());
+  }
+
+  Status<std::shared_ptr<UnixDatagramSocket>> ResolvePeer(
+      const SockAddrPtr raddr = SockAddrPtr{}) {
+    if (has_peer()) {
+      if (raddr) return MakeError(EISCONN);
+      assert(has_name());
+      return GetPeer<UnixDatagramSocket>(remote_name_, dgram_tbl);
+    } else if (!raddr) {
+      return MakeError(ENOTCONN);
+    }
+
+    // Generate a name for this side of the connection, if needed.
+    if (!has_name())
+      if (Status<void> ret = SetLocalName(); !ret) return MakeError(ret);
+
+    Status<UnixSocketAddr> addr = raddr.ToUnixAddr();
+    if (!addr) return MakeError(addr);
+    return GetPeer<UnixDatagramSocket>(*addr, dgram_tbl);
+  }
+
+  Status<void> SetLocalName() {
+    assert(!has_name());
+    Status<UnixSocketAddr> addr = dgram_tbl.NameAndInsert(weak_this());
+    if (!addr) return MakeError(addr);
+    local_name_ = std::move(*addr);
+    return {};
+  }
+
+  [[nodiscard]] bool has_name() const {
+    return std::get<1>(local_name_).size() > 0;
+  }
+
+  [[nodiscard]] bool has_peer() const {
+    return std::get<1>(remote_name_).size() > 0;
+  }
+
+  rt::Spin lock_;
+  UnixSocketAddr local_name_;
+  UnixSocketAddr remote_name_;
+  WaitableChannel<DatagramChannel, true> rx_{kMessagePipeSize};
+  std::shared_ptr<DirectoryEntry> dent_;
+};
+
+//
+// Support for Unix SOCK_STREAM connections.
+//
 
 struct UnixStreamConnection {
   UnixSocketAddr peer_name;
@@ -23,84 +338,15 @@ struct UnixStreamListener {
   rt::ThreadWaker waiter;
 };
 
-class UnixSocketInode : public Inode {
- public:
-  UnixSocketInode(std::weak_ptr<UnixStreamSocket> sock)
-      : Inode(kTypeSocket | 0600, AllocateInodeNumber()),
-        sock_(std::move(sock)) {}
-
-  Status<void> GetStats(struct stat *buf) const override {
-    InodeToStats(*this, buf);
-    return {};
-  }
-
-  //  bool SnapshotPrunable() override { return true; }
-
-  // Open a file for this inode.
-  Status<std::shared_ptr<File>> Open(
-      uint32_t flags, FileMode mode,
-      std::shared_ptr<DirectoryEntry> dent) override {
-    return MakeError(EINVAL);
-  }
-
-  std::weak_ptr<UnixStreamSocket> get_sock() { return sock_; }
-
- private:
-  std::weak_ptr<UnixStreamSocket> sock_;
-};
-
-class UnixAbstractSocketTable {
- public:
-  Status<void> Insert(std::string_view name,
-                      std::weak_ptr<UnixStreamSocket> ino) {
-    rt::SpinGuard g(lock_);
-    std::weak_ptr<UnixStreamSocket> &mp = tbl_[std::string(name)];
-    if (!mp.expired()) return MakeError(EADDRINUSE);
-    std::swap(mp, ino);
-    return {};
-  }
-
-  std::weak_ptr<UnixStreamSocket> Find(std::string_view name) {
-    rt::SpinGuard g(lock_);
-    auto it = tbl_.find(name);
-    if (it != tbl_.end()) return it->second;
-    return {};
-  }
-
-  void Delete(std::string_view name) {
-    rt::SpinGuard g(lock_);
-    if (auto it = tbl_.find(name); it != tbl_.end()) tbl_.erase(it);
-  }
-
- private:
-  rt::Spin lock_;
-  std::map<std::string, std::weak_ptr<UnixStreamSocket>, std::less<>> tbl_;
-};
-
-static UnixAbstractSocketTable unsock_tbl;
-
-Status<std::shared_ptr<UnixStreamSocket>> GetPeer(UnixSocketAddr &addr) {
-  auto &[type, name] = addr;
-  std::shared_ptr<UnixStreamSocket> remote;
-  if (type == UnixSocketAddressType::Pathname) {
-    Status<std::shared_ptr<Inode>> ino = LookupInode(myproc().get_fs(), name);
-    if (!ino) return MakeError(ECONNREFUSED);
-    UnixSocketInode *uino = dynamic_cast<UnixSocketInode *>(ino->get());
-    if (!uino) return MakeError(ECONNREFUSED);
-    remote = uino->get_sock().lock();
-  } else {
-    remote = unsock_tbl.Find(name).lock();
-  }
-  if (!remote) return MakeError(ECONNREFUSED);
-  return remote;
-}
+class UnixStreamSocket;
+static UnixSocketTable<UnixStreamSocket> stream_tbl;
 
 std::pair<UnixStreamConnection, UnixStreamConnection> MakeStreamPair(
     UnixSocketAddr laddr, UnixSocketAddr raddr) {
   UnixStreamConnection local, remote;
 
-  local.rx = std::make_shared<StreamPipe>(4096);
-  local.tx = std::make_shared<StreamPipe>(4096);
+  local.rx = std::make_shared<StreamPipe>(kStreamPipeSize);
+  local.tx = std::make_shared<StreamPipe>(kStreamPipeSize);
   local.peer_name = std::move(raddr);
 
   remote.rx = local.tx;
@@ -110,7 +356,6 @@ std::pair<UnixStreamConnection, UnixStreamConnection> MakeStreamPair(
   return {std::move(local), std::move(remote)};
 }
 
-// Represents a SOCK_STREAM Unix socket (created with socket()).
 class UnixStreamSocket : public Socket {
  public:
   UnixStreamSocket(int flags = 0) noexcept
@@ -130,7 +375,7 @@ class UnixStreamSocket : public Socket {
     if (dent_)
       dent_->RemoveFromParent();
     else if (std::string &name = std::get<1>(local_name_); name.size())
-      unsock_tbl.Delete(name);
+      stream_tbl.Delete(name);
     if (state_ == SocketState::kSockConnected) {
       Connection().rx->CloseReader(&get_poll_source());
       Connection().tx->CloseWriter(&get_poll_source());
@@ -148,9 +393,9 @@ class UnixStreamSocket : public Socket {
     Status<UnixSocketAddr> a = addr.ToUnixAddr();
     if (unlikely(!a)) return MakeError(a);
     auto &[type, name] = *a;
-    std::shared_ptr<UnixSocketInode> ino;
+    std::shared_ptr<UnixSocketInode<UnixStreamSocket>> ino;
     if (type == UnixSocketAddressType::Pathname)
-      ino = std::make_shared<UnixSocketInode>(weak_this());
+      ino = std::make_shared<UnixSocketInode<UnixStreamSocket>>(weak_this());
 
     if (type == UnixSocketAddressType::Pathname) {
       Status<std::shared_ptr<DirectoryEntry>> ret =
@@ -158,7 +403,7 @@ class UnixStreamSocket : public Socket {
       if (!ret) return MakeError(ret);
       dent_ = std::move(*ret);
     } else {
-      Status<void> ret = unsock_tbl.Insert(name, weak_this());
+      Status<void> ret = stream_tbl.Insert(name, weak_this());
       if (!ret) return MakeError(ret);
     }
     local_name_ = std::move(*a);
@@ -168,7 +413,11 @@ class UnixStreamSocket : public Socket {
 
   Status<void> Listen(int backlog) override {
     if (state_ == SocketState::kSockConnected) return MakeError(EISCONN);
-    if (unlikely(!has_name())) BindRandomName();
+    if (unlikely(!has_name())) {
+      Status<UnixSocketAddr> addr = stream_tbl.NameAndInsert(weak_this());
+      if (!addr) return MakeError(addr);
+      local_name_ = std::move(*addr);
+    }
     rt::SpinGuard g(lock_);
     v_.emplace<UnixStreamListener>(backlog);
     state_ = SocketState::kSockListening;
@@ -185,12 +434,17 @@ class UnixStreamSocket : public Socket {
     if (unlikely(!a)) return MakeError(a);
 
     // Locate server.
-    Status<std::shared_ptr<UnixStreamSocket>> tmp = GetPeer(*a);
+    Status<std::shared_ptr<UnixStreamSocket>> tmp =
+        GetPeer<UnixStreamSocket>(*a, stream_tbl);
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<UnixStreamSocket> &peer = *tmp;
 
     // Generate a name for this side of the connection, if needed.
-    if (!has_name()) BindRandomName();
+    if (!has_name()) {
+      Status<UnixSocketAddr> addr = stream_tbl.NameAndInsert(weak_this());
+      if (!addr) return MakeError(addr);
+      local_name_ = std::move(*addr);
+    }
 
     // Create a pair of pipes for this connection.
     auto [local, remote] = MakeStreamPair(local_name_, *a);
@@ -387,23 +641,6 @@ class UnixStreamSocket : public Socket {
     return {};
   }
 
-  void BindRandomName() {
-    constexpr size_t kLength = 40;
-
-    assert(!has_name());
-    std::string out;
-    out.resize(kLength);
-    std::span<std::byte> b(reinterpret_cast<std::byte *>(out.data()), kLength);
-
-    while (true) {
-      if (!ReadRandom(b)) LOG(WARN) << "error getting random bytes";
-      for (size_t i = 0; i < kLength; i++)
-        out[i] = 'a' + static_cast<uint8_t>(out[i]) % 26;
-      if (unsock_tbl.Insert(out, weak_this())) break;
-    }
-    local_name_ = {UnixSocketAddressType::Abstract, std::move(out)};
-  }
-
   [[nodiscard]] bool has_name() const {
     return std::get<1>(local_name_).size() > 0;
   }
@@ -417,9 +654,11 @@ class UnixStreamSocket : public Socket {
 
 Status<std::shared_ptr<Socket>> CreateUnixSocket(int type, int protocol,
                                                  int flags) {
-  if (type != SOCK_STREAM) return MakeError(EINVAL);
   if (protocol != 0) return MakeError(EPROTONOSUPPORT);
-  return std::make_shared<UnixStreamSocket>(flags);
+  if (type == SOCK_DGRAM) return std::make_shared<UnixDatagramSocket>(flags);
+  if (type == SOCK_STREAM) return std::make_shared<UnixStreamSocket>(flags);
+  // TODO: seqpacket.
+  return MakeError(EINVAL);
 }
 
 }  // namespace junction

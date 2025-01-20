@@ -70,9 +70,10 @@ class MessageChannel {
   }
 
   // Writes bytes in to the channel.
-  Status<size_t> Write(std::span<const std::byte> buf, T* aux_in = nullptr);
+  Status<size_t> Write(std::span<const std::byte> buf,
+                       const T* aux_in = nullptr);
   Status<size_t> Readv(std::span<iovec> iov, bool peek, T* aux_out = nullptr);
-  Status<size_t> Writev(std::span<iovec> iov, T* aux_in = nullptr);
+  Status<size_t> Writev(std::span<const iovec> iov, const T* aux_in = nullptr);
 
   template <class Archive>
   void save(Archive& ar) const {
@@ -122,7 +123,7 @@ inline Status<size_t> MessageChannel<T>::Read(std::span<std::byte> buf,
   std::copy_n(std::begin(src_msg.data), to_copy, buf.begin());
 
   if constexpr (has_aux())
-    if (aux_out) *aux_out = src_msg.aux_data;
+    if (aux_out) *aux_out = std::forward<T>(src_msg.aux_data);
 
   if (!peek) {
     out_.store(out + 1, std::memory_order_release);
@@ -133,7 +134,7 @@ inline Status<size_t> MessageChannel<T>::Read(std::span<std::byte> buf,
 
 template <typename T>
 inline Status<size_t> MessageChannel<T>::Write(std::span<const std::byte> buf,
-                                               T* aux_in) {
+                                               const T* aux_in) {
   size_t in = in_.load(std::memory_order_relaxed);
   size_t out = out_.load(std::memory_order_acquire);
 
@@ -163,7 +164,7 @@ inline Status<size_t> MessageChannel<T>::Readv(std::span<iovec> iov, bool peek,
   size_t read = GenericReadv(src_msg.data, iov);
 
   if constexpr (has_aux())
-    if (aux_out) *aux_out = src_msg.aux_data;
+    if (aux_out) *aux_out = std::forward<T>(src_msg.aux_data);
 
   if (!peek) {
     out_.store(out + 1, std::memory_order_release);
@@ -173,8 +174,8 @@ inline Status<size_t> MessageChannel<T>::Readv(std::span<iovec> iov, bool peek,
 }
 
 template <typename T>
-inline Status<size_t> MessageChannel<T>::Writev(std::span<iovec> iov,
-                                                T* aux_in) {
+inline Status<size_t> MessageChannel<T>::Writev(std::span<const iovec> iov,
+                                                const T* aux_in) {
   size_t in = in_.load(std::memory_order_relaxed);
   size_t out = out_.load(std::memory_order_acquire);
 

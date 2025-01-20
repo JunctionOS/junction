@@ -31,3 +31,14 @@ target_link_libraries(udp_bench_test
 )
 
 test_bin(udp_bench_test "$<TARGET_FILE:udp_bench_test>")
+
+add_executable(unix_socket_stream_test
+  unix_socket_test.cc
+)
+
+add_executable(unix_socket_dgram_test
+  unix_socket_test_dgram.cc
+)
+
+test_bin(unix_socket_stream_test "$<TARGET_FILE:unix_socket_stream_test>")
+test_bin(unix_socket_dgram_test "$<TARGET_FILE:unix_socket_dgram_test>")
