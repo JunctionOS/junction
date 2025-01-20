@@ -157,9 +157,6 @@ class Socket : public File {
   }
 };
 
-Status<std::shared_ptr<Socket>> CreateUnixSocket(int type, int protocol,
-                                                 int flags);
-
 }  // namespace junction
 
 CEREAL_REGISTER_TYPE(junction::Socket);

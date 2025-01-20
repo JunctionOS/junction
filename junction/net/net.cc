@@ -15,6 +15,7 @@ extern "C" {
 #include "junction/net/socket.h"
 #include "junction/net/tcp_socket.h"
 #include "junction/net/udp_socket.h"
+#include "junction/net/unix.h"
 
 #define SUN_PATH_BYTES 108
 

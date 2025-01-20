@@ -4,11 +4,17 @@
 #include "junction/fs/pipe.h"
 #include "junction/kernel/proc.h"
 #include "junction/net/socket.h"
+#include "junction/net/unix.h"
 
 namespace junction {
 
 inline constexpr size_t kStreamPipeSize = 4096;
 inline constexpr mode_t kMessagePipeSize = 4096;
+
+template <class Archive>
+void serialize(Archive &archive, UnixSocketAddr &a) {
+  archive(std::get<0>(a), std::get<1>(a));
+}
 
 // Table that tracks unix sockets with abstract names (not file-system based)
 // for a given type of socket.
@@ -57,6 +63,11 @@ class UnixSocketTable {
     if (auto it = tbl_.find(name); it != tbl_.end()) tbl_.erase(it);
   }
 
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(tbl_);
+  }
+
  private:
   rt::Spin lock_;
   std::map<std::string, std::weak_ptr<SockType>, std::less<>> tbl_;
@@ -74,9 +85,6 @@ class UnixSocketInode : public Inode {
     return {};
   }
 
-  // TODO: snapshot strategy.
-  //  bool SnapshotPrunable() override { return true; }
-
   // Open a file for this inode.
   Status<std::shared_ptr<File>> Open(
       uint32_t flags, FileMode mode,
@@ -85,6 +93,21 @@ class UnixSocketInode : public Inode {
   }
 
   std::weak_ptr<SockType> get_sock() { return sock_; }
+
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(sock_);
+    ar(cereal::base_class<Inode>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(
+      Archive &ar, cereal::construct<UnixSocketInode<SockType>> &construct) {
+    std::weak_ptr<SockType> sock_;
+    ar(sock_);
+    construct(std::move(sock_));
+    ar(cereal::base_class<Inode>(construct.ptr()));
+  }
 
  private:
   std::weak_ptr<SockType> sock_;
@@ -120,7 +143,16 @@ static UnixSocketTable<UnixDatagramSocket> dgram_tbl;
 class UnixDatagramSocket : public Socket {
  public:
   UnixDatagramSocket(int flags = 0) noexcept : Socket(flags) {
-    rx_.AttachReadPoll(&get_poll_source());
+    rx_ = std::make_unique<WaitableChannel<DatagramChannel, true>>(
+        kMessagePipeSize);
+    rx_->AttachReadPoll(&get_poll_source());
+  }
+
+  UnixDatagramSocket(
+      std::unique_ptr<WaitableChannel<DatagramChannel, true>> chan,
+      int flags = 0) noexcept
+      : Socket(flags), rx_(std::move(chan)) {
+    rx_->AttachReadPoll(&get_poll_source());
   }
 
   ~UnixDatagramSocket() override {
@@ -129,12 +161,11 @@ class UnixDatagramSocket : public Socket {
     else if (std::string &name = std::get<1>(local_name_); name.size())
       dgram_tbl.Delete(name);
 
-    rx_.CloseReader(&get_poll_source());
+    rx_->CloseReader(&get_poll_source());
   }
 
   Status<void> Bind(const SockAddrPtr addr) override {
     if (unlikely(has_name())) return MakeError(EINVAL);
-
     Status<UnixSocketAddr> a = addr.ToUnixAddr();
     if (unlikely(!a)) return MakeError(a);
     auto &[type, name] = *a;
@@ -164,18 +195,36 @@ class UnixDatagramSocket : public Socket {
     // Generate a name for this side of the connection, if needed.
     if (!has_name())
       if (Status<void> ret = SetLocalName(); !ret) return ret;
+
+    Status<std::shared_ptr<UnixDatagramSocket>> peer =
+        GetPeer<UnixDatagramSocket>(*a, dgram_tbl);
+    if (!peer) return MakeError(peer);
+    remote_ = *peer;
+    connected_ = true;
     return {};
   }
 
   Status<void> Shutdown(int how) override {
-    rx_.CloseReader();
+    if (how == SHUT_RD) {
+      rx_->CloseReader();
+    } else if (how == SHUT_WR) {
+      writer_closed_ = true;
+    } else if (how == SHUT_RDWR) {
+      rx_->CloseReader();
+      writer_closed_ = true;
+    } else {
+      return MakeError(EINVAL);
+    }
     return {};
   }
 
   Status<void> RemoteAddr(SockAddrPtr ptr) const override {
     if (unlikely(!has_peer())) return MakeError(ENOTCONN);
     if (unlikely(!ptr)) return MakeError(EINVAL);
-    ptr.FromUnixAddr(remote_name_);
+
+    std::shared_ptr<UnixDatagramSocket> peer = remote_.lock();
+    if (!peer) return MakeError(EPIPE);
+    ptr.FromUnixAddr(peer->local_name_);
     return {};
   }
 
@@ -187,13 +236,13 @@ class UnixDatagramSocket : public Socket {
 
   Status<size_t> Read(std::span<std::byte> buf,
                       [[maybe_unused]] off_t *off = nullptr) override {
-    return rx_.Read(buf, is_nonblocking());
+    return rx_->Read(buf, is_nonblocking());
   }
 
   Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
                           bool peek, bool nonblocking) override {
     UnixSocketAddr rem;
-    Status<size_t> ret = rx_.DoRead(nonblocking, [&](DatagramChannel &chan) {
+    Status<size_t> ret = rx_->DoRead(nonblocking, [&](DatagramChannel &chan) {
       return chan.Read(buf, &rem, peek);
     });
     if (ret && raddr) raddr.FromUnixAddr(rem);
@@ -203,7 +252,7 @@ class UnixDatagramSocket : public Socket {
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
                            bool nonblocking) override {
     UnixSocketAddr rem;
-    Status<size_t> ret = rx_.DoRead(nonblocking, [&](DatagramChannel &chan) {
+    Status<size_t> ret = rx_->DoRead(nonblocking, [&](DatagramChannel &chan) {
       return chan.Readv(iov, peek, &rem);
     });
     if (ret && raddr) raddr.FromUnixAddr(rem);
@@ -212,45 +261,49 @@ class UnixDatagramSocket : public Socket {
 
   Status<size_t> Readv(std::span<iovec> iov,
                        [[maybe_unused]] off_t *off) override {
-    return rx_.Readv(iov, is_nonblocking());
+    return rx_->Readv(iov, is_nonblocking());
   }
 
   Status<size_t> Write(std::span<const std::byte> buf,
                        [[maybe_unused]] off_t *off = nullptr) override {
+    if (writer_closed_) return MakeError(EPIPE);
     Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer();
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
-    return peer->rx_.DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+    return peer->rx_->DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
       return chan.Write(buf, &local_name_);
     });
   }
 
   Status<size_t> WriteTo(std::span<const std::byte> buf,
                          const SockAddrPtr raddr, bool nonblocking) override {
+    if (writer_closed_) return MakeError(EPIPE);
     Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer(raddr);
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
-    return peer->rx_.DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+    return peer->rx_->DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
       return chan.Write(buf, &local_name_);
     });
   }
 
   Status<size_t> Writev(std::span<const iovec> iov,
                         [[maybe_unused]] off_t *off = nullptr) override {
+    if (writer_closed_) return MakeError(EPIPE);
     Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer();
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
-    return peer->rx_.DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+    return peer->rx_->DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
       return chan.Writev(iov, &local_name_);
     });
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
                           bool nonblocking) override {
+    if (writer_closed_) return MakeError(EPIPE);
     Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer(raddr);
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
-    return peer->rx_.DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+    return peer->rx_->DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
       return chan.Writev(iov, &local_name_);
     });
   }
@@ -273,7 +326,27 @@ class UnixDatagramSocket : public Socket {
     }
   }
 
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(rx_);
+    ar(cereal::base_class<Socket>(this));
+    ar(local_name_, remote_, connected_, dent_, writer_closed_);
+  }
+
+  template <class Archive>
+  static void load_and_construct(
+      Archive &ar, cereal::construct<UnixDatagramSocket> &construct) {
+    std::unique_ptr<WaitableChannel<DatagramChannel, true>> chan;
+    ar(chan);
+    construct(std::move(chan));
+    ar(cereal::base_class<Socket>(construct.ptr()));
+    UnixDatagramSocket &sock = *construct.ptr();
+    ar(sock.local_name_, sock.remote_, sock.connected_, sock.dent_,
+       sock.writer_closed_);
+  }
+
  private:
+  friend std::pair<int, int> CreatePipeSocket(int flags, bool datagram);
   [[nodiscard]] std::weak_ptr<UnixDatagramSocket> weak_this() {
     return std::static_pointer_cast<UnixDatagramSocket>(shared_from_this());
   }
@@ -282,8 +355,9 @@ class UnixDatagramSocket : public Socket {
       const SockAddrPtr raddr = SockAddrPtr{}) {
     if (has_peer()) {
       if (raddr) return MakeError(EISCONN);
-      assert(has_name());
-      return GetPeer<UnixDatagramSocket>(remote_name_, dgram_tbl);
+      std::shared_ptr<UnixDatagramSocket> peer = remote_.lock();
+      if (!peer) return MakeError(ECONNREFUSED);
+      return std::move(peer);
     } else if (!raddr) {
       return MakeError(ENOTCONN);
     }
@@ -309,14 +383,14 @@ class UnixDatagramSocket : public Socket {
     return std::get<1>(local_name_).size() > 0;
   }
 
-  [[nodiscard]] bool has_peer() const {
-    return std::get<1>(remote_name_).size() > 0;
-  }
+  [[nodiscard]] bool has_peer() const { return connected_; }
 
   rt::Spin lock_;
+  bool writer_closed_{false};
+  bool connected_{false};
   UnixSocketAddr local_name_;
-  UnixSocketAddr remote_name_;
-  WaitableChannel<DatagramChannel, true> rx_{kMessagePipeSize};
+  std::weak_ptr<UnixDatagramSocket> remote_;
+  std::unique_ptr<WaitableChannel<DatagramChannel, true>> rx_;
   std::shared_ptr<DirectoryEntry> dent_;
 };
 
@@ -328,14 +402,24 @@ struct UnixStreamConnection {
   UnixSocketAddr peer_name;
   std::shared_ptr<StreamPipe> rx;
   std::shared_ptr<StreamPipe> tx;
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(peer_name, rx, tx);
+  }
 };
 
 struct UnixStreamListener {
-  UnixStreamListener(int backlog) : backlog(backlog) {}
+  UnixStreamListener(int backlog = 4096) : backlog(backlog) {}
   int backlog;
   bool shutdown{false};
   std::list<UnixStreamConnection> accept_q;
   rt::ThreadWaker waiter;
+
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(backlog, shutdown, accept_q);
+  }
 };
 
 class UnixStreamSocket;
@@ -620,6 +704,20 @@ class UnixStreamSocket : public Socket {
     return std::get<UnixStreamConnection>(v_);
   }
 
+  template <class Archive>
+  void save(Archive &ar) const {
+    ar(state_, local_name_, v_, dent_, cereal::base_class<Socket>(this));
+  }
+
+  template <class Archive>
+  static void load_and_construct(
+      Archive &ar, cereal::construct<UnixStreamSocket> &construct) {
+    construct();
+    UnixStreamSocket &sock = *construct.ptr();
+    ar(sock.state_, sock.local_name_, sock.v_, sock.dent_,
+       cereal::base_class<Socket>(construct.ptr()));
+  }
+
  private:
   [[nodiscard]] std::weak_ptr<UnixStreamSocket> weak_this() {
     return std::static_pointer_cast<UnixStreamSocket>(shared_from_this());
@@ -652,6 +750,40 @@ class UnixStreamSocket : public Socket {
   std::shared_ptr<DirectoryEntry> dent_;
 };
 
+std::pair<int, int> CreatePipeSocket(int flags, bool datagram) {
+  std::shared_ptr<File> pipe1, pipe2;
+
+  if (datagram) {
+    auto f1 = std::make_shared<UnixDatagramSocket>(flags);
+    auto f2 = std::make_shared<UnixDatagramSocket>(flags);
+
+    f1->SetLocalName();
+    f1->remote_ = f2;
+    f1->connected_ = true;
+
+    f2->SetLocalName();
+    f2->remote_ = f1;
+    f2->connected_ = true;
+
+    pipe1 = std::move(f1);
+    pipe2 = std::move(f2);
+  } else {
+    // Create two sides of the connection without names.
+    auto [conn1, conn2] = MakeStreamPair(UnixSocketAddr{}, UnixSocketAddr{});
+    pipe1 = std::make_shared<UnixStreamSocket>(UnixSocketAddr{},
+                                               std::move(conn1), flags);
+    pipe2 = std::make_shared<UnixStreamSocket>(UnixSocketAddr{},
+                                               std::move(conn2), flags);
+  }
+
+  // Insert both files into the file table.
+  FileTable &ftbl = myproc().get_file_table();
+  bool cloexec = (flags & kFlagCloseExec) > 0;
+  int fd1 = ftbl.Insert(std::move(pipe1), cloexec);
+  int fd2 = ftbl.Insert(std::move(pipe2), cloexec);
+  return std::make_pair(fd1, fd2);
+}
+
 Status<std::shared_ptr<Socket>> CreateUnixSocket(int type, int protocol,
                                                  int flags) {
   if (protocol != 0) return MakeError(EPROTONOSUPPORT);
@@ -661,4 +793,32 @@ Status<std::shared_ptr<Socket>> CreateUnixSocket(int type, int protocol,
   return MakeError(EINVAL);
 }
 
+long usys_socketpair(int domain, int type, int protocol, int sv[2]) {
+  if (domain != AF_UNIX || protocol != 0) return -EAFNOSUPPORT;
+  bool datagram = (type & kSockTypeMask) == SOCK_DGRAM;
+  if (!datagram && (type & kSockTypeMask) != SOCK_STREAM) return -EINVAL;
+  auto [fd1, fd2] = CreatePipeSocket(type & ~kSockTypeMask, datagram);
+  sv[0] = fd1;
+  sv[1] = fd2;
+  return 0;
+}
+
+template <class Archive>
+void SerializeUnixSocketState(Archive &ar) {
+  ar(dgram_tbl, stream_tbl);
+}
+
+using cereal::BinaryInputArchive;
+using cereal::BinaryOutputArchive;
+
+template void SerializeUnixSocketState<BinaryOutputArchive>(
+    BinaryOutputArchive &ar);
+template void SerializeUnixSocketState<BinaryInputArchive>(
+    BinaryInputArchive &ar);
+
 }  // namespace junction
+
+CEREAL_REGISTER_TYPE(junction::UnixDatagramSocket);
+CEREAL_REGISTER_TYPE(junction::UnixStreamSocket);
+CEREAL_REGISTER_TYPE(junction::UnixSocketInode<junction::UnixDatagramSocket>);
+CEREAL_REGISTER_TYPE(junction::UnixSocketInode<junction::UnixStreamSocket>);

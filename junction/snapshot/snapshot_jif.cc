@@ -12,6 +12,7 @@ extern "C" {
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/net/unix.h"
 #include "junction/snapshot/cereal.h"
 #include "junction/snapshot/jif.h"
 #include "junction/snapshot/snapshot.h"
@@ -287,6 +288,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromJIF(
   if (Status<void> ret = FSRestore(ar); unlikely(!ret)) return MakeError(ret);
   timings().restore_metadata_start = Time::Now();
   ar(p);
+  SerializeUnixSocketState(ar);
   timings().restore_data_start = Time::Now();
 
   Status<KernelFile> jif_file = KernelFile::Open(jif_path, 0, FileMode::kRead);

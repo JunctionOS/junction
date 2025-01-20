@@ -17,6 +17,7 @@ extern "C" {
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/net/unix.h"
 #include "junction/snapshot/cereal.h"
 #include "junction/snapshot/snapshot.h"
 
@@ -202,7 +203,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
 
   std::shared_ptr<Process> p;
   ar(p);
-
+  SerializeUnixSocketState(ar);
   timings().restore_data_start = Time::Now();
 
   Status<JunctionFile> elf =

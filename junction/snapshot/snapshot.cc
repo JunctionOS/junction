@@ -17,6 +17,7 @@ extern "C" {
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/net/unix.h"
 #include "junction/snapshot/cereal.h"
 #include "junction/snapshot/snapshot.h"
 
@@ -53,6 +54,7 @@ Status<void> SnapshotMetadata(Process &p, KernelFile &file) {
   cereal::BinaryOutputArchive ar(outstream);
   if (Status<void> ret = FSSnapshot(ar); !ret) return ret;
   ar(p.shared_from_this());
+  SerializeUnixSocketState(ar);
   return {};
 }
 

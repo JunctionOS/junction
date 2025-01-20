@@ -10,5 +10,6 @@
 #include "cereal/types/memory.hpp"
 #include "cereal/types/polymorphic.hpp"
 #include "cereal/types/tuple.hpp"
+#include "cereal/types/variant.hpp"
 #include "cereal/types/vector.hpp"
 #include "junction/snapshot/pod.h"
