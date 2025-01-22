@@ -126,6 +126,11 @@ class SignalQueue : public rt::Spin {
     ar(pending_q_, pending_);
   }
 
+  void OnExec() {
+    pending_q_.clear();
+    pending_ = 0;
+  }
+
  private:
   void set_sig_pending(int signo) { pending_ |= SignalMask(signo); }
   void clear_sig_pending(int signo) { pending_ &= ~SignalMask(signo); }
@@ -189,6 +194,16 @@ class ThreadSignalHandler {
 
   [[nodiscard]] k_sigset_t get_blocked_pending() const {
     return get_any_pending() & blocked_;
+  }
+
+  void OnExec() {
+    // Blocked mask is inherited across exec.
+    // Drop pending signals.
+    sig_q_.OnExec();
+    // Only one thread survives an exec, safe to call that here.
+    shared_q_.OnExec();
+    // Reset altstack.
+    sigaltstack_ = {nullptr, SS_DISABLE, 0};
   }
 
   void DisableAltStack() { sigaltstack_.ss_flags = SS_DISABLE; }

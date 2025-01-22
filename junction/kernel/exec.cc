@@ -330,9 +330,6 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
       LogSyscall(0, "execve", &usys_execve, (strace::PathName *)filename, argv,
                  envp);
 
-    // Unset a previous child tid pointer for this reused thread.
-    myth.set_child_tid(nullptr);
-
     // Complete the exec
     p.FinishExec(std::move(*mm));
 
@@ -347,6 +344,8 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
     start_tf.rsp = std::get<0>(*regs);
     start_tf.rip = std::get<1>(*regs);
   }
+
+  myth.OnExec();
 
   // Set entry_regs to start_tf and use fcall_tf to unwind.
   myth.ReplaceEntryRegs(start_tf).JmpUnwindSysret(myth);

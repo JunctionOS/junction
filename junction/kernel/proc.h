@@ -4,10 +4,10 @@
 
 extern "C" {
 #include <runtime/interruptible_wait.h>
+#include <sys/prctl.h>
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <sys/prctl.h>
 }
 
 #include <cstring>
@@ -138,6 +138,10 @@ struct Credential {
   }
 
   void AmbientClear() { ambient = 0; }
+
+  void OnExec() {
+    // TODO!
+  }
 
   template <class Archive>
   void serialize(Archive &ar) {
@@ -397,6 +401,12 @@ class Thread {
 
   // Take a reference to this Thread.
   ThreadRef get_ref();
+
+  void OnExec() {
+    get_sighand().OnExec();
+    set_child_tid(nullptr);
+    get_creds().OnExec();
+  }
 
  private:
   friend class Process;

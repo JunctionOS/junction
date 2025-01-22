@@ -106,10 +106,30 @@ static const k_sigaction SigKillAction = {
     .sa_mask = ~0UL,  // all signals masked
 };
 
+static size_t __strlen(const char *msg) {
+  size_t len;
+  for (len = 0; *msg; msg++, len++)
+    ;
+  return len;
+}
+
+void __noinline write_uint(const char *msg, uint64_t num) {
+  char buf[32];
+  char *pos = &buf[32];
+  do {
+    pos--;
+    *pos = '0' + num % 10;
+    num /= 10;
+  } while (num > 0);
+  syscall_write(2, msg, __strlen(msg));
+  syscall_write(2, pos, &buf[32] - pos);
+  syscall_write(2, "\n", 1);
+}
+
 void __noinline print_msg_abort(const char *msg) {
   const char *m = "Aborting on signal: ";
-  syscall_write(2, m, strlen(m));
-  syscall_write(2, msg, strlen(msg));
+  syscall_write(2, m, __strlen(m));
+  syscall_write(2, msg, __strlen(msg));
   syscall_write(2, "\n", 1);
   syscall_exit(-1);
 }
