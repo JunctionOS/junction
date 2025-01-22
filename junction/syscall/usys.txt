@@ -176,10 +176,12 @@ rename
 renameat
 renameat2
 setresuid
+getresuid
 setresgid
+getresgid
 capget
-capset:::stub
-prctl:::stub
+capset
+prctl
 times
 msync:::stub
 sched_setaffinity:::stub

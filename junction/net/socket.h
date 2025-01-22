@@ -35,6 +35,22 @@ enum class SocketState {
 
 using UnixSocketAddr = std::pair<UnixSocketAddressType, std::string>;
 
+// Provide defintions for INET and UNIX socket addresses to avoid pulling in
+// Linux headers that conflict with Caladan.
+struct sockaddr_in {
+  short sin_family;
+  unsigned short sin_port;
+  struct {
+    unsigned int s_addr;
+  } sin_addr;
+  char sin_zero[8];
+};
+
+struct sockaddr_un {
+  sa_family_t sun_family;
+  char sun_path[108];
+};
+
 struct SockAddrPtr {
   explicit SockAddrPtr() : addr(nullptr), addrlen(nullptr) {}
   SockAddrPtr(struct sockaddr *addr, socklen_t *addrlen)

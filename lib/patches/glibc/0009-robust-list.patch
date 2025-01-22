@@ -1,0 +1,62 @@
+From b29d65dc79713a137439a9c8455024ff7d106576 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Mon, 20 Jan 2025 18:14:33 -0500
+Subject: [PATCH 9/9] robust list
+
+---
+ nptl/pthread_create.c                     | 4 ++--
+ sysdeps/nptl/dl-tls_init_tp.c             | 2 ++
+ sysdeps/unix/sysv/linux/kernel-features.h | 2 +-
+ 3 files changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/nptl/pthread_create.c b/nptl/pthread_create.c
+index 1d3665d5ed..a4adc07d74 100644
+--- a/nptl/pthread_create.c
++++ b/nptl/pthread_create.c
+@@ -385,8 +385,8 @@ start_thread (void *arg)
+     {
+       /* This call should never fail because the initial call in init.c
+ 	 succeeded.  */
+-      INTERNAL_SYSCALL_CALL (set_robust_list, &pd->robust_head,
+-			     sizeof (struct robust_list_head));
++//      INTERNAL_SYSCALL_CALL (set_robust_list, &pd->robust_head,
++//			     sizeof (struct robust_list_head));
+     }
+ 
+   /* This is where the try/finally block should be created.  For
+diff --git a/sysdeps/nptl/dl-tls_init_tp.c b/sysdeps/nptl/dl-tls_init_tp.c
+index 092c274f36..cb151b9da1 100644
+--- a/sysdeps/nptl/dl-tls_init_tp.c
++++ b/sysdeps/nptl/dl-tls_init_tp.c
+@@ -90,6 +90,7 @@ __tls_init_tp (void)
+     pd->robust_head.futex_offset = (offsetof (pthread_mutex_t, __data.__lock)
+                                     - offsetof (pthread_mutex_t,
+                                                 __data.__list.__next));
++#if 1
+     int res = INTERNAL_SYSCALL_CALL (set_robust_list, &pd->robust_head,
+                                      sizeof (struct robust_list_head));
+     if (!INTERNAL_SYSCALL_ERROR_P (res))
+@@ -98,6 +99,7 @@ __tls_init_tp (void)
+         __nptl_set_robust_list_avail = true;
+ #endif
+       }
++#endif
+   }
+ 
+   {
+diff --git a/sysdeps/unix/sysv/linux/kernel-features.h b/sysdeps/unix/sysv/linux/kernel-features.h
+index e5a36a0330..a25cf07e9f 100644
+--- a/sysdeps/unix/sysv/linux/kernel-features.h
++++ b/sysdeps/unix/sysv/linux/kernel-features.h
+@@ -52,7 +52,7 @@
+ /* Support for inter-process robust mutexes was added in 2.6.17 (but
+    some architectures lack futex_atomic_cmpxchg_inatomic in some
+    configurations).  */
+-//#define __ASSUME_SET_ROBUST_LIST	1
++#define __ASSUME_SET_ROBUST_LIST	1
+ 
+ /* Support for various CLOEXEC and NONBLOCK flags was added in
+    2.6.27.  */
+-- 
+2.43.0
+

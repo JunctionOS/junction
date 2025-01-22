@@ -64,24 +64,25 @@ inline void PrintArg(const char *arg, T, rt::Logger &ss) {
   ss << (const void *)arg;
 }
 
-#define DECLARE_STRACE_TYPE(type_name) \
-  enum class type_name : int {};       \
-  void PrintArg(int fd, type_name, rt::Logger &ss);
+#define DECLARE_STRACE_TYPE(type_name, type_type) \
+  enum class type_name : int {};                  \
+  void PrintArg(type_type, type_name, rt::Logger &ss);
 
-DECLARE_STRACE_TYPE(AtFD);
-DECLARE_STRACE_TYPE(ProtFlag);
-DECLARE_STRACE_TYPE(MMapFlag);
-DECLARE_STRACE_TYPE(CloneFlag);
-DECLARE_STRACE_TYPE(EpollOp);
-DECLARE_STRACE_TYPE(OpenFlag);
-DECLARE_STRACE_TYPE(SignalNumber);
-DECLARE_STRACE_TYPE(MAdviseHint)
-DECLARE_STRACE_TYPE(FutexOp)
-DECLARE_STRACE_TYPE(IoctlOp)
-DECLARE_STRACE_TYPE(FcntlOp)
-DECLARE_STRACE_TYPE(SocketDomain)
-DECLARE_STRACE_TYPE(SocketType)
-DECLARE_STRACE_TYPE(MessageFlag)
+DECLARE_STRACE_TYPE(AtFD, int);
+DECLARE_STRACE_TYPE(ProtFlag, int);
+DECLARE_STRACE_TYPE(MMapFlag, int);
+DECLARE_STRACE_TYPE(CloneFlag, unsigned long);
+DECLARE_STRACE_TYPE(EpollOp, int);
+DECLARE_STRACE_TYPE(OpenFlag, int);
+DECLARE_STRACE_TYPE(SignalNumber, int);
+DECLARE_STRACE_TYPE(MAdviseHint, int)
+DECLARE_STRACE_TYPE(FutexOp, int)
+DECLARE_STRACE_TYPE(IoctlOp, unsigned int)
+DECLARE_STRACE_TYPE(FcntlOp, unsigned int)
+DECLARE_STRACE_TYPE(SocketDomain, int)
+DECLARE_STRACE_TYPE(SocketType, int)
+DECLARE_STRACE_TYPE(MessageFlag, int)
+DECLARE_STRACE_TYPE(PrctlOp, long)
 
 void PrintArg(int *fds, FDPair *, rt::Logger &ss);
 
@@ -109,6 +110,18 @@ inline void PrintArg(const struct sockaddr *addr, U, rt::Logger &ss) {
 template <typename U>
 inline void PrintArg(struct sockaddr *addr, U, rt::Logger &ss) {
   PrintArg(addr, ss);
+}
+
+template <typename U>
+inline void PrintArg(cap_user_header_t hdrp, U, rt::Logger &ss) {
+  ss << "{" << hdrp->version << ", " << hdrp->pid << "}";
+}
+
+void PrintArg(const cap_user_data_t, rt::Logger &ss);
+
+template <typename U>
+inline void PrintArg(const cap_user_data_t datap, U, rt::Logger &ss) {
+  PrintArg(datap, ss);
 }
 
 template <int N, typename Ret, typename... UsysArgs, typename ArgT>

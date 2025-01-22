@@ -256,9 +256,9 @@ class ThreadSignalHandler {
 
   // Called when a signal has been added on the shared queue to determine if an
   // interrupt should be sent to this thread.
-  bool SharedSignalNotifyCheck() {
+  bool SharedSignalNotifyCheck(int signo) {
     rt::SpinGuard g(sig_q_);
-    return TestAndSetNotify();
+    return !is_sig_blocked(signo) && TestAndSetNotify();
   }
 
   // Called by this thread when in syscall context to run any pending signals.

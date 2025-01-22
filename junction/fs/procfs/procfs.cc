@@ -350,6 +350,9 @@ class ProcessDir : public ProcFSDir {
     AddDentLockedNoCheck("mem", ProcMemInode::GetSingleton());
     AddIDirLockedNoCheck<TaskDir>(std::string(kTaskDirName));
     AddDentLockedNoCheck("cgroup", MakeInode(0444, [] { return "0::/\n"; }));
+    AddDentLockedNoCheck("status",
+                         MakeInode(0444, [p = proc_] { return GetStatus(p); }));
+
     DirectoryEntry *de = AddIDirLockedNoCheck<FDDir>(std::string(kFDDirName));
     fd_dir_ =
         static_cast<FDDir &>(de->get_inode_ref()).shared_from_base<FDDir>();
@@ -372,6 +375,31 @@ class ProcessDir : public ProcFSDir {
     std::shared_ptr<Process> p = proc.lock();
     if (!p) return "[stale]";
     return p->get_mem_map().GetMappingsString();
+  }
+
+  static std::string GetStatus(std::weak_ptr<Process> proc) {
+    std::shared_ptr<Process> p = proc.lock();
+    if (!p) return "[stale]";
+
+    // TODO: lots of other things to add here.
+
+    // Pick the first thread.
+    Status<ThreadRef> thread = p->GetFirstThread();
+    if (!thread) return "";
+
+    Credential &creds = (*thread)->get_creds();
+    std::ostringstream ss;
+    ss << "CapInh: " << std::setfill('0') << std::setw(16) << std::hex
+       << creds.inheritable << std::endl;
+    ss << "CapPrm: " << std::setfill('0') << std::setw(16) << creds.permitted
+       << std::endl;
+    ss << "CapEff: " << std::setfill('0') << std::setw(16) << creds.effective
+       << std::endl;
+    ss << "CapBnd: " << std::setfill('0') << std::setw(16) << creds.bounding
+       << std::endl;
+    ss << "CapAmb: " << std::setfill('0') << std::setw(16) << creds.ambient
+       << std::endl;
+    return ss.str();
   }
 
   std::weak_ptr<Process> proc_;

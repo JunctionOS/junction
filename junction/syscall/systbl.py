@@ -115,6 +115,7 @@ TYPE_ARR.update({
     ("recvmsg", 2): 'static_cast<strace::MessageFlag>',
     ("epoll_ctl", 1): 'static_cast<strace::EpollOp>',
     ("unshare", 0): 'static_cast<strace::CloneFlag>',
+    ("prctl", 0): 'static_cast<strace::PrctlOp>',
 })
 
 SKIP_STRACE_TARGET = [
@@ -214,7 +215,7 @@ def emit_passthrough_target(syscall_name, sysnr, output):
 def emit_stub_target(syscall_name, output):
     wrapper_name = f"{syscall_name}_stub"
     fn = f"""
-    extern "C" long {wrapper_name}(void) {'{'}
+    extern "C" long {wrapper_name}(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5) {'{'}
         return 0;
     {'}'}"""
     output.append(fn)

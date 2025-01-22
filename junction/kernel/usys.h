@@ -218,8 +218,12 @@ long usys_seteuid(uid_t uid);
 long usys_setgroups(size_t size, const gid_t *list);
 long usys_getgroups(int size, gid_t *list);
 long usys_setresuid(uid_t ruid, uid_t euid, uid_t suid);
+long usys_getresuid(uid_t *ruid, uid_t *euid, uid_t *suid);
 long usys_setresgid(gid_t rgid, gid_t egid, gid_t sgid);
+long usys_getresgid(gid_t *rgid, gid_t *egid, gid_t *sgid);
 long usys_capget(cap_user_header_t hdrp, cap_user_data_t datap);
+long usys_capset(cap_user_header_t hdrp, const cap_user_data_t datap);
+long usys_prctl(long op, long arg1, long arg2, long arg3, long arg4, long arg5);
 
 // Signals
 long usys_rt_sigaction(int sig, const struct k_sigaction *action,

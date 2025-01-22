@@ -3,6 +3,7 @@
 extern "C" {
 #include <linux/futex.h>
 #include <linux/ioctl.h>
+#include <linux/prctl.h>
 #include <sched.h>
 #include <signal.h>
 #include <sys/ioctl.h>
@@ -13,6 +14,7 @@ extern "C" {
 #include <map>
 
 #include "junction/bindings/log.h"
+#include "junction/net/socket.h"
 
 #ifndef MADV_COLLAPSE
 #define MADV_COLLAPSE 25 /* Synchronous hugepage collapse */
@@ -192,6 +194,69 @@ const std::map<int, std::string> fcntls{
     VAL(F_SET_FILE_RW_HINT),
 };
 
+const std::map<int, std::string> prctl_ops{
+    VAL(PR_CAP_AMBIENT),
+    VAL(PR_CAPBSET_READ),
+    VAL(PR_CAPBSET_DROP),
+    VAL(PR_SET_CHILD_SUBREAPER),
+    VAL(PR_GET_CHILD_SUBREAPER),
+    VAL(PR_SET_DUMPABLE),
+    VAL(PR_GET_DUMPABLE),
+    VAL(PR_SET_ENDIAN),
+    VAL(PR_GET_ENDIAN),
+    VAL(PR_SET_FP_MODE),
+    VAL(PR_GET_FP_MODE),
+    VAL(PR_SET_FPEMU),
+    VAL(PR_GET_FPEMU),
+    VAL(PR_SET_FPEXC),
+    VAL(PR_GET_FPEXC),
+    VAL(PR_SET_IO_FLUSHER),
+    VAL(PR_GET_IO_FLUSHER),
+    VAL(PR_SET_KEEPCAPS),
+    VAL(PR_GET_KEEPCAPS),
+    VAL(PR_MCE_KILL),
+    VAL(PR_MCE_KILL_GET),
+    VAL(PR_SET_MM),
+    VAL(PR_SET_VMA),
+    VAL(PR_MPX_ENABLE_MANAGEMENT),
+    VAL(PR_MPX_DISABLE_MANAGEMENT),
+    VAL(PR_SET_NAME),
+    VAL(PR_GET_NAME),
+    VAL(PR_SET_NO_NEW_PRIVS),
+    VAL(PR_GET_NO_NEW_PRIVS),
+    VAL(PR_PAC_RESET_KEYS),
+    VAL(PR_SET_PDEATHSIG),
+    VAL(PR_GET_PDEATHSIG),
+    VAL(PR_SET_PTRACER),
+    VAL(PR_SET_SECCOMP),
+    VAL(PR_GET_SECCOMP),
+    VAL(PR_SET_SECUREBITS),
+    VAL(PR_GET_SECUREBITS),
+    VAL(PR_GET_SPECULATION_CTRL),
+    VAL(PR_SET_SPECULATION_CTRL),
+    VAL(PR_SVE_SET_VL),
+    VAL(PR_SVE_GET_VL),
+    VAL(PR_SET_SYSCALL_USER_DISPATCH),
+    VAL(PR_SET_TAGGED_ADDR_CTRL),
+    VAL(PR_GET_TAGGED_ADDR_CTRL),
+    VAL(PR_TASK_PERF_EVENTS_DISABLE),
+    VAL(PR_TASK_PERF_EVENTS_ENABLE),
+    VAL(PR_SET_THP_DISABLE),
+    VAL(PR_GET_THP_DISABLE),
+    VAL(PR_GET_TID_ADDRESS),
+    VAL(PR_SET_TIMERSLACK),
+    VAL(PR_GET_TIMERSLACK),
+    VAL(PR_SET_TIMING),
+    VAL(PR_GET_TIMING),
+    VAL(PR_SET_TSC),
+    VAL(PR_GET_TSC),
+    VAL(PR_SET_UNALIGN),
+    VAL(PR_GET_UNALIGN),
+    VAL(PR_GET_AUXV),
+    VAL(PR_SET_MDWE),
+    VAL(PR_GET_MDWE),
+};
+
 std::string GetFcntlName(int cmd) {
   auto it = fcntls.find(cmd);
   if (it != fcntls.end()) return it->second;
@@ -240,20 +305,41 @@ void PrintValMap(const std::map<int, std::string> &map, int val,
     ss << val;
 }
 
-struct sockaddr_in {
-  short sin_family;
-  unsigned short sin_port;
-  struct {
-    unsigned int s_addr;
-  } sin_addr;
-  char sin_zero[8];
-};
+void PrintArg(const cap_user_data_t datap, rt::Logger &ss) {
+  if (!datap) {
+    ss << "NULL";
+    return;
+  }
+  ss << "{effective=" << std::hex << datap->effective
+     << ",permitted=" << datap->permitted
+     << ",inheritable=" << datap->inheritable << "}";
+}
 
 void PrintArg(const struct sockaddr *addr, rt::Logger &ss) {
   if (!addr) {
     ss << "NULL";
     return;
   }
+
+  if (addr->sa_family == AF_UNIX) {
+    auto uin = reinterpret_cast<const sockaddr_un *>(addr);
+    ss << "unix:";
+    for (size_t i = 0; i < sizeof(uin->sun_path); i++) {
+      if (uin->sun_path[i] == '\0') {
+        if (i == 0)
+          ss << "\0";
+        else
+          break;
+      }
+
+      if (uin->sun_path[i] < 32 || uin->sun_path[i] > 126)
+        ss << "@";
+      else
+        ss << uin->sun_path[i];
+    }
+    return;
+  }
+
   if (addr->sa_family != AF_INET) {
     ss << "{unknown_type: " << addr->sa_family << "}";
     return;
@@ -335,6 +421,10 @@ void PrintArg(int op, FutexOp, rt::Logger &ss) {
 
   if (op & FUTEX_PRIVATE_FLAG) ss << "|FUTEX_PRIVATE";
   if (op & FUTEX_CLOCK_REALTIME) ss << "|FUTEX_CLOCK_REALTIME";
+}
+
+void PrintArg(long op, PrctlOp, rt::Logger &ss) {
+  PrintValMap(prctl_ops, op, ss);
 }
 
 void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss) {

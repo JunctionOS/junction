@@ -7,7 +7,7 @@ extern "C" {
 #include <sys/resource.h>
 #include <sys/types.h>
 #include <sys/wait.h>
-#include <ucontext.h>
+#include <sys/prctl.h>
 }
 
 #include <cstring>
@@ -41,6 +41,9 @@ inline constexpr unsigned int kNotWaitable = 0;
 inline constexpr unsigned int kWaitableExited = WEXITED;
 inline constexpr unsigned int kWaitableStopped = WSTOPPED;
 inline constexpr unsigned int kWaitableContinued = WCONTINUED;
+inline constexpr uint64_t kCapabilityFull =
+    std::numeric_limits<uint64_t>::max();
+inline constexpr long kMaxCapability = 63;
 
 inline bool SignalIfOwned(struct kthread *k, const thread_t *th) {
   spin_lock_np(&k->lock);
@@ -65,9 +68,81 @@ struct Credential {
   gid_t sgid;
   std::vector<gid_t> supplementary_groups;
 
+  // Capability sets
+  uint64_t bounding{kCapabilityFull};
+  uint64_t ambient{kCapabilityFull};
+  uint64_t permitted{kCapabilityFull};
+  uint64_t effective{kCapabilityFull};
+  uint64_t inheritable{0};
+
+  [[nodiscard]] inline bool in_set(uint64_t set, long cap) const {
+    return set & (1UL << cap);
+  }
+
+  Status<void> UpdateCapabilities(uint64_t new_permitted,
+                                  uint64_t new_effective,
+                                  uint64_t new_inheritable) {
+    if (!in_set(effective, CAP_SETPCAP)) {
+      // Inheritable must be a subset of inheritable + permitted.
+      if (new_inheritable & ~(inheritable | permitted)) return MakeError(EPERM);
+    }
+
+    // Can't exceed the bounding set.
+    if (new_inheritable & ~(inheritable | bounding)) return MakeError(EPERM);
+
+    // Can't add things not previously in permitted set.
+    if (new_permitted & ~permitted) return MakeError(EPERM);
+
+    // Effective should be a subset of permitted.
+    if (new_effective & ~new_permitted) return MakeError(EPERM);
+
+    permitted = new_permitted;
+    effective = new_effective;
+    inheritable = new_inheritable;
+    ambient = ambient & (permitted & inheritable);
+    return {};
+  }
+
+  [[nodiscard]] bool in_bounding_set(long cap) const {
+    return cap <= kMaxCapability && in_set(bounding, cap);
+  }
+
+  void DropCap(uint64_t &set, long cap) { set &= ~(1ULL << cap); }
+
+  Status<void> DropBoundedCap(long cap) {
+    if (!in_set(effective, CAP_SETPCAP)) return MakeError(EPERM);
+    if (cap > kMaxCapability) return MakeError(EINVAL);
+    DropCap(bounding, cap);
+    DropCap(ambient, cap);
+    DropCap(permitted, cap);
+    DropCap(effective, cap);
+    DropCap(inheritable, cap);
+    return {};
+  }
+
+  Status<void> AmbientRaise(long cap) {
+    if (cap > kMaxCapability) return MakeError(EINVAL);
+    if (!in_set(inheritable & permitted, cap)) return MakeError(EPERM);
+    ambient |= (1ULL << cap);
+    return {};
+  }
+
+  Status<void> AmbientLower(long cap) {
+    if (cap > kMaxCapability) return MakeError(EINVAL);
+    ambient &= ~(1ULL << cap);
+    return {};
+  }
+
+  [[nodiscard]] bool in_ambient_set(long cap) {
+    return cap <= kMaxCapability && in_set(ambient, cap);
+  }
+
+  void AmbientClear() { ambient = 0; }
+
   template <class Archive>
   void serialize(Archive &ar) {
     ar(ruid, euid, suid, rgid, egid, sgid, supplementary_groups);
+    ar(bounding, ambient, permitted, effective, inheritable);
   }
 };
 
@@ -139,6 +214,12 @@ class Thread {
                     cycles_per_us);
   }
 
+  // Note some documentation update needed below. It is now the case that when a
+  // uthread is run by the caladan scheduler exactly one of the following is
+  // true: (A) it is in a blocked syscall or (B) it was preempted. The signal
+  // handlers for preemption guarantee the that resumed trapframe will do a
+  // signal check before jumping into user code, so the explicit check at jmp
+  // thread is no longer needed.
   void SendIpi() {
     /*
      * Signals can be delivered at the following points:
@@ -598,6 +679,13 @@ class Process : public std::enable_shared_from_this<Process> {
     return it->second->get_ref();
   }
 
+  Status<ThreadRef> GetFirstThread() {
+    rt::SpinGuard g(child_thread_lock_);
+    auto it = thread_map_.begin();
+    if (it == thread_map_.end()) return MakeError(ESRCH);
+    return it->second->get_ref();
+  }
+
   // Called by threads to wait for SIGCONT. This call must occur inside of a
   // system call, and GetSyscallFrame() must be contain a trapframe that is
   // ready to be restored.
@@ -657,7 +745,7 @@ class Process : public std::enable_shared_from_this<Process> {
     rt::ScopedLock g(child_thread_lock_);
     if (is_stopped()) return;
     stopped_gen_ += 1;
-    SignalAllThreads();
+    SignalAllThreads(SIGSTOP);
     if (user_sig) stop_cnt_++;
   }
 
@@ -672,17 +760,17 @@ class Process : public std::enable_shared_from_this<Process> {
  private:
   friend class cereal::access;
 
-  void SignalAllThreads() {
+  void SignalAllThreads(int signo) {
     assert(child_thread_lock_.IsHeld());
     for (const auto &[pid, th] : thread_map_)
-      if (th->get_sighand().SharedSignalNotifyCheck()) th->SendIpi();
+      if (th->get_sighand().SharedSignalNotifyCheck(signo)) th->SendIpi();
   }
 
   void FindThreadForSignal(int signo) {
     assert(child_thread_lock_.IsHeld());
     // TODO: add logic to find a thread that hasn't blocked this signal (and
     // ideally is waiting). For now, just signal all threads.
-    SignalAllThreads();
+    SignalAllThreads(signo);
   }
 
   // Places a signal into the Process-wide signal queue and sends an IPI to a
@@ -700,7 +788,7 @@ class Process : public std::enable_shared_from_this<Process> {
     if (si.si_signo == SIGKILL) {
       stopped_gen_ = 0;
       stopped_threads_.WakeAll();
-      SignalAllThreads();
+      SignalAllThreads(SIGKILL);
     } else if (needs_ipi)
       FindThreadForSignal(si.si_signo);
   }

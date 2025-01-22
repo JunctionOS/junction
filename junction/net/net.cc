@@ -17,26 +17,9 @@ extern "C" {
 #include "junction/net/udp_socket.h"
 #include "junction/net/unix.h"
 
-#define SUN_PATH_BYTES 108
-
 namespace junction {
 
 namespace {
-
-// Define inet address struct to avoid pulling in system headers.
-struct sockaddr_in {
-  short sin_family;
-  unsigned short sin_port;
-  struct {
-    unsigned int s_addr;
-  } sin_addr;
-  char sin_zero[8];
-};
-
-struct sockaddr_un {
-  sa_family_t sun_family;
-  char sun_path[SUN_PATH_BYTES];
-};
 
 Status<std::reference_wrapper<Socket>> FDToSocket(int fd) {
   FileTable &ftbl = myproc().get_file_table();
@@ -90,7 +73,7 @@ Status<UnixSocketAddr> SockAddrPtr::ToUnixAddr() const {
   const sockaddr_un *sun = reinterpret_cast<const sockaddr_un *>(addr);
 
   UnixSocketAddressType type = UnixSocketAddressType::Pathname;
-  size_t max_bytes = SUN_PATH_BYTES;
+  size_t max_bytes = sizeof(sun->sun_path);
   max_bytes = std::min(size() - offsetof(sockaddr_un, sun_path), max_bytes);
 
   const char *fb = sun->sun_path;
