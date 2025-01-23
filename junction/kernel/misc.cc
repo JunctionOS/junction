@@ -16,6 +16,8 @@ extern "C" {
 
 namespace junction {
 
+inline constexpr rlim_t kRlimInfinity = RLIM_INFINITY;
+
 namespace {
 utsname utsname = {.sysname = "Linux",
                    .nodename = "junction",  // TODO: support hostnames?
@@ -48,36 +50,59 @@ long usys_sysinfo(struct sysinfo *info) {
   return 0;
 }
 
+const std::map<int, rlim_t> default_rlimits{
+    {RLIMIT_AS, kRlimInfinity},
+    {RLIMIT_CORE, kRlimInfinity},
+    {RLIMIT_CPU, kRlimInfinity},
+    {RLIMIT_DATA, kRlimInfinity},
+    {RLIMIT_FSIZE, kRlimInfinity},
+    {RLIMIT_LOCKS, kRlimInfinity},
+    {RLIMIT_MEMLOCK, kRlimInfinity},
+    {RLIMIT_MSGQUEUE, 819200},
+    {RLIMIT_NICE, 0},
+    {RLIMIT_NOFILE, 1000000},
+    {RLIMIT_NPROC, 4000000},
+    {RLIMIT_RSS, kRlimInfinity},
+    {RLIMIT_RTPRIO, 0},
+    {RLIMIT_RTTIME, kRlimInfinity},
+    {RLIMIT_SIGPENDING, 254354},
+    {RLIMIT_STACK, 67108864},
+};
+
+Status<rlim_t> GetDefaultRlim(int resource) {
+  auto it = default_rlimits.find(resource);
+  if (unlikely(it == default_rlimits.end())) return MakeError(EINVAL);
+  return it->second;
+}
+
 long usys_getrlimit(int resource, struct rlimit *rlim) {
-  if (resource != RLIMIT_NOFILE) return -EPERM;
-  if (!rlim) return -EFAULT;
-  rlimit limit_nofile = myproc().get_limit_nofile();
-  rlim->rlim_cur = limit_nofile.rlim_cur;
-  rlim->rlim_max = limit_nofile.rlim_max;
+  Status<rlimit> ret = myproc().get_limits().GetLimit(resource);
+  if (!ret) return MakeCError(ret);
+  *rlim = *ret;
   return 0;
 }
 
 long usys_setrlimit(int resource, const struct rlimit *rlim) {
-  if (resource != RLIMIT_NOFILE) return -EPERM;
-  if (!rlim) return -EFAULT;
-  if (rlim->rlim_cur > rlim->rlim_max) return -EINVAL;
-  myproc().set_limit_nofile(rlim);
+  myproc().get_limits().SetLimit(resource, *rlim);
   return 0;
 }
 
-// TODO(girfan): Need to check the pid when we support multiple procs.
-long usys_prlimit64([[maybe_unused]] pid_t pid, int resource,
-                    const struct rlimit *new_limit, struct rlimit *old_limit) {
-  if (resource != RLIMIT_NOFILE) return -EPERM;
+long usys_prlimit64(pid_t pid, int resource, const struct rlimit *new_limit,
+                    struct rlimit *old_limit) {
+  std::shared_ptr<Process> p;
+  if (pid != 0) {
+    p = Process::Find(pid);
+    if (!p) return -ESRCH;
+  }
+
+  Limits &lim = pid ? p->get_limits() : myproc().get_limits();
   if (old_limit) {
-    rlimit limit_nofile = myproc().get_limit_nofile();
-    old_limit->rlim_cur = limit_nofile.rlim_cur;
-    old_limit->rlim_max = limit_nofile.rlim_max;
+    Status<rlimit> ret = lim.GetLimit(resource);
+    if (!ret) return MakeCError(ret);
+    *old_limit = *ret;
   }
-  if (new_limit) {
-    if (new_limit->rlim_cur > new_limit->rlim_max) return -EINVAL;
-    myproc().set_limit_nofile(new_limit);
-  }
+
+  if (new_limit) lim.SetLimit(resource, *new_limit);
   return 0;
 }
 

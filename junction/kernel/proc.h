@@ -534,6 +534,36 @@ inline ThreadRef Thread::get_ref() { return ThreadRef(this); }
 static_assert(offsetof(thread_t, junction_tstate_buf) % alignof(Thread) == 0);
 static_assert(sizeof(Thread) <= sizeof((thread_t *)0)->junction_tstate_buf);
 
+Status<rlim_t> GetDefaultRlim(int resource);
+
+class Limits {
+ public:
+  Status<rlimit> GetLimit(int resource) {
+    {
+      rt::SpinGuard g(lock);
+      auto it = overriden_limits.find(resource);
+      if (it != overriden_limits.end()) return it->second;
+    }
+    Status<rlim_t> ret = GetDefaultRlim(resource);
+    if (!ret) return MakeError(ret);
+    return {{*ret, *ret}};
+  }
+
+  void SetLimit(int resource, rlimit lim) {
+    rt::SpinGuard g(lock);
+    overriden_limits[resource] = lim;
+  }
+
+  template <typename Archive>
+  void serialize(Archive &ar) {
+    ar(overriden_limits);
+  }
+
+ private:
+  rt::Spin lock;
+  std::map<int, rlimit> overriden_limits;
+};
+
 // Process is a UNIX process object.
 class Process : public std::enable_shared_from_this<Process> {
  public:
@@ -592,7 +622,8 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] MemoryMap &get_mem_map() { return *mem_map_; }
   [[nodiscard]] SignalTable &get_signal_table() { return signal_tbl_; }
   [[nodiscard]] SignalQueue &get_signal_queue() { return shared_sig_q_; }
-  [[nodiscard]] rlimit get_limit_nofile() const { return limit_nofile_; }
+  [[nodiscard]] const Limits &get_limits() const { return limits_; }
+  [[nodiscard]] Limits &get_limits() { return limits_; }
   [[nodiscard]] bool exited() const { return access_once(exited_); }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
   [[nodiscard]] bool is_stopped() const { return stopped_gen_ % 2 == 1; }
@@ -601,11 +632,6 @@ class Process : public std::enable_shared_from_this<Process> {
   }
   [[nodiscard]] FSRoot &get_fs() { return fs_; }
   [[nodiscard]] procfs::ProcFSData &get_procfs() { return procfs_data_; }
-
-  void set_limit_nofile(const rlimit *rlim) {
-    limit_nofile_.rlim_cur = rlim->rlim_cur;
-    limit_nofile_.rlim_max = rlim->rlim_max;
-  }
 
   // Create a vforked process from this one.
   Status<std::shared_ptr<Process>> CreateProcessVfork(rt::ThreadWaker &&w);
@@ -813,7 +839,7 @@ class Process : public std::enable_shared_from_this<Process> {
         stopped_gen_(1) {
     RegisterProcess(*this);
 
-    ar(pgid_, sid_, parent_, file_tbl_, mem_map_, limit_nofile_, signal_tbl_,
+    ar(pgid_, sid_, parent_, file_tbl_, mem_map_, limits_, signal_tbl_,
        shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
 
     std::string cwd;
@@ -832,9 +858,8 @@ class Process : public std::enable_shared_from_this<Process> {
     if (exited_ || doing_exec_ || exec_waker_ || vfork_waker_ || child_waiters_)
       throw std::runtime_error("bad process state for snapshot");
 
-    ar(pid_, pgid_, sid_, parent_, file_tbl_, mem_map_, limit_nofile_,
-       signal_tbl_, shared_sig_q_, child_procs_, wait_state_, wait_status_,
-       it_real_.get());
+    ar(pid_, pgid_, sid_, parent_, file_tbl_, mem_map_, limits_, signal_tbl_,
+       shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
 
     Status<std::string> cwd = fs_.get_cwd_ent()->GetPathStr();
     if (!cwd) throw std::runtime_error("stale cwd during snapshot");
@@ -911,8 +936,7 @@ class Process : public std::enable_shared_from_this<Process> {
   // Threads.
 
   // TODO: enforce limit
-  rlimit limit_nofile_{kDefaultNoFile,
-                       kDefaultNoFile};  // current rlimit for RLIMIT_NOFILE
+  Limits limits_;
 
   // Wake this blocked thread that is waiting for the vfork thread to exec().
   rt::ThreadWaker vfork_waker_;
