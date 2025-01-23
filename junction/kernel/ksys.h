@@ -43,7 +43,6 @@ int ksys_mprotect(void *addr, size_t len, int prot);
 long ksys_madvise(void *addr, size_t length, int advice);
 int ksys_openat(int fd, const char *pathname, int flags, mode_t mode);
 int ksys_close(int fd);
-ssize_t ksys_readv(int fd, const struct iovec *iov, int iovcnt);
 ssize_t ksys_pread(int fd, void *buf, size_t count, off_t offset);
 int ksys_tgkill(pid_t tgid, pid_t tid, int sig);
 ssize_t ksys_readlinkat(int dirfd, const char *pathname, char *buf,
@@ -57,10 +56,14 @@ static inline ssize_t ksys_write(int fd, const void *buf, size_t count) {
   return syscall_write(fd, buf, count);
 }
 
+#if 0
+ssize_t ksys_readv(int fd, const struct iovec *iov, int iovcnt);
+
 static inline ssize_t ksys_read(int fd, void *buf, size_t count) {
   iovec v = {.iov_base = buf, .iov_len = count};
   return ksys_readv(fd, &v, 1);
 }
+#endif
 
 static inline ssize_t ksys_pwritev(int fd, const struct iovec *iov, int iovcnt,
                                    off_t offset) {

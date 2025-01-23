@@ -104,6 +104,9 @@ class alignas(kCacheLineSize) PollSource {
   // Unregisters an observer from this source.
   void Detach(PollObserver &o);
 
+  // Sets the initial event mask (no notification sent).
+  void Init(unsigned int event_mask) { event_mask_ = event_mask; }
+
   template <class Archive>
   void save(Archive &ar) const {
     // Save epoll observers.

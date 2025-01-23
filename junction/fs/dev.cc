@@ -20,7 +20,9 @@ class SpecialFile : public File {
  public:
   SpecialFile(unsigned int flags, FileMode mode,
               std::shared_ptr<DirectoryEntry> dent) noexcept
-      : File(FileType::kSpecial, flags, mode, std::move(dent)) {}
+      : File(FileType::kSpecial, flags, mode, std::move(dent)) {
+    get_poll_source().Init(kPollIn | kPollOut);
+  }
   ~SpecialFile() override = default;
 
   Status<size_t> Read(std::span<std::byte> buf,

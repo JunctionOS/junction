@@ -38,7 +38,7 @@ SYSCALL_123 madvise __NR_madvise
 
 SYSCALL_456 openat __NR_openat
 SYSCALL_123 close __NR_close
-SYSCALL_123 readv __NR_readv
+// SYSCALL_123 readv __NR_readv
 SYSCALL_456 pread __NR_pread64
 
 SYSCALL_456 newfstatat __NR_newfstatat

@@ -19,10 +19,8 @@ StdIOFile::StdIOFile(unsigned int flags, FileMode mode,
     : File(FileType::kNormal, flags, mode, std::move(dent)) {}
 
 Status<size_t> StdIOFile::Read(std::span<std::byte> buf, off_t *off) {
-  long ret = ksys_read(kStdInFileNo, buf.data(), buf.size_bytes());
-  if (ret < 0) return MakeError(-ret);
-  *off = ret;
-  return ret;
+  DLOG_ONCE(WARN) << "Reading from stdin not enabled";
+  return 0;
 }
 
 Status<size_t> StdIOFile::Write(std::span<const std::byte> buf, off_t *off) {
