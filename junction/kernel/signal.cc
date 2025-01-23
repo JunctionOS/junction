@@ -1089,22 +1089,19 @@ long usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize) {
   ThreadSignalHandler &hand = mythread().get_sighand();
   hand.ReplaceAndSaveBlocked(*mask);
 
-  {
-    rt::Preempt p;
-    rt::ThreadWaker w;
-    rt::PreemptGuard g(p);
-    rt::WaitInterruptible(p, w);
-  }
+  rt::Preempt p;
+  rt::ThreadWaker w;
+  rt::UniqueLock<rt::Preempt> g(p);
+  rt::WaitInterruptibleNoRecheck(std::move(g), w);
 
   return -ERESTARTNOHAND;
 }
 
 long usys_pause() {
-  thread_t *th = thread_self();
-  if (unlikely(rt::SetInterruptible(th))) return -ERESTARTNOHAND;
   rt::Preempt p;
-  p.Lock();
-  p.UnlockAndPark();
+  rt::ThreadWaker w;
+  rt::UniqueLock<rt::Preempt> g(p);
+  rt::WaitInterruptibleNoRecheck(std::move(g), w);
   return -ERESTARTNOHAND;
 }
 

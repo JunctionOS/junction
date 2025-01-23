@@ -1,5 +1,6 @@
 extern "C" {
 #include <fcntl.h>
+#include <sys/inotify.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -20,6 +21,7 @@ extern "C" {
 #include "junction/kernel/ksys.h"
 #include "junction/kernel/proc.h"
 #include "junction/kernel/usys.h"
+#include "junction/syscall/strace.h"
 
 namespace {
 
@@ -332,6 +334,9 @@ Status<long> File::Ioctl(unsigned long request, char *argp) {
   Status<long> ret;
 
   switch (request) {
+    case FIOASYNC:
+      LOG_ONCE(WARN) << "Requested FIOASYNC which is not implemented";
+      return 0;
     case TCGETS:
     case TIOCGPGRP:
       return MakeError(ENOTTY);
@@ -656,6 +661,10 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
   if (unlikely(!f)) return -EBADF;
 
   switch (cmd) {
+    // Stub commands related to async IO signals.
+    case F_SETOWN:
+    case F_GETOWN:
+      return 0;
     case F_DUPFD_CLOEXEC:
       /* fallthrough */
     case F_DUPFD: {
@@ -688,7 +697,7 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
     case F_GETLK:
       return DoFlocks(f, cmd, reinterpret_cast<struct flock *>(arg));
     default:
-      LOG_ONCE(WARN) << "Unsupported fcntl cmd " << cmd;
+      LOG_ONCE(WARN) << "Unsupported fcntl cmd: " << strace::GetFcntlName(cmd);
       return -EINVAL;
   }
 }
@@ -722,6 +731,51 @@ long usys_ioctl(int fd, unsigned int request, char *argp) {
   auto ret = f->Ioctl(request, argp);
   if (!ret) return MakeCError(ret);
   return *ret;
+}
+
+// This file does nothing, and blocks indefinitely on reads. Used to stub
+// as-of-yet unsupported features like inotify and signalfd.
+class NothingFile : public File {
+ public:
+  NothingFile(FileType type, int flags = 0)
+      : File(type, flags, FileMode::kReadWrite){};
+  Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
+    if (is_nonblocking()) return MakeError(EAGAIN);
+    rt::Preempt p;
+    rt::ThreadWaker w;
+    rt::UniqueLock<rt::Preempt> g(p);
+    rt::WaitInterruptibleNoRecheck(std::move(g), w);
+    return MakeError(EINTR);
+  }
+};
+
+long usys_inotify_init() {
+  auto f = std::make_shared<NothingFile>(FileType::kInotify);
+  FileTable &ftbl = myproc().get_file_table();
+  return ftbl.Insert(std::move(f));
+}
+
+long usys_inotify_init1(int flags) {
+  static_assert(IN_NONBLOCK == kFlagNonblock);
+  static_assert(IN_CLOEXEC == kFlagCloseExec);
+  auto f =
+      std::make_shared<NothingFile>(FileType::kInotify, flags & kFlagNonblock);
+  FileTable &ftbl = myproc().get_file_table();
+  return ftbl.Insert(std::move(f), (flags & kFlagCloseExec) > 0);
+}
+
+long usys_signalfd4(int fd, const sigset_t *mask, size_t masksize, int flags) {
+  if (unlikely(masksize != sizeof(k_sigset_t))) return -EINVAL;
+
+  FileTable &ftbl = myproc().get_file_table();
+  if (fd == -1) {
+    auto f = std::make_shared<NothingFile>(FileType::kSignalFd);
+    return ftbl.Insert(std::move(f));
+  }
+
+  File *f = ftbl.Get(fd);
+  if (unlikely(!f || f->get_type() != FileType::kSignalFd)) return -EBADF;
+  return 0;
 }
 
 long usys_umask(mode_t mask) { return myproc().get_fs().SetUmask(mask); }

@@ -187,3 +187,9 @@ msync:::stub
 sched_setaffinity:::stub
 set_robust_list:::enosys_quiet
 rseq:::enosys_quiet
+flock:::stub
+inotify_init
+inotify_init1
+inotify_add_watch:::stub
+inotify_rm_watch:::stub
+signalfd4

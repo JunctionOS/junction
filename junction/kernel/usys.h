@@ -91,6 +91,9 @@ ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz);
 ssize_t usys_readlinkat(int dirfd, const char *pathname, char *buf,
                         size_t bufsiz);
 
+long usys_inotify_init();
+long usys_inotify_init1(int flags);
+
 // Memory
 intptr_t usys_brk(void *addr);
 intptr_t usys_mmap(void *addr, size_t len, int prot, int flags, int fd,
@@ -240,6 +243,7 @@ long usys_rt_sigtimedwait(const sigset_t *set, siginfo_t *info,
 long usys_rt_sigsuspend(const sigset_t *set, size_t sigsetsize);
 long usys_pause();
 [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp);
+long usys_signalfd4(int fd, const sigset_t *mask, size_t masksize, int flags);
 
 // Eventfd
 long usys_eventfd2(unsigned int initval, int flags);
