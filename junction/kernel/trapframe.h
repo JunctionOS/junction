@@ -43,6 +43,7 @@ class Trapframe {
   // Get the RSP from this trapframe.
   [[nodiscard]] virtual uint64_t GetRsp() const = 0;
   [[nodiscard]] virtual uint64_t GetRip() const = 0;
+  virtual void SetRip(uint64_t ip) = 0;
 
   // Copy this trapframe to a new stack, returns a reference to the new
   // instance.
@@ -131,6 +132,8 @@ class KernelSignalTf : public SyscallFrame {
     sigframe.uc.uc_mcontext.rax = rax;
     if (rsp) sigframe.uc.uc_mcontext.rsp = *rsp;
   }
+
+  void SetRip(uint64_t ip) override { sigframe.uc.uc_mcontext.rip = ip; }
 
   [[nodiscard]] inline uint64_t GetRsp() const override {
     return sigframe.GetRsp();
@@ -228,6 +231,8 @@ class FunctionCallTf : public SyscallFrame {
     if (rsp) tf->rsp = *rsp;
   }
 
+  void SetRip(uint64_t ip) override { tf->rip = ip; }
+
   [[noreturn]] void JmpUnwindPreemptEnable() override {
     assert_preempt_disabled();
     __restore_tf_full_and_preempt_enable(tf);
@@ -313,6 +318,8 @@ class UintrTf : public Trapframe {
   [[nodiscard]] inline uint64_t GetRip() const override {
     return sigframe.GetRip();
   }
+
+  void SetRip(uint64_t ip) override { sigframe.rip = ip; }
 
   UintrTf &CloneTo(uint64_t *rsp) const override {
     UintrTf *stack_wrapper = AllocateOnStack<UintrTf>(rsp);

@@ -17,6 +17,7 @@ extern "C" {
 #include <sys/utsname.h>
 #include <time.h>
 struct clone_args;
+struct rseq;
 }
 
 #include <cstdint>
@@ -183,6 +184,7 @@ long usys_sched_setparam(pid_t pid, const struct sched_param *param);
 long usys_sched_getparam(pid_t pid, struct sched_param *param);
 long usys_sched_get_priority_max(int policy);
 long usys_sched_get_priority_min(int policy);
+long usys_rseq(struct rseq *rseq, uint32_t rseq_len, int flags, uint32_t sig);
 
 // Time
 long usys_nanosleep(const struct timespec *req, struct timespec *rem);

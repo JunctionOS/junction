@@ -73,6 +73,7 @@ extern "C" [[noreturn]] void UintrKFrameLoopReturn(k_sigframe *frame,
     myth.mark_enter_kernel();
     SetUIF();
 
+    // Doesn't return if a signal is delivered.
     myth.get_sighand().DeliverSignals(myth.GetTrapframe(), rax);
     rax = 0;
   }
@@ -219,6 +220,7 @@ extern "C" [[noreturn]] void UintrLoopReturn(UintrTf *frame) {
     myth.mark_enter_kernel();
     SetUIF();
 
+    // Doesn't return if a signal is delivered.
     myth.get_sighand().DeliverSignals(*frame, 0);
   }
 }

@@ -1,4 +1,4 @@
-From 0ab990d6d13c881660c75e237b84831eb5d33bde Mon Sep 17 00:00:00 2001
+From c4084c1fd3722bc9b4bd9fc2007cc7fc1dd98922 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 31 Dec 2023 04:21:49 +0000
 Subject: [PATCH 25/35] uintr xsave area
@@ -117,10 +117,10 @@ index 53fa1b3..87f63c9 100644
  	/* reserve the buffer */
  	pos -= div_up(buf_len, sizeof(uint64_t));
 diff --git a/runtime/sched.c b/runtime/sched.c
-index add2ea1..1593f64 100644
+index 9b4e840..c27a7b5 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -854,6 +854,7 @@ static __always_inline thread_t *__thread_create(void)
+@@ -859,6 +859,7 @@ static __always_inline thread_t *__thread_create(void)
  	th->junction_thread = false;
  	th->link_armed = false;
  	th->cur_kthread = NCPU;
@@ -128,7 +128,7 @@ index add2ea1..1593f64 100644
  	atomic8_write(&th->interrupt_state, 0);
  
  	return th;
-@@ -1036,7 +1037,7 @@ int sched_init_thread(void)
+@@ -1041,7 +1042,7 @@ int sched_init_thread(void)
  	if (!s)
  		return -ENOMEM;
  

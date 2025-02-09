@@ -280,7 +280,7 @@ class ThreadSignalHandler {
   // For convenience, this function takes the return value of the current
   // syscall as its first argument. This function may not return (it may restart
   // a syscall or run a signal handler).
-  void DeliverSignals(const Trapframe &entry, int rax);
+  void DeliverSignals(Trapframe &entry, int rax);
 
   // Entry point for a kernel delivered signal.
   void DeliverKernelSigToUser(int signo, const KernelSignalTf &sigframe,

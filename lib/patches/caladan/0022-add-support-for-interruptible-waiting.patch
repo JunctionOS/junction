@@ -1,22 +1,20 @@
-From b4d0f068e8daed6bf8cbb76cfa8cbb72b5f7d45d Mon Sep 17 00:00:00 2001
+From 2280d2572bc24d6309a8ce9f6c1afa5f5cbc6568 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 28 Sep 2023 22:57:58 +0000
 Subject: [PATCH 22/35] add support for interruptible waiting
 
 ---
- inc/base/atomic.h                |  30 +++++++++
- inc/base/types.h                 |   4 ++
- inc/runtime/interruptible_wait.h | 103 +++++++++++++++++++++++++++++++
- inc/runtime/thread.h             |  50 +++++----------
- inc/runtime/timer.h              |   2 +
- runtime/defs.h                   |   4 +-
- runtime/interruptible_wait.c     |  11 ++++
- runtime/sched.c                  |  32 +++++++---
- runtime/switch.S                 |   2 +-
- runtime/timer.c                  |  45 +++++++++++++-
- 10 files changed, 235 insertions(+), 48 deletions(-)
+ inc/base/atomic.h                | 30 ++++++++++
+ inc/base/types.h                 |  4 ++
+ inc/runtime/interruptible_wait.h | 98 ++++++++++++++++++++++++++++++++
+ inc/runtime/thread.h             | 50 ++++++----------
+ inc/runtime/timer.h              |  2 +
+ runtime/defs.h                   |  4 +-
+ runtime/sched.c                  | 39 +++++++++----
+ runtime/switch.S                 |  2 +-
+ runtime/timer.c                  | 45 ++++++++++++++-
+ 9 files changed, 225 insertions(+), 49 deletions(-)
  create mode 100644 inc/runtime/interruptible_wait.h
- create mode 100644 runtime/interruptible_wait.c
 
 diff --git a/inc/base/atomic.h b/inc/base/atomic.h
 index 4c2aefb..a4504e6 100644
@@ -93,10 +91,10 @@ index 10a5894..338c9be 100644
  } atomic_t;
 diff --git a/inc/runtime/interruptible_wait.h b/inc/runtime/interruptible_wait.h
 new file mode 100644
-index 0000000..673dc17
+index 0000000..9120297
 --- /dev/null
 +++ b/inc/runtime/interruptible_wait.h
-@@ -0,0 +1,103 @@
+@@ -0,0 +1,98 @@
 +/*
 + * interruptible_wait.h - support for interrupting blocked threads
 + */
@@ -110,11 +108,6 @@ index 0000000..673dc17
 +#define PREPARED_FLAG		(1U << 6)
 +#define PREPARED_MASK		(PREPARED_FLAG - 1)
 +#define WAKER_VAL			(1 + PREPARED_FLAG)
-+
-+extern void deliver_signals_jmp_thread(thread_t *th);
-+static inline bool sched_needs_signal_check(thread_t *th) {
-+	return th->junction_thread && !th->in_syscall;
-+}
 +
 +// Returns true if this thread was interrupted.
 +// @th must be thread_self().
@@ -304,26 +297,8 @@ index 6c098e4..53fa1b3 100644
  extern void __jmp_runtime(struct thread_tf *tf, runtime_fn_t fn,
  			  void *stack);
  extern void __jmp_runtime_nosave(runtime_fn_t fn, void *stack) __noreturn;
-diff --git a/runtime/interruptible_wait.c b/runtime/interruptible_wait.c
-new file mode 100644
-index 0000000..0725eec
---- /dev/null
-+++ b/runtime/interruptible_wait.c
-@@ -0,0 +1,11 @@
-+/*
-+ * interruptible_wait.c - support for interrupting blocked threads
-+ */
-+
-+#include <runtime/sync.h>
-+#include <runtime/interruptible_wait.h>
-+
-+#include "defs.h"
-+
-+// Junction overrides these symbols
-+void __weak deliver_signals_jmp_thread(thread_t *th) {}
-\ No newline at end of file
 diff --git a/runtime/sched.c b/runtime/sched.c
-index a3ba981..add2ea1 100644
+index a3ba981..9b4e840 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -16,6 +16,7 @@
@@ -334,7 +309,17 @@ index a3ba981..add2ea1 100644
  
  #include "defs.h"
  
-@@ -74,10 +75,10 @@ static inline bool cores_have_affinity(unsigned int cpua, unsigned int cpub)
+@@ -40,6 +41,9 @@ static DEFINE_PERTHREAD(struct tcache_perthread, thread_pt);
+ /* used to track cycle usage in scheduler */
+ static DEFINE_PERTHREAD(uint64_t, last_tsc);
+ 
++// Junction overrides this function.
++void __weak on_sched(thread_t *th) {}
++
+ /**
+  * In inc/runtime/thread.h, this function is declared inline (rather than static
+  * inline) so that it is accessible to the Rust bindings. As a result, it must
+@@ -74,10 +78,10 @@ static inline bool cores_have_affinity(unsigned int cpua, unsigned int cpub)
   * This function restores the state of the thread and switches from the runtime
   * stack to the thread's stack. Runtime state is not saved.
   */
@@ -347,18 +332,18 @@ index a3ba981..add2ea1 100644
  
  	perthread_store(__self, th);
  	th->thread_ready = false;
-@@ -93,6 +94,10 @@ static __noreturn void jmp_thread(thread_t *th)
+@@ -93,6 +97,10 @@ static __noreturn void jmp_thread(thread_t *th)
  	set_fsbase(th->tf.fsbase);
  
  	th->thread_running = true;
 +
-+	if (unlikely(sched_needs_signal_check(th)))
-+		deliver_signals_jmp_thread(th);
++	if (th->junction_thread)
++		on_sched(th);
 +
  	__jmp_thread(&th->tf);
  }
  
-@@ -107,7 +112,7 @@ static __noreturn void jmp_thread(thread_t *th)
+@@ -107,7 +115,7 @@ static __noreturn void jmp_thread(thread_t *th)
  static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
  {
  	assert_preempt_disabled();
@@ -367,7 +352,20 @@ index a3ba981..add2ea1 100644
  
  	perthread_store(__self, newth);
  	newth->thread_ready = false;
-@@ -330,7 +335,7 @@ static __noinline bool do_watchdog(struct kthread *l)
+@@ -121,8 +129,11 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
+ 		newth->tf.fsbase = perthread_read(runtime_fsbase);
+ 
+ 	set_fsbase(newth->tf.fsbase);
+-
+ 	newth->thread_running = true;
++
++	if (newth->junction_thread)
++		on_sched(newth);
++
+ 	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
+ }
+ 
+@@ -330,7 +341,7 @@ static __noinline bool do_watchdog(struct kthread *l)
  }
  
  /* the main scheduler routine, decides what to run next */
@@ -376,7 +374,7 @@ index a3ba981..add2ea1 100644
  {
  	struct kthread *r = NULL, *l = myk();
  	uint64_t start_tsc;
-@@ -468,6 +473,9 @@ done:
+@@ -468,6 +479,9 @@ done:
  		drain_overflow(l);
  
  	update_oldest_tsc(l);
@@ -386,7 +384,7 @@ index a3ba981..add2ea1 100644
  	spin_unlock(&l->lock);
  
  	/* update exit stat counters */
-@@ -479,7 +487,6 @@ done:
+@@ -479,7 +493,6 @@ done:
  		STAT(REMOTE_RUNS)++;
  
  	/* update exported thread run start time */
@@ -394,7 +392,7 @@ index a3ba981..add2ea1 100644
  	ACCESS_ONCE(l->q_ptrs->run_start_tsc) = perthread_get_stable(last_tsc);
  
  	/* increment the RCU generation number (odd is in thread) */
-@@ -505,9 +512,12 @@ static __always_inline void enter_schedule(thread_t *curth)
+@@ -505,6 +518,8 @@ static __always_inline void enter_schedule(thread_t *curth)
  	spin_lock(&k->lock);
  	now_tsc = rdtsc();
  
@@ -403,11 +401,7 @@ index a3ba981..add2ea1 100644
  	/* slow path: switch from the uthread stack to the runtime stack */
  	if (k->rq_head == k->rq_tail ||
  	    preempt_cede_needed(k) ||
-+	    sched_needs_signal_check(th) ||
- #ifdef GC
- 	    get_gc_gen() != k->local_gc_gen ||
- #endif
-@@ -523,7 +533,7 @@ static __always_inline void enter_schedule(thread_t *curth)
+@@ -523,7 +538,7 @@ static __always_inline void enter_schedule(thread_t *curth)
  	perthread_get_stable(last_tsc) = now_tsc;
  
  	/* pop the next runnable thread from the queue */
@@ -416,7 +410,7 @@ index a3ba981..add2ea1 100644
  	ACCESS_ONCE(k->q_ptrs->rq_tail)++;
  
  	/* move overflow tasks into the runqueue */
-@@ -531,10 +541,11 @@ static __always_inline void enter_schedule(thread_t *curth)
+@@ -531,10 +546,11 @@ static __always_inline void enter_schedule(thread_t *curth)
  		drain_overflow(k);
  
  	update_oldest_tsc(k);
@@ -429,7 +423,7 @@ index a3ba981..add2ea1 100644
  	ACCESS_ONCE(k->q_ptrs->run_start_tsc) = perthread_get_stable(last_tsc);
  
  	/* increment the RCU generation number (odd is in thread) */
-@@ -840,7 +851,10 @@ static __always_inline thread_t *__thread_create(void)
+@@ -840,7 +856,10 @@ static __always_inline thread_t *__thread_create(void)
  	th->has_fsbase = false;
  	th->thread_ready = false;
  	th->thread_running = false;
@@ -441,7 +435,7 @@ index a3ba981..add2ea1 100644
  
  	return th;
  }
-@@ -970,7 +984,7 @@ void thread_exit(void)
+@@ -970,7 +989,7 @@ void thread_exit(void)
   * immediately park each kthread when it first starts up, only schedule it once
   * the iokernel has granted it a core
   */

@@ -27,7 +27,7 @@ namespace junction {
 namespace {
 
 // the number of auxiliary vectors used
-inline constexpr size_t kNumAuxVectors = 18;
+inline constexpr size_t kNumAuxVectors = 20;
 inline constexpr size_t kMaxInterpFollow = 4;
 inline constexpr size_t kStackSize = RUNTIME_STACK_SIZE * 32;
 
@@ -77,7 +77,9 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
   std::get<14>(*vec) = MakeAuxVec(AT_RANDOM, random_ptr);
   std::get<15>(*vec) = MakeAuxVec(AT_EXECFN, filename);
   std::get<16>(*vec) = MakeAuxVec(AT_SYSINFO_EHDR, vdso);
-  std::get<17>(*vec) = MakeAuxVec(AT_NULL, 0);  // must be last
+  std::get<17>(*vec) = MakeAuxVec(AT_RSEQ_ALIGN, kRseqSize);
+  std::get<18>(*vec) = MakeAuxVec(AT_RSEQ_FEATURE_SIZE, kRseqFeatureSize);
+  std::get<19>(*vec) = MakeAuxVec(AT_NULL, 0);  // must be last
 }
 
 void SetupStack(uint64_t *sp, const std::vector<std::string_view> &argv,
@@ -310,6 +312,9 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
 
       // Stop any other threads that may be using memory from the old MM.
       p.KillThreadsAndWait();
+      // Reset rseq since its memory may become invalid (and may be accessed if
+      // preemption occurs).
+      myth.get_rseq().reset();
       old_mm.UnmapAll();
     } else {
       ptr = envp;
@@ -329,6 +334,10 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
     if (unlikely(GetCfg().strace_enabled() && !replace_non_reloc))
       LogSyscall(0, "execve", &usys_execve, (strace::PathName *)filename, argv,
                  envp);
+
+    // Reset rseq since its memory may become invalid (and may be accessed if
+    // preemption occurs).
+    myth.get_rseq().reset();
 
     // Complete the exec
     p.FinishExec(std::move(*mm));

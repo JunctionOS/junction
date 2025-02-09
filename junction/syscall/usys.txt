@@ -186,7 +186,7 @@ times
 msync:::stub
 sched_setaffinity:::stub
 set_robust_list:::enosys_quiet
-rseq:::enosys_quiet
+rseq
 flock:::stub
 inotify_init
 inotify_init1

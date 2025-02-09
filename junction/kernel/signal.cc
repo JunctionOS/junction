@@ -170,21 +170,24 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
 // given at @frame, and if any signals are applied, the restore_tf will contain
 // a trapframe to jump to the handler.
 [[nodiscard]] bool ApplyAllSignals(Thread &myth, uint64_t *rsp,
-                                   const Trapframe &frame,
-                                   thread_tf &restore_tf) {
+                                   Trapframe &frame, thread_tf &restore_tf) {
   ThreadSignalHandler &hand = myth.get_sighand();
 
   const Trapframe *prev = &frame;
   FunctionCallTf restore_wrapper(restore_tf);
+  size_t sig_count = 0;
   while (true) {
     std::optional<DeliveredSignal> sig = hand.GetNextSignal();
     if (!sig) break;
 
+    if (!sig_count) myth.get_rseq().fixup(&frame);
+
     PushUserSigFrame(*sig, rsp, *prev, restore_tf);
     prev = &restore_wrapper;
+    sig_count++;
   }
 
-  return prev == &restore_wrapper;
+  return sig_count > 0;
 }
 
 // Determine what was interrupted...
@@ -854,17 +857,10 @@ bool ThreadSignalHandler::EnqueueSignal(const siginfo_t &info) {
   return TestAndSetNotify();
 }
 
-// Called by the Caladan scheduler to deliver signals to a thread that is being
-// scheduled in and is not in a syscall (perhaps it was preempted).
-// GetNextSignal() synchronizes with the signal handler lock, and is always
-// called when returning to a thread that was not in a syscall.
-extern "C" void deliver_signals_jmp_thread(thread_t *th) {
-  assert(sched_needs_signal_check(th));
-  assert_preempt_disabled();
-  assert_on_runtime_stack();
-
-  // TODO(jf): remove this path.
-  return;
+// Called by the Caladan scheduler when a Junction thread is being scheduled.
+extern "C" void on_sched(thread_t *th) {
+  assert(th->junction_thread);
+  Thread::fromCaladanThread(th).get_rseq().fixup();
 }
 
 // Check if restart is needed post handler, updates the trapframe if needed.
@@ -883,8 +879,9 @@ void CheckRestartSysPostHandler(SyscallFrame &entry, int rax,
 }
 
 // rax is non-zero only if returning from a system call.
-void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
+void ThreadSignalHandler::DeliverSignals(Trapframe &entry, int rax) {
   assert(&mythread() == &this_thread());
+  assert(&entry == &mythread().GetTrapframe());
   std::optional<DeliveredSignal> sig;
   Thread &myth = this_thread();
 
@@ -913,6 +910,9 @@ void ThreadSignalHandler::DeliverSignals(const Trapframe &entry, int rax) {
 
   if (IsRestartSys(rax))
     CheckRestartSysPostHandler(myth.GetSyscallFrame(), rax, *sig);
+
+  // Abort an rseq CS if needed.
+  myth.get_rseq().fixup(&entry);
 
   RunOnSyscallStack([this, d = *sig, entry = &entry]() mutable {
     // HACK: entry might be sitting on top of this RSP, will need a better a

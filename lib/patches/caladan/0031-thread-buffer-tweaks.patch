@@ -1,4 +1,4 @@
-From d44a3c900660944a41554ba16e4d3e1b581ef1fd Mon Sep 17 00:00:00 2001
+From 45aaf5a36f48c033248c952663503e0014b625cc Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 14 Jul 2024 21:07:42 -0400
 Subject: [PATCH 31/35] thread buffer tweaks
@@ -8,7 +8,7 @@ Subject: [PATCH 31/35] thread buffer tweaks
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 4bad3ba..afe0eb0 100644
+index 4bad3ba..062f1b9 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -120,7 +120,7 @@ struct thread {
@@ -16,7 +16,7 @@ index 4bad3ba..afe0eb0 100644
      atomic8_t        interrupt_state;
      struct thread_tf    *entry_regs;
 -    unsigned long    junction_tstate_buf[25];
-+    unsigned long    junction_tstate_buf[6];
++    unsigned long    junction_tstate_buf[8];
      struct stack        *stack;
      uint16_t        last_cpu;
      uint16_t        cur_kthread;

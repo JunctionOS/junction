@@ -383,6 +383,8 @@ Status<Thread *> Process::CreateThreadMain(const Credential &cred) {
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
   new (tstate) Thread(shared_from_this(), get_pid(), cred);
   th->junction_thread = true;
+  th->has_fsbase = true;
+  th->tf.fsbase = 0;
   thread_map_[get_pid()] = tstate;
   return tstate;
 }
@@ -768,6 +770,43 @@ void usys_exit_group(int status) {
     LogSyscall("exit_group", &usys_exit_group, status);
   myproc().DoExit(status);
   FinishExit(status);
+}
+
+void RseqState::_fixup(Trapframe *tf) {
+  struct rseq_cs *cs = reinterpret_cast<struct rseq_cs *>(user_rs_->rseq_cs);
+  assert(cs);
+
+  if (!tf) tf = &mythread().GetTrapframe();
+  assert(tf == &mythread().GetTrapframe());
+
+  uintptr_t ip = tf->GetRip();
+  if (ip - cs->start_ip < cs->post_commit_offset) tf->SetRip(cs->abort_ip);
+
+  user_rs_->rseq_cs = 0;
+}
+
+long usys_rseq(struct rseq *rseq, uint32_t rseq_len, int flags, uint32_t sig) {
+  RseqState &rsstate = mythread().get_rseq();
+  if (flags & RSEQ_FLAG_UNREGISTER) {
+    if (flags & ~RSEQ_FLAG_UNREGISTER) return -EINVAL;
+    if (!rsstate) return -EINVAL;
+    if (Status<void> ret = rsstate.matches(rseq, rseq_len, sig); !ret)
+      return MakeCError(ret);
+    rsstate.reset();
+    return 0;
+  }
+
+  if (rsstate) {
+    if (Status<void> ret = rsstate.matches(rseq, rseq_len, sig); !ret)
+      return MakeCError(ret);
+    return -EBUSY;
+  }
+
+  if (rseq_len < kRseqSize ||
+      reinterpret_cast<uintptr_t>(rseq) % kRseqSize != 0)
+    return -EINVAL;
+  rsstate.set(rseq, rseq_len, sig);
+  return 0;
 }
 
 }  // namespace junction

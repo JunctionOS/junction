@@ -23,6 +23,7 @@ extern "C" {
 #include "junction/junction.h"
 #include "junction/kernel/itimer.h"
 #include "junction/kernel/mm.h"
+#include "junction/kernel/rseq.h"
 #include "junction/kernel/signal.h"
 #include "junction/kernel/trapframe.h"
 #include "junction/kernel/usys.h"
@@ -177,6 +178,7 @@ class Thread {
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return cold().sighand_; }
   [[nodiscard]] procfs::ProcFSData &get_procfs() { return cold().procfs_data_; }
   [[nodiscard]] Credential &get_creds() { return cold().creds_; }
+  [[nodiscard]] RseqState &get_rseq() { return rseq_; }
 
   void set_child_tid(uint32_t *tid) { cold().child_tid_ = tid; }
   void set_xstate(int xstate) { cold().xstate_ = xstate; }
@@ -378,7 +380,7 @@ class Thread {
     bool has_fsbase = GetCaladanThread()->has_fsbase;
     ar(has_fsbase);
     if (has_fsbase) ar(GetCaladanThread()->tf.fsbase);
-    ar(get_creds());
+    ar(get_creds(), get_rseq());
   }
 
   Thread(std::shared_ptr<Process> &&proc, pid_t tid,
@@ -396,7 +398,7 @@ class Thread {
     ar(has_fsbase);
     GetCaladanThread()->has_fsbase = has_fsbase;
     if (GetCaladanThread()->has_fsbase) ar(GetCaladanThread()->tf.fsbase);
-    ar(get_creds());
+    ar(get_creds(), get_rseq());
   }
 
   // Take a reference to this Thread.
@@ -487,6 +489,8 @@ class Thread {
 
   // Wrapper around entry trapframe pointer.
   FunctionCallTf fcall_tf;
+
+  RseqState rseq_;
 };
 
 // Simple shared pointer-like object to allow references to a Thread without
