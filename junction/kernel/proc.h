@@ -631,6 +631,8 @@ class Process : public std::enable_shared_from_this<Process> {
   [[nodiscard]] bool exited() const { return access_once(exited_); }
   [[nodiscard]] ITimer &get_itimer() { return it_real_; }
   [[nodiscard]] bool is_stopped() const { return stopped_gen_ % 2 == 1; }
+  [[nodiscard]] size_t thread_count() const { return thread_map_.size(); }
+  [[nodiscard]] int get_xstate() const { return xstate_; }
   [[nodiscard]] bool is_fully_stopped() const {
     return is_stopped() && stopped_count_ == thread_map_.size();
   }

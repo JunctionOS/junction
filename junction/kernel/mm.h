@@ -229,7 +229,7 @@ class alignas(kCacheLineSize) MemoryMap {
   bool HandlePageFault(uintptr_t addr, int required_prot, Time time);
 
   [[nodiscard]] std::string get_bin_path() const;
-
+  [[nodiscard]] std::string get_bin_name() const;
   [[nodiscard]] std::string_view get_cmd_line() const { return cmd_line_; }
 
   [[nodiscard]] bool is_non_reloc() const { return is_non_reloc_; };

@@ -584,6 +584,7 @@ ssize_t usys_readlink(const char *pathname, char *buf, size_t bufsiz) {
 
 long usys_getcwd(char *buf, size_t size) {
   FSRoot &fs = myproc().get_fs();
+  rt::RuntimeLibcGuard g;
   std::ospanstream out(std::span<char>(buf, size - 1));
   Status<void> pth = fs.get_cwd_ent()->GetFullPath(out);
   if (unlikely(!pth)) return -ENOENT;

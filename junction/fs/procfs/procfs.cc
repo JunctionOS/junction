@@ -352,6 +352,8 @@ class ProcessDir : public ProcFSDir {
     AddDentLockedNoCheck("cgroup", MakeInode(0444, [] { return "0::/\n"; }));
     AddDentLockedNoCheck("status",
                          MakeInode(0444, [p = proc_] { return GetStatus(p); }));
+    AddDentLockedNoCheck(
+        "stat", MakeInode(0444, [p = proc_] { return GetProcStat(p); }));
 
     DirectoryEntry *de = AddIDirLockedNoCheck<FDDir>(std::string(kFDDirName));
     fd_dir_ =
@@ -388,6 +390,7 @@ class ProcessDir : public ProcFSDir {
     if (!thread) return "";
 
     Credential &creds = (*thread)->get_creds();
+    rt::RuntimeLibcGuard g;
     std::ostringstream ss;
     ss << "CapInh: " << std::setfill('0') << std::setw(16) << std::hex
        << creds.inheritable << std::endl;
@@ -399,6 +402,64 @@ class ProcessDir : public ProcFSDir {
        << std::endl;
     ss << "CapAmb: " << std::setfill('0') << std::setw(16) << creds.ambient
        << std::endl;
+    return ss.str();
+  }
+
+  static std::string GetProcStat(std::weak_ptr<Process> proc) {
+    std::shared_ptr<Process> p = proc.lock();
+    if (!p) return "[stale]";
+
+    rt::RuntimeLibcGuard g;
+    std::ostringstream ss;
+    ss << p->get_pid();
+
+    std::string nm = p->get_mem_map().get_bin_name();
+    if (nm.size() > 16) nm.resize(16);
+    ss << " (" << nm << ")";
+
+    // TODO: fix?
+    if (p->exited())
+      ss << " Z";
+    else if (p->is_stopped())
+      ss << " T";
+    else
+      ss << " R";
+
+    ss << " " << p->get_ppid();
+    ss << " " << p->get_pgid();  // TODO: support pgrp
+    ss << " " << p->get_sid();
+    ss << " 0";                  // tty_nr
+    ss << " " << p->get_pgid();  // tpgid;
+    ss << " 0 0 0 0 0";          // flags, minflt, cminflt, majflt, cmajflt
+    ss << " utime";
+    ss << " stime";
+    ss << " cutime";
+    ss << " cstime";
+    ss << " 0 0";  // priority, nice
+    ss << " " << p->thread_count();
+    ss << " 0";  // itrealvalue, always zero.
+    ss << " " << microtime() / 10000;
+    ss << " ";  // vsize - Virtual memory size in bytes.
+    ss << " ";  // rss
+    ss << " " << p->get_limits().GetLimit(RLIMIT_RSS)->rlim_cur;
+
+    // startcode, endcode, startstack, kstkesp, kstkeip
+    ss << " 0 0 0 0 0";
+    // signal, blocked, sigignore, sigcatch (all obsolete)
+    ss << " 0 0 0 0";
+    ss << " 0";    // wchan
+    ss << " 0 0";  // nswap, cnswap (not maintained).
+    ss << " " << SIGCHLD;
+    ss << " 0";  // last proc
+    ss << " 0";  // rt_priority
+    ss << " " << SCHED_OTHER;
+
+    // delayacct_blkio_ticks, guest_time, cguest_time
+    ss << " 0 0 0";
+    // start_data, end_data, start_brk, arg_start, arg_end, env_start, env_end
+    ss << " 0 0 0 0 0 0 0";
+    ss << " " << p->get_xstate();
+    ss << "\n";
     return ss.str();
   }
 

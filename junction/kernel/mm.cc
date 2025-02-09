@@ -413,6 +413,11 @@ std::string MemoryMap::get_bin_path() const {
   return ss.str();
 }
 
+std::string MemoryMap::get_bin_name() const {
+  if (!binary_path_) return "[STALE]";
+  return binary_path_->get_name();
+}
+
 Status<uintptr_t> MemoryMap::SetBreak(uintptr_t brk_addr) {
   // NOTE: Must save the unaligned address, but the mapping will still be
   // aligned to a page boundary.
