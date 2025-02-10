@@ -7,6 +7,8 @@ extern "C" {
 #include <sys/auxv.h>
 
 #include "lib/caladan/runtime/defs.h"
+
+extern const unsigned char __libvdso_start[];
 }
 
 #include <cstring>
@@ -54,8 +56,7 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
   cpuid_info info;
   cpuid(0x00000001, 0, &info);
 
-  // Disable VDSO since we want to emulate getcpu() and gettime()
-  uintptr_t vdso = 0;
+  uintptr_t vdso = reinterpret_cast<uintptr_t>(&__libvdso_start);
 
   std::get<0>(*vec) = MakeAuxVec(AT_HWCAP, info.edx);
   std::get<1>(*vec) = MakeAuxVec(AT_PAGESZ, kPageSize);
