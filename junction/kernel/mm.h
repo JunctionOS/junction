@@ -4,11 +4,11 @@
 
 #include <atomic>
 #include <memory>
-#include <unordered_map>
 #include <vector>
 
 #include "junction/base/arch.h"
 #include "junction/base/error.h"
+#include "junction/base/interval_set.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/sync.h"
 #include "junction/fs/file.h"
@@ -80,6 +80,22 @@ struct VMArea {
     if (prot & PROT_EXEC) tmp[2] = 'x';
     return tmp;
   }
+
+  [[nodiscard]] uintptr_t get_start() const { return start; }
+  [[nodiscard]] uintptr_t get_end() const { return end; }
+
+  void TrimTail(uintptr_t new_end) {
+    assert(end > new_end);
+    end = new_end;
+  }
+
+  void TrimHead(uintptr_t new_start) {
+    assert(start < new_start);
+    if (type == VMType::kFile) offset += new_start - start;
+    start = new_start;
+  }
+
+  bool TryMergeRight(const VMArea &lhs);
 
   uintptr_t start;
   uintptr_t end;
@@ -272,9 +288,9 @@ class alignas(kCacheLineSize) MemoryMap {
   // created with MAP_STACK.
   std::optional<void *> GetStackTop(uint64_t rsp) {
     rt::SharedMutexGuard g(mu_);
-    auto it = Find(rsp);
-    if (it == vmareas_.end()) return std::nullopt;
-    const VMArea &vma = it->second;
+    auto vma_ref = Find(rsp);
+    if (!vma_ref) return std::nullopt;
+    const VMArea &vma = *vma_ref;
     if (vma.type == VMType::kStack) return vma.Addr();
     return std::nullopt;
   }
@@ -289,7 +305,7 @@ class alignas(kCacheLineSize) MemoryMap {
 
   // Find a free range of memory of size @len, returns the start address of that
   // range.
-  Status<uintptr_t> FindFreeRange(void *hint, size_t len);
+  Status<uintptr_t> FindFreeRange(uintptr_t hint, size_t len);
 
   // Clear removes existing VMAreas that overlap with the range [start, end)
   // Ex: ClearMappings(2, 6) when vmareas_ = [1, 3), [5, 7) results in vmareas_
@@ -298,7 +314,7 @@ class alignas(kCacheLineSize) MemoryMap {
   std::map<uintptr_t, VMArea>::iterator Clear(uintptr_t start, uintptr_t end);
 
   // Find a VMA that contains addr.
-  std::map<uintptr_t, VMArea>::iterator Find(uintptr_t addr);
+  Status<std::reference_wrapper<VMArea>> Find(uintptr_t addr);
 
   // Modify changes the access protections for memory in the range [start,
   // end).
@@ -307,14 +323,11 @@ class alignas(kCacheLineSize) MemoryMap {
   // Insert inserts a VMA, removing any overlapping mappings.
   void Insert(VMArea &&vma);
 
-  // Tries to merge two adjacent VMAs, erasing @prev if merge succeeds.
-  bool TryMergeRight(std::map<uintptr_t, VMArea>::iterator prev, VMArea &rhs);
-
   rt::SharedMutex mu_;
   const uintptr_t mm_start_;
   const size_t mm_end_;
   uintptr_t brk_addr_;
-  std::map<uintptr_t, VMArea> vmareas_;
+  ExclusiveIntervalSet<VMArea> vmareas_;
   std::unique_ptr<PageAccessTracer> tracer_;
   std::shared_ptr<DirectoryEntry> binary_path_;
   std::string cmd_line_;

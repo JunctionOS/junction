@@ -59,7 +59,7 @@ constexpr bool MappingsMergeable(const VMArea &lhs, const VMArea &rhs) {
   return true;
 }
 
-bool MappingsValid(const std::map<uintptr_t, VMArea> &vmareas) {
+bool MappingsValid(const ExclusiveIntervalSet<VMArea> &vmareas) {
   uintptr_t last_end = 0;
 
   auto it = vmareas.begin();
@@ -80,18 +80,14 @@ bool MappingsValid(const std::map<uintptr_t, VMArea> &vmareas) {
   return true;
 }
 
-void TrimHead(VMArea &vma, uintptr_t new_start) {
-  assert(vma.start < new_start);
-  if (vma.type == VMType::kFile) vma.offset += new_start - vma.start;
-  vma.start = new_start;
-}
-
-void TrimTail(VMArea &vma, uintptr_t new_end) {
-  assert(vma.end > new_end);
-  vma.end = new_end;
-}
-
 }  // namespace
+
+bool VMArea::TryMergeRight(const VMArea &lhs) {
+  if (!MappingsMergeable(lhs, *this)) return false;
+  start = lhs.start;
+  offset = lhs.offset;
+  return true;
+}
 
 MemoryMap::~MemoryMap() {
   for (auto const &[end, vma] : vmareas_) {
@@ -101,57 +97,18 @@ MemoryMap::~MemoryMap() {
   if (is_non_reloc_) nr_non_reloc_maps_--;
 }
 
-bool MemoryMap::TryMergeRight(std::map<uintptr_t, VMArea>::iterator prev,
-                              VMArea &rhs) {
-  if (prev == vmareas_.end()) return false;
-  const VMArea &lhs = prev->second;
-  if (!MappingsMergeable(lhs, rhs)) return false;
-  rhs.start = lhs.start;
-  rhs.offset = lhs.offset;
-  vmareas_.erase(prev);
-  return true;
-}
-
 std::map<uintptr_t, VMArea>::iterator MemoryMap::Clear(uintptr_t start,
                                                        uintptr_t end) {
   assert(mu_.IsHeld());
-
-  // We want the first interval [a,b] where b > start (first overlap)
-  auto it = vmareas_.upper_bound(start);
-  while (it != vmareas_.end() && it->second.start < end) {
-    VMArea &vma = it->second;
-
-    // [start, end) does not overlap on the left of [cur_start, cur_end).
-    // Shorten cur_vma to [cur_start, start).
-    if (start > vma.start) {
-      VMArea left = vma;
-      TrimTail(left, start);
-      vmareas_.insert(it, std::pair(start, std::move(left)));
-    }
-
-    // [start, end) either overlaps on the right or surrounds [vma.start,
-    // vma.end). Either way vma.end is being overwritten so remove it.
-    if (end >= vma.end) {
-      it = vmareas_.erase(it);
-      continue;
-    }
-
-    // [start, end) either overlaps on the left or is surrounded by
-    // [vma.start, vma.end). Keep vma.end and shorten it to [end, vma.end).
-    TrimHead(vma, end);
-    it++;
-  }
-
+  auto it = vmareas_.Clear(start, end);
   assert(MappingsValid(vmareas_));
   return it;
 }
 
-std::map<uintptr_t, VMArea>::iterator MemoryMap::Find(uintptr_t addr) {
+Status<std::reference_wrapper<VMArea>> MemoryMap::Find(uintptr_t addr) {
   assert(mu_.IsHeld());
   assert(MappingsValid(vmareas_));
-  auto it = vmareas_.upper_bound(addr);
-  if (it == vmareas_.end() || it->second.start > addr) return vmareas_.end();
-  return it;
+  return vmareas_.Find(addr);
 }
 
 void MemoryMap::EnableTracing() {
@@ -175,21 +132,18 @@ Status<PageAccessTracer> MemoryMap::EndTracing() {
 
   memfs::MemFSEndTracer();
 
-  // Restore all VMAs
-  auto prev_it = vmareas_.begin();
-  for (auto it = vmareas_.begin(); it != vmareas_.end(); prev_it = it++) {
-    VMArea &vma = it->second;
-    if (vma.traced) {
-      vma.traced = false;
-      if (vma.prot != PROT_NONE) {
-        Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), vma.prot);
-        if (unlikely(!ret))
-          LOG(WARN) << "tracer could not mprotect " << ret.error() << " "
-                    << vma;
-      }
-    }
-    TryMergeRight(prev_it, vma);
-  }
+  vmareas_.Modify(
+      0, UINT64_MAX, [](const VMArea &) { return true; },
+      [](VMArea &vma) {
+        if (!vma.traced) return;
+        vma.traced = false;
+        if (vma.prot != PROT_NONE) {
+          Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), vma.prot);
+          if (unlikely(!ret))
+            LOG(WARN) << "tracer could not mprotect " << ret.error() << " "
+                      << vma;
+        }
+      });
 
   PageAccessTracer pt = std::move(*tracer_);
   tracer_.reset();
@@ -257,13 +211,13 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
 
   rt::RuntimeLibcGuard guard;
 
-  auto it = Find(addr);
-  if (unlikely(it == vmareas_.end())) {
+  auto vma_ref = Find(addr);
+  if (unlikely(!vma_ref)) {
     LOG(WARN) << "couldn't find VMA for page " << addr;
     return false;
   }
 
-  VMArea &vma = it->second;
+  VMArea &vma = *vma_ref;
 
   // Checks if the type of access (@required_prot) is legal for this VMA. If the
   // access is invalid, don't record it since no data is accessed.
@@ -323,74 +277,21 @@ void MemoryMap::Modify(uintptr_t start, uintptr_t end, int prot) {
   assert(mu_.IsHeld());
   // TODO(amb): Should this function fail if there are unmapped gaps?
 
-  // We want the first interval [a,b] where b > start
-  auto it = vmareas_.upper_bound(start);
-  auto prev_it = it == vmareas_.begin() ? vmareas_.end() : std::prev(it);
-  while (it != vmareas_.end() && it->second.start < end) {
-    auto f = finally([&prev_it, &it] { prev_it = it++; });
-    VMArea &vma = it->second;
-
-    // skip if the protection isn't changed
-    if (vma.prot == prot) {
-      TryMergeRight(prev_it, vma);
-      continue;
-    }
-
-    // split the VMA to modify the right part? [start, vma.end)
-    if (start > vma.start) {
-      VMArea left = vma;
-      TrimTail(left, start);
-      vmareas_.insert(it, std::pair(start, std::move(left)));
-      TrimHead(vma, start);
-    }
-
-    // split the VMA to modify the left part? [vma.start, end)
-    if (end < vma.end) {
-      VMArea left = vma;
-      TrimTail(left, end);
-      if (unlikely(TraceEnabled()))
-        TracerModifyProt(left, prot);
-      else
-        left.prot = prot;
-      TryMergeRight(prev_it, left);
-      vmareas_.insert(it, std::pair(end, std::move(left)));
-      TrimHead(vma, end);
-      continue;
-    }
-
-    // If we're here we know [start, end) surrounds [vma.start, vma.end)
-    if (unlikely(TraceEnabled()))
-      TracerModifyProt(vma, prot);
-    else
-      vma.prot = prot;
-    TryMergeRight(prev_it, vma);
-  }
-
-  // Try merging the next VMA after our stopping point.
-  if (it != vmareas_.end()) TryMergeRight(prev_it, it->second);
+  vmareas_.Modify(
+      start, end, [&](const VMArea &vma) { return vma.prot != prot; },
+      [&](VMArea &vma) {
+        if (unlikely(TraceEnabled()))
+          TracerModifyProt(vma, prot);
+        else
+          vma.prot = prot;
+      });
 
   assert(MappingsValid(vmareas_));
 }
 
 void MemoryMap::Insert(VMArea &&vma) {
   assert(mu_.IsHeld());
-
-  // overlapping mappings must be atomically cleared
-  auto it = Clear(vma.start, vma.end);
-
-  // then insert the new mapping
-  it = vmareas_.insert(it, std::pair(vma.end, std::move(vma)));
-
-  // finally, try to merge with adjacent mappings
-  if (it != vmareas_.begin()) {
-    auto prev_it = std::prev(it);
-    TryMergeRight(prev_it, it->second);
-  }
-
-  if (auto next_it = std::next(it); next_it != vmareas_.end()) {
-    TryMergeRight(it, next_it->second);
-  }
-
+  vmareas_.Insert(std::move(vma));
   assert(MappingsValid(vmareas_));
 }
 
@@ -439,8 +340,8 @@ Status<uintptr_t> MemoryMap::SetBreak(uintptr_t brk_addr) {
   }
 
   // Make sure we don't overlap with an mmapped region.
-  auto it = vmareas_.upper_bound(brk_addr_);
-  if (it != vmareas_.end() && it->second.start < PageAlign(newbrk))
+  auto vma_ref = vmareas_.UpperBound(brk_addr_);
+  if (vma_ref && vma_ref.value().get().start < PageAlign(newbrk))
     return brk_addr_;
 
   if (newbrk > oldbrk) {
@@ -497,7 +398,8 @@ Status<void *> MemoryMap::MMap(void *addr, size_t len, int prot, int flags,
     if (!ul) return MakeError(EINTR);
 
     if (!(flags & MAP_FIXED)) {
-      Status<uintptr_t> tmp = FindFreeRange(addr, len);
+      Status<uintptr_t> tmp =
+          FindFreeRange(reinterpret_cast<uintptr_t>(addr), len);
       if (!tmp) return MakeError(tmp);
       addr = reinterpret_cast<void *>(*tmp);
       flags |= MAP_FIXED;
@@ -584,45 +486,13 @@ size_t MemoryMap::VirtualUsage() {
   return usage;
 }
 
-Status<uintptr_t> MemoryMap::FindFreeRange(void *hint, size_t len) {
+Status<uintptr_t> MemoryMap::FindFreeRange(uintptr_t hint, size_t len) {
   assert(mu_.IsHeld());
   assert(IsPageAligned(len));
 
-  // Try to accomodate a hint.
-  if (hint != nullptr && reinterpret_cast<uintptr_t>(hint) + len <= mm_end_) {
-    auto [start, end] = AddressToBounds(hint, len);
+  if (hint + len > mm_end_ || hint < mm_start_) hint = 0;
 
-    // Find the first region that ends after the start of the requested one.
-    auto it = vmareas_.upper_bound(start);
-    // If no such region exists or the next region starts after the requested
-    // end, the hinted address can be used.
-    if (it == vmareas_.end() || it->second.start >= end) return start;
-
-    // Try to place the request just before @it.
-    auto prev = std::prev(it);
-    uintptr_t new_start = it->second.start - len;
-    uintptr_t prev_end = prev == vmareas_.begin() ? brk_addr_ : prev->first;
-    if (new_start >= prev_end) return new_start;
-
-    // Try to place the request just after @it.
-    auto next = std::next(it);
-    uintptr_t new_end = it->first + len;
-    uintptr_t next_start =
-        next == vmareas_.end() ? mm_end_ : next->second.start;
-    if (new_end <= next_start) return it->second.end;
-  }
-
-  // Iterate from mm_end_ backwards looking for free slots.
-  uintptr_t prev_start = mm_end_;
-  auto it = vmareas_.rbegin();
-  while (it != vmareas_.rend() && prev_start - it->first < len) {
-    prev_start = it->second.start;
-    it++;
-  }
-
-  uintptr_t addr = prev_start - len;
-  if (addr < brk_addr_) return MakeError(ENOMEM);
-  return addr;
+  return vmareas_.FindFreeRange(hint, len, mm_end_, brk_addr_);
 }
 
 void MemoryMap::save(cereal::BinaryOutputArchive &ar) const {
