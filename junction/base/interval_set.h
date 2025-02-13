@@ -9,6 +9,30 @@
 
 namespace junction {
 
+struct SimpleInterval {
+  [[nodiscard]] uintptr_t get_start() const { return start_; }
+  [[nodiscard]] uintptr_t get_end() const { return end_; }
+
+  void TrimTail(uintptr_t new_end) {
+    assert(end_ > new_end);
+    end_ = new_end;
+  }
+
+  void TrimHead(uintptr_t new_start) {
+    assert(start_ < new_start);
+    start_ = new_start;
+  }
+
+  bool TryMergeRight(const SimpleInterval &lhs) {
+    if (start_ != lhs.end_) return false;
+    start_ = lhs.start_;
+    return true;
+  }
+
+  uintptr_t start_;
+  uintptr_t end_;
+};
+
 template <typename T>
 concept IntervalData =
     std::movable<T> &&
@@ -52,6 +76,11 @@ class ExclusiveIntervalSet {
     }
 
     return it;
+  }
+
+  [[nodiscard]] bool has_overlap(uintptr_t start, uintptr_t end) const {
+    auto it = intervals_.upper_bound(start);
+    return it != intervals_.end() && it->second.get_start() < end;
   }
 
   void Insert(T &&item) {

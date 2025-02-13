@@ -26,6 +26,8 @@ class final_action {
   void operator=(const final_action&) = delete;
   void operator=(final_action&&) = delete;
 
+  void Dismiss() { invoke = false; }
+
  private:
   F f;
   bool invoke = true;

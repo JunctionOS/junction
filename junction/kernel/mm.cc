@@ -28,8 +28,11 @@ namespace junction {
 
 // Lock protecting allocation of memory maps.
 rt::Spin MemoryMap::mm_lock_;
-// Next address used for memory map.
-uintptr_t MemoryMap::mm_base_addr_{0x300000000000};
+// Set of intervals of allocated memory areas across mem maps. Includes a
+// reservation for each memory map as well as memory areas allocated outside of
+// these regions.
+ExclusiveIntervalSet<SimpleInterval> MemoryMap::mem_areas_;
+
 std::atomic_size_t MemoryMap::nr_non_reloc_maps_{0};
 
 namespace {
@@ -89,12 +92,38 @@ bool VMArea::TryMergeRight(const VMArea &lhs) {
   return true;
 }
 
+void MemoryMap::MunmapCheck(void *addr, size_t len) {
+  auto [start, end] = AddressToBounds(addr, len);
+
+  if (start >= mm_start_ && end <= mm_end_) return;
+
+  rt::UniqueLock gl(mm_lock_, rt::DeferLock);
+  if (!TraceEnabled()) gl.Lock();
+
+  if (start < mm_start_) mem_areas_.Clear(start, std::min(end, mm_start_));
+
+  if (end > mm_end_) mem_areas_.Clear(std::max(mm_end_, start), end);
+}
+
+void MemoryMap::UnmapAll() {
+  rt::ScopedLock g(mu_);
+  for (auto const &[end, vma] : vmareas_) {
+    Status<void> ret = KernelMUnmap(vma.Addr(), vma.Length());
+    if (!ret) LOG(ERR) << "mm: munmap failed with error " << ret.error();
+    MunmapCheck(vma.Addr(), vma.Length());
+  }
+  vmareas_.clear();
+}
+
 MemoryMap::~MemoryMap() {
   for (auto const &[end, vma] : vmareas_) {
     Status<void> ret = KernelMUnmap(vma.Addr(), vma.Length());
     if (!ret) LOG(ERR) << "mm: munmap failed with error " << ret.error();
+    MunmapCheck(vma.Addr(), vma.Length());
   }
   if (is_non_reloc_) nr_non_reloc_maps_--;
+  rt::SpinGuard g(mm_lock_);
+  mem_areas_.Clear(mm_start_, mm_end_);
 }
 
 std::map<uintptr_t, VMArea>::iterator MemoryMap::Clear(uintptr_t start,
@@ -393,17 +422,48 @@ Status<void *> MemoryMap::MMap(void *addr, size_t len, int prot, int flags,
 
   // do the mapping
   Status<void *> raddr;
+  bool reserved_from_global_pool = false;
   {
     rt::UniqueLock ul(mu_, rt::InterruptOrLock);
     if (!ul) return MakeError(EINTR);
 
     if (!(flags & MAP_FIXED)) {
-      Status<uintptr_t> tmp =
-          FindFreeRange(reinterpret_cast<uintptr_t>(addr), len);
-      if (!tmp) return MakeError(tmp);
-      addr = reinterpret_cast<void *>(*tmp);
+      Status<uintptr_t> ret{MakeError(1)};
+
+      auto [hint_start, hint_end] = AddressToBounds(addr, len);
+      if (addr && (hint_end > mm_end_ || hint_start < mm_start_)) {
+        // User wants an address range outside of this MM's address range. Try
+        // to accomodate it by allocating from the global address pool.
+        rt::UniqueLock gl(mm_lock_, rt::DeferLock);
+        // If trace is running we already acquired the lock.
+        if (!TraceEnabled()) gl.Lock();
+        assert(mm_lock_.IsHeld());
+
+        // TODO: what is the right upper bound here?
+        ret = mem_areas_.FindFreeRange(hint_start, len, kVirtualAreaMax, 0);
+        if (ret) {
+          mem_areas_.Insert({*ret, *ret + len});
+          reserved_from_global_pool = true;
+        }
+      }
+
+      if (!ret) {
+        ret = vmareas_.FindFreeRange(hint_start, len, mm_end_, brk_addr_);
+        if (!ret) return MakeError(ret);
+      }
+
+      addr = reinterpret_cast<void *>(*ret);
       flags |= MAP_FIXED;
     }
+
+    // Free an allocation from the global pool on error.
+    auto clean_on_err = finally([&] {
+      if (!reserved_from_global_pool) return;
+      rt::UniqueLock gl(mm_lock_, rt::DeferLock);
+      if (!TraceEnabled()) gl.Lock();
+      mem_areas_.Clear(reinterpret_cast<uintptr_t>(addr),
+                       reinterpret_cast<uintptr_t>(addr) + len);
+    });
 
     VMArea vma;
     if (flags & MAP_ANONYMOUS) {
@@ -419,6 +479,8 @@ Status<void *> MemoryMap::MMap(void *addr, size_t len, int prot, int flags,
       if (!raddr) return MakeError(raddr);
       vma = VMArea(*raddr, len, prot, std::move(f), off);
     }
+
+    clean_on_err.Dismiss();
     Insert(std::move(vma));
   }
 
@@ -455,14 +517,19 @@ Status<void> MemoryMap::MUnmap(void *addr, size_t len) {
   if (!AddressValid(addr, len)) return MakeError(EINVAL);
 
   // clear mappings
-  rt::UniqueLock ul(mu_, rt::InterruptOrLock);
-  if (!ul) return MakeError(EINTR);
-  // Note: we may need to map a PROT_NONE region to prevent Linux from placing
-  // other VMAs here.
-  Status<void> ret = KernelMUnmap(addr, len);
-  if (!ret) return MakeError(ret);
-  auto [start, end] = AddressToBounds(addr, len);
-  Clear(start, end);
+  {
+    rt::UniqueLock ul(mu_, rt::InterruptOrLock);
+    if (!ul) return MakeError(EINTR);
+    // Note: we may need to map a PROT_NONE region to prevent Linux from placing
+    // other VMAs here.
+    Status<void> ret = KernelMUnmap(addr, len);
+    if (!ret) return MakeError(ret);
+    auto [start, end] = AddressToBounds(addr, len);
+    Clear(start, end);
+  }
+
+  MunmapCheck(addr, len);
+
   return {};
 }
 
@@ -484,15 +551,6 @@ size_t MemoryMap::VirtualUsage() {
   rt::ScopedSharedLock g(mu_);
   for (auto const &[end, vma] : vmareas_) usage += vma.Length();
   return usage;
-}
-
-Status<uintptr_t> MemoryMap::FindFreeRange(uintptr_t hint, size_t len) {
-  assert(mu_.IsHeld());
-  assert(IsPageAligned(len));
-
-  if (hint + len > mm_end_ || hint < mm_start_) hint = 0;
-
-  return vmareas_.FindFreeRange(hint, len, mm_end_, brk_addr_);
 }
 
 void MemoryMap::save(cereal::BinaryOutputArchive &ar) const {

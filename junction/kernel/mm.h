@@ -19,6 +19,8 @@ namespace junction {
 
 class MemoryMap;
 
+inline constexpr uintptr_t kVirtualAreaMax = 0x500000000000;
+
 constexpr bool AddressValid(void *addr, size_t len) {
   // TODO(amb): maybe check if address is not in the Linux Kernel (negative)?
   return len > 0 && IsPageAligned(reinterpret_cast<uintptr_t>(addr));
@@ -178,14 +180,7 @@ class alignas(kCacheLineSize) MemoryMap {
 
   // Free all VMAs from this memory map. Must be called by Exec when replacing
   // one non-reloc binary with another.
-  void UnmapAll() {
-    rt::ScopedLock g(mu_);
-    for (auto const &[end, vma] : vmareas_) {
-      Status<void> ret = KernelMUnmap(vma.Addr(), vma.Length());
-      if (!ret) LOG(ERR) << "mm: munmap failed with error " << ret.error();
-    }
-    vmareas_.clear();
-  }
+  void UnmapAll();
 
   // SetBreak sets the break address (for the heap). It returns the new address
   // on success, the old address on failure, or EINTR if interrupted.
@@ -268,16 +263,15 @@ class alignas(kCacheLineSize) MemoryMap {
     }
   }
 
-  static uintptr_t AllocateMMRegion(size_t len) {
+  static Status<uintptr_t> AllocateMMRegion(size_t len) {
     rt::SpinGuard g(mm_lock_);
-    uintptr_t base = mm_base_addr_;
-    mm_base_addr_ += PageAlign(len);
-    return base;
+    return mem_areas_.FindFreeRange(0, len, kVirtualAreaMax, 0);
   }
 
   static void RegisterMMRegion(uintptr_t base, size_t len) {
     rt::SpinGuard g(mm_lock_);
-    mm_base_addr_ = std::max(mm_base_addr_, base + PageAlign(len));
+    assert(!mem_areas_.has_overlap(base, base + len));
+    mem_areas_.Insert({base, base + len});
   }
 
   [[nodiscard]] static size_t get_nr_non_reloc() { return nr_non_reloc_maps_; }
@@ -303,10 +297,6 @@ class alignas(kCacheLineSize) MemoryMap {
   static void load_and_construct(cereal::BinaryInputArchive &ar,
                                  cereal::construct<MemoryMap> &construct);
 
-  // Find a free range of memory of size @len, returns the start address of that
-  // range.
-  Status<uintptr_t> FindFreeRange(uintptr_t hint, size_t len);
-
   // Clear removes existing VMAreas that overlap with the range [start, end)
   // Ex: ClearMappings(2, 6) when vmareas_ = [1, 3), [5, 7) results in vmareas_
   // = [1, 2), [6, 7). Returns an iterator to the first mapping after the
@@ -323,6 +313,10 @@ class alignas(kCacheLineSize) MemoryMap {
   // Insert inserts a VMA, removing any overlapping mappings.
   void Insert(VMArea &&vma);
 
+  // Must be called any time is region is being unmapped to potentially updated
+  // the global mem_areas_ map.
+  void MunmapCheck(void *addr, size_t len);
+
   rt::SharedMutex mu_;
   const uintptr_t mm_start_;
   const size_t mm_end_;
@@ -334,15 +328,17 @@ class alignas(kCacheLineSize) MemoryMap {
   bool is_non_reloc_{false};
 
   static rt::Spin mm_lock_;
-  static uintptr_t mm_base_addr_;
   static std::atomic_size_t nr_non_reloc_maps_;
+  // Tracks all areas allocated in the virtual address space.
+  static ExclusiveIntervalSet<SimpleInterval> mem_areas_;
 };
 
 // Reserve a region of virtual memory for a MemoryMap.
 inline Status<std::shared_ptr<MemoryMap>> CreateMemoryMap(size_t len) {
-  uintptr_t base = MemoryMap::AllocateMMRegion(len);
+  Status<uintptr_t> base = MemoryMap::AllocateMMRegion(len);
+  if (!base) return MakeError(base);
   Status<void *> ret =
-      KernelMMap(reinterpret_cast<void *>(base), len, PROT_NONE, 0);
+      KernelMMap(reinterpret_cast<void *>(*base), len, PROT_NONE, 0);
   if (!ret) return MakeError(ret);
   return std::make_shared<MemoryMap>(*ret, len);
 }
