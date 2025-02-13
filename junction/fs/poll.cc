@@ -358,8 +358,10 @@ class EPollFile : public File {
 };
 
 EPollFile::~EPollFile() {
-  FileTable &ftbl = myproc().get_file_table();
-  ftbl.ForEach([this](File &f, int fd) { Delete(f); });
+  Process::ForEachProcess([this](Process &p) {
+    FileTable &ftbl = p.get_file_table();
+    ftbl.ForEach([this](File &f, int fd) { Delete(f); });
+  });
 }
 
 void EPollFile::Notify(PollSource &s) {
