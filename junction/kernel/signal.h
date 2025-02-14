@@ -164,6 +164,7 @@ struct DeliveredSignal {
 
 class ThreadSignalHandler {
  public:
+  ThreadSignalHandler(Thread &thread, const ThreadSignalHandler &clone_hand);
   ThreadSignalHandler(Thread &thread);
   ~ThreadSignalHandler() = default;
 

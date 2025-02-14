@@ -205,12 +205,6 @@ void JunctionCfg::Print() {
   for (std::string &s : binary_envp) LOG(INFO) << "env: " << s;
 }
 
-Status<std::shared_ptr<Process>> CreateTestProc() {
-  Status<std::shared_ptr<Process>> p = CreateInitProcess();
-  if (p) (*p)->CreateTestThread();
-  return p;
-}
-
 Status<void> InitChroot() {
   std::string_view chroot_path = GetCfg().get_chroot_path();
   if (chroot_path != "/") {

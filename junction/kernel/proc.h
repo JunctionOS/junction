@@ -58,7 +58,7 @@ inline bool SignalIfOwned(struct kthread *k, const thread_t *th) {
 }
 
 struct Credential {
-  Credential() : ruid(0), euid(0), suid(0), rgid(0), egid(0), sgid(0) {}
+  Credential();
   Credential(uid_t uid, gid_t gid)
       : ruid(uid), euid(uid), suid(uid), rgid(gid), egid(gid), sgid(gid) {}
   uid_t ruid;
@@ -156,10 +156,15 @@ class ThreadRef;
 // Thread is a UNIX thread object.
 class Thread {
  public:
-  Thread(std::shared_ptr<Process> proc, pid_t tid, const Credential &cred)
+  Thread(std::shared_ptr<Process> proc, pid_t tid, const Thread &cloning_th)
       : proc_(std::move(proc)), tid_(tid) {
-    InitCold(cred);
+    InitCold(cloning_th);
   }
+  Thread(std::shared_ptr<Process> proc, pid_t tid)
+      : proc_(std::move(proc)), tid_(tid) {
+    InitCold();
+  }
+
   ~Thread();
 
   Thread(Thread &&) = delete;
@@ -175,8 +180,12 @@ class Thread {
     return thread_interrupted(GetCaladanThread());
   }
 
+  [[nodiscard]] const ThreadSignalHandler &get_sighand() const {
+    return cold().sighand_;
+  }
   [[nodiscard]] ThreadSignalHandler &get_sighand() { return cold().sighand_; }
   [[nodiscard]] procfs::ProcFSData &get_procfs() { return cold().procfs_data_; }
+  [[nodiscard]] const Credential &get_creds() const { return cold().creds_; }
   [[nodiscard]] Credential &get_creds() { return cold().creds_; }
   [[nodiscard]] RseqState &get_rseq() { return rseq_; }
 
@@ -418,8 +427,8 @@ class Thread {
   // Cold per-thread data that is stored outside of the Thread class.
   struct ThreadColdData {
     ThreadColdData(Thread &th) : sighand_(th) {}
-    ThreadColdData(Thread &th, const Credential &cred)
-        : sighand_(th), creds_(cred) {}
+    ThreadColdData(Thread &th, const Thread &oldth)
+        : sighand_(th, oldth.get_sighand()), creds_(oldth.get_creds()) {}
     int xstate_;  // exit state
     int stopped_rax_;
     ThreadSignalHandler sighand_;
@@ -440,9 +449,10 @@ class Thread {
         GetCaladanThread()->junction_cold_state_buf);
   }
 
-  void InitCold(const Credential &creds) {
-    new (&cold()) ThreadColdData(*this, creds);
+  void InitCold(const Thread &oldth) {
+    new (&cold()) ThreadColdData(*this, oldth);
   }
+
   void InitCold() { new (&cold()) ThreadColdData(*this); }
 
   void DestroyCold() { (&cold())->~ThreadColdData(); }
@@ -642,9 +652,8 @@ class Process : public std::enable_shared_from_this<Process> {
   // Create a vforked process from this one.
   Status<std::shared_ptr<Process>> CreateProcessVfork(rt::ThreadWaker &&w);
 
-  Status<Thread *> CreateThreadMain(const Credential &cred);
-  Status<Thread *> CreateThread(const Credential &cred);
-  Thread &CreateTestThread();
+  Status<Thread *> CreateThreadMain(const Thread &oldth);
+  Status<Thread *> CreateThread(const Thread &oldth);
 
   void FinishExec(std::shared_ptr<MemoryMap> &&new_mm);
 
@@ -798,6 +807,8 @@ class Process : public std::enable_shared_from_this<Process> {
     stopped_threads_.WakeAll();
     NotifyParentWait(kWaitableContinued);
   }
+
+  static Status<std::pair<std::shared_ptr<Process>, Thread *>> CreateInit();
 
  private:
   friend class cereal::access;
@@ -1020,9 +1031,6 @@ class Process : public std::enable_shared_from_this<Process> {
     assert(nr_removed == 1);
   }
 };
-
-// Create a new process.
-Status<std::shared_ptr<Process>> CreateInitProcess();
 
 // isJunctionThread returns true if the thread is a part of a process.
 inline bool IsJunctionThread(thread_t *th = thread_self()) {

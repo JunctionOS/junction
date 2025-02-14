@@ -777,6 +777,12 @@ std::optional<siginfo_t> ThreadSignalHandler::PopSigInfo(
   return tmp;
 }
 
+ThreadSignalHandler::ThreadSignalHandler(Thread &thread,
+                                         const ThreadSignalHandler &clone_hand)
+    : shared_q_(thread.get_process().get_signal_queue()),
+      blocked_(clone_hand.get_blocked_mask()),
+      mythread_(thread){};
+
 ThreadSignalHandler::ThreadSignalHandler(Thread &thread)
     : shared_q_(thread.get_process().get_signal_queue()), mythread_(thread){};
 

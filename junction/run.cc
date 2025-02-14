@@ -18,30 +18,27 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, std::vector<std::string_view> &argv,
     const std::vector<std::string_view> &envp, bool is_init) {
   // Create the process object
-  Status<std::shared_ptr<Process>> proc = CreateInitProcess();
-  if (!proc) return MakeError(proc);
+  Status<std::pair<std::shared_ptr<Process>, Thread *>> tmp =
+      Process::CreateInit();
+  if (!tmp) return MakeError(tmp);
+  auto &[proc, th] = *tmp;
 
   // Create and insert STDIN, STDOUT, STDERR files
-  FileTable &ftbl = (**proc).get_file_table();
+  FileTable &ftbl = proc->get_file_table();
   ftbl.Insert(OpenStdio(0, FileMode::kRead));
   ftbl.Insert(OpenStdio(0, FileMode::kWrite));
   ftbl.Insert(OpenStdio(0, FileMode::kWrite));
 
   // Exec program image
-  Status<ExecInfo> ret = Exec(**proc, (*proc)->get_mem_map(), path, argv, envp);
+  Status<ExecInfo> ret = Exec(*proc, proc->get_mem_map(), path, argv, envp);
   if (!ret) {
     LOG(ERR) << "Failed to exec binary " << path << ": " << ret.error();
     return MakeError(ret);
   }
 
-  Credential cred(GetCfg().get_uid(), GetCfg().get_gid());
-  Status<Thread *> tmp = (*proc)->CreateThreadMain(cred);
-  if (!tmp) return MakeError(tmp);
-  Thread &th = **tmp;
+  if (is_init) SetInitProc(proc);
 
-  if (is_init) SetInitProc(*proc);
-
-  FunctionCallTf &entry = FunctionCallTf::CreateOnSyscallStack(th);
+  FunctionCallTf &entry = FunctionCallTf::CreateOnSyscallStack(*th);
   thread_tf &tf = entry.GetFrame();
   tf.rdi = 0;
   tf.rsi = 0;
@@ -52,12 +49,12 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
   tf.rsp = std::get<0>(*ret);
   tf.rip = std::get<1>(*ret);
 
-  if (unlikely(GetCfg().mem_trace())) (*proc)->get_mem_map().EnableTracing();
+  if (unlikely(GetCfg().mem_trace())) proc->get_mem_map().EnableTracing();
 
-  th.mark_enter_kernel();
-  entry.MakeUnwinderSysret(th, th.GetCaladanThread()->tf);
-  th.ThreadReady();
-  return *proc;
+  th->mark_enter_kernel();
+  entry.MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
+  th->ThreadReady();
+  return std::move(proc);
 }
 
 std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp() {

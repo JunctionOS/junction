@@ -100,6 +100,14 @@ void AcquirePid(pid_t pid, std::optional<pid_t> pgid,
   if (sid) IncRefCountPid(*sid);
 }
 
+Credential::Credential()
+    : ruid(GetCfg().get_uid()),
+      euid(GetCfg().get_uid()),
+      suid(GetCfg().get_uid()),
+      rgid(GetCfg().get_gid()),
+      egid(GetCfg().get_gid()),
+      sgid(GetCfg().get_gid()) {}
+
 void SetInitProc(std::shared_ptr<Process> proc) {
   assert(!init_proc);
   init_proc = std::move(proc);
@@ -128,9 +136,9 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
     Status<std::shared_ptr<Process>> forkp =
         oldth.get_process().CreateProcessVfork(std::move(waker));
     if (!forkp) return MakeCError(forkp);
-    tptr = (*forkp)->CreateThreadMain(oldth.get_creds());
+    tptr = (*forkp)->CreateThreadMain(oldth);
   } else {
-    tptr = oldth.get_process().CreateThread(oldth.get_creds());
+    tptr = oldth.get_process().CreateThread(oldth);
   }
 
   if (!tptr) return MakeCError(tptr);
@@ -342,14 +350,25 @@ bool Process::ThreadFinish(Thread *th) {
   return remaining_threads == 0;
 }
 
-Status<std::shared_ptr<Process>> CreateInitProcess() {
+Status<std::pair<std::shared_ptr<Process>, Thread *>> Process::CreateInit() {
   Status<pid_t> pid = AllocNewSession();
   if (!pid) return MakeError(pid);
 
   Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
 
-  return std::make_shared<Process>(*pid, std::move(*mm));
+  auto proc = std::make_shared<Process>(*pid, std::move(*mm));
+
+  thread_t *th = thread_create(nullptr, 0);
+  if (!th) return MakeError(ENOMEM);
+
+  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
+  new (tstate) Thread(proc, *pid);
+  th->junction_thread = true;
+  th->has_fsbase = true;
+  th->tf.fsbase = 0;
+  proc->thread_map_[*pid] = tstate;
+  return {{std::move(proc), tstate}};
 }
 
 Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
@@ -365,23 +384,12 @@ Status<std::shared_ptr<Process>> Process::CreateProcessVfork(
   return p;
 }
 
-// Attach calling thread to this process; used for testing.
-Thread &Process::CreateTestThread() {
-  thread_t *th = thread_self();
-  Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  Credential cred;
-  new (tstate) Thread(shared_from_this(), 1, cred);
-  th->junction_thread = true;
-  thread_map_[1] = tstate;
-  return *tstate;
-}
-
-Status<Thread *> Process::CreateThreadMain(const Credential &cred) {
+Status<Thread *> Process::CreateThreadMain(const Thread &oldth) {
   thread_t *th = thread_create(nullptr, 0);
   if (!th) return MakeError(ENOMEM);
 
   Thread *tstate = reinterpret_cast<Thread *>(th->junction_tstate_buf);
-  new (tstate) Thread(shared_from_this(), get_pid(), cred);
+  new (tstate) Thread(shared_from_this(), get_pid(), oldth);
   th->junction_thread = true;
   th->has_fsbase = true;
   th->tf.fsbase = 0;
@@ -389,7 +397,7 @@ Status<Thread *> Process::CreateThreadMain(const Credential &cred) {
   return tstate;
 }
 
-Status<Thread *> Process::CreateThread(const Credential &cred) {
+Status<Thread *> Process::CreateThread(const Thread &oldth) {
   thread_t *th = thread_create(nullptr, 0);
   if (unlikely(!th)) return MakeError(ENOMEM);
 
@@ -409,7 +417,7 @@ Status<Thread *> Process::CreateThread(const Credential &cred) {
       thread_free(th);
       return MakeError(1);
     }
-    new (tstate) Thread(shared_from_this(), *tid, cred);
+    new (tstate) Thread(shared_from_this(), *tid, oldth);
     th->junction_thread = true;
     thread_map_[*tid] = tstate;
   }
@@ -758,6 +766,12 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
   rt::Preempt::UnlockAndPark();
   std::unreachable();
 }
+
+// For debugging in gdb.
+__noinline Thread *gdb_mythread() {
+  return &Thread::fromCaladanThread(thread_self());
+}
+__noinline Process *gdb_myproc() { return &mythread().get_process(); }
 
 [[noreturn]] void usys_exit(int status) {
   if (unlikely(GetCfg().strace_enabled()))
