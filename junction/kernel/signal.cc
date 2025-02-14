@@ -96,6 +96,7 @@ int sigsegv_sigcontext_to_prot(const struct sigcontext &context) {
 
 // A signal handler that can be injected into a program to cleanly kill it
 extern "C" void SigKillHandler(int signo, siginfo_t *info, void *c) {
+  assert_stack_is_aligned();
   junction_fncall_enter(128 + signo, 0, 0, 0, 0, 0, __NR_exit_group);
   std::unreachable();
 }
@@ -293,6 +294,7 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   void *xsave_buf = nullptr;
   size_t buf_sz;
 
+  assert_stack_is_aligned();
   assert_on_uintr_stack();
 
   STAT(PREEMPTIONS)++;
@@ -383,6 +385,7 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
   STAT(PREEMPTIONS)++;
 
   assert(!uintr_enabled);
+  assert_stack_is_aligned();
 
   auto *uc = k_sigframe::FromUcontext(reinterpret_cast<k_ucontext *>(context));
 
@@ -592,6 +595,7 @@ void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, int required_prot,
 extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
                                            void *context) {
   assert_on_runtime_stack();
+  assert_stack_is_aligned();
 
   if (unlikely(!context)) print_msg_abort("signal delivered without context");
 
@@ -715,6 +719,8 @@ bool SignalQueue::Enqueue(const siginfo_t &info) {
 // Our rt_sigreturn assembly target switches stacks and calls this function with
 // the old rsp as an argument.
 extern "C" [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp) {
+  assert_stack_is_aligned();
+
   k_sigframe *sigframe = reinterpret_cast<k_sigframe *>(rsp - 8);
   JunctionSigframe *jframe =
       reinterpret_cast<JunctionSigframe *>(rsp - 8 + sizeof(*sigframe));
@@ -1106,6 +1112,7 @@ long usys_pause() {
 }
 
 extern "C" void RunSignals(int rax) {
+  assert_stack_is_aligned();
   Thread &th = mythread();
   th.get_sighand().DeliverSignals(th.GetTrapframe(), rax);
 }

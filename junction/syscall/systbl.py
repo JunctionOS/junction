@@ -159,6 +159,7 @@ def genLogSyscallCall(pretty_name, with_ret, fnname):
 
 def emit_strace_target(pretty_name, function_name, output):
     fn = f"\nextern \"C\" __attribute__((cold)) int64_t {function_name}_trace(int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5) {'{'}"
+    fn += "\n\tassert_stack_is_aligned();"
     runsyscall_cmd = f"\n\tint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 
     if STRACE_LOG_BEFORE_RETURN:
@@ -253,7 +254,7 @@ dispatch_file = [
 
 include_files = [
     f"junction/syscall/{f}.h" for f in ["systbl", "strace", "syscall", "entry"]]
-include_files += [f"junction/bindings/{f}.h" for f in ["sync", "log"]]
+include_files += [f"junction/bindings/{f}.h" for f in ["sync", "log", "stack"]]
 
 for file in include_files:
     dispatch_file.append(f"#include \"{file}\"")

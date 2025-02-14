@@ -296,7 +296,7 @@ class UintrTf : public Trapframe {
   [[noreturn]] void JmpUnwindPreemptEnable() override {
     assert_preempt_disabled();
     uint64_t rdi = reinterpret_cast<uint64_t>(&sigframe);
-    uint64_t rsp = AlignDown(rdi, 16) - 8;
+    uint64_t rsp = AlignDown(rdi, kStackAlign) - sizeof(uintptr_t);
     nosave_switch_preempt_enable(
         reinterpret_cast<thread_fn_t>(UintrFullRestore), rsp, rdi);
   }
@@ -305,7 +305,7 @@ class UintrTf : public Trapframe {
 
   inline void MakeUnwinder(thread_tf &unwind_tf) const {
     unwind_tf.rdi = reinterpret_cast<uint64_t>(&sigframe);
-    unwind_tf.rsp = AlignDown(unwind_tf.rdi, 16) - 8;
+    unwind_tf.rsp = AlignDown(unwind_tf.rdi, kStackAlign) - sizeof(uintptr_t);
     unwind_tf.rip = reinterpret_cast<uint64_t>(UintrFullRestore);
   }
 
@@ -367,6 +367,6 @@ inline void JunctionSigframe::Unwind() {
 
 void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th);
 
-static_assert(sizeof(JunctionSigframe) % 16 == 0);
+static_assert(sizeof(JunctionSigframe) % kJunctionFrameAlign == 0);
 
 }  // namespace junction

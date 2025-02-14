@@ -26,10 +26,23 @@ extern "C" void _stack_switch_link(uint64_t arg0, uint64_t stack,
 
 namespace junction {
 
+inline constexpr size_t kStackAlign = 16;
+
 inline uint64_t GetRsp() {
   uint64_t rsp;
   asm volatile("movq %%rsp, %0" : "=r"(rsp));
   return rsp;
+}
+
+__always_inline __nofp bool stack_is_aligned() {
+  volatile int test_var __attribute__((aligned(kStackAlign)));
+  uintptr_t addr;
+  asm volatile("lea %1, %0" : "=r"(addr) : "m"(test_var));
+  return addr % kStackAlign == 0;
+}
+
+__always_inline __nofp void assert_stack_is_aligned() {
+  assert(stack_is_aligned());
 }
 
 __always_inline __nofp bool IsOnStack(uint64_t cur_rsp, uint64_t top,

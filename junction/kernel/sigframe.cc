@@ -81,6 +81,7 @@ k_sigframe *k_sigframe::DoLoad(cereal::BinaryInputArchive &archive,
 
 // Immediately restore a UIPI sigframe.
 extern "C" [[noreturn]] __nofp void UintrFullRestore(const u_sigframe *frame) {
+  assert_stack_is_aligned();
   frame->RestoreXstate();
   nosave_switch(reinterpret_cast<thread_fn_t>(uintr_asm_return),
                 reinterpret_cast<uint64_t>(frame), 0);
