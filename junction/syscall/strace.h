@@ -83,6 +83,7 @@ DECLARE_STRACE_TYPE(SocketDomain, int)
 DECLARE_STRACE_TYPE(SocketType, int)
 DECLARE_STRACE_TYPE(MessageFlag, int)
 DECLARE_STRACE_TYPE(PrctlOp, long)
+DECLARE_STRACE_TYPE(SigProcMaskOp, int)
 
 void PrintArg(int *fds, FDPair *, rt::Logger &ss);
 
@@ -118,6 +119,18 @@ inline void PrintArg(cap_user_header_t hdrp, U, rt::Logger &ss) {
 }
 
 void PrintArg(const cap_user_data_t, rt::Logger &ss);
+
+void PrintArg(const sigset_t *sigmask, rt::Logger &ss);
+
+template <typename U>
+inline void PrintArg(const sigset_t *mask, U, rt::Logger &ss) {
+  PrintArg(mask, ss);
+}
+
+template <typename U>
+inline void PrintArg(sigset_t *mask, U, rt::Logger &ss) {
+  PrintArg(mask, ss);
+}
 
 template <typename U>
 inline void PrintArg(const cap_user_data_t datap, U, rt::Logger &ss) {

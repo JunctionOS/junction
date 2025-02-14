@@ -116,6 +116,7 @@ TYPE_ARR.update({
     ("epoll_ctl", 1): 'static_cast<strace::EpollOp>',
     ("unshare", 0): 'static_cast<strace::CloneFlag>',
     ("prctl", 0): 'static_cast<strace::PrctlOp>',
+    ("rt_sigprocmask", 0): 'static_cast<strace::SigProcMaskOp>',
 })
 
 SKIP_STRACE_TARGET = [

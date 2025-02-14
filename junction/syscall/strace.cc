@@ -296,6 +296,32 @@ const char *sigmap[] = {
     "SIGXFSZ", "SIGVTALRM", "SIGPROF", "SIGWINCH",  "SIGIO",   "SIGPWR",
     "SIGSYS",  "SIGUNUSED"};
 
+const std::map<int, std::string> sigprocmask_how{
+    VAL(SIG_BLOCK), VAL(SIG_UNBLOCK), VAL(SIG_SETMASK)};
+
+void PrintArg(const sigset_t *sigmask, rt::Logger &ss) {
+  if (!sigmask) {
+    ss << "NULL";
+    return;
+  }
+
+  uint64_t mask = *reinterpret_cast<const uint64_t *>(sigmask);
+
+  bool done_one = false;
+  ss << "{";
+  for (size_t i = 0; i < kNumSignals; i++) {
+    if ((mask & (1 << i)) == 0) continue;
+    if (done_one) ss << ",";
+    done_one = true;
+
+    if (i < ARRAY_SIZE(sigmap))
+      ss << sigmap[i];
+    else
+      ss << "SIGRT" << i;
+  }
+  ss << "}";
+}
+
 void PrintValMap(const std::map<int, std::string> &map, int val,
                  rt::Logger &ss) {
   auto it = map.find(val);
@@ -423,6 +449,10 @@ void PrintArg(int op, FutexOp, rt::Logger &ss) {
   if (op & FUTEX_CLOCK_REALTIME) ss << "|FUTEX_CLOCK_REALTIME";
 }
 
+void PrintArg(int op, SigProcMaskOp, rt::Logger &ss) {
+  PrintValMap(sigprocmask_how, op, ss);
+}
+
 void PrintArg(long op, PrctlOp, rt::Logger &ss) {
   PrintValMap(prctl_ops, op, ss);
 }
@@ -464,9 +494,18 @@ void LogSignal(const siginfo_t &info) {
   else
     signame = "unknown";
 
-  LOG(INFO) << "[" << myproc().get_pid() << ":" << mythread().get_tid()
-            << "] --- " << signame << " {si_signo=" << info.si_signo
-            << ", si_code = " << info.si_code << ", si_addr = " << info.si_addr
-            << "} ---";
+  rt::Logger logger(LOG_INFO);
+  logger << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] --- "
+         << signame << " {si_signo=" << info.si_signo
+         << ", si_code = " << info.si_code;
+
+  if (info.si_signo == SIGCHLD) {
+    logger << ", si_pid = " << info.si_pid
+           << ", si_status = " << info.si_status;
+  } else {
+    logger << ", si_addr = " << info.si_addr;
+  }
+
+  logger << "} ---";
 }
 }  // namespace junction

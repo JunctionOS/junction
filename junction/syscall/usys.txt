@@ -22,6 +22,7 @@ openat
 ftruncate
 truncate
 fallocate:::eopnotsup
+copy_file_range:::eopnotsup
 exit_group
 exit
 readlinkat
