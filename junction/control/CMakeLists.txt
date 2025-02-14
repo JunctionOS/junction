@@ -15,7 +15,8 @@ set(FLATBUFFER_GENERATED_RS_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../junct
 function(compile_flatbuffers flatbuffers_schemas
                            custom_target_name
                            lang_flag
-                           generated_includes_dir)
+                           generated_includes_dir
+                           suffix)
 
   # Test if including from FindFlatBuffers
   if(FLATBUFFERS_FLATC_EXECUTABLE)
@@ -36,28 +37,21 @@ function(compile_flatbuffers flatbuffers_schemas
       )
   endif()
 
-  set(working_dir "${CMAKE_CURRENT_SOURCE_DIR}")
-
-  set(schema_glob "*.fbs")
   # Generate the include files parameters.
-  set(include_params "")
   set(all_generated_files "")
 
   foreach(schema ${flatbuffers_schemas})
     get_filename_component(filename ${schema} NAME_WE)
     # For each schema, do the things we requested.
-    if (NOT ${generated_includes_dir} STREQUAL "")
-      set(generated_include ${generated_includes_dir}/${filename}_generated.h)
-      add_custom_command(
-        OUTPUT ${generated_include}
-        COMMAND ${FLATC} ${FLATC_SCHEMA_ARGS}
-        -o ${generated_includes_dir}
-        ${include_params}
-        ${lang_flag} ${schema}
-        DEPENDS ${FLATC_TARGET} ${schema}
-        WORKING_DIRECTORY "${working_dir}")
-      list(APPEND all_generated_files ${generated_include})
-    endif()
+    set(generated_include ${generated_includes_dir}/${filename}_generated.${suffix})
+    add_custom_command(
+      OUTPUT ${generated_include}
+      COMMAND ${FLATC} ${FLATC_SCHEMA_ARGS}
+      -o ${generated_includes_dir}
+      ${lang_flag} ${CMAKE_CURRENT_SOURCE_DIR}/${schema}
+      DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/${schema}
+      WORKING_DIRECTORY "${working_dir}")
+    list(APPEND all_generated_files ${generated_include})
   endforeach()
 
   # Create a custom target that depends on all the generated files.
@@ -65,14 +59,6 @@ function(compile_flatbuffers flatbuffers_schemas
   # to be built.
   add_custom_target(${custom_target_name}
                     DEPENDS ${all_generated_files})
-
-  # Register the include directory we are using.
-  if (NOT ${generated_includes_dir} STREQUAL "")
-    include_directories(${generated_includes_dir})
-    set_property(TARGET ${custom_target_name}
-      PROPERTY GENERATED_INCLUDES_DIR
-      ${generated_includes_dir})
-  endif()
 endfunction()
 
 
@@ -80,12 +66,14 @@ compile_flatbuffers("${FLATBUFFER_SCHEMA_FILES}"
     control_schema_cpp
     "--cpp"
     "${FLATBUFFER_GENERATED_CPP_INCLUDE_DIR}"
+    h
 )
 
 compile_flatbuffers("${FLATBUFFER_SCHEMA_FILES}"
     control_schema_rs
     "--rust"
     "${FLATBUFFER_GENERATED_RS_INCLUDE_DIR}"
+    rs
 )
 
 add_library(control_fbs INTERFACE)
