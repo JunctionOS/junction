@@ -32,7 +32,24 @@ class Logger {
   template <typename T>
   Logger &operator<<(T const &value) {
     RuntimeLibcGuard guard_;
+
+    if (unlikely(ss_)) {
+      // Overflow storage is activated.
+      *ss_ << value;
+      return *this;
+    }
+
+    assert(!buf_->fail());
+    off_t prev_off = buf_->tellp();
     *buf_ << value;
+    if (unlikely(buf_->fail())) {
+      // If we overflowed the array, switch to a dynamic
+      // stream. Erase previously written bytes from value and rewrite them.
+      ss_.emplace();
+      buf_->seekp(prev_off);
+      *ss_ << value;
+    }
+
     return *this;
   }
 
@@ -40,6 +57,7 @@ class Logger {
   std::array<char, kMaxLogBuf> storage_;
   // buf_ is optional so that we can construct it under the RuntimeLibcGuard.
   std::optional<std::ospanstream> buf_;
+  std::optional<std::ostringstream> ss_;
 };
 
 // LOG appends a line to the log at the specified log level.
