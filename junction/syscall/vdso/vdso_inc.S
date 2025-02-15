@@ -11,3 +11,6 @@
 .globl __libvdso_start
 __libvdso_start:
 .incbin "libvdso.so"
+
+.globl __libvdso_end
+__libvdso_end:

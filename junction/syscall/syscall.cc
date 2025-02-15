@@ -4,7 +4,9 @@
 #include <cstring>
 
 #include "junction/junction.h"
+#include "junction/kernel/mm.h"
 #include "junction/syscall/systbl.h"
+#include "junction/syscall/vdso.h"
 
 namespace junction {
 
@@ -71,6 +73,8 @@ Status<void> SyscallInit() {
       KernelMMapFixed(dst_tbl, sizeof(sys_tbl), PROT_READ | PROT_WRITE, 0);
   if (unlikely(!ret)) return ret;
 
+  MemoryMap::RegisterMMRegion(SYSTBL_TRAMPOLINE_LOC, sizeof(sys_tbl));
+
   if (GetCfg().strace_enabled())
     std::memcpy(sys_tbl, sys_tbl_strace, sizeof(sys_tbl_strace));
 
@@ -81,6 +85,13 @@ Status<void> SyscallInit() {
 
   std::memcpy(dst_tbl, sys_tbl, sizeof(sys_tbl));
 
+  // Move VDSO to a fixed location.
+  void *mret = mremap(vdso_initial_location(), vdso_size(), vdso_size(),
+                      MREMAP_MAYMOVE | MREMAP_FIXED,
+                      reinterpret_cast<void *>(kVDSOLocation));
+  if (mret == MAP_FAILED) return MakeError(-errno);
+
+  MemoryMap::RegisterMMRegion(kVDSOLocation, vdso_size());
   return {};
 }
 

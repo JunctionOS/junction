@@ -1,4 +1,4 @@
-// syscall.hpp - support for junction syscalls
+// syscall.h - support for junction syscalls
 
 #pragma once
 

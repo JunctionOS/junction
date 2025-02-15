@@ -7,8 +7,6 @@ extern "C" {
 #include <sys/auxv.h>
 
 #include "lib/caladan/runtime/defs.h"
-
-extern const unsigned char __libvdso_start[];
 }
 
 #include <cstring>
@@ -24,6 +22,7 @@ extern const unsigned char __libvdso_start[];
 #include "junction/kernel/usys.h"
 #include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
+#include "junction/syscall/vdso.h"
 
 namespace junction {
 namespace {
@@ -56,7 +55,7 @@ void SetupAuxVec(std::array<Elf64_auxv_t, kNumAuxVectors> *vec,
   cpuid_info info;
   cpuid(0x00000001, 0, &info);
 
-  uintptr_t vdso = reinterpret_cast<uintptr_t>(&__libvdso_start);
+  uintptr_t vdso = kVDSOLocation;
 
   std::get<0>(*vec) = MakeAuxVec(AT_HWCAP, info.edx);
   std::get<1>(*vec) = MakeAuxVec(AT_PAGESZ, kPageSize);
