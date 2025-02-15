@@ -34,59 +34,142 @@
 #define RIP	(120)	/* instruction pointer */
 #define RSP	(128)	/* stack pointer */
 
-#define RESTORETF_CALLER(tf) \
-	movq    RDI(tf), %rdi; \
-	movq    RSI(tf), %rsi; \
-	movq    RDX(tf), %rdx; \
-	movq    RCX(tf), %rcx; \
-	movq    R8(tf), %r8;   \
-	movq    R9(tf), %r9;   \
-	movq    R10(tf), %r10;
+.macro SAVETF_STACK
+	movq    %gs:__perthread___self(%rip), %r11
+	pushq   %rax
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rax, 0
+	pushq   %r15
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset r15, 0
+	pushq   %r14
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset r14, 0
+	pushq   %r13
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset r13, 0
+	pushq   %r12
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset r12, 0
+	pushq   %rbp
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rbp, 0
+	pushq   %rbx
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rbx, 0
+	subq    $16, %rsp
+	.cfi_adjust_cfa_offset 16
+	pushq   %r9
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset r9, 0
+	pushq   %r8
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset r8, 0
+	pushq   %rcx
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rcx, 0
+	pushq   %rdx
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rdx, 0
+	pushq   %rsi
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rsi, 0
+	pushq   %rdi
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rdi, 0
+	movq    %rsp, JUNCTION_TF_PTR_OFF(%r11)
+.endm
 
-#define SAVETF_STACK \
-	movq    %gs:__perthread___self(%rip), %r11; \
-	pushq   %rax; \
-	pushq   %r15; \
-	pushq   %r14; \
-	pushq   %r13; \
-	pushq   %r12; \
-	pushq   %rbp; \
-	pushq   %rbx; \
-	subq    $16, %rsp; \
-	pushq   %r9; \
-	pushq   %r8; \
-	pushq   %rcx; \
-	pushq   %rdx; \
-	pushq   %rsi; \
-	pushq   %rdi; \
-	movq    %rsp, JUNCTION_TF_PTR_OFF(%r11);
-
-.macro RESTORETF_STACK
+.macro RESTORETF_STACK_BASE
 	popq   %rdi
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore rdi
 	popq   %rsi
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore rsi
 	popq   %rdx
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore rdx
 	popq   %rcx
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore rcx
 	popq   %r8
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore r8
 	popq   %r9
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore r9
 	addq    $16, %rsp
+	.cfi_adjust_cfa_offset -16
 	popq   %rbx
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore rbx
 	popq   %rbp
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore rbp
 	popq   %r12
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore r12
 	popq   %r13
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore r13
 	popq   %r14
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore r14
 	popq   %r15
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore r15
 	popq   %rax
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore rax
 	// RIP into R11
 	popq   %r11
+	.cfi_adjust_cfa_offset -8
+	.cfi_register rip, r11
 	// restore rsp
 	popq   %rsp
 .endm
 
+.macro RESTORETF_STACK
+	RESTORETF_STACK_BASE
+	.cfi_def_cfa rsp, 0
+	.cfi_register rip, r11
+	.cfi_val_offset rsp, 0
+.endm
+
+.macro RESTORETF_STACK_CFI_RESTORE
+	RESTORETF_STACK_BASE
+	.cfi_restore_state
+	.cfi_def_cfa rsp, 0
+	.cfi_register rip, r11
+	.cfi_val_offset rsp, 0
+.endm
+
+.macro SIGCONTEXT_CFA_ONSTACK
+	.cfi_def_cfa rsp, SIGFRAME_SIGCONTEXT
+	.cfi_offset rsp, SIGCONTEXT_RSP
+	.cfi_offset rip, SIGCONTEXT_RIP
+	.cfi_offset r8, SIGCONTEXT_R8
+	.cfi_offset r9, SIGCONTEXT_R9
+	.cfi_offset r10, SIGCONTEXT_R10
+	.cfi_offset r11, SIGCONTEXT_R11
+	.cfi_offset r12, SIGCONTEXT_R12
+	.cfi_offset r13, SIGCONTEXT_R13
+	.cfi_offset r14, SIGCONTEXT_R14
+	.cfi_offset r15, SIGCONTEXT_R15
+	.cfi_offset rdi, SIGCONTEXT_RDI
+	.cfi_offset rsi, SIGCONTEXT_RSI
+	.cfi_offset rbp, SIGCONTEXT_RBP
+	.cfi_offset rbx, SIGCONTEXT_RBX
+	.cfi_offset rdx, SIGCONTEXT_RDX
+	.cfi_offset rax, SIGCONTEXT_RAX
+	.cfi_offset rcx, SIGCONTEXT_RCX
+.endm
 
 /*
  * CALL_SYSCALL_FUNC - macro to invoke a system call handler
  *
- * @sysner_reg: register containing the system call number
+ * @sysnr_reg: register containing the system call number
  * @tf: register pointing to a thread_tf into which the result will be saved.
  * @return_reg: register that will contain the result of the call.
  */
@@ -99,7 +182,7 @@
 .endm
 
 /*
- * usys_rt_sigreturn_enter - target for system calls to rt_sigreturn
+ * usys_rt_sigreturn - target for system calls to rt_sigreturn
  *
  * the top of stack contains a pointer to the ucontext in the signal frame.
  */
@@ -121,6 +204,10 @@ usys_rt_sigreturn:
 
 	jmp     usys_rt_sigreturn_finish
 
+.globl usys_rt_sigreturn_postcall
+.globl usys_rt_sigreturn_end
+usys_rt_sigreturn_postcall:
+usys_rt_sigreturn_end:
 
 /**
  * __jmp_syscall_restart_nosave - restarts syscall
@@ -365,6 +452,10 @@ __switch_and_interrupt_enable:
 .type __syscall_trap_return, @function
 
 __syscall_trap_return:
+	.cfi_startproc simple
+	.cfi_signal_frame
+	SIGCONTEXT_CFA_ONSTACK
+
 	// store rax in sigframe
 	movq    %rax, SIGFRAME_RAX_OFFSET(%rsp)
 
@@ -372,6 +463,7 @@ __syscall_trap_return:
 	movq    %rax, %rdi
 
 	INTERRUPT_CHECK __syscall_trap_return RT_SIGRETURN
+	.cfi_endproc
 
 /**
  * __kframe_unwind_loop - similar to __syscall_trap_return, but the frame
@@ -385,10 +477,13 @@ __syscall_trap_return:
 .globl __kframe_unwind_loop
 .type __kframe_unwind_loop, @function
 __kframe_unwind_loop:
+	.cfi_startproc simple
+	.cfi_signal_frame
+	SIGCONTEXT_CFA_ONSTACK
 	xorq    %rdi, %rdi
 
 	INTERRUPT_CHECK __kframe_unwind_loop RT_SIGRETURN
-
+	.cfi_endproc
 
 /**
  * __syscall_trap_return_uintr - returns from a trapped syscall instruction
@@ -405,6 +500,9 @@ __kframe_unwind_loop:
 
 .align 16
 __syscall_trap_return_uintr:
+	.cfi_startproc simple
+	.cfi_signal_frame
+	SIGCONTEXT_CFA_ONSTACK
 	// store rax in sigframe
 	movq    %rax, SIGFRAME_RAX_OFFSET(%rsp)
 
@@ -419,6 +517,7 @@ __syscall_trap_return_uintr:
 
 	jmp     UintrKFrameLoopReturn
 	nop
+	.cfi_endproc
 
 #define TMP_RIP %r8
 #define TMP_RSP %r9
@@ -434,9 +533,13 @@ __syscall_trap_return_uintr:
 .globl __kframe_unwind_uiret
 .type __kframe_unwind_uiret, @function
 __kframe_unwind_uiret:
+	.cfi_startproc simple
+	.cfi_signal_frame
+	SIGCONTEXT_CFA_ONSTACK
 
 	// get rid of unneeded part of ucontext
 	addq    $SIGFRAME_SIGCONTEXT, %rsp
+	.cfi_adjust_cfa_offset 8
 
 	// shuffle final fields in sigcontext to match uiret format
 	movq    SIGCONTEXT_RIP(%rsp), TMP_RIP
@@ -460,24 +563,40 @@ __kframe_unwind_uiret:
 
 	// restore general registers
 	popq    %r8
+	.cfi_adjust_cfa_offset -8
 	popq    %r9
+	.cfi_adjust_cfa_offset -8
 	popq    %r10
+	.cfi_adjust_cfa_offset -8
 	popq    %r11
+	.cfi_adjust_cfa_offset -8
 	popq    %r12
+	.cfi_adjust_cfa_offset -8
 	popq    %r13
+	.cfi_adjust_cfa_offset -8
 	popq    %r14
+	.cfi_adjust_cfa_offset -8
 	popq    %r15
+	.cfi_adjust_cfa_offset -8
 	popq    %rdi
+	.cfi_adjust_cfa_offset -8
 	popq    %rsi
+	.cfi_adjust_cfa_offset -8
 	popq    %rbp
+	.cfi_adjust_cfa_offset -8
 	popq    %rbx
+	.cfi_adjust_cfa_offset -8
 	popq    %rdx
+	.cfi_adjust_cfa_offset -8
 	popq    %rax
+	.cfi_adjust_cfa_offset -8
 	popq    %rcx
+	.cfi_adjust_cfa_offset -8
 
 	// restore rip, rsp, and rflags, and re-enable interrupts.
 	uiret
 	nop
+	.cfi_endproc
 
 /**
  * Macro for function call syscall entry that does not stack-switching.
@@ -492,9 +611,13 @@ __kframe_unwind_uiret:
 
 	// align stack
 	subq $8, %rsp
+	.cfi_adjust_cfa_offset 8
 
 	// save original rax
 	pushq %rax
+	.cfi_adjust_cfa_offset 8
+	.cfi_offset rax, -16
+
 
 	.if SyscallStackArgument
 		// get system call number from stack
@@ -504,15 +627,16 @@ __kframe_unwind_uiret:
 	// push return stack pointer
 	leaq  24(%rsp), %r11
 	pushq %r11
+	.cfi_adjust_cfa_offset 8
 
 	// push return IP
 	movq 24(%rsp), %r11
 	pushq   %r11
+	.cfi_adjust_cfa_offset 8
 
 	SAVETF_STACK
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11)
 
-	.cfi_adjust_cfa_offset 152;
 .endm
 
 .macro JUNCTION_FNCALL_PROLOGUE_EAX
@@ -530,6 +654,8 @@ __kframe_unwind_uiret:
  */
  .set SyscallStackArgument, 1
 .macro JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
+	.cfi_startproc
+
 	// Mark begin syscall, *before* starting to use the syscall stack.
 	movq    %gs:__perthread___self(%rip), %r11;
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11);
@@ -560,7 +686,15 @@ __kframe_unwind_uiret:
 	// switch to new stack
 	leaq    -24(%r11), %rsp;
 
+	// New CFI prologue
+	.cfi_remember_state
+	.cfi_def_cfa rsp, 24
+	.cfi_offset rax, -8
+	.cfi_offset rsp, -16
+	.cfi_offset rip, -24
+
 	SAVETF_STACK
+
 .endm
 
 .macro JUNCTION_FNCALL_STACKSWITCH_PROLOGUE_EAX
@@ -609,7 +743,6 @@ junction_fncall_enter:
 .globl junction_fncall_stackswitch_enter
 .type junction_fncall_stackswitch_enter, @function
 junction_fncall_stackswitch_enter:
-
 	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
 
 	CALL_SYSCALL_FUNC %rax %rsp %rdi
@@ -618,11 +751,16 @@ junction_fncall_stackswitch_enter:
 	// restore stack pointer
 	movq    RAX(%rsp), %rax
 	movq    RSP(%rsp), %rsp
+	.cfi_restore_state
+	.cfi_adjust_cfa_offset -8
 	subq    $8, %rsp
+	.cfi_adjust_cfa_offset 8
 	ret
 .endm
 
 	INTERRUPT_CHECK junction_fncall_stackswitch_enter FNCALL_STACKSWITCH_NOSAVE
+
+	.cfi_endproc
 
 /*
  * junction_fncall_stackswitch_enter_uintr - entry point for runtimes that
@@ -645,14 +783,18 @@ junction_fncall_stackswitch_enter_uintr:
 	// restore stack pointer
 	movq    RAX(%rsp), %rax
 	movq    RSP(%rsp), %rsp
+	.cfi_restore_state
+	.cfi_adjust_cfa_offset -8
 
 	// enable interrupts once we are off the system call stack
 	stui
 	subq    $8, %rsp
+	.cfi_adjust_cfa_offset 8
 	ret
 .endm
 
 	INTERRUPT_CHECK junction_fncall_stackswitch_enter_uintr FNCALL_STACKSWITCH_NOSAVE_UINTR stui clui
+	.cfi_endproc
 
 
 /*
@@ -672,6 +814,7 @@ junction_fncall_enter_preserve_regs:
 	RESTORETF_STACK
 	// correct rsp
 	subq    $8, %rsp;
+	.cfi_adjust_cfa_offset 8
 	ret
 .endm
 
@@ -684,6 +827,7 @@ junction_fncall_enter_preserve_regs:
 .globl __fncall_return_exit_loop
 .type __fncall_return_exit_loop, @function
 __fncall_return_exit_loop:
+	.cfi_startproc
 	xorq   %rdi, %rdi
 
 .macro FNCALL_RET_SAVE_JMP
@@ -692,12 +836,14 @@ __fncall_return_exit_loop:
 .endm
 
 	INTERRUPT_CHECK __fncall_return_exit_loop FNCALL_RET_SAVE_JMP
+	.cfi_endproc
 
 
 .align 16
 .globl __fncall_return_exit_loop_uintr
 .type __fncall_return_exit_loop_uintr, @function
 __fncall_return_exit_loop_uintr:
+	.cfi_startproc
 
 	xorq   %rdi, %rdi
 
@@ -710,6 +856,7 @@ __fncall_return_exit_loop_uintr:
 .endm
 
 	INTERRUPT_CHECK __fncall_return_exit_loop_uintr FNCALL_RET_SAVE_JMP_UINTR stui clui
+	.cfi_endproc
 
 /*
  * junction_fncall_stackswitch_enter_preserve_regs - variant of
@@ -727,13 +874,16 @@ junction_fncall_stackswitch_enter_preserve_regs:
 	CALL_SYSCALL_FUNC %rax %rsp %rdi
 
 .macro RESTORETF_RET
-	RESTORETF_STACK
+	RESTORETF_STACK_CFI_RESTORE
 	// in case of vfork(), the stack may no longer contain the return address.
 	// jump to the previously saved return address.
 	jmp     *%r11
 .endm
 
 	INTERRUPT_CHECK junction_fncall_stackswitch_enter_preserve_regs RESTORETF_RET
+
+	.cfi_endproc
+
 
 /*
  * junction_fncall_stackswitch_enter_preserve_regs_uintr - variant of
@@ -753,11 +903,15 @@ junction_fncall_stackswitch_enter_preserve_regs_uintr:
 	clui
 
 .macro RESTORETF_STUI_RET
-	RESTORETF_STACK
+	RESTORETF_STACK_CFI_RESTORE
 	stui
 	// correct rsp
 	subq    $8, %rsp;
+	.cfi_adjust_cfa_offset 8
 	ret
 .endm
 
 	INTERRUPT_CHECK junction_fncall_stackswitch_enter_preserve_regs_uintr RESTORETF_STUI_RET stui clui
+
+	.cfi_endproc
+

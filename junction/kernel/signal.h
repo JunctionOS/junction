@@ -402,6 +402,5 @@ class alignas(kCacheLineSize) SignalTable {
 };
 
 Status<void> InitSignal();
-extern "C" [[noreturn]] void usys_rt_sigreturn(uint64_t rsp);
 
 }  // namespace junction

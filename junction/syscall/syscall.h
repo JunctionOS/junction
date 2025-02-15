@@ -28,6 +28,22 @@ static_assert(offsetof(thread, interrupt_state) == JUNCTION_INT_STATE_OFF);
 static_assert(offsetof(thread, tf) == CALADAN_TF_OFF);
 static_assert(offsetof(k_ucontext, uc_mcontext.rax) == SIGFRAME_RAX_OFFSET);
 static_assert(offsetof(k_ucontext, uc_mcontext) == SIGFRAME_SIGCONTEXT);
+
+static_assert(offsetof(sigcontext, r8) == SIGCONTEXT_R8);
+static_assert(offsetof(sigcontext, r9) == SIGCONTEXT_R9);
+static_assert(offsetof(sigcontext, r10) == SIGCONTEXT_R10);
+static_assert(offsetof(sigcontext, r11) == SIGCONTEXT_R11);
+static_assert(offsetof(sigcontext, r12) == SIGCONTEXT_R12);
+static_assert(offsetof(sigcontext, r13) == SIGCONTEXT_R13);
+static_assert(offsetof(sigcontext, r14) == SIGCONTEXT_R14);
+static_assert(offsetof(sigcontext, r15) == SIGCONTEXT_R15);
+static_assert(offsetof(sigcontext, rdi) == SIGCONTEXT_RDI);
+static_assert(offsetof(sigcontext, rsi) == SIGCONTEXT_RSI);
+static_assert(offsetof(sigcontext, rbp) == SIGCONTEXT_RBP);
+static_assert(offsetof(sigcontext, rbx) == SIGCONTEXT_RBX);
+static_assert(offsetof(sigcontext, rdx) == SIGCONTEXT_RDX);
+static_assert(offsetof(sigcontext, rax) == SIGCONTEXT_RAX);
+static_assert(offsetof(sigcontext, rcx) == SIGCONTEXT_RCX);
 static_assert(offsetof(sigcontext, rip) == SIGCONTEXT_RIP);
 static_assert(offsetof(sigcontext, rsp) == SIGCONTEXT_RSP);
 static_assert(offsetof(sigcontext, eflags) == SIGCONTEXT_EFLAGS);
@@ -116,7 +132,7 @@ SYSENTRY_ASM(__fncall_return_exit_loop_uintr)();
 
 // Entry point for usys_rt_sigreturn, switches stacks and jumps to
 // usys_rt_sigreturn with the sigframe as an argument.
-void usys_rt_sigreturn_enter() __noreturn;
+SYSENTRY_ASM(usys_rt_sigreturn)() __noreturn;
 
 // Switches stacks and calls new function with 3 argument registers, enabling
 // preemption.
