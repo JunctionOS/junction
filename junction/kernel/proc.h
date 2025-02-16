@@ -336,7 +336,8 @@ class Thread {
   void SetTrapframe(Trapframe &tf) {
     DebugSafetyCheck();
     assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)) ||
-           &tf == &fcall_tf);
+           &tf == &fcall_tf ||
+           GetSyscallFrame().GetOrigRax() == __NR_rt_sigreturn);
     assert(!rsp_on_syscall_stack(tf.GetRsp()));
 
     GetCaladanThread()->entry_regs = nullptr;

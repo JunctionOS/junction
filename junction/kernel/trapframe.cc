@@ -110,7 +110,7 @@ void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
     sigframe.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
 
   // can ignore caller-saved registers for the trap entry path
-  tf.rax = ctx.trapno;
+  tf.rax = GetOrigRax();
   tf.rsp = reinterpret_cast<uint64_t>(&sigframe);
   tf.rdi = ctx.rdi;
   tf.rsi = ctx.rsi;
@@ -183,7 +183,7 @@ uint64_t RewindIndirectSystemCall(uint64_t rip) {
 
 void FunctionCallTf::ResetToSyscallStart() {
   tf->rip = RewindIndirectSystemCall(tf->rip);
-  tf->rax = tf->orig_rax;
+  tf->rax = GetOrigRax();
 }
 
 [[noreturn]] void FunctionCallTf::JmpRestartSyscall() {
@@ -268,7 +268,7 @@ void KernelSignalTf::DoSave(cereal::BinaryOutputArchive &ar, int rax) const {
     // xstate is still valid, so no need to copy/update that.
     k_sigframe copy = sigframe;
     // restore rax
-    copy.uc.uc_mcontext.rax = sigframe.uc.uc_mcontext.trapno;
+    copy.uc.uc_mcontext.rax = GetOrigRax();
     // go back to syscall instruction
     copy.uc.uc_mcontext.rip -= 2;
     copy.DoSave(ar);
@@ -281,7 +281,7 @@ void FunctionCallTf::DoSave(cereal::BinaryOutputArchive &ar, int rax) const {
   ar(SigframeType::kJunctionTf);
   if (IsRestartSys(rax)) {
     thread_tf copy = *tf;
-    copy.rax = tf->orig_rax;
+    copy.rax = GetOrigRax();
     copy.rip = RewindIndirectSystemCall(tf->rip);
     ar(copy);
   } else {
@@ -318,6 +318,21 @@ void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th) {
   }
 
   tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
+}
+
+void JunctionSigframe::UnwindSysret() {
+  switch (type) {
+    case SigframeType::kKernelSignal:
+      KernelSignalTf(reinterpret_cast<k_sigframe *>(tf))
+          .JmpUnwindSysret(mythread());
+    case SigframeType::kJunctionUIPI:
+      UintrTf(reinterpret_cast<u_sigframe *>(tf)).JmpUnwindSysret(mythread());
+    case SigframeType::kJunctionTf:
+      FunctionCallTf(reinterpret_cast<thread_tf *>(tf))
+          .JmpUnwindSysret(mythread());
+    default:
+      BUG();
+  }
 }
 
 }  // namespace junction

@@ -33,7 +33,7 @@ struct alignas(kJunctionFrameAlign) JunctionSigframe {
   unsigned long magic;
   unsigned long pad;
 
-  void Unwind();
+  void UnwindSysret();
 };
 
 class Thread;
@@ -52,9 +52,6 @@ class Trapframe {
   // Clone this trapframe onto a signal handler stack with a Sigframe to unwind
   // it.
   virtual JunctionSigframe &CloneSigframe(uint64_t *rsp) const = 0;
-
-  // Immediately restores this trapframe. Expects preemption to be disabled.
-  [[noreturn]] virtual void JmpUnwindPreemptEnable() = 0;
 
   // Immediately restores this trapframe, exiting the Junction kernel and
   // checking for signals. Expects preemption to be enabled.
@@ -87,10 +84,12 @@ class SyscallFrame : virtual public Trapframe {
   virtual void CopyRegs(thread_tf &dest_tf) const = 0;
 
   virtual SyscallFrame &CloneTo(uint64_t *rsp) const override = 0;
+
+  [[nodiscard]] virtual uint64_t GetOrigRax() const = 0;
 };
 
 // Kernel signals are used both for interrupts and to trap syscall instructions.
-class KernelSignalTf : public SyscallFrame {
+class KernelSignalTf final : public SyscallFrame {
  public:
   KernelSignalTf(k_sigframe &sigframe) : sigframe(sigframe) {}
   KernelSignalTf(k_sigframe *sigframe) : sigframe(*sigframe) {}
@@ -135,6 +134,10 @@ class KernelSignalTf : public SyscallFrame {
 
   void SetRip(uint64_t ip) override { sigframe.uc.uc_mcontext.rip = ip; }
 
+  [[nodiscard]] uint64_t GetOrigRax() const override {
+    return sigframe.uc.uc_mcontext.trapno;
+  }
+
   [[nodiscard]] inline uint64_t GetRsp() const override {
     return sigframe.GetRsp();
   }
@@ -155,15 +158,6 @@ class KernelSignalTf : public SyscallFrame {
   void ResetToSyscallStart() override {
     sigframe.uc.uc_mcontext.rip -= 2;
     sigframe.uc.uc_mcontext.rax = sigframe.uc.uc_mcontext.trapno;
-  }
-
-  [[noreturn]] void JmpUnwindPreemptEnable() override {
-    assert_preempt_disabled();
-    sigframe.InvalidateAltStack();
-    sigframe.uc.mask = 0;
-    nosave_switch_preempt_enable(
-        reinterpret_cast<thread_fn_t>(GetUnwinderFunction()),
-        reinterpret_cast<uintptr_t>(&sigframe.uc), 0);
   }
 
   [[noreturn]] void JmpUnwind() {
@@ -200,7 +194,7 @@ class KernelSignalTf : public SyscallFrame {
 
 // Wrapper around thread_tfs that are set up during a function call-based
 // system call.
-class FunctionCallTf : public SyscallFrame {
+class FunctionCallTf final : public SyscallFrame {
  public:
   FunctionCallTf(thread_tf *tf) : tf(tf) {}
   FunctionCallTf(thread_tf &tf) : tf(&tf) {}
@@ -233,10 +227,8 @@ class FunctionCallTf : public SyscallFrame {
 
   void SetRip(uint64_t ip) override { tf->rip = ip; }
 
-  [[noreturn]] void JmpUnwindPreemptEnable() override {
-    assert_preempt_disabled();
-    __restore_tf_full_and_preempt_enable(tf);
-    std::unreachable();
+  [[nodiscard]] uint64_t GetOrigRax() const override final {
+    return tf->orig_rax;
   }
 
   [[noreturn]] void JmpUnwindSysretPreemptEnable(Thread &th);
@@ -279,7 +271,7 @@ class FunctionCallTf : public SyscallFrame {
 };
 
 // Wrapper around UINTR frames.
-class UintrTf : public Trapframe {
+class UintrTf final : public Trapframe {
  public:
   UintrTf(u_sigframe &sigframe) : sigframe(sigframe) {}
   UintrTf(u_sigframe *sigframe) : sigframe(*sigframe) {}
@@ -292,14 +284,6 @@ class UintrTf : public Trapframe {
 
   // Returns a reference to the underlying sigframe.
   [[nodiscard]] inline u_sigframe &GetFrame() { return sigframe; }
-
-  [[noreturn]] void JmpUnwindPreemptEnable() override {
-    assert_preempt_disabled();
-    uint64_t rdi = reinterpret_cast<uint64_t>(&sigframe);
-    uint64_t rsp = AlignDown(rdi, kStackAlign) - sizeof(uintptr_t);
-    nosave_switch_preempt_enable(
-        reinterpret_cast<thread_fn_t>(UintrFullRestore), rsp, rdi);
-  }
 
   [[noreturn]] void JmpUnwindSysret(Thread &th) override;
 
@@ -349,21 +333,6 @@ class UintrTf : public Trapframe {
  private:
   u_sigframe &sigframe;
 };
-
-inline void JunctionSigframe::Unwind() {
-  switch (type) {
-    case SigframeType::kKernelSignal:
-      KernelSignalTf(reinterpret_cast<k_sigframe *>(tf))
-          .JmpUnwindPreemptEnable();
-    case SigframeType::kJunctionUIPI:
-      UintrTf(reinterpret_cast<u_sigframe *>(tf)).JmpUnwindPreemptEnable();
-    case SigframeType::kJunctionTf:
-      FunctionCallTf(reinterpret_cast<thread_tf *>(tf))
-          .JmpUnwindPreemptEnable();
-    default:
-      BUG();
-  }
-}
 
 void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th);
 

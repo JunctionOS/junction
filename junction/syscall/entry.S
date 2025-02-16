@@ -4,6 +4,7 @@
  */
 
 #include "entry.h"
+#include <asm/unistd_64.h>
 
 .file "entry.S"
 .section        .note.GNU-stack,"",@progbits
@@ -33,6 +34,8 @@
 #define RAX	(112)	/* return code */
 #define RIP	(120)	/* instruction pointer */
 #define RSP	(128)	/* stack pointer */
+#define ORIG_RAX (136)
+#define FSBASE (144)
 
 .macro SAVETF_STACK
 	movq    %gs:__perthread___self(%rip), %r11
@@ -190,19 +193,25 @@
 .globl usys_rt_sigreturn
 .type usys_rt_sigreturn, @function
 usys_rt_sigreturn:
-	// disable preemption
-	addl    $1, %gs:__perthread_preempt_cnt(%rip)
-
-	// get address of runtime stack
-	movq    %gs:__perthread_runtime_stack(%rip), %r11
+	// Mark begin syscall, *before* starting to use the syscall stack.
+	movq    %gs:__perthread___self(%rip), %r11;
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11);
 
 	// use current rsp as first argument to sigreturn()
 	movq    %rsp, %rdi
 
-	// switch to runtime stack temporarily
-	movq    %r11, %rsp
+	// Find bottom of syscall stack.
+	movq    JUNCTION_STACK_OFFSET(%r11), %rsp;
+	addq    $(JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 152), %rsp;
+
+	// Mark an empty/unintialized trapframe.
+	movq    %rsp, JUNCTION_TF_PTR_OFF(%r11)
+
+	// Save the syscall number for reference.
+	movq    $__NR_rt_sigreturn, ORIG_RAX(%rsp);
 
 	jmp     usys_rt_sigreturn_finish
+	nop
 
 .globl usys_rt_sigreturn_postcall
 .globl usys_rt_sigreturn_end

@@ -720,15 +720,13 @@ bool SignalQueue::Enqueue(const siginfo_t &info) {
 // the old rsp as an argument.
 extern "C" [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp) {
   assert_stack_is_aligned();
+  assert(mythread().rsp_on_syscall_stack());
+  assert(rsp % 16 == 0);
 
   k_sigframe *sigframe = reinterpret_cast<k_sigframe *>(rsp - 8);
   JunctionSigframe *jframe =
       reinterpret_cast<JunctionSigframe *>(rsp - 8 + sizeof(*sigframe));
   ThreadSignalHandler &hand = mythread().get_sighand();
-
-  assert_preempt_disabled();
-  assert_on_runtime_stack();
-  assert(rsp % 16 == 0);
 
   if (unlikely(jframe->magic != kJunctionFrameMagic))
     print_msg_abort("invalid stack frame used in rt_sigreturn");
@@ -742,7 +740,7 @@ extern "C" [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp) {
   hand.SigAltStack(&sigframe->uc.uc_stack, nullptr);
 
   // Unwind.
-  jframe->Unwind();
+  jframe->UnwindSysret();
   std::unreachable();
 }
 
