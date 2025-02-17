@@ -18,7 +18,6 @@ on:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
   test:
     # The type of runner that the job will run on
     runs-on: self-hosted
@@ -82,23 +81,12 @@ jobs:
         run: |
           ./scripts/build.sh
 
-      - name: Build debug
-        run: |
-          ./scripts/build.sh -d
-
       - name: Main tests
         run: ./scripts/test.sh
-
-      - name: Main tests (debug)
-        run: ./scripts/test.sh -d
 
       - name: Build snapshot tests
         run: |
           ./scripts/build.sh -s
-
-      - name: Build snapshot tests (debug)
-        run: |
-          ./scripts/build.sh -d -s
 
       - name: ELF snapshot tests
         run: ./scripts/test.sh 'snapshot_elf|restore_elf'
@@ -114,6 +102,76 @@ jobs:
         env:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
+  test-debug:
+    # The type of runner that the job will run on
+    runs-on: self-hosted
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      - name: 'Cleanup build folder'
+        run: |
+          ls -la ./
+          sudo rm -rf ./* || true
+          sudo rm -rf ./.??* || true
+          ls -la ./
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+        name: Checkout submodules
+        with:
+          submodules: recursive
+
+      - name: Extract glibc submodule commit
+        run:  /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
+
+      - name: Extract caladan submodule commit
+        run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        name: Retrieve cached install dir
+        with:
+          path: |
+            install
+            lib/.glibc_installed_ver
+          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/*') }}
+
+      - uses: actions/cache@v4
+        name: Retrieve cached caladan submodule binaries
+        with:
+          path: |
+            lib/caladan/dpdk/build
+            lib/caladan/rdma-core/build
+            lib/caladan/deps/pcm/build
+            lib/.caladan_installed_ver
+          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
+
+      - uses: actions/cache@v4
+        name: Retrieve cached python venv
+        with:
+          path: |
+            bin/venv
+            bin/node_modules
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
+
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-12 g++-12
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
+          ./scripts/install.sh
+
+      - name: Build debug
+        run: |
+          ./scripts/build.sh -d
+
+      - name: Main tests (debug)
+        run: ./scripts/test.sh -d
+
+      - name: Build snapshot tests (debug)
+        run: |
+          ./scripts/build.sh -d -s
+
       - name: ELF snapshot tests (debug)
         run: ./scripts/test.sh -d 'snapshot_elf|restore_elf'
         if: ${{ always() }}
@@ -127,6 +185,7 @@ jobs:
         # Update job status if this step fails
         env:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
+
 
   test-chroot:
     # The type of runner that the job will run on
@@ -202,23 +261,12 @@ jobs:
         run: |
           ./scripts/build.sh
 
-      - name: Build debug
-        run: |
-          ./scripts/build.sh -d
-
       - name: Main tests
         run: ./scripts/test.sh --use-chroot
-
-      - name: Main tests (debug)
-        run: ./scripts/test.sh -d --use-chroot
 
       - name: Build snapshot tests
         run: |
           ./scripts/build.sh -s
-
-      - name: Build snapshot tests (debug)
-        run: |
-          ./scripts/build.sh -d -s
 
       - name: ELF snapshot tests
         run: ./scripts/test.sh --use-chroot 'snapshot_elf|restore_elf'
@@ -233,6 +281,87 @@ jobs:
         # Update job status if this step fails
         env:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
+
+  test-chroot-debug:
+    # The type of runner that the job will run on
+    runs-on: self-hosted
+
+    # Steps represent a sequence of tasks that will be executed as part of the job
+    steps:
+      - name: 'Cleanup build folder'
+        run: |
+          ls -la ./
+          sudo rm -rf ./* || true
+          sudo rm -rf ./.??* || true
+          ls -la ./
+
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v4
+        name: Checkout submodules
+        with:
+          submodules: recursive
+
+      - name: Extract glibc submodule commit
+        run:  /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
+
+      - name: Extract caladan submodule commit
+        run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
+
+      - uses: actions/cache@v4
+        name: Retrieve cached install dir
+        with:
+          path: |
+            install
+            lib/.glibc_installed_ver
+          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/*') }}
+
+      - uses: actions/cache@v4
+        name: Retrieve cached caladan submodule binaries
+        with:
+          path: |
+            lib/caladan/dpdk/build
+            lib/caladan/rdma-core/build
+            lib/caladan/deps/pcm/build
+            lib/.caladan_installed_ver
+          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
+
+      - uses: actions/cache@v4
+        name: Retrieve cached python venv
+        with:
+          path: |
+            bin/venv
+            bin/node_modules
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
+
+      - uses: actions/cache@v4
+        name: Retrieve cached chroot environment
+        with:
+          path: |
+            chroot.tar.gz
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_chroot.sh') }}
+
+      - name: Install
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-12 g++-12
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
+          ./scripts/install.sh
+
+      - name: Install chroot
+        run: |
+          /bin/bash -c 'sudo tar xf chroot.tar.gz || (./scripts/install_chroot.sh && sudo tar czvf chroot.tar.gz chroot)'
+
+      - name: Build debug
+        run: |
+          ./scripts/build.sh -d
+
+      - name: Main tests (debug)
+        run: ./scripts/test.sh -d --use-chroot
+
+      - name: Build snapshot tests (debug)
+        run: |
+          ./scripts/build.sh -d -s
 
       - name: ELF snapshot tests (debug)
         run: ./scripts/test.sh -d --use-chroot 'snapshot_elf|restore_elf'

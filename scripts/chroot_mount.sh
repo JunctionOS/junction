@@ -10,6 +10,10 @@ MOUNT_POINTS=("${ROOT_DIR}/build" "${ROOT_DIR}/build-debug" "${ROOT_DIR}/install
 
 mount_bind() {
   for mnt in "${MOUNT_POINTS[@]}"; do
+    if [ ! -d "$mnt" ]; then
+      echo "Skipping $mnt: Directory does not exist."
+      continue
+    fi
     if ! mountpoint -q "$CHROOT_DIR/$mnt"; then
       echo "Mounting $mnt..."
       sudo mkdir -p "$CHROOT_DIR/$mnt"
