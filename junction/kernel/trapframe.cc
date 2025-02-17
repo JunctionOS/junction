@@ -89,7 +89,7 @@ void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
     unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe);
     unwind_tf.rdi = unwind_tf.rsp;
     unwind_tf.rip = reinterpret_cast<uint64_t>(UintrKFrameLoopReturn);
-    assert(unwind_tf.rsp % kStackAlign == sizeof(uintptr_t));
+    assert(AlignForFunctionEntry(unwind_tf.rsp) == unwind_tf.rsp);
   } else {
     // __kframe_unwind_loop will provide a zero argument to RunSignals.
     unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop);
@@ -244,21 +244,15 @@ void FunctionCallTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   assert(th.in_kernel());
   th.SetTrapframe(*this);
   uint64_t rdi = reinterpret_cast<uint64_t>(this);
-  uint64_t rsp = AlignDown(reinterpret_cast<uint64_t>(&sigframe), kStackAlign) -
-                 sizeof(uintptr_t);
+  uint64_t rsp = AlignForFunctionEntry(reinterpret_cast<uint64_t>(&sigframe));
   nosave_switch(reinterpret_cast<thread_fn_t>(UintrLoopReturn), rsp, rdi);
 }
 
 void UintrTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   th.SetTrapframe(*this);
   unwind_tf.rdi = reinterpret_cast<uint64_t>(this);
-  unwind_tf.rsp =
-      AlignDown(reinterpret_cast<uint64_t>(&sigframe), kStackAlign) -
-      sizeof(uintptr_t);
+  unwind_tf.rsp = AlignForFunctionEntry(reinterpret_cast<uint64_t>(&sigframe));
   unwind_tf.rip = reinterpret_cast<uint64_t>(UintrLoopReturn);
-  // Stack aligned to allow assembly code to make function calls without
-  // aligning the stack.
-  assert(unwind_tf.rsp % kStackAlign == 0);
 }
 
 void KernelSignalTf::DoSave(cereal::BinaryOutputArchive &ar, int rax) const {

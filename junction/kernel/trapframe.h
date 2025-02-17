@@ -289,7 +289,7 @@ class UintrTf final : public Trapframe {
 
   inline void MakeUnwinder(thread_tf &unwind_tf) const {
     unwind_tf.rdi = reinterpret_cast<uint64_t>(&sigframe);
-    unwind_tf.rsp = AlignDown(unwind_tf.rdi, kStackAlign) - sizeof(uintptr_t);
+    unwind_tf.rsp = AlignForFunctionEntry(unwind_tf.rdi);
     unwind_tf.rip = reinterpret_cast<uint64_t>(UintrFullRestore);
   }
 

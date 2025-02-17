@@ -28,6 +28,11 @@ namespace junction {
 
 inline constexpr size_t kStackAlign = 16;
 
+__always_inline __nofp constexpr uintptr_t AlignForFunctionEntry(
+    uintptr_t val) noexcept {
+  return ((val - 8) & ~15ULL) | 8ULL;
+}
+
 inline uint64_t GetRsp() {
   uint64_t rsp;
   asm volatile("movq %%rsp, %0" : "=r"(rsp));
