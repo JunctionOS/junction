@@ -117,7 +117,7 @@ def rtti_cast(base_ptr, derived_type):
 
 def offsets_from_junction_map():
     map_var = gdb.parse_and_eval(
-        "'junction::init_proc'.get()->mem_map_.get()->vmareas_")
+        "'junction::init_proc'.get()->mem_map_.get()->vmareas_.intervals_")
     filetype = get_enum_int()
     nodetype = gdb.lookup_type(
         "std::_Rb_tree_node<std::pair<unsigned long const, junction::VMArea> >").pointer()
@@ -185,7 +185,7 @@ if not pid:
         print(e)
         exit(-1)
 
-# for filename, real_start in get_offsets(offsets_from_junction_map()):
-#    outf(f"add-symbol-file {filename} -o {hex(real_start)}")
-for filename, real_start in get_offsets(offsets_from_linux_map(pid)):
+for filename, real_start in get_offsets(offsets_from_junction_map()):
     outf(f"add-symbol-file {filename} -o {hex(real_start)}")
+#for filename, real_start in get_offsets(offsets_from_linux_map(pid)):
+#    outf(f"add-symbol-file {filename} -o {hex(real_start)}")

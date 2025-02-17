@@ -21,7 +21,8 @@ inline static constexpr std::string_view kFDDirName = "fd";
 
 std::string GetMemInfo() {
   auto free = kMemoryMappingSize - myproc().get_mem_map().VirtualUsage();
-  std::stringstream ss;
+  rt::RuntimeLibcGuard g;
+  std::ostringstream ss;
   ss << "MemTotal:       " << std::setw(8) << kMemoryMappingSize / 1024
      << " kB\n";
   ss << "MemFree:        " << std::setw(8) << free / 1024 << " kB\n";
