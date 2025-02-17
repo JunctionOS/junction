@@ -227,7 +227,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
     return MakeError(ret);
   };
 
-  if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing();
+  if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing(*p.get());
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)

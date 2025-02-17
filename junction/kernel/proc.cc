@@ -786,12 +786,30 @@ void usys_exit_group(int status) {
   FinishExit(status);
 }
 
-void RseqState::_fixup(Trapframe *tf) {
+void RseqState::_fixup(Thread &th, Trapframe *tf) {
   struct rseq_cs *cs = reinterpret_cast<struct rseq_cs *>(user_rs_->rseq_cs);
   assert(cs);
 
-  if (!tf) tf = &mythread().GetTrapframe();
-  assert(tf == &mythread().GetTrapframe());
+  Process &proc = th.get_process();
+
+  if (unlikely(proc.get_mem_map().TraceEnabled())) {
+    // We are tracing AND there was a reschedule during an rseq critical
+    // section. Make sure that the tracer is notified of the CS memory and fix
+    // the permissions. This code may be called from non-Junction thread stacks.
+    bool new_hit =
+        proc.get_mem_map().RecordHit(cs, sizeof(*cs), Time::Now(), PROT_WRITE);
+    if (new_hit) {
+      std::byte *start = PageAlignDown(cs);
+      std::byte *end = PageAlign(cs + 1);
+      Status<void> ret =
+          KernelMProtect(start, end - start, PROT_READ | PROT_WRITE);
+      if (unlikely(!ret))
+        LOG(WARN) << "tracer could not mprotect rseq cs" << ret.error();
+    }
+  }
+
+  if (!tf) tf = &th.GetTrapframe();
+  assert(tf == &th.GetTrapframe());
 
   uintptr_t ip = tf->GetRip();
   if (ip - cs->start_ip < cs->post_commit_offset) tf->SetRip(cs->abort_ip);

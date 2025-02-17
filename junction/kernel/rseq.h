@@ -13,6 +13,7 @@ inline constexpr size_t kRseqSize = 32;
 inline constexpr size_t kRseqFeatureSize = 28;
 
 class Trapframe;
+class Thread;
 
 class RseqState {
  public:
@@ -24,6 +25,7 @@ class RseqState {
   }
 
   explicit operator bool() const { return user_rs_; }
+  [[nodiscard]] struct rseq *get_rseq() const { return user_rs_; }
 
   void reset() {
     if (!user_rs_) return;
@@ -43,9 +45,9 @@ class RseqState {
   // Fix IP for trapframe if it is executing in a critical section.
   // This must be called whenever a signal handler is executed or there is a
   // trip through the caladan scheduler.
-  inline void fixup(Trapframe *tf = nullptr) {
+  inline void fixup(Thread &th, Trapframe *tf = nullptr) {
     if (!user_rs_) return;
-    if (user_rs_->rseq_cs) _fixup(tf);
+    if (user_rs_->rseq_cs) _fixup(th, tf);
     update();
   }
 
@@ -55,7 +57,7 @@ class RseqState {
   }
 
  private:
-  void _fixup(Trapframe *tf);
+  void _fixup(Thread &th, Trapframe *tf);
 
   void update() {
     assert(user_rs_);

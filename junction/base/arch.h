@@ -26,12 +26,28 @@ constexpr T PageAlign(T addr)
   return AlignUp(addr, kPageSize);
 }
 
+template <typename P>
+constexpr std::byte *PageAlign(P ptr)
+  requires std::is_pointer_v<P>
+{
+  uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+  return reinterpret_cast<std::byte *>(PageAlign(addr));
+}
+
 // PageAlignDown aligns an address downward to the nearest page size
 template <typename T>
 constexpr T PageAlignDown(T addr)
   requires std::is_unsigned_v<T>
 {
   return AlignDown(addr, kPageSize);
+}
+
+template <typename P>
+constexpr std::byte *PageAlignDown(P ptr)
+  requires std::is_pointer_v<P>
+{
+  uintptr_t addr = reinterpret_cast<uintptr_t>(ptr);
+  return reinterpret_cast<std::byte *>(PageAlignDown(addr));
 }
 
 // IsPageAligned returns true if aligned to a page

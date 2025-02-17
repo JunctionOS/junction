@@ -140,19 +140,40 @@ Status<std::reference_wrapper<VMArea>> MemoryMap::Find(uintptr_t addr) {
   return vmareas_.Find(addr);
 }
 
-void MemoryMap::EnableTracing() {
-  rt::ScopedLock g(mu_);
+void MemoryMap::EnableTracing(Process &p) {
+  assert(&p.get_mem_map() == this);
+  {
+    rt::ScopedLock g(mu_);
 
-  tracer_.reset(new PageAccessTracer());
-  for (auto &[end, vma] : vmareas_) {
-    vma.traced = true;
-    if (vma.prot == PROT_NONE) continue;
-    Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), PROT_NONE);
-    if (unlikely(!ret))
-      LOG(WARN) << "tracer could not mprotect " << ret.error() << " " << vma;
+    tracer_.reset(new PageAccessTracer());
+    for (auto &[end, vma] : vmareas_) {
+      vma.traced = true;
+      if (vma.prot == PROT_NONE) continue;
+      Status<void> ret = KernelMProtect(vma.Addr(), vma.Length(), PROT_NONE);
+      if (unlikely(!ret))
+        LOG(WARN) << "tracer could not mprotect " << ret.error() << " " << vma;
+    }
+
+    memfs::MemFSStartTracer(*FSRoot::GetGlobalRoot().get_root().get());
   }
 
-  memfs::MemFSStartTracer(*FSRoot::GetGlobalRoot().get_root().get());
+  std::vector<struct rseq *> rseq_ptrs;
+  rseq_ptrs.reserve(p.thread_count());
+  p.ForEachThread([&](Thread &th) {
+    RseqState &rsstate = th.get_rseq();
+    struct rseq *rs = rsstate.get_rseq();
+    if (rs) rseq_ptrs.push_back(rs);
+  });
+
+  for (auto &p : rseq_ptrs) {
+    RecordHit(p, sizeof(*p), Time::Now(), PROT_WRITE);
+    std::byte *start = PageAlignDown(p);
+    std::byte *end = PageAlign(p + 1);
+    Status<void> ret =
+        KernelMProtect(start, end - start, PROT_READ | PROT_WRITE);
+    if (unlikely(!ret))
+      LOG(WARN) << "tracer could not mprotect rseq" << ret.error();
+  }
 }
 
 Status<PageAccessTracer> MemoryMap::EndTracing() {
@@ -209,14 +230,16 @@ Status<void> MemoryMap::DumpTracerReport() {
   return {};
 }
 
-void MemoryMap::RecordHit(void *addr, size_t len, Time time,
+bool MemoryMap::RecordHit(void *addr, size_t len, Time time,
                           int required_prot) {
   assert(tracer_);
   uintptr_t page = PageAlignDown(reinterpret_cast<uintptr_t>(addr));
   uintptr_t end = PageAlign(reinterpret_cast<uintptr_t>(addr) + len);
+  bool first_hit = false;
   rt::ScopedLock ul(mu_);
   for (; page < end; page += kPageSize)
-    tracer_->RecordHit(page, time, required_prot);
+    first_hit |= tracer_->RecordHit(page, time, required_prot);
+  return first_hit;
 }
 
 // This function is called when there is a SIGSEGV and

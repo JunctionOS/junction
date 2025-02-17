@@ -18,6 +18,7 @@
 namespace junction {
 
 class MemoryMap;
+class Process;
 
 inline constexpr uintptr_t kVirtualAreaMax = 0x500000000000;
 
@@ -121,11 +122,16 @@ class PageAccessTracer {
 
   // Record a new page being accessed
   // Updates the hit time to the earliest time if an existing hit exists.
-  void RecordHit(uintptr_t page, Time t, int fault_type) {
+  // Returns true if this was the first access.
+  bool RecordHit(uintptr_t page, Time t, int fault_type) {
     assert(IsPageAligned(page));
     auto [it, inserted] = access_at_.try_emplace(page, t);
     it->second = std::min(it->second, t);
-    if (fault_type == PROT_WRITE) page_writes_.insert(page);
+    if (fault_type == PROT_WRITE) {
+      auto [it, inserted] = page_writes_.insert(page);
+      return inserted;
+    }
+    return inserted;
   }
 
   const std::unordered_map<uintptr_t, Time> &get_trace() const {
@@ -220,14 +226,14 @@ class alignas(kCacheLineSize) MemoryMap {
   // Start a tracer on this memory map. Sets all permissions in the kernel to
   // PROT_NONE and updates permissions when page faults occur. All threads must
   // be stopped.
-  void EnableTracing();
+  void EnableTracing(Process &p);
 
   // End tracing. All threads must be stopped or the process must be exiting.
   Status<PageAccessTracer> EndTracing();
 
   [[nodiscard]] Status<void> DumpTracerReport();
 
-  void RecordHit(void *addr, size_t len, Time t, int fault_type);
+  bool RecordHit(void *addr, size_t len, Time t, int fault_type);
 
   [[nodiscard]] bool TraceEnabled() const { return !!tracer_; }
 

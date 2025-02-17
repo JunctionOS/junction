@@ -153,7 +153,7 @@ bool HandleStartTrace(ControlConn &c,
     return false;
   }
 
-  proc->get_mem_map().EnableTracing();
+  proc->get_mem_map().EnableTracing(*proc.get());
 
   if (!c.SendSuccess()) {
     LOG(WARN) << "ctl: failed to send success";

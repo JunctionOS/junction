@@ -181,7 +181,7 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
     std::optional<DeliveredSignal> sig = hand.GetNextSignal();
     if (!sig) break;
 
-    if (!sig_count) myth.get_rseq().fixup(&frame);
+    if (!sig_count) myth.get_rseq().fixup(myth, &frame);
 
     PushUserSigFrame(*sig, rsp, *prev, restore_tf);
     prev = &restore_wrapper;
@@ -907,7 +907,8 @@ bool ThreadSignalHandler::EnqueueSignal(const siginfo_t &info) {
 // Called by the Caladan scheduler when a Junction thread is being scheduled.
 extern "C" void on_sched(thread_t *th) {
   assert(th->junction_thread);
-  Thread::fromCaladanThread(th).get_rseq().fixup();
+  Thread &myth = Thread::fromCaladanThread(th);
+  myth.get_rseq().fixup(myth);
 }
 
 // Check if restart is needed post handler, updates the trapframe if needed.
@@ -959,7 +960,7 @@ void ThreadSignalHandler::DeliverSignals(Trapframe &entry, int rax) {
     CheckRestartSysPostHandler(myth.GetSyscallFrame(), rax, *sig);
 
   // Abort an rseq CS if needed.
-  myth.get_rseq().fixup(&entry);
+  myth.get_rseq().fixup(myth, &entry);
 
   RunOnSyscallStack([this, d = *sig, entry = &entry]() mutable {
     // HACK: entry might be sitting on top of this RSP, will need a better a
