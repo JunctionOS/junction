@@ -209,7 +209,7 @@ FaultStatus GetFaultStatus(Thread &th, uint64_t fault_sp, uint64_t fault_ip) {
 // Place UINTR handler logic that follows an xsave here so compiler can
 // inline/use floating point.
 void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
-                      uint64_t rsp) {
+                      uint64_t rsp, bool was_xsave_area_used) {
   assert_on_uintr_stack();
 
   UintrTf &stack_frame = UintrTf(uintr_frame).CloneTo(&rsp);
@@ -218,12 +218,30 @@ void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
   stack_frame.GetFrame().AttachXstate(xsave_buf);
 
   // Set up the proper unwinder.
-  if (!th->junction_thread || th->in_syscall) {
+  if (!th->junction_thread) {
     stack_frame.MakeUnwinder(th->tf);
   } else {
     Thread &myth = mythread();
-    myth.mark_enter_kernel();
-    stack_frame.MakeUnwinderSysret(myth, th->tf);
+
+    // Do a more thorough check to ensure that we are not in/exiting a syscall.
+    FaultStatus fstatus =
+        GetFaultStatus(myth, uintr_frame->GetRsp(), uintr_frame->GetRip());
+
+    if (fstatus == FaultStatus::kInSyscall) {
+      // Just undo this trapframe and resume the system call at next sched.
+      stack_frame.MakeUnwinder(th->tf);
+    } else if (fstatus == FaultStatus::kNotInSyscall) {
+      // Unwind this frame and check for pending signals at next sched.
+      myth.mark_enter_kernel();
+      stack_frame.MakeUnwinderSysret(myth, th->tf);
+    } else if (unlikely(fstatus == FaultStatus::kCompletingSyscall)) {
+      // Rare case where we got caught right as a syscall exited, restart the
+      // syscall exit process.
+      myth.mark_enter_kernel();
+      myth.GetTrapframe().MakeUnwinderSysret(myth, th->tf);
+      th->xsave_area_in_use =
+          was_xsave_area_used;  // we are abandoning the saved trapframe.
+    }
   }
 
   preempt_disable();
@@ -240,13 +258,31 @@ void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
 }
 
 void HandleKickUintrFinish(thread_t *th, u_sigframe *uintr_frame,
-                           void *xsave_buf) {
+                           void *xsave_buf, bool prev_xsave_area_used) {
   assert_on_uintr_stack();
+
+  Thread &myth = Thread::fromCaladanThread(th);
+
+  // Do a more thorough check to ensure that we are not in/exiting a syscall.
+  FaultStatus fstatus =
+      GetFaultStatus(myth, uintr_frame->GetRsp(), uintr_frame->GetRip());
+  if (unlikely(fstatus != FaultStatus::kNotInSyscall)) {
+    // We did an earlier check for FaultStatus::kInSyscall
+    assert(fstatus == FaultStatus::kCompletingSyscall);
+
+    // We are totally abandoning the captured xsave state, this frees it if was
+    // using the thread-private xsave area.
+    th->xsave_area_in_use = prev_xsave_area_used;
+
+    // Restart the system call exit process.
+    thread_tf out_tf;
+    myth.mark_enter_kernel();
+    myth.GetTrapframe().MakeUnwinderSysret(myth, out_tf);
+    __switch_and_interrupt_enable(&out_tf);
+  }
 
   uintr_frame->AttachXstate(xsave_buf);
   UintrTf tf(uintr_frame);
-
-  Thread &myth = Thread::fromCaladanThread(th);
 
   uint64_t rsp = uintr_frame->GetRsp() - kRedzoneSize;
   FunctionCallTf &out_tf = FunctionCallTf::CreateOnSyscallStack(myth);
@@ -348,10 +384,11 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
 
     // Use a function that is not marked nofp to perform the remaining
     // operations.
-    HandleKickUintrFinish(th, uintr_frame, xsave_buf);
+    HandleKickUintrFinish(th, uintr_frame, xsave_buf, was_xsave_area_used);
 
     // If we return to this point, restore the floating point state.
     uintr_frame->RestoreXstate();
+    th->xsave_area_in_use = was_xsave_area_used;
     return;
   }
 
@@ -366,14 +403,14 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   if (!xsave_buf) {
     // Allocate space on the target stack for the xsave.
     // AlignDown:
-    rsp = AlignDown(rsp, kXsaveAlignment);
+    rsp = AlignDown(rsp - buf_sz, kXsaveAlignment);
     xsave_buf = reinterpret_cast<void *>(rsp);
   }
 
   XSaveCompact(xsave_buf, in_use_xfeatures, buf_sz);
 
   // Safe to use regular functions now that we have done an XSave.
-  UintrFinishYield(uintr_frame, th, xsave_buf, rsp);
+  UintrFinishYield(uintr_frame, th, xsave_buf, rsp, was_xsave_area_used);
 
   __builtin_unreachable();
 }
