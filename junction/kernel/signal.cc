@@ -336,7 +336,8 @@ extern "C" __nofp void uintr_entry(u_sigframe *uintr_frame) {
   STAT(PREEMPTIONS)++;
 
   // resume execution if preemption is disabled.
-  if (!preempt_enabled() || unlikely(IsOnRuntimeStack(uintr_frame->rsp))) {
+  if (!preempt_enabled() ||
+      unlikely(IsOnRuntimeStack(uintr_frame->rsp) || !xsave_enabled_bitmap)) {
     perthread_andi(preempt_cnt, 0x7fffffff);
     return;
   }

@@ -34,7 +34,14 @@ class LinuxInode : public Inode {
         size_(stat.st_size),
         mtime_(stat.st_mtime),
         dev_(stat.st_dev) {
-    assert(!is_symlink() && !is_dir());
+    // TODO: switch to assert after finding the bug causing this check to file
+    // for LinuxIDirs.
+    if (is_symlink() || is_dir()) {
+      LOG(ERR)
+          << "attempting to instantiate linux inode with folder/symlink: path "
+          << path_;
+      syscall_exit(-1);
+    }
   }
 
   // Open a file for this inode.
@@ -74,7 +81,11 @@ class LinuxIDir : public memfs::MemIDir {
  public:
   LinuxIDir(Token t, const struct stat &stat, std::string path)
       : MemIDir(t, stat), path_(std::move(path)) {
-    assert(is_dir());
+    // TODO: switch to assert after finding the bug triggering this.
+    if (!is_dir()) {
+      LOG(ERR) << "attempting to instantiate linuxidir with non-dir " << path_;
+      syscall_exit(-1);
+    }
   }
 
   bool SnapshotPrunable() override { return true; }

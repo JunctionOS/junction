@@ -179,8 +179,8 @@ Status<void> InitXsave() {
   // Fill the xstate component table
   cpuid_info regs;
   cpuid(kXsaveCpuid, 0, &regs);
-  xsave_enabled_bitmap = regs.eax;
-  xsave_enabled_bitmap |= (uint64_t)regs.edx << 32;
+  size_t enabled_bitmap = regs.eax;
+  enabled_bitmap |= (uint64_t)regs.edx << 32;
 
   size_t last_size = offsetof(xstate, xsave_area);
 
@@ -188,7 +188,7 @@ Status<void> InitXsave() {
   xsave_max_sizes[0] = xsave_max_sizes[1] = last_size;
 
   for (size_t i = 2; i < kXsaveMaxComponents; i++) {
-    if ((xsave_enabled_bitmap & BIT(i)) == 0) continue;
+    if ((enabled_bitmap & BIT(i)) == 0) continue;
     cpuid(kXsaveCpuid, i, &regs);
 
     bool align = (regs.ecx & BIT(1)) != 0;
@@ -205,6 +205,8 @@ Status<void> InitXsave() {
              << "Please recompile with a larger XSAVE_AREA_RESERVED.";
     return MakeError(EINVAL);
   }
+
+  store_release(&xsave_enabled_bitmap, enabled_bitmap);
 
   return {};
 }

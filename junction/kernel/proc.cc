@@ -752,6 +752,8 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
 [[noreturn]] void FinishExit(int status) {
   Thread *tptr = &mythread();
   tptr->set_xstate(status);
+  // Clear rseq.
+  tptr->get_rseq().set(nullptr, 0, 0);
   rt::Preempt::Lock();
   if (--tptr->cold().ref_count_ <= 0) {
     assert(tptr->cold().ref_count_ == 0);
