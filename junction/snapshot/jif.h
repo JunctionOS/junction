@@ -12,7 +12,7 @@
 namespace junction {
 
 constexpr size_t kJifMagicLen = 4;
-constexpr uint32_t kJifVersion = 2;
+constexpr uint32_t kJifVersion = 3;
 
 // program header format
 struct jif_phdr {
@@ -75,8 +75,10 @@ struct jif_header {
   uint32_t ord_size;
   // JIF version.
   uint32_t version;
+  // Number of pages that were written to from data section to prefetch.
+  uint64_t n_write_prefetch;
   // Number of pages from data section to prefetch.
-  uint64_t n_prefetch;
+  uint64_t n_total_prefetch;
 
   // absolute offset of the pheader table
   [[nodiscard]] constexpr uint64_t pheader_offset() const {
