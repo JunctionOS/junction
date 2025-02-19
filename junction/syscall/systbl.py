@@ -23,7 +23,7 @@ executes (or both). Logging before the syscall occurs can be useful for
 identifying where a thread is blocking.
 """
 STRACE_LOG_AFTER_RETURN = True
-STRACE_LOG_BEFORE_RETURN = False
+STRACE_LOG_BEFORE_RETURN = True
 
 STRACE_ARGS_THAT_ARE_PATHNAMES = set([
     ("openat", 1),
@@ -40,6 +40,7 @@ STRACE_ARGS_THAT_ARE_PATHNAMES = set([
     ("link", 0),
     ("link", 1),
     ("unlink", 0),
+    ("unlinkat", 1),
     ("chown", 0),
     ("chmod", 0),
     ("execve", 0),

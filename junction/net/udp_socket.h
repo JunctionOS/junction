@@ -138,7 +138,7 @@ class UDPSocket : public Socket {
   Status<void> LocalAddr(SockAddrPtr laddr) const override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
     assert(laddr);
-    Status<netaddr> ret = conn_.RemoteAddr();
+    Status<netaddr> ret = conn_.LocalAddr();
     if (unlikely(!ret)) return MakeError(ret);
     laddr.FromNetAddr(*ret);
     return {};

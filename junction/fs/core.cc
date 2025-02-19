@@ -179,7 +179,7 @@ Status<Entry> LookupEntry(Process &p, int fd, std::string_view path) {
 }
 
 Status<void> MkNod(const Entry &entry, mode_t mode, dev_t dev) {
-  mode_t type = (mode & kTypeMask);
+  // mode_t type = (mode & kTypeMask);
   if (entry.must_be_dir) return MakeError(EISDIR);
   return entry.dir->MkNod(entry.name, mode, dev);
 }
@@ -234,7 +234,7 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
     return MakeError(ENOENT);
   }
 
-  if (flags & kFlagExclusive) return MakeError(EINVAL);
+  if (flags & kFlagExclusive) return MakeError(EEXIST);
 
   if ((*in)->get_inode_ref().is_symlink()) {
     if (!must_be_dir && (flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
@@ -293,6 +293,13 @@ Status<std::shared_ptr<File>> ISoftLink::Open(
 // traversing the chain of parents. The result is placed in @dst and an updated
 // span is returned.
 [[nodiscard]] Status<void> DirectoryEntry::GetFullPath(std::ostream &os) {
+  // This entry is no longer valid, return the name stored in name_.
+  if (!intrusive_ref_) {
+    rt::SpinGuard g(lock_);
+    os << name_;
+    return {};
+  }
+
   std::shared_ptr<DirectoryEntry> cur = shared_from_this();
   std::vector<std::string> paths;
   while (true) {
@@ -647,6 +654,29 @@ long usys_truncate(const char *path, off_t length) {
   if (!ino.is_regular()) return -EINVAL;
   Status<void> ret = ino.SetSize(static_cast<size_t>(length));
   if (!ret) return MakeCError(ret);
+  return 0;
+}
+
+long usys_chmod(const char *path, mode_t mode) {
+  FSRoot &fs = myproc().get_fs();
+  Status<std::shared_ptr<Inode>> ino = LookupInode(fs, path, false);
+  if (!ino) return MakeCError(ino);
+  (*ino)->SetMode(mode);
+  return 0;
+}
+
+long usys_fchmod(int fd, mode_t mode) {
+  Status<std::shared_ptr<Inode>> ino = GetFileInode(fd, myproc());
+  if (!ino) return MakeCError(ino);
+  (*ino)->SetMode(mode);
+  return 0;
+}
+
+long usys_fchmodat(int dirfd, const char *path, mode_t mode,
+                   [[maybe_unused]] int flags) {
+  Status<std::shared_ptr<Inode>> ino = LookupInode(myproc(), dirfd, path);
+  if (!ino) return MakeCError(ino);
+  (*ino)->SetMode(mode);
   return 0;
 }
 

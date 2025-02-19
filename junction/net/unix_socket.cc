@@ -242,6 +242,7 @@ class UnixDatagramSocket : public Socket {
   Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
                           bool peek, bool nonblocking) override {
     UnixSocketAddr rem;
+    nonblocking |= is_nonblocking();
     Status<size_t> ret = rx_->DoRead(nonblocking, [&](DatagramChannel &chan) {
       return chan.Read(buf, &rem, peek);
     });
@@ -252,6 +253,7 @@ class UnixDatagramSocket : public Socket {
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
                            bool nonblocking) override {
     UnixSocketAddr rem;
+    nonblocking |= is_nonblocking();
     Status<size_t> ret = rx_->DoRead(nonblocking, [&](DatagramChannel &chan) {
       return chan.Readv(iov, peek, &rem);
     });
@@ -281,7 +283,8 @@ class UnixDatagramSocket : public Socket {
     Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer(raddr);
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
-    return peer->rx_->DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+    nonblocking |= is_nonblocking();
+    return peer->rx_->DoWrite(nonblocking, [&](DatagramChannel &chan) {
       return chan.Write(buf, &local_name_);
     });
   }
@@ -303,7 +306,8 @@ class UnixDatagramSocket : public Socket {
     Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer(raddr);
     if (!tmp) return MakeError(tmp);
     std::shared_ptr<UnixDatagramSocket> &peer = *tmp;
-    return peer->rx_->DoWrite(is_nonblocking(), [&](DatagramChannel &chan) {
+    nonblocking |= is_nonblocking();
+    return peer->rx_->DoWrite(nonblocking, [&](DatagramChannel &chan) {
       return chan.Writev(iov, &local_name_);
     });
   }
@@ -632,6 +636,7 @@ class UnixStreamSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromUnixAddr(Connection().peer_name);
+    nonblocking |= is_nonblocking();
     return Connection().rx->Read(buf, nonblocking, peek);
   }
 
@@ -640,6 +645,7 @@ class UnixStreamSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
+    nonblocking |= is_nonblocking();
     return Connection().tx->Write(buf, nonblocking);
   }
 
@@ -648,6 +654,7 @@ class UnixStreamSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
+    nonblocking |= is_nonblocking();
     return Connection().tx->Writev(iov, nonblocking);
   }
 
@@ -663,6 +670,7 @@ class UnixStreamSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromUnixAddr(Connection().peer_name);
+    nonblocking |= is_nonblocking();
     return Connection().rx->Readv(iov, nonblocking, peek);
   }
 

@@ -80,9 +80,9 @@ class DirectoryIterator {
 };
 
 __noinline void LinuxFSPanic(std::string_view msg, Error err) {
+  rt::RuntimeLibcGuard g;
   std::stringstream ss;
   ss << "linuxfs: " << msg << " " << err;
-  rt::RuntimeLibcGuard g;
   throw std::runtime_error(ss.str());
 }
 

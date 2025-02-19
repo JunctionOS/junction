@@ -445,6 +445,7 @@ File::File(FileType type, unsigned int flags, FileMode mode,
   if (!dent_) return "";
   std::string out;
   out.reserve(PATH_MAX);
+  rt::RuntimeLibcGuard g;
   std::ostringstream ss(std::move(out));
   Status<void> ret = dent_->GetFullPath(ss);
   if (unlikely(!ret)) return "[STALE]";

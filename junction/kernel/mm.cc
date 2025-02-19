@@ -218,6 +218,7 @@ Status<void> MemoryMap::DumpTracerReport() {
       return MakeError(ord_file);
     }
 
+    rt::RuntimeLibcGuard g;
     std::stringstream ord;
     ord << *report;
     std::string ordstr = ord.str();
@@ -636,11 +637,10 @@ std::ostream &operator<<(std::ostream &os, const VMArea &vma) {
 }
 
 std::string MemoryMap::GetMappingsString() {
+  rt::ScopedSharedLock g(mu_);
+  rt::RuntimeLibcGuard r;
   std::ostringstream ss;
-  {
-    rt::ScopedSharedLock g(mu_);
-    for (auto const &[end, vma] : vmareas_) ss << vma << "\n";
-  }
+  for (auto const &[end, vma] : vmareas_) ss << vma << "\n";
   return ss.str();
 }
 

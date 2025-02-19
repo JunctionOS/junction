@@ -46,6 +46,7 @@ inline constexpr mode_t kTypeMask =
 
 // Shift required to convert type bits to file types (eg DT_REG, etc.)
 inline constexpr uint32_t kTypeShift = 12;
+inline constexpr uint32_t kModeMask = (1 << kTypeShift) - 1;
 
 class File;
 class SoftLinkFile;
@@ -68,6 +69,11 @@ class Inode : public std::enable_shared_from_this<Inode> {
   }
   // Sets the size of this inode.
   virtual Status<void> SetSize(size_t sz) { return MakeError(EINVAL); }
+
+  // Updates the mode on this inode (lower 12 bits only).
+  void SetMode(mode_t new_mode) {
+    mode_ = (mode_ & ~kModeMask) | (new_mode & kModeMask);
+  }
 
   // permissions and other mode bits
   [[nodiscard]] mode_t get_mode() const { return mode_; }
@@ -126,7 +132,7 @@ class Inode : public std::enable_shared_from_this<Inode> {
 
  private:
   const ino_t inum_;               // inode number
-  const mode_t mode_;              // the type and mode
+  mode_t mode_;                    // the type and mode
   bool has_advisory_lock_{false};  // An advisory lock exists for this inode
   std::atomic<nlink_t> nlink_{0};  // number of hard links to this inode
 };
@@ -207,6 +213,7 @@ class DirectoryEntry : public std::enable_shared_from_this<DirectoryEntry> {
   // Get the full pathname to this directory entry in a string. This slower
   // variant should be used outside of performance critical sections.
   [[nodiscard]] Status<std::string> GetPathStr() {
+    rt::RuntimeLibcGuard g;
     std::stringstream ss;
     if (Status<void> ret = GetFullPath(ss); !ret) return MakeError(ret);
     return ss.str();
@@ -262,6 +269,19 @@ class DirectoryEntry : public std::enable_shared_from_this<DirectoryEntry> {
   }
 
   void Invalidate() {
+    assert(intrusive_ref_);
+
+    // There are other holders of this DirectoryEntry. Leave the last full path
+    // in name_ for them.
+    if (intrusive_ref_.use_count() > 1) {
+      rt::RuntimeLibcGuard g;
+      std::stringstream ss;
+      if (Status<void> ret = GetFullPath(ss); !ret) BUG();
+      ss << " (deleted)";
+      rt::SpinGuard g1(lock_);
+      name_ = ss.str();
+    }
+
     // May be called with directory locks held.
     assert(parent_.load(std::memory_order_relaxed));
     DecLink();

@@ -66,9 +66,9 @@ unlink
 unlinkat
 chown:::stub
 fchownat:::stub
-chmod:::stub
-fchmod:::stub
-fchmodat:::stub
+chmod
+fchmod
+fchmodat
 getcwd
 umask
 dup
