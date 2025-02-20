@@ -523,9 +523,28 @@ std::optional<k_sigaction> ThreadSignalHandler::GetAction(int sig) {
   std::unreachable();
 }
 
+void SynchronousKill(Thread &th, const KernelSignalTf &sigframe,
+                     int signo = SIGSEGV) {
+  uint64_t rsp = th.get_syscall_stack_rsp();
+  KernelSignalTf &stack_tf = sigframe.CloneTo(&rsp);
+  k_sigframe &new_frame = stack_tf.GetFrame();
+  new_frame.uc.uc_mcontext.trapno = EKILLPROC;
+  th.mark_enter_kernel();
+  th.SetTrapframe(stack_tf);
+  new_frame.pretcode = 0;  // Won't return
+  thread_tf tf;
+  tf.rip = reinterpret_cast<uint64_t>(&usys_exit_group);
+  tf.rsp = AlignForFunctionEntry(rsp);
+  tf.rdi = 128 + signo;
+  __restore_tf_full_and_preempt_enable(&tf);
+  std::unreachable();
+}
+
+DEFINE_PERTHREAD(const KernelSignalTf *, trapped_frame);
+
 void ThreadSignalHandler::DeliverKernelSigToUser(int signo,
                                                  const KernelSignalTf &sigframe,
-                                                 thread_tf &tf) {
+                                                 Thread &myth) {
   assert(IsOnStack(GetSyscallStack()) || on_runtime_stack());
 
   std::optional<k_sigaction> tmp;
@@ -534,8 +553,11 @@ void ThreadSignalHandler::DeliverKernelSigToUser(int signo,
   else
     LOG(WARN) << "synchronous signal blocked";
 
-  // synchronous signal kills program if no action is specified
-  const k_sigaction &act = tmp ? *tmp : SigKillAction;
+  // synchronous signal kills program if no action is specified.
+  if (!tmp || tmp->handler == SigKillHandler)
+    SynchronousKill(myth, sigframe, signo);
+
+  const k_sigaction &act = *tmp;
 
   // Determine stack to use
   uint64_t rsp = sigframe.GetRsp() - kRedzoneSize;
@@ -543,12 +565,11 @@ void ThreadSignalHandler::DeliverKernelSigToUser(int signo,
   if (act.wants_altstack() && has_altstack() && !IsOnStack(rsp, ss))
     rsp = reinterpret_cast<uint64_t>(ss.ss_sp) + ss.ss_size;
 
-  // Check if we are pushing to an address that was the source of the fault.
-  if (unlikely(sigframe.GetFaultAddr() == rsp + kRedzoneSize))
-    print_msg_abort("user fault on stack");
-
-  // transfer the frame
+  // transfer the frame. This function might fault if there is an issue with the
+  // stack, mark the sigframe so we can trap in this case and kill the program.
+  perthread_store(trapped_frame, &sigframe);
   k_sigframe *new_frame = sigframe.PushUserVisibleFrame(&rsp);
+  perthread_store(trapped_frame, nullptr);
 
   // fix restorer
   new_frame->pretcode = reinterpret_cast<char *>(act.restorer);
@@ -566,11 +587,17 @@ void ThreadSignalHandler::DeliverKernelSigToUser(int signo,
   if (unlikely(GetCfg().strace_enabled())) LogSignal(new_frame->info);
 
   // setup a trapframe to run the signal handler.
+  FunctionCallTf &ftf = FunctionCallTf::CreateOnSyscallStack(myth);
+  thread_tf &tf = ftf.GetFrame();
   tf.rsp = reinterpret_cast<uint64_t>(new_frame);
   tf.rip = reinterpret_cast<uint64_t>(act.handler);
   tf.rdi = static_cast<uint64_t>(signo);
   tf.rsi = reinterpret_cast<uint64_t>(&new_frame->info);
   tf.rdx = reinterpret_cast<uint64_t>(&new_frame->uc);
+
+  myth.mark_enter_kernel();
+  ftf.JmpUnwindSysretPreemptEnable(myth);
+  std::unreachable();
 }
 
 // Handle a page fault for a program. Must be called on the syscall stack.
@@ -607,9 +634,7 @@ void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, int required_prot,
     // Pass the signal to the user defined signal handler. Synchronous signals
     // cannot be blocked, so a handler will be invoked or the program will be
     // killed.
-    FunctionCallTf &tf = FunctionCallTf::CreateOnSyscallStack(myth);
-    myth.get_sighand().DeliverKernelSigToUser(SIGSEGV, frame, tf.GetFrame());
-    tf.JmpUnwindSysretPreemptEnable(myth);
+    myth.get_sighand().DeliverKernelSigToUser(SIGSEGV, frame, myth);
     std::unreachable();
   }
 
@@ -651,6 +676,9 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   // when we are on the runtime stack.
   if (!was_preempt_disabled) preempt_disable();
 
+  const KernelSignalTf *prev_tf = perthread_get(trapped_frame);
+  perthread_store(trapped_frame, nullptr);
+
   // TODO(jf): replace with a global flag.
   Thread &myth = mythread();
   MemoryMap &mm = myth.get_process().get_mem_map();
@@ -666,6 +694,8 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
       if (mm.HandlePageFault(reinterpret_cast<uintptr_t>(info->si_addr), prot,
                              time))
         return;
+      // Try to cleanly kill this program.
+      if (prev_tf) SynchronousKill(myth, *prev_tf);
       print_msg_abort("signal delivered while preemption is disabled");
     }
 
@@ -682,19 +712,16 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
     std::unreachable();
   }
 
-  if (unlikely(was_preempt_disabled || IsOnRuntimeStack(uc->GetRsp())))
+  if (unlikely(was_preempt_disabled || IsOnRuntimeStack(uc->GetRsp()))) {
+    if (prev_tf) SynchronousKill(myth, *prev_tf);
     print_msg_abort("signal delivered while preemption is disabled");
+  }
 
   if (unlikely(GetFaultStatus(myth, uc->GetRsp(), uc->GetRip()) !=
                FaultStatus::kNotInSyscall))
     print_msg_abort("signal delivered while in Junction syscall handler");
 
-  FunctionCallTf &tf = FunctionCallTf::CreateOnSyscallStack(myth);
-  myth.get_sighand().DeliverKernelSigToUser(signo, KernelSignalTf(uc),
-                                            tf.GetFrame());
-  myth.mark_enter_kernel();
-
-  tf.JmpUnwindSysretPreemptEnable(myth);
+  myth.get_sighand().DeliverKernelSigToUser(signo, KernelSignalTf(uc), myth);
   std::unreachable();
 }
 

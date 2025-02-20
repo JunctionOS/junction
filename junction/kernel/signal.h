@@ -285,7 +285,7 @@ class ThreadSignalHandler {
 
   // Entry point for a kernel delivered signal.
   void DeliverKernelSigToUser(int signo, const KernelSignalTf &sigframe,
-                              thread_tf &restore_tf);
+                              Thread &myth);
 
   // Retrieve the next signal to be delivered to the user.
   std::optional<DeliveredSignal> GetNextSignal();

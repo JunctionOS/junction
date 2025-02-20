@@ -24,6 +24,7 @@ enum {
   ERESTARTNOINTR = 513,
   ERESTARTNOHAND = 514,
   EUNEXPECTEDEOF = 515,
+  EKILLPROC = 516,
 };
 
 namespace junction {
