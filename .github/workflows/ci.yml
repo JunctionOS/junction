@@ -24,6 +24,10 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@a54c7afa936fefeb4456b2dd8068152669aa8203
+        with:
+          toolchain: 1.82
       - name: 'Cleanup Mount Points'
         run: |
           escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
@@ -105,7 +109,7 @@ jobs:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       - name: JIF snapshot tests
-        run: ./scripts/test.sh 'snapshot_jif|build_itree|restore_jif|add_ord|restore_itrees_ord_jif'
+        run: ./scripts/test.sh 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
         if: ${{ always() }}
         # Update job status if this step fails
         env:
@@ -198,7 +202,7 @@ jobs:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       - name: JIF snapshot tests (debug)
-        run: ./scripts/test.sh -d 'snapshot_jif|build_itree|restore_jif|add_ord|restore_itrees_ord_jif'
+        run: ./scripts/test.sh -d 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
         if: ${{ always() }}
         # Update job status if this step fails
         env:
@@ -303,7 +307,7 @@ jobs:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       - name: JIF snapshot tests
-        run: ./scripts/test.sh --use-chroot 'snapshot_jif|build_itree|restore_jif|add_ord|restore_itrees_ord_jif'
+        run: ./scripts/test.sh --use-chroot 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
         if: ${{ always() }}
         # Update job status if this step fails
         env:
@@ -407,7 +411,7 @@ jobs:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       - name: JIF snapshot tests (debug)
-        run: ./scripts/test.sh -d --use-chroot 'snapshot_jif|build_itree|restore_jif|add_ord|restore_itrees_ord_jif'
+        run: ./scripts/test.sh -d --use-chroot 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
         if: ${{ always() }}
         # Update job status if this step fails
         env:
