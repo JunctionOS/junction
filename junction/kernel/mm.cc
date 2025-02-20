@@ -92,6 +92,36 @@ bool VMArea::TryMergeRight(const VMArea &lhs) {
   return true;
 }
 
+bool MemoryMap::ContainedInMapBounds(void *addr, size_t len) const {
+  auto [start, end] = AddressToBounds(addr, len);
+  return start >= mm_start_ && end <= mm_end_;
+}
+
+void __noinline MMPanic(ExclusiveIntervalSet<VMArea> *vmareas,
+                        ExclusiveIntervalSet<SimpleInterval> &regions) {
+  LOG(ERR) << "MM Panic: mappings are not in sync with kernel";
+  if (vmareas) {
+    LOG(ERR) << "==== VMAs ====";
+    for (auto const &[end, vma] : *vmareas) LOG(ERR) << vma;
+  }
+  LOG(ERR) << "==== Regions ====";
+  for (auto const &[end, iv] : regions) LOG(ERR) << iv;
+  syscall_exit(-1);
+}
+
+Status<std::shared_ptr<MemoryMap>> MemoryMap::Create(size_t len) {
+  Status<uintptr_t> base = AllocateMMRegion(len);
+  if (!base) return MakeError(base);
+  Status<void *> ret = KernelMMap(reinterpret_cast<void *>(*base), len,
+                                  PROT_NONE, MAP_FIXED_NOREPLACE);
+  if (unlikely(!ret || *ret != reinterpret_cast<void *>(*base))) {
+    if (*ret != reinterpret_cast<void *>(*base)) MMPanic(nullptr, mem_areas_);
+    MemoryMap::FreeMMRegion(*base, *base + len);
+    return MakeError(ret);
+  }
+  return std::make_shared<MemoryMap>(*ret, len);
+}
+
 void MemoryMap::MunmapCheck(void *addr, size_t len) {
   auto [start, end] = AddressToBounds(addr, len);
 
@@ -116,14 +146,18 @@ void MemoryMap::UnmapAll() {
 }
 
 MemoryMap::~MemoryMap() {
+  if (is_non_reloc_) nr_non_reloc_maps_--;
+  if (is_fake_map_) return;
   for (auto const &[end, vma] : vmareas_) {
+    if (ContainedInMapBounds(vma.Addr(), vma.Length())) continue;
     Status<void> ret = KernelMUnmap(vma.Addr(), vma.Length());
     if (!ret) LOG(ERR) << "mm: munmap failed with error " << ret.error();
     MunmapCheck(vma.Addr(), vma.Length());
   }
-  if (is_non_reloc_) nr_non_reloc_maps_--;
-  rt::SpinGuard g(mm_lock_);
-  mem_areas_.Clear(mm_start_, mm_end_);
+  Status<void> ret =
+      KernelMUnmap(reinterpret_cast<void *>(mm_start_), mm_end_ - mm_start_);
+  if (!ret) LOG(ERR) << "mm: munmap failed with error " << ret.error();
+  MemoryMap::FreeMMRegion(mm_start_, mm_end_);
 }
 
 std::map<uintptr_t, VMArea>::iterator MemoryMap::Clear(uintptr_t start,
@@ -468,6 +502,8 @@ Status<void *> MemoryMap::MMap(void *addr, size_t len, int prot, int flags,
         if (ret) {
           mem_areas_.Insert({*ret, *ret + len});
           reserved_from_global_pool = true;
+          // There should be NO existing mapping.
+          flags |= MAP_FIXED_NOREPLACE;
         }
       }
 
@@ -493,14 +529,20 @@ Status<void *> MemoryMap::MMap(void *addr, size_t len, int prot, int flags,
     if (flags & MAP_ANONYMOUS) {
       // anonymous memory
       raddr = KernelMMap(addr, len, prot, flags);
-      if (!raddr) return MakeError(raddr);
+      if (!raddr) {
+        if (raddr.error() == EEXIST) MMPanic(&vmareas_, mem_areas_);
+        return MakeError(raddr);
+      }
       VMType type = (flags & MAP_STACK) != 0 ? VMType::kStack : VMType::kNormal;
       vma = VMArea(*raddr, len, prot, type);
     } else {
       // file-backed memory (Linux ignores MAP_FILE)
       if (!f) return MakeError(EBADF);
       raddr = f->MMap(addr, len, prot, flags, off);
-      if (!raddr) return MakeError(raddr);
+      if (!raddr) {
+        if (raddr.error() == EEXIST) MMPanic(&vmareas_, mem_areas_);
+        return MakeError(raddr);
+      }
       vma = VMArea(*raddr, len, prot, std::move(f), off);
     }
 

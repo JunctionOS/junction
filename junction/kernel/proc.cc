@@ -354,7 +354,7 @@ Status<std::pair<std::shared_ptr<Process>, Thread *>> Process::CreateInit() {
   Status<pid_t> pid = AllocNewSession();
   if (!pid) return MakeError(pid);
 
-  Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
+  Status<std::shared_ptr<MemoryMap>> mm = MemoryMap::Create(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
 
   auto proc = std::make_shared<Process>(*pid, std::move(*mm));

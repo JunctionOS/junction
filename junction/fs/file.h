@@ -204,7 +204,7 @@ class File : public std::enable_shared_from_this<File> {
   }
 
   [[nodiscard]] DirectoryEntry &get_dent_ref() const { return *dent_.get(); }
-
+  [[nodiscard]] bool has_dent() const { return !!dent_; }
   [[nodiscard]] virtual std::string get_filename() const;
 
   // There is some limitation in cereal's polymorphic type registration that

@@ -177,12 +177,7 @@ class alignas(kCacheLineSize) MemoryMap {
     for (auto const &[end, vma] : vmareas_) func(vma);
   }
 
-  // Drop all VMAs from this memory map without calling KernelMunmap. WARNING -
-  // may leak memory.
-  void ReleaseVMAs() {
-    rt::ScopedLock g(mu_);
-    vmareas_.clear();
-  }
+  void MarkAsFake() { is_fake_map_ = true; }
 
   // Free all VMAs from this memory map. Must be called by Exec when replacing
   // one non-reloc binary with another.
@@ -218,6 +213,8 @@ class alignas(kCacheLineSize) MemoryMap {
 
   // break_addr
   [[nodiscard]] size_t get_brk_addr() const { return brk_addr_; }
+
+  bool ContainedInMapBounds(void *addr, size_t len) const;
 
   // LogMappings prints all the mappings to the log.
   void LogMappings();
@@ -269,11 +266,6 @@ class alignas(kCacheLineSize) MemoryMap {
     }
   }
 
-  static Status<uintptr_t> AllocateMMRegion(size_t len) {
-    rt::SpinGuard g(mm_lock_);
-    return mem_areas_.FindFreeRange(0, len, kVirtualAreaMax, 0);
-  }
-
   static void RegisterMMRegion(uintptr_t base, size_t len) {
     rt::SpinGuard g(mm_lock_);
     assert(!mem_areas_.has_overlap(base, base + len));
@@ -283,6 +275,8 @@ class alignas(kCacheLineSize) MemoryMap {
   [[nodiscard]] static size_t get_nr_non_reloc() { return nr_non_reloc_maps_; }
 
   static rt::Spin &global_lock() { return mm_lock_; };
+
+  static Status<std::shared_ptr<MemoryMap>> Create(size_t len);
 
   // Returns the top of the stack that rsp is from if the corresponding VMA was
   // created with MAP_STACK.
@@ -302,6 +296,19 @@ class alignas(kCacheLineSize) MemoryMap {
   void save(cereal::BinaryOutputArchive &ar) const;
   static void load_and_construct(cereal::BinaryInputArchive &ar,
                                  cereal::construct<MemoryMap> &construct);
+
+  static void FreeMMRegion(uintptr_t start, uintptr_t end) {
+    rt::SpinGuard g(mm_lock_);
+    mem_areas_.Clear(start, end);
+  }
+
+  static Status<uintptr_t> AllocateMMRegion(size_t len) {
+    rt::SpinGuard g(mm_lock_);
+    Status<uintptr_t> ret =
+        mem_areas_.FindFreeRange(0, len, kVirtualAreaMax, 0);
+    if (ret) mem_areas_.Insert({*ret, *ret + len});
+    return ret;
+  }
 
   // Clear removes existing VMAreas that overlap with the range [start, end)
   // Ex: ClearMappings(2, 6) when vmareas_ = [1, 3), [5, 7) results in vmareas_
@@ -332,21 +339,11 @@ class alignas(kCacheLineSize) MemoryMap {
   std::shared_ptr<DirectoryEntry> binary_path_;
   std::string cmd_line_;
   bool is_non_reloc_{false};
-
+  bool is_fake_map_{false};  // old ELF snapshot code uses this.
   static rt::Spin mm_lock_;
   static std::atomic_size_t nr_non_reloc_maps_;
   // Tracks all areas allocated in the virtual address space.
   static ExclusiveIntervalSet<SimpleInterval> mem_areas_;
 };
-
-// Reserve a region of virtual memory for a MemoryMap.
-inline Status<std::shared_ptr<MemoryMap>> CreateMemoryMap(size_t len) {
-  Status<uintptr_t> base = MemoryMap::AllocateMMRegion(len);
-  if (!base) return MakeError(base);
-  Status<void *> ret =
-      KernelMMap(reinterpret_cast<void *>(*base), len, PROT_NONE, 0);
-  if (!ret) return MakeError(ret);
-  return std::make_shared<MemoryMap>(*ret, len);
-}
 
 }  // namespace junction

@@ -194,3 +194,8 @@ inotify_init1
 inotify_add_watch:::stub
 inotify_rm_watch:::stub
 signalfd4
+mlock:::stub
+mlock2:::stub
+munlock:::stub
+mlockall:::stub
+munlockall:::stub

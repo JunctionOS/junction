@@ -33,6 +33,10 @@ struct SimpleInterval {
   uintptr_t end_;
 };
 
+inline std::ostream &operator<<(std::ostream &os, const SimpleInterval &iv) {
+  return os << std::hex << iv.get_start() << "-" << iv.get_end();
+}
+
 template <typename T>
 concept IntervalData =
     std::movable<T> &&

@@ -270,7 +270,8 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
 
   {
     // allocate new memory map
-    Status<std::shared_ptr<MemoryMap>> mm = CreateMemoryMap(kMemoryMappingSize);
+    Status<std::shared_ptr<MemoryMap>> mm =
+        MemoryMap::Create(kMemoryMappingSize);
     if (!mm) return MakeCError(mm);
 
     // turn argv and envp in string_view vectors, memory must remain valid until

@@ -109,6 +109,7 @@ inline Status<std::shared_ptr<Inode>> GetFileInode(int fd,
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (!f) return MakeError(EBADF);
+  if (!f->has_dent()) return MakeError(EINVAL);
   return f->get_dent_ref().get_inode();
 }
 
