@@ -24,6 +24,15 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      - name: 'Cleanup Mount Points'
+        run: |
+          escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
+          mount_points=$(mount | awk '$3 ~ /^'"$escaped_workspace"'/ {print $3}' | sort -r)
+          for mp in $mount_points; do
+            echo "Unmounting $mp"
+            sudo umount "$mp" || echo "Failed to unmount $mp, continuing..."
+          done
+          mount | grep "$GITHUB_WORKSPACE" || echo "No mount points remaining."
       - name: 'Cleanup build folder'
         run: |
           ls -la ./
@@ -108,6 +117,15 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      - name: 'Cleanup Mount Points'
+        run: |
+          escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
+          mount_points=$(mount | awk '$3 ~ /^'"$escaped_workspace"'/ {print $3}' | sort -r)
+          for mp in $mount_points; do
+            echo "Unmounting $mp"
+            sudo umount "$mp" || echo "Failed to unmount $mp, continuing..."
+          done
+          mount | grep "$GITHUB_WORKSPACE" || echo "No mount points remaining."
       - name: 'Cleanup build folder'
         run: |
           ls -la ./
@@ -193,6 +211,15 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      - name: 'Cleanup Mount Points'
+        run: |
+          escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
+          mount_points=$(mount | awk '$3 ~ /^'"$escaped_workspace"'/ {print $3}' | sort -r)
+          for mp in $mount_points; do
+            echo "Unmounting $mp"
+            sudo umount "$mp" || echo "Failed to unmount $mp, continuing..."
+          done
+          mount | grep "$GITHUB_WORKSPACE" || echo "No mount points remaining."
       - name: 'Cleanup build folder'
         run: |
           ls -la ./
@@ -288,6 +315,15 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
+      - name: 'Cleanup Mount Points'
+        run: |
+          escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
+          mount_points=$(mount | awk '$3 ~ /^'"$escaped_workspace"'/ {print $3}' | sort -r)
+          for mp in $mount_points; do
+            echo "Unmounting $mp"
+            sudo umount "$mp" || echo "Failed to unmount $mp, continuing..."
+          done
+          mount | grep "$GITHUB_WORKSPACE" || echo "No mount points remaining."
       - name: 'Cleanup build folder'
         run: |
           ls -la ./
