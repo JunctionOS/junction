@@ -314,16 +314,14 @@ void LoadTrapframe(cereal::BinaryInputArchive &ar, Thread *th) {
   tf->MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
 }
 
-void JunctionSigframe::UnwindSysret() {
+Trapframe &JunctionSigframe::CloneTo(uint64_t *rsp) {
   switch (type) {
     case SigframeType::kKernelSignal:
-      KernelSignalTf(reinterpret_cast<k_sigframe *>(tf))
-          .JmpUnwindSysret(mythread());
+      return KernelSignalTf(reinterpret_cast<k_sigframe *>(tf)).CloneTo(rsp);
     case SigframeType::kJunctionUIPI:
-      UintrTf(reinterpret_cast<u_sigframe *>(tf)).JmpUnwindSysret(mythread());
+      return UintrTf(reinterpret_cast<u_sigframe *>(tf)).CloneTo(rsp);
     case SigframeType::kJunctionTf:
-      FunctionCallTf(reinterpret_cast<thread_tf *>(tf))
-          .JmpUnwindSysret(mythread());
+      return FunctionCallTf(reinterpret_cast<thread_tf *>(tf)).CloneTo(rsp);
     default:
       BUG();
   }

@@ -193,22 +193,17 @@
 .globl usys_rt_sigreturn
 .type usys_rt_sigreturn, @function
 usys_rt_sigreturn:
-	// Mark begin syscall, *before* starting to use the syscall stack.
-	movq    %gs:__perthread___self(%rip), %r11;
-	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11);
+	// disable preemption
+	addl    $1, %gs:__perthread_preempt_cnt(%rip)
+
+	// get address of runtime stack
+	movq    %gs:__perthread_runtime_stack(%rip), %r11
 
 	// use current rsp as first argument to sigreturn()
 	movq    %rsp, %rdi
 
-	// Find bottom of syscall stack.
-	movq    JUNCTION_STACK_OFFSET(%r11), %rsp;
-	addq    $(JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 152), %rsp;
-
-	// Mark an empty/unintialized trapframe.
-	movq    %rsp, JUNCTION_TF_PTR_OFF(%r11)
-
-	// Save the syscall number for reference.
-	movq    $__NR_rt_sigreturn, ORIG_RAX(%rsp);
+	// switch to runtime stack temporarily
+	movq    %r11, %rsp
 
 	jmp     usys_rt_sigreturn_finish
 	nop

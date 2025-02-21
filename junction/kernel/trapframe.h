@@ -19,6 +19,7 @@ inline constexpr size_t kJunctionFrameAlign = 16;
 namespace junction {
 
 class Thread;
+class Trapframe;
 
 enum class SigframeType : unsigned long {
   kKernelSignal = 0,
@@ -33,7 +34,7 @@ struct alignas(kJunctionFrameAlign) JunctionSigframe {
   unsigned long magic;
   unsigned long pad;
 
-  void UnwindSysret();
+  Trapframe &CloneTo(uint64_t *rsp);
 };
 
 class Thread;

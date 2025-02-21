@@ -228,6 +228,14 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
 
   LOG_ONCE(WARN) << "Warning: intercepting syscalls with seccomp traps";
 
+  // Special case for rt_sigreturn, we actually don't care about the current
+  // signal frame, since rt_sigreturn is doing a full restore of a different
+  // signal frame.
+  if (sysn == SYS_rt_sigreturn) {
+    usys_rt_sigreturn_finish(ctx->uc_mcontext.rsp);
+    std::unreachable();
+  }
+
   assert(!IsOnStack(ctx->uc_mcontext.rsp, GetSyscallStack()));
 
   uint64_t rsp = GetSyscallStackBottom();
@@ -261,11 +269,6 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
   tf.r8 = ctx->uc_mcontext.r8;
   tf.r9 = ctx->uc_mcontext.r9;
   tf.rcx = ctx->uc_mcontext.r10;
-
-  if (sysn == SYS_rt_sigreturn) {
-    tf.rip = reinterpret_cast<uint64_t>(&usys_rt_sigreturn_finish);
-    tf.rdi = ctx->uc_mcontext.rsp;
-  }
 
   // switch stacks and jmp to syscall handler
   __restore_tf_full_and_preempt_enable(&tf);
