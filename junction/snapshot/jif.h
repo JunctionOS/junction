@@ -12,7 +12,7 @@
 namespace junction {
 
 constexpr size_t kJifMagicLen = 4;
-constexpr uint32_t kJifVersion = 3;
+constexpr uint32_t kJifVersion = 4;
 
 // program header format
 struct jif_phdr {
@@ -131,6 +131,7 @@ struct jif_itree_node_t {
 } __packed;
 
 struct jif_ord_chunk_t {
+  uint64_t timestamp_us;
   uint64_t vaddr;
   uint64_t n_pages;
 } __packed;
