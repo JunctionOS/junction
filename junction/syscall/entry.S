@@ -5,43 +5,29 @@
 
 #include "entry.h"
 #include <asm/unistd_64.h>
+#include <base/trapframe.h>
 
 .file "entry.S"
 .section        .note.GNU-stack,"",@progbits
 .text
 
-/* arguments registers (can be clobbered) */
-#define RDI	(0)
-#define RSI	(8)
-#define RDX	(16)
-#define RCX	(24)
-#define R8	(32)
-#define R9	(40)
-
-/* temporary registers (can be clobbered) */
-#define R10	(48)
-#define R11	(56)
-
-/* callee-saved registers (can not be clobbered) */
-#define RBX	(64)
-#define RBP	(72)
-#define R12	(80)
-#define R13	(88)
-#define R14	(96)
-#define R15	(104)
-
-/* special-purpose registers */
-#define RAX	(112)	/* return code */
-#define RIP	(120)	/* instruction pointer */
-#define RSP	(128)	/* stack pointer */
-#define ORIG_RAX (136)
-#define FSBASE (144)
-
 .macro SAVETF_STACK
 	movq    %gs:__perthread___self(%rip), %r11
-	pushq   %rax
+
+	// skip uirrv
+	subq $8, %rsp
+	.cfi_adjust_cfa_offset 8
+
+	pushq 	%rax // orig_rax
 	.cfi_adjust_cfa_offset 8
 	.cfi_rel_offset rax, 0
+
+	pushq	$0  // xsave_area
+	.cfi_adjust_cfa_offset 8
+
+	pushq   %rax // rax
+	.cfi_adjust_cfa_offset 8
+
 	pushq   %r15
 	.cfi_adjust_cfa_offset 8
 	.cfi_rel_offset r15, 0
@@ -125,10 +111,19 @@
 	popq   %rax
 	.cfi_adjust_cfa_offset -8
 	.cfi_restore rax
+
+	// xsave_area, orig_rax, uirrv
+	addq $24, %rsp
+	.cfi_adjust_cfa_offset -24
+
 	// RIP into R11
 	popq   %r11
 	.cfi_adjust_cfa_offset -8
 	.cfi_register rip, r11
+
+	// skip rflags
+	addq  $8, %rsp
+
 	// restore rsp
 	popq   %rsp
 .endm
@@ -613,28 +608,22 @@ __kframe_unwind_uiret:
 .macro JUNCTION_FNCALL_PROLOGUE
 	.cfi_startproc
 
-	// align stack
-	subq $8, %rsp
-	.cfi_adjust_cfa_offset 8
-
-	// save original rax
-	pushq %rax
-	.cfi_adjust_cfa_offset 8
-	.cfi_offset rax, -16
-
-
 	.if SyscallStackArgument
 		// get system call number from stack
-		movq 24(%rsp), %rax
+		movq 8(%rsp), %rax
 	.endif
 
 	// push return stack pointer
-	leaq  24(%rsp), %r11
+	leaq  8(%rsp), %r11
 	pushq %r11
 	.cfi_adjust_cfa_offset 8
 
+	// Skip rflags
+	subq   $8, %rsp
+	.cfi_adjust_cfa_offset 8
+
 	// push return IP
-	movq 24(%rsp), %r11
+	movq 16(%rsp), %r11
 	pushq   %r11
 	.cfi_adjust_cfa_offset 8
 
@@ -660,6 +649,11 @@ __kframe_unwind_uiret:
 .macro JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
 	.cfi_startproc
 
+	.if SyscallStackArgument
+		// get system call number from stack
+		movq    8(%rsp), %rax
+	.endif
+
 	// Mark begin syscall, *before* starting to use the syscall stack.
 	movq    %gs:__perthread___self(%rip), %r11;
 	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11);
@@ -667,35 +661,26 @@ __kframe_unwind_uiret:
 	// Find bottom of syscall stack
 	movq    JUNCTION_STACK_OFFSET(%r11), %r11;
 
-	// subtract 16 to (A) leave space for unused fsbase field in trapframe
+	// subtract 32 to (A) allocate the last 3 fields of the trapframe
 	// and (B) ensure correct alignment for the next call
-	addq    $(JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 16), %r11;
+	addq    $(JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 32), %r11;
 
 	// save return stack pointer to new stack
 	leaq    8(%rsp), %r10;
-	movq    %r10, -16(%r11);
+	movq    %r10, 16(%r11);
 
 	// save RIP to new stack
 	movq    (%rsp), %r10;
-	movq    %r10, -24(%r11);
-
-	// save original rax
-	movq    %rax, -8(%r11);
-
-	.if SyscallStackArgument
-		// get system call number from stack
-		movq    8(%rsp), %rax
-	.endif
+	movq    %r10, (%r11);
 
 	// switch to new stack
-	leaq    -24(%r11), %rsp;
+	movq 	%r11, %rsp;
 
 	// New CFI prologue
 	.cfi_remember_state
-	.cfi_def_cfa rsp, 24
-	.cfi_offset rax, -8
-	.cfi_offset rsp, -16
-	.cfi_offset rip, -24
+	.cfi_def_cfa rsp, 0
+	.cfi_offset rsp, 16
+	.cfi_offset rip, 0
 
 	SAVETF_STACK
 
@@ -727,8 +712,8 @@ junction_fncall_enter:
 
 .macro FNCALL_RET_NOSAVE
 	movq    RAX(%rsp), %rax
-	addq    $(19 * 8), %rsp // remove 18 registers on stack plus alignment
-	.cfi_adjust_cfa_offset -152;
+	addq    $(21 * 8), %rsp // remove 21 registers on stack
+	.cfi_adjust_cfa_offset -168;
 	ret
 .endm
 

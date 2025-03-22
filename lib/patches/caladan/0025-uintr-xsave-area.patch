@@ -1,20 +1,20 @@
-From c4084c1fd3722bc9b4bd9fc2007cc7fc1dd98922 Mon Sep 17 00:00:00 2001
+From 9940d571a5fe44426f7bbc439f1eabc815156afb Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 31 Dec 2023 04:21:49 +0000
 Subject: [PATCH 25/35] uintr xsave area
 
 ---
  inc/runtime/thread.h |  4 +++-
- runtime/defs.h       | 35 ++++++++++++++++++++++++++++++++---
+ runtime/defs.h       | 34 +++++++++++++++++++++++++++++++---
  runtime/sched.c      |  3 ++-
  runtime/stack.c      |  4 ++--
- 4 files changed, 39 insertions(+), 7 deletions(-)
+ 4 files changed, 38 insertions(+), 7 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index e544fd0..3dd9d72 100644
+index 689ecf3b..c712b6b8 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -112,9 +112,12 @@ struct thread {
+@@ -60,9 +60,12 @@ struct thread {
      bool        main_thread:1;
      bool        has_fsbase:1;
      bool        thread_ready:1;
@@ -27,8 +27,8 @@ index e544fd0..3dd9d72 100644
      atomic8_t        interrupt_state;
      struct thread_tf    *entry_regs;
      unsigned long    junction_tstate_buf[22];
-@@ -125,7 +128,6 @@ struct thread {
-     struct thread_tf    tf;
+@@ -74,7 +77,6 @@ struct thread {
+     uint64_t		fsbase;
      struct list_node    link;
      struct list_node    interruptible_link;
 -    bool        link_armed;
@@ -36,20 +36,19 @@ index e544fd0..3dd9d72 100644
      struct list_node    gc_link;
      unsigned int        onk;
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 53fa1b3..87f63c9 100644
+index fd1acbe2..bfbe421f 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
-@@ -39,6 +39,9 @@
+@@ -40,6 +40,8 @@
  #define RUNTIME_WATCHDOG_US		50
  #define RUNTIME_RX_BATCH_SIZE		32
  
 +#define XSAVE_AREA_SIZE (24 * KB)
 +#define XSAVE_AREA_PTR_SIZE (XSAVE_AREA_SIZE / sizeof(uintptr_t))
-+
+ 
  /*
   * Thread support
-  */
-@@ -72,6 +75,21 @@ struct stack {
+@@ -74,6 +76,21 @@ struct stack {
  DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
  DECLARE_PERTHREAD(void *, runtime_stack);
  
@@ -71,7 +70,7 @@ index 53fa1b3..87f63c9 100644
  /**
   * stack_alloc - allocates a stack
   *
-@@ -84,7 +102,7 @@ static inline struct stack *stack_alloc(void)
+@@ -86,7 +103,7 @@ static inline struct stack *stack_alloc(void)
  	void *p = tcache_alloc(perthread_ptr(stack_pt));
  	if (unlikely(!p))
  		return NULL;
@@ -80,7 +79,7 @@ index 53fa1b3..87f63c9 100644
  }
  
  /**
-@@ -93,7 +111,7 @@ static inline struct stack *stack_alloc(void)
+@@ -95,7 +112,7 @@ static inline struct stack *stack_alloc(void)
   */
  static inline void stack_free(struct stack *s)
  {
@@ -89,7 +88,7 @@ index 53fa1b3..87f63c9 100644
  }
  
  #define RSP_ALIGNMENT	16
-@@ -121,6 +139,17 @@ static inline uint64_t stack_init_to_rsp(struct stack *s, void (*exit_fn)(void))
+@@ -123,6 +140,17 @@ static inline uint64_t stack_init_to_rsp(struct stack *s, void (*exit_fn)(void))
  {
  	uint64_t rsp;
  
@@ -107,7 +106,7 @@ index 53fa1b3..87f63c9 100644
  	s->usable[STACK_PTR_SIZE - 1] = (uintptr_t)exit_fn;
  	rsp = (uint64_t)&s->usable[STACK_PTR_SIZE - 1];
  	assert_rsp_aligned(rsp);
-@@ -141,7 +170,7 @@ static inline uint64_t
+@@ -143,7 +171,7 @@ static inline uint64_t
  stack_init_to_rsp_with_buf(struct stack *s, void **buf, size_t buf_len,
  			   void (*exit_fn)(void))
  {
@@ -117,10 +116,10 @@ index 53fa1b3..87f63c9 100644
  	/* reserve the buffer */
  	pos -= div_up(buf_len, sizeof(uint64_t));
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 9b4e840..c27a7b5 100644
+index db3541de..2d2f2766 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -859,6 +859,7 @@ static __always_inline thread_t *__thread_create(void)
+@@ -860,6 +860,7 @@ static __always_inline thread_t *__thread_create(void)
  	th->junction_thread = false;
  	th->link_armed = false;
  	th->cur_kthread = NCPU;
@@ -128,7 +127,7 @@ index 9b4e840..c27a7b5 100644
  	atomic8_write(&th->interrupt_state, 0);
  
  	return th;
-@@ -1041,7 +1042,7 @@ int sched_init_thread(void)
+@@ -1042,7 +1043,7 @@ int sched_init_thread(void)
  	if (!s)
  		return -ENOMEM;
  
@@ -138,7 +137,7 @@ index 9b4e840..c27a7b5 100644
  
  	ss.ss_sp = &s->usable[0];
 diff --git a/runtime/stack.c b/runtime/stack.c
-index 787bdb7..191832d 100644
+index 787bdb7a..191832dc 100644
 --- a/runtime/stack.c
 +++ b/runtime/stack.c
 @@ -54,7 +54,7 @@ static void stack_tcache_free(struct tcache *tc, int nr, void **items)

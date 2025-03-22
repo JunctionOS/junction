@@ -1,4 +1,4 @@
-From a777189afcfbcc133805b353b1855b1e061464bb Mon Sep 17 00:00:00 2001
+From df0f1626ffff6d6c890112cf1065f1b16bd25eab Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
 Subject: [PATCH 15/35] add support for alternate syscall stacks
@@ -19,10 +19,10 @@ intercepted with seccomp. using this option disables preemption in the runtime.
  6 files changed, 38 insertions(+), 2 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 453bd29..64ce727 100644
+index 3b481c58..1b7a964b 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -107,6 +107,7 @@ struct stack;
+@@ -56,6 +56,7 @@ struct stack;
  struct thread {
      struct thread_tf    tf;
      struct list_node    link;
@@ -31,7 +31,7 @@ index 453bd29..64ce727 100644
      unsigned int        main_thread:1;
      unsigned int        has_fsbase:1;
 diff --git a/runtime/cfg.c b/runtime/cfg.c
-index cbf240a..c88d746 100644
+index cbf240a7..c88d746a 100644
 --- a/runtime/cfg.c
 +++ b/runtime/cfg.c
 @@ -19,6 +19,7 @@ static size_t arp_static_sz;
@@ -65,10 +65,10 @@ index cbf240a..c88d746 100644
  
  /**
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 2cc0a67..fca8e48 100644
+index b1177bd8..69043666 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
-@@ -455,6 +455,7 @@ extern unsigned int cfg_request_hardware_queues;
+@@ -457,6 +457,7 @@ extern unsigned int cfg_request_hardware_queues;
  extern uint64_t cfg_ht_punish_us;
  extern uint64_t cfg_qdelay_us;
  extern uint64_t cfg_quantum_us;
@@ -77,7 +77,7 @@ index 2cc0a67..fca8e48 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/init.c b/runtime/init.c
-index 862446d..859adc6 100644
+index 862446d1..859adc62 100644
 --- a/runtime/init.c
 +++ b/runtime/init.c
 @@ -58,10 +58,10 @@ static const struct init_entry global_init_handlers[] = {
@@ -93,10 +93,10 @@ index 862446d..859adc6 100644
  	THREAD_INITIALIZER(timer),
  	THREAD_INITIALIZER(smalloc),
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 88d3e52..9ac73f8 100644
+index a0c2dbba..0ec08ad5 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -159,8 +159,25 @@ void preempt(void)
+@@ -162,8 +162,25 @@ void preempt(void)
  
  int preempt_init_thread(void)
  {
@@ -122,7 +122,7 @@ index 88d3e52..9ac73f8 100644
  	return 0;
  }
  
-@@ -176,6 +193,9 @@ int preempt_init(void)
+@@ -179,6 +196,9 @@ int preempt_init(void)
  	struct sigaction act;
  	struct cpuid_info regs;
  
@@ -133,7 +133,7 @@ index 88d3e52..9ac73f8 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index 83d0e7b..0e0f2e7 100644
+index b89e6c28..d58a0fa1 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -809,6 +809,11 @@ static __always_inline thread_t *__thread_create(void)
@@ -158,5 +158,5 @@ index 83d0e7b..0e0f2e7 100644
  
  	spin_lock(&myk()->lock);
 -- 
-2.34.1
+2.43.0
 

@@ -1,4 +1,4 @@
-From 86d45e6d70b257c930b7794f2abad5a6e313f26c Mon Sep 17 00:00:00 2001
+From d3ed58b3d4dd89a02deab1f84e5672a1c9b69992 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
 Subject: [PATCH 03/35] runtime: allow uthreads to set their own fsbase values
@@ -12,7 +12,7 @@ Subject: [PATCH 03/35] runtime: allow uthreads to set their own fsbase values
  5 files changed, 58 insertions(+), 14 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
-index 293196d..5c14ac1 100644
+index 293196d4..5c14ac1c 100644
 --- a/build/shared.mk
 +++ b/build/shared.mk
 @@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
@@ -25,7 +25,7 @@ index 293196d..5c14ac1 100644
  CC      ?= gcc
  LD      = $(CC)
 diff --git a/inc/asm/ops.h b/inc/asm/ops.h
-index c651573..01b4219 100644
+index c6515737..01b4219a 100644
 --- a/inc/asm/ops.h
 +++ b/inc/asm/ops.h
 @@ -4,6 +4,7 @@
@@ -49,7 +49,7 @@ index c651573..01b4219 100644
  {
  #if __GNUC_PREREQ(10, 0)
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index d71d30f..c653e68 100644
+index d71d30f1..c653e681 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -26,9 +26,13 @@ extern void thread_ready(thread_t *thread);
@@ -85,18 +85,10 @@ index d71d30f..c653e68 100644
  
  /*
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 7d266ee..a7cb65a 100644
+index d7c8a1c6..e4c36f71 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
-@@ -72,6 +72,7 @@ struct thread_tf {
- 	uint64_t rax;	/* holds return value */
- 	uint64_t rip;	/* instruction pointer */
- 	uint64_t rsp;	/* stack pointer */
-+	uint64_t fsbase; /* holds %fs */
- };
- 
- #define ARG0(tf)        ((tf)->rdi)
-@@ -102,6 +103,7 @@ struct thread {
+@@ -52,11 +52,13 @@ struct thread {
  	struct list_node	link;
  	struct stack		*stack;
  	unsigned int		main_thread:1;
@@ -104,7 +96,13 @@ index 7d266ee..a7cb65a 100644
  	unsigned int		thread_ready;
  	unsigned int		thread_running;
  	unsigned int		last_cpu;
-@@ -151,10 +153,10 @@ DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
+ 	uint64_t		run_start_tsc;
+ 	uint64_t		ready_tsc;
++	uint64_t		fsbase;
+ 	uint64_t		tlsvar;
+ #ifdef GC
+ 	struct list_node	gc_link;
+@@ -101,10 +103,10 @@ DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
   */
  static inline struct stack *stack_alloc(void)
  {
@@ -118,7 +116,7 @@ index 7d266ee..a7cb65a 100644
  }
  
  /**
-@@ -269,7 +271,7 @@ static inline bool hardware_q_pending(struct hardware_q *q)
+@@ -219,7 +221,7 @@ static inline bool hardware_q_pending(struct hardware_q *q)
  	tail = ACCESS_ONCE(*q->consumer_idx);
  	idx = tail & (q->nr_descriptors - 1);
  	parity = !!(tail & q->nr_descriptors);
@@ -128,7 +126,7 @@ index 7d266ee..a7cb65a 100644
  	hd_parity = !!(ACCESS_ONCE(*addr) & q->parity_bit_mask);
  
 diff --git a/runtime/sched.c b/runtime/sched.c
-index bfca7f6..afbe604 100644
+index bfca7f64..7482514c 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -170,7 +168,7 @@ index bfca7f6..afbe604 100644
  {
 -	BUG_ON(!perthread_read_stable(__self));
 -	(perthread_read_stable(__self))->tlsvar = val;
-+	th->tf.fsbase = fsbase;
++	th->fsbase = fsbase;
 +	barrier();
 +	th->has_fsbase = true;
 +	if (thread_self() == th)
@@ -184,9 +182,9 @@ index bfca7f6..afbe604 100644
  	}
 +
 +	if (!th->has_fsbase)
-+		th->tf.fsbase = perthread_read(runtime_fsbase);
++		th->fsbase = perthread_read(runtime_fsbase);
 +
-+	set_fsbase(th->tf.fsbase);
++	set_fsbase(th->fsbase);
 +
  	th->thread_running = true;
  	__jmp_thread(&th->tf);
@@ -197,9 +195,9 @@ index bfca7f6..afbe604 100644
  	}
 +
 +	if (!newth->has_fsbase)
-+		newth->tf.fsbase = perthread_read(runtime_fsbase);
++		newth->fsbase = perthread_read(runtime_fsbase);
 +
-+	set_fsbase(newth->tf.fsbase);
++	set_fsbase(newth->fsbase);
 +
  	newth->thread_running = true;
  	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);

@@ -1,4 +1,4 @@
-From f3361dea4be65ba856fae3bc8199217a62b40bb2 Mon Sep 17 00:00:00 2001
+From edfa36f0cd59e97491f97dd256292217134498bd Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 19 Feb 2023 00:34:47 -0500
 Subject: [PATCH 14/35] add space for Thread class in struct thread
@@ -8,10 +8,10 @@ Subject: [PATCH 14/35] add space for Thread class in struct thread
  1 file changed, 1 insertion(+)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 9985884..453bd29 100644
+index 07455146..3b481c58 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -119,6 +119,7 @@ struct thread {
+@@ -69,6 +69,7 @@ struct thread {
       // Trapframe used by junction to stash registers on syscall entry
      struct thread_tf	junction_tf;
      void 		*xsave_area;

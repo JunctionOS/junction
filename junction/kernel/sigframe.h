@@ -20,7 +20,6 @@ inline constexpr uint64_t kUCFpXstate = 0x1;
 inline constexpr uint32_t kFpXstateMagic1 = 0x46505853U;
 inline constexpr uint32_t kFpXstateMagic2 = 0x46505845U;
 inline constexpr size_t kRedzoneSize = 128;
-inline constexpr size_t kUintrFrameAlign = 16;
 
 namespace junction {
 
@@ -98,7 +97,7 @@ struct k_sigframe {
 
 static_assert(sizeof(k_sigframe) % 16 == 8);
 
-struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
+struct u_sigframe : public thread_tf {
   // Attach dst_buf to this sigframe.
   inline void AttachXstate(void *dst_buf) {
     assert(!xsave_area);
@@ -120,7 +119,7 @@ struct alignas(kUintrFrameAlign) u_sigframe : public uintr_frame {
   static u_sigframe *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *dest_rsp);
 };
 
-static_assert(sizeof(u_sigframe) == sizeof(uintr_frame));
+static_assert(sizeof(u_sigframe) == sizeof(thread_tf));
 
 extern "C" [[noreturn]] __nofp void UintrFullRestore(const u_sigframe *frame);
 

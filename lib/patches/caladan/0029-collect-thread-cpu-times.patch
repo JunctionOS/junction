@@ -1,4 +1,4 @@
-From b041787bfb42e674f0759e573ed8af18e60d3991 Mon Sep 17 00:00:00 2001
+From 542d86409ee5ad69314fa27b77b42c7a72deb91f Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 5 Jun 2024 18:06:13 -0400
 Subject: [PATCH 29/35] collect thread cpu times
@@ -9,18 +9,18 @@ Subject: [PATCH 29/35] collect thread cpu times
  2 files changed, 45 insertions(+), 13 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 3dd9d72..5e4d0cd 100644
+index c712b6b8..3e5fb6dc 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -125,6 +125,7 @@ struct thread {
+@@ -73,6 +73,7 @@ struct thread {
      uint16_t        last_cpu;
      uint16_t        cur_kthread;
      uint64_t        ready_tsc;
 +    uint64_t        total_cycles;
      struct thread_tf    tf;
+     uint64_t		fsbase;
      struct list_node    link;
-     struct list_node    interruptible_link;
-@@ -134,6 +135,8 @@ struct thread {
+@@ -83,6 +84,8 @@ struct thread {
  #endif
  };
  
@@ -30,10 +30,10 @@ index 3dd9d72..5e4d0cd 100644
   * High-level routines, use this API most of the time.
   */
 diff --git a/runtime/sched.c b/runtime/sched.c
-index e2d28f5..99997aa 100644
+index 49122e8b..55b52b48 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -344,7 +344,7 @@ static __noinline bool do_watchdog(struct kthread *l)
+@@ -345,7 +345,7 @@ static __noinline bool do_watchdog(struct kthread *l)
  static __noinline void schedule(void)
  {
  	struct kthread *r = NULL, *l = myk();
@@ -42,7 +42,7 @@ index e2d28f5..99997aa 100644
  	thread_t *th;
  	unsigned int start_idx;
  	unsigned int iters = 0;
-@@ -359,19 +359,21 @@ static __noinline void schedule(void)
+@@ -360,19 +360,21 @@ static __noinline void schedule(void)
  	th = perthread_read_stable(__self);
  	assert(th == thread_self());
  
@@ -70,7 +70,7 @@ index e2d28f5..99997aa 100644
  	/* increment the RCU generation number (even is in scheduler) */
  	store_release(&l->rcu_gen, l->rcu_gen + 1);
  	ACCESS_ONCE(l->q_ptrs->rcu_gen) = l->rcu_gen;
-@@ -480,7 +482,7 @@ done:
+@@ -481,7 +483,7 @@ done:
  
  	update_oldest_tsc(l);
  
@@ -79,7 +79,7 @@ index e2d28f5..99997aa 100644
  
  	spin_unlock(&l->lock);
  
-@@ -508,7 +510,7 @@ static __always_inline void enter_schedule(thread_t *curth)
+@@ -509,7 +511,7 @@ static __always_inline void enter_schedule(thread_t *curth)
  {
  	struct kthread *k = myk();
  	thread_t *th;
@@ -88,7 +88,7 @@ index e2d28f5..99997aa 100644
  
  	assert_preempt_disabled();
  
-@@ -534,7 +536,9 @@ static __always_inline void enter_schedule(thread_t *curth)
+@@ -535,7 +537,9 @@ static __always_inline void enter_schedule(thread_t *curth)
  	}
  
  	/* fast path: switch directly to the next uthread */
@@ -99,7 +99,7 @@ index e2d28f5..99997aa 100644
  	perthread_get_stable(last_tsc) = now_tsc;
  
  	/* pop the next runnable thread from the queue */
-@@ -546,7 +550,7 @@ static __always_inline void enter_schedule(thread_t *curth)
+@@ -547,7 +551,7 @@ static __always_inline void enter_schedule(thread_t *curth)
  		drain_overflow(k);
  
  	update_oldest_tsc(k);
@@ -108,7 +108,7 @@ index e2d28f5..99997aa 100644
  	th->cur_kthread = k->kthread_idx;
  	spin_unlock(&k->lock);
  
-@@ -766,17 +770,41 @@ void thread_finish_yield(void)
+@@ -767,17 +771,41 @@ void thread_finish_yield(void)
  	schedule();
  }
  
@@ -152,7 +152,7 @@ index e2d28f5..99997aa 100644
  
  	/* mark ceded thread ready at head of runqueue */
  	thread_ready_head(myth);
-@@ -861,6 +889,7 @@ static __always_inline thread_t *__thread_create(void)
+@@ -862,6 +890,7 @@ static __always_inline thread_t *__thread_create(void)
  	th->cur_kthread = NCPU;
  	// Can be used to detect newly created thread.
  	th->ready_tsc = 0;

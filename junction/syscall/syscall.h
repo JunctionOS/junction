@@ -50,7 +50,7 @@ static_assert(offsetof(sigcontext, eflags) == SIGCONTEXT_EFLAGS);
 static_assert(offsetof(sigcontext, fpstate) == SIGCONTEXT_XSTATE);
 
 // Changing members or layout of thread_tf may break assembly code in entry.S
-static_assert(sizeof(thread_tf) == 152);
+static_assert(sizeof(thread_tf) == 168);
 
 unsigned long sys_dispatch(long arg0, long arg1, long arg2, long arg3,
                            long arg4, long arg5, long syscall);

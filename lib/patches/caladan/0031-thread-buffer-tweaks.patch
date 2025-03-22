@@ -1,4 +1,4 @@
-From 45aaf5a36f48c033248c952663503e0014b625cc Mon Sep 17 00:00:00 2001
+From 279c84ad953bcfc539f85b0a7c771067daebff32 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 14 Jul 2024 21:07:42 -0400
 Subject: [PATCH 31/35] thread buffer tweaks
@@ -8,10 +8,10 @@ Subject: [PATCH 31/35] thread buffer tweaks
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 4bad3ba..062f1b9 100644
+index 09f38beb..71b1ad39 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -120,7 +120,7 @@ struct thread {
+@@ -68,7 +68,7 @@ struct thread {
      bool        xsave_area_in_use:1;
      atomic8_t        interrupt_state;
      struct thread_tf    *entry_regs;
@@ -20,7 +20,7 @@ index 4bad3ba..062f1b9 100644
      struct stack        *stack;
      uint16_t        last_cpu;
      uint16_t        cur_kthread;
-@@ -133,6 +133,7 @@ struct thread {
+@@ -82,6 +82,7 @@ struct thread {
      struct list_node    gc_link;
      unsigned int        onk;
  #endif

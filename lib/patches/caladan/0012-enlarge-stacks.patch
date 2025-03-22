@@ -1,4 +1,4 @@
-From 3b4335c00be0086c8854e2b3bf809f908f109587 Mon Sep 17 00:00:00 2001
+From 3fa0d8d6ab6e3ecdc73e533055fcc8d384388047 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Fri, 17 Feb 2023 17:01:44 -0500
 Subject: [PATCH 12/35] enlarge stacks
@@ -8,10 +8,10 @@ Subject: [PATCH 12/35] enlarge stacks
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 60ef403..2cc0a67 100644
+index 50579733..b1177bd8 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
-@@ -30,8 +30,8 @@
+@@ -31,8 +31,8 @@
   */
  
  #define RUNTIME_MAX_THREADS		100000

@@ -159,7 +159,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
     thread_set_fsbase(&new_cth, cl_args->tls);
   } else {
     new_cth.has_fsbase = old_cth.has_fsbase;
-    new_cth.tf.fsbase = old_cth.tf.fsbase;
+    new_cth.fsbase = old_cth.fsbase;
   }
 
   // Write this thread's tid into the requested location.
@@ -366,7 +366,7 @@ Status<std::pair<std::shared_ptr<Process>, Thread *>> Process::CreateInit() {
   new (tstate) Thread(proc, *pid);
   th->junction_thread = true;
   th->has_fsbase = true;
-  th->tf.fsbase = 0;
+  th->fsbase = 0;
   proc->thread_map_[*pid] = tstate;
   return {{std::move(proc), tstate}};
 }
@@ -392,7 +392,7 @@ Status<Thread *> Process::CreateThreadMain(const Thread &oldth) {
   new (tstate) Thread(shared_from_this(), get_pid(), oldth);
   th->junction_thread = true;
   th->has_fsbase = true;
-  th->tf.fsbase = 0;
+  th->fsbase = 0;
   thread_map_[get_pid()] = tstate;
   return tstate;
 }

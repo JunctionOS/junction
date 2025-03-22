@@ -388,7 +388,7 @@ class Thread {
 
     bool has_fsbase = GetCaladanThread()->has_fsbase;
     ar(has_fsbase);
-    if (has_fsbase) ar(GetCaladanThread()->tf.fsbase);
+    if (has_fsbase) ar(GetCaladanThread()->fsbase);
     ar(get_creds(), get_rseq());
   }
 
@@ -406,7 +406,7 @@ class Thread {
     bool has_fsbase = false;
     ar(has_fsbase);
     GetCaladanThread()->has_fsbase = has_fsbase;
-    if (GetCaladanThread()->has_fsbase) ar(GetCaladanThread()->tf.fsbase);
+    if (GetCaladanThread()->has_fsbase) ar(GetCaladanThread()->fsbase);
     ar(get_creds(), get_rseq());
   }
 
