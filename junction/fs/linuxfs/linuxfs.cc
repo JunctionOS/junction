@@ -58,9 +58,11 @@ Status<std::shared_ptr<IDir>> InitLinuxRoot() {
   if (unlikely(!f)) return MakeError(f);
   linux_root_fd = std::move(*f);
   int ret = statfs(linux_root.data(), &linux_statfs);
-  if (ret) return MakeError(-ret);
+  if (unlikely(ret)) return MakeError(-ret);
 
-  Status<struct stat> buf = f->StatAt();
+  Status<struct stat> buf = linux_root_fd.StatAt();
+  if (unlikely(!buf)) return MakeError(buf);
+
   std::shared_ptr<IDir> root;
   if constexpr (linux_fs_writeable())
     root = std::make_shared<LinuxWrIDir>(IDir::GetInitToken(), *buf,
