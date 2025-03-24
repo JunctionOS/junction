@@ -255,9 +255,6 @@ class FunctionCallTf final : public SyscallFrame {
 
  private:
   inline uint64_t GetSysretUnwinderFunction() const {
-    if (uintr_enabled)
-      return reinterpret_cast<uint64_t>(__fncall_return_exit_loop_uintr);
-
     return reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
   }
 

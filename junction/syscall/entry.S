@@ -431,18 +431,14 @@ __switch_and_interrupt_enable:
 	jmp     \caller_fn\()_postcall
 .globl \caller_fn\()_end
 \caller_fn\()_end:
-.endm
-
-.macro RT_SIGRETURN
-	jmp     syscall_rt_sigreturn
+	.cfi_endproc
 .endm
 
 /**
  * __syscall_trap_return - returns from a trapped syscall instruction
  * This is the "restorer" function for a signal delivered by a seccomp trap.
  * When called, %rax contains the return value of the syscall and the stack
- * pointer points to the sigcontext that will be restored by the actual kernel's
- * rt_sigreturn() system call.
+ * pointer points to the sigcontext that will be restored.
  *
  * No return.
  */
@@ -461,15 +457,16 @@ __syscall_trap_return:
 	// setup return value as 1st argument for RunSignals
 	movq    %rax, %rdi
 
-	INTERRUPT_CHECK __syscall_trap_return RT_SIGRETURN
+	jmp __kframe_unwind_loop
+
 	.cfi_endproc
 
 /**
- * __kframe_unwind_loop - similar to __syscall_trap_return, but the frame
- * restored doesn't have to be a trapped syscall. As such, it does not alter rax
- * in the frame and ensures that RunSignals gets a 0 for RAX (so there is no
- * restart system call fixup).
- *
+ * __kframe_unwind_loop - Exits the kernel and unwinds a kernel trapframe
+ * (using rt_sigreturn or uiret). If this is not a syscall frame, the caller
+ * must set rdi to 0, otherwise it should set rdi to the return value of the
+ * system call.
+
  * No return.
  */
 .align 16
@@ -479,55 +476,24 @@ __kframe_unwind_loop:
 	.cfi_startproc simple
 	.cfi_signal_frame
 	SIGCONTEXT_CFA_ONSTACK
-	xorq    %rdi, %rdi
+
+.macro RT_SIGRETURN
+	cmpb 	$0, uintr_enabled(%rip)
+	jne     __kframe_unwind_uiret
+	jmp     syscall_rt_sigreturn
+.endm
 
 	INTERRUPT_CHECK __kframe_unwind_loop RT_SIGRETURN
-	.cfi_endproc
 
-/**
- * __syscall_trap_return_uintr - returns from a trapped syscall instruction
- * This is the "restorer" function for a signal delivered by a seccomp trap.
- * When called, %rax contains the return value of the syscall and the stack
- * pointer points to the sigcontext that will be restored by the actual kernel's
- * rt_sigreturn() system call. This variant to be used when UINTR is enabled.
- *
- * No return.
- */
-
-.globl __syscall_trap_return_uintr
-.type __syscall_trap_return_uintr, @function
-
-.align 16
-__syscall_trap_return_uintr:
-	.cfi_startproc simple
-	.cfi_signal_frame
-	SIGCONTEXT_CFA_ONSTACK
-	// store rax in sigframe
-	movq    %rax, SIGFRAME_RAX_OFFSET(%rsp)
-
-	// align stack
-	subq    $8, %rsp
-
-	// get addr of k_sigframe for UintrKFrameLoopReturn
-	movq    %rsp, %rdi
-
-	// setup return value as 2nd argument for UintrKFrameLoopReturn
-	movq    %rax, %rsi
-
-	jmp     UintrKFrameLoopReturn
-	nop
-	.cfi_endproc
 
 #define TMP_RIP %r8
 #define TMP_RSP %r9
 #define TMP_RFLAGS %r10
 
-
 /* __kframe_unwind_uiret - immediately restore a kernel signal frame using the
  * uiret instruction to avoid a syscall. Expect %rsp to be a pointer to the
  * k_ucontext for this frame.
  */
-
 .align 16
 .globl __kframe_unwind_uiret
 .type __kframe_unwind_uiret, @function
@@ -539,6 +505,10 @@ __kframe_unwind_uiret:
 	// get rid of unneeded part of ucontext
 	addq    $SIGFRAME_SIGCONTEXT, %rsp
 	.cfi_adjust_cfa_offset 8
+
+	// Disable interrupts before modfying the kframe, after the modifications
+	// are made the system call exit sequence can no longer be restarted.
+	clui
 
 	// shuffle final fields in sigcontext to match uiret format
 	movq    SIGCONTEXT_RIP(%rsp), TMP_RIP
@@ -598,7 +568,7 @@ __kframe_unwind_uiret:
 	.cfi_endproc
 
 /**
- * Macro for function call syscall entry that does not stack-switching.
+ * Macro for function call syscall entry that does not stack-switch.
  * The system call number is the first stack argument or in %rax, depending on
  * the SyscallStackArgument flag. After calling, %r11 is set to thread_self and
  * %rax holds the system call number, and a saved thread_tf is on the stack at
@@ -719,8 +689,6 @@ junction_fncall_enter:
 
 	INTERRUPT_CHECK junction_fncall_enter FNCALL_RET_NOSAVE
 
-	.cfi_endproc
-
 /*
  * junction_fncall_stackswitch_enter - entry point for runtimes that require
  * system calls to run on separate stacks.
@@ -749,42 +717,6 @@ junction_fncall_stackswitch_enter:
 
 	INTERRUPT_CHECK junction_fncall_stackswitch_enter FNCALL_STACKSWITCH_NOSAVE
 
-	.cfi_endproc
-
-/*
- * junction_fncall_stackswitch_enter_uintr - entry point for runtimes that
- * require system calls to run on separate stacks. This variant must be used
- * when UINTR is enabled.
- *
- * NOTE: this routine expects the system call number to be passed as the first
- * stack argument.
- */
-.align 16
-.globl junction_fncall_stackswitch_enter_uintr
-.type junction_fncall_stackswitch_enter_uintr, @function
-junction_fncall_stackswitch_enter_uintr:
-
-	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
-
-	CALL_SYSCALL_FUNC %rax %rsp %rdi
-
-.macro FNCALL_STACKSWITCH_NOSAVE_UINTR
-	// restore stack pointer
-	movq    RAX(%rsp), %rax
-	movq    RSP(%rsp), %rsp
-	.cfi_restore_state
-	.cfi_adjust_cfa_offset -8
-
-	// enable interrupts once we are off the system call stack
-	stui
-	subq    $8, %rsp
-	.cfi_adjust_cfa_offset 8
-	ret
-.endm
-
-	INTERRUPT_CHECK junction_fncall_stackswitch_enter_uintr FNCALL_STACKSWITCH_NOSAVE_UINTR stui clui
-	.cfi_endproc
-
 
 /*
  * junction_fncall_enter_preserve_regs - variant of junction_fncall_enter that
@@ -809,9 +741,6 @@ junction_fncall_enter_preserve_regs:
 
 	INTERRUPT_CHECK junction_fncall_enter_preserve_regs FNCALL_RET_SAVE
 
-	.cfi_endproc
-
-
 .align 16
 .globl __fncall_return_exit_loop
 .type __fncall_return_exit_loop, @function
@@ -825,34 +754,12 @@ __fncall_return_exit_loop:
 .endm
 
 	INTERRUPT_CHECK __fncall_return_exit_loop FNCALL_RET_SAVE_JMP
-	.cfi_endproc
-
-
-.align 16
-.globl __fncall_return_exit_loop_uintr
-.type __fncall_return_exit_loop_uintr, @function
-__fncall_return_exit_loop_uintr:
-	.cfi_startproc
-
-	xorq   %rdi, %rdi
-
-	clui
-
-.macro FNCALL_RET_SAVE_JMP_UINTR
-	RESTORETF_STACK
-	stui
-	jmp     *%r11
-.endm
-
-	INTERRUPT_CHECK __fncall_return_exit_loop_uintr FNCALL_RET_SAVE_JMP_UINTR stui clui
-	.cfi_endproc
 
 /*
  * junction_fncall_stackswitch_enter_preserve_regs - variant of
  * junction_fncall_stackswitch_enter that preserves argument registers. This is
  * needed for vfork/clone/clone3.
  */
-
 .align 16
 .globl junction_fncall_stackswitch_enter_preserve_regs
 .type junction_fncall_stackswitch_enter_preserve_regs, @function
@@ -870,36 +777,3 @@ junction_fncall_stackswitch_enter_preserve_regs:
 .endm
 
 	INTERRUPT_CHECK junction_fncall_stackswitch_enter_preserve_regs RESTORETF_RET
-
-	.cfi_endproc
-
-
-/*
- * junction_fncall_stackswitch_enter_preserve_regs_uintr - variant of
- * junction_fncall_stackswitch_enter_uintr that preserves argument registers.
- * This is needed for vfork/clone/clone3. This variant must be used when UINTR
- * is enabled.
- */
-.align 16
-.globl junction_fncall_stackswitch_enter_preserve_regs_uintr
-.type junction_fncall_stackswitch_enter_preserve_regs_uintr, @function
-junction_fncall_stackswitch_enter_preserve_regs_uintr:
-
-	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE_EAX
-
-	CALL_SYSCALL_FUNC %rax %rsp %rdi
-
-	clui
-
-.macro RESTORETF_STUI_RET
-	RESTORETF_STACK_CFI_RESTORE
-	stui
-	// in case of vfork(), the stack may no longer contain the return address.
-	// jump to the previously saved return address.
-	jmp     *%r11
-.endm
-
-	INTERRUPT_CHECK junction_fncall_stackswitch_enter_preserve_regs_uintr RESTORETF_STUI_RET stui clui
-
-	.cfi_endproc
-

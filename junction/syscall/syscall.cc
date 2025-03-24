@@ -23,17 +23,13 @@ struct SyscallTarget {
         reinterpret_cast<uintptr_t>(name##_end)       \
   }
 
-const std::array<SyscallTarget, 11> syscallTargets = {
+const std::array<SyscallTarget, 7> syscallTargets = {
     {DECLARE_TARGET(junction_fncall_enter),
      DECLARE_TARGET(junction_fncall_enter_preserve_regs),
      DECLARE_TARGET(junction_fncall_stackswitch_enter),
-     DECLARE_TARGET(junction_fncall_stackswitch_enter_uintr),
      DECLARE_TARGET(junction_fncall_stackswitch_enter_preserve_regs),
-     DECLARE_TARGET(junction_fncall_stackswitch_enter_preserve_regs_uintr),
-     DECLARE_TARGET(__syscall_trap_return),
      DECLARE_TARGET(__kframe_unwind_loop),
      DECLARE_TARGET(__fncall_return_exit_loop),
-     DECLARE_TARGET(__fncall_return_exit_loop_uintr),
      DECLARE_TARGET(usys_rt_sigreturn)}};
 
 // Determines if an IP is in a Junction function (potentially before or after
@@ -62,13 +58,6 @@ void SyscallRestoreNoStackSwitch() {
 
 Status<void> SyscallInit() {
   dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);
-
-  if (uintr_enabled) {
-    sys_tbl_strace[451] = sys_tbl[451] =
-        reinterpret_cast<sysfn_t>(junction_fncall_stackswitch_enter_uintr);
-    sys_tbl_strace[452] = sys_tbl[452] = reinterpret_cast<sysfn_t>(
-        junction_fncall_stackswitch_enter_preserve_regs_uintr);
-  }
 
   Status<void> ret =
       KernelMMapFixed(dst_tbl, sizeof(sys_tbl), PROT_READ | PROT_WRITE, 0);

@@ -19,7 +19,6 @@ extern "C" {
 inline constexpr uint64_t kUCFpXstate = 0x1;
 inline constexpr uint32_t kFpXstateMagic1 = 0x46505853U;
 inline constexpr uint32_t kFpXstateMagic2 = 0x46505845U;
-inline constexpr size_t kRedzoneSize = 128;
 
 namespace junction {
 

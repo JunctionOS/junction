@@ -30,10 +30,10 @@ namespace junction {
 
 // Filter for syscalls from the caladan runtime.
 static struct sock_filter caladan_filter[] = {
-    ALLOW_CALADAN_SYSCALL(ioctl),    ALLOW_CALADAN_SYSCALL(rt_sigreturn),
-    ALLOW_CALADAN_SYSCALL(mmap),     ALLOW_CALADAN_SYSCALL(madvise),
-    ALLOW_CALADAN_SYSCALL(mprotect), ALLOW_CALADAN_SYSCALL(exit_group),
-    ALLOW_CALADAN_SYSCALL(pwritev2), ALLOW_CALADAN_SYSCALL(writev)};
+    ALLOW_CALADAN_SYSCALL(ioctl),      ALLOW_CALADAN_SYSCALL(mmap),
+    ALLOW_CALADAN_SYSCALL(madvise),    ALLOW_CALADAN_SYSCALL(mprotect),
+    ALLOW_CALADAN_SYSCALL(exit_group), ALLOW_CALADAN_SYSCALL(pwritev2),
+    ALLOW_CALADAN_SYSCALL(writev)};
 
 // Syscalls needed to manipulate the host fs.
 static struct sock_filter writeable_linux_fs[] = {
@@ -51,6 +51,8 @@ static struct sock_filter allow_all_junction[] = {ALLOW_ANY_JUNCTION_SYSCALL};
 
 // Filter to enable tgkill().
 static struct sock_filter linux_tgkill[] = {ALLOW_JUNCTION_SYSCALL(tgkill)};
+
+static struct sock_filter rtsigreturn[] = {ALLOW_CALADAN_SYSCALL(rt_sigreturn)};
 
 // Final filter that forwards all other system calls to our signal handler.
 static struct sock_filter trap[] = {TRAP};
@@ -74,7 +76,8 @@ static struct sock_filter junction_core[] = {
 constexpr size_t filterMax =
     sizeof(caladan_filter) + sizeof(writeable_linux_fs) +
     sizeof(uncached_linux_fs) + sizeof(allow_all_junction) +
-    sizeof(linux_tgkill) + sizeof(trap) + sizeof(junction_core);
+    sizeof(linux_tgkill) + sizeof(trap) + sizeof(junction_core) +
+    sizeof(rtsigreturn);
 
 /* Source: https://outflux.net/teach-seccomp/step-3/example.c
  */
@@ -110,7 +113,10 @@ Status<void> _install_seccomp_filter() {
     addFilter(uncached_linux_fs, sizeof(uncached_linux_fs));
 
   // Allow tgkill if uintr is not available.
-  if (!uintr_enabled) addFilter(linux_tgkill, sizeof(linux_tgkill));
+  if (!uintr_enabled) {
+    addFilter(rtsigreturn, sizeof(rtsigreturn));
+    addFilter(linux_tgkill, sizeof(linux_tgkill));
+  }
 
 #endif
 
@@ -254,10 +260,7 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
   mythread().SetTrapframe(stack_tf);
 
   // force return to syscall_trap_return
-  if (uintr_enabled)
-    new_frame.pretcode = reinterpret_cast<char *>(__syscall_trap_return_uintr);
-  else
-    new_frame.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
+  new_frame.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
 
   thread_tf tf;
 
@@ -283,7 +286,12 @@ Status<void> _install_signal_handler() {
   act.sa_sigaction = &syscall_trap_handler;
   act.sa_flags = SA_SIGINFO | SA_NODEFER | SA_ONSTACK;
 
-  if (base_sigaction(SIGSYS, &act, NULL) < 0) {
+  if (uintr_enabled)
+    act.sa_restorer = &__kframe_unwind_uiret;
+  else
+    act.sa_restorer = &syscall_rt_sigreturn;
+
+  if (base_sigaction_full(SIGSYS, &act, NULL) < 0) {
     perror("sigaction");
     return MakeError(-errno);
   }

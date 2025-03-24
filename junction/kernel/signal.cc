@@ -532,11 +532,8 @@ void SynchronousKill(Thread &th, const KernelSignalTf &sigframe,
   th.mark_enter_kernel();
   th.SetTrapframe(stack_tf);
   new_frame.pretcode = 0;  // Won't return
-  thread_tf tf;
-  tf.rip = reinterpret_cast<uint64_t>(&usys_exit_group);
-  tf.rsp = AlignForFunctionEntry(rsp);
-  tf.rdi = 128 + signo;
-  __restore_tf_full_and_preempt_enable(&tf);
+  nosave_switch_preempt_enable(reinterpret_cast<thread_fn_t>(&usys_exit_group),
+                               AlignForFunctionEntry(rsp), 128 + signo);
   std::unreachable();
 }
 

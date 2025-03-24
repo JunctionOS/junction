@@ -84,20 +84,9 @@ void __jmp_syscall_restart_nosave(struct thread_tf *tf) __noreturn;
 SYSENTRY_ASM(junction_fncall_stackswitch_enter)
 (long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
-// System call entry point for applications that require syscalls to run on an
-// alternate stack (ie Golang). This variant used when UINTR is enabled.
-SYSENTRY_ASM(junction_fncall_stackswitch_enter_uintr)
-(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
-
 // System call entry point for clone/vfork for applications that require
 // syscalls to run on an alternate stack (ie Golang).
 SYSENTRY_ASM(junction_fncall_stackswitch_enter_preserve_regs)
-(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
-
-// System call entry point for clone/vfork for applications that require
-// syscalls to run on an alternate stack (ie Golang). This variant used when
-// UINTR is enabled.
-SYSENTRY_ASM(junction_fncall_stackswitch_enter_preserve_regs_uintr)
 (long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
 // System call entry point for most applications.
@@ -108,15 +97,13 @@ SYSENTRY_ASM(junction_fncall_enter)
 SYSENTRY_ASM(junction_fncall_enter_preserve_regs)
 (long arg0, long arg1, long arg2, long arg3, long arg4, long arg5, long sys_nr);
 
-// Return function for system calls that are delivered by trap.
-SYSENTRY_ASM(__syscall_trap_return)();
-
-// Variant of __syscall_trap_return for UINTR.
-void __syscall_trap_return_uintr();
+// Return function for system calls that are delivered by trap. Ultimately jumps
+// into __kframe_unwind_loop.
+void __syscall_trap_return();
 
 // Unwind a kernel signal frame on the system call stack. Checks for pending
-// signals before fully unwinding the frame. Use UintrKFrameLoopReturn when
-// UINTR is enabled.
+// signals before fully unwinding the frame. Useable whether or not UINTR is
+// enabled.
 SYSENTRY_ASM(__kframe_unwind_loop)(uint64_t rax);
 
 // Immediately restore a kernel signal frame using uiret.
@@ -125,10 +112,6 @@ void __kframe_unwind_uiret();
 // Unwind a function call frame. Checks for pending signals before fully
 // unwinding the frame.
 SYSENTRY_ASM(__fncall_return_exit_loop)();
-
-// Unwind a function call frame. Checks for pending signals before fully
-// unwinding the frame. This variant must be used when UINTR is enabled.
-SYSENTRY_ASM(__fncall_return_exit_loop_uintr)();
 
 // Entry point for usys_rt_sigreturn, switches stacks and jumps to
 // usys_rt_sigreturn with the sigframe as an argument.
@@ -139,7 +122,7 @@ SYSENTRY_ASM(usys_rt_sigreturn)() __noreturn;
 void __switch_and_preempt_enable(struct thread_tf *tf) __noreturn;
 
 // Switches stacks and calls new function with 3 argument registers, enabling
-// preemption.
+// interrupts.
 void __switch_and_interrupt_enable(struct thread_tf *tf) __noreturn;
 
 // Same as __switch_and_preempt_enable, but also restores callee-saved

@@ -25,61 +25,21 @@ k_sigframe *KernelSignalTf::PushUserVisibleFrame(uint64_t *rsp) const {
   return new_frame;
 }
 
-// Restore a kernel signal frame upon system call exit. When UINTR is enabled,
-// this can be done with no system calls.
-extern "C" [[noreturn]] void UintrKFrameLoopReturn(k_sigframe *frame,
-                                                   uint64_t rax) {
-  assert_stack_is_aligned();
-  Thread &myth = mythread();
-
-  while (true) {
-    ClearUIF();
-    myth.mark_leave_kernel();
-    if (!myth.needs_interrupt()) {
-      nosave_switch(
-          reinterpret_cast<thread_fn_t>(__kframe_unwind_uiret),
-          reinterpret_cast<uint64_t>(frame) + offsetof(k_sigframe, uc), 0);
-      std::unreachable();
-    }
-
-    // a signal slipped in, handle it and try again
-    myth.mark_enter_kernel();
-    SetUIF();
-
-    // Doesn't return if a signal is delivered.
-    myth.get_sighand().DeliverSignals(myth.GetTrapframe(), rax);
-    rax = 0;
-  }
-}
-
 void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   th.SetTrapframe(*this);
-  if (uintr_enabled) {
-    // Ensure syscall return value is 0.
-    unwind_tf.rsi = 0;
-    // align stack and set to to beginning of sigframe
-    unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe);
-    unwind_tf.rdi = unwind_tf.rsp;
-    unwind_tf.rip = reinterpret_cast<uint64_t>(UintrKFrameLoopReturn);
-    assert(AlignForFunctionEntry(unwind_tf.rsp) == unwind_tf.rsp);
-  } else {
-    // __kframe_unwind_loop will provide a zero argument to RunSignals.
-    unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop);
-    unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
-    // Stack aligned to allow assembly code to make function calls without
-    // aligning the stack.
-    assert(unwind_tf.rsp % kStackAlign == 0);
-  }
+  unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop);
+  unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
+  unwind_tf.rdi = 0;  // argument for RunSignals
+  // Stack aligned to allow assembly code to make function calls without
+  // aligning the stack.
+  assert(unwind_tf.rsp % kStackAlign == 0);
 }
 
 [[noreturn]] void KernelSignalTf::JmpRestartSyscall() {
   thread_tf tf;
   sigcontext &ctx = sigframe.uc.uc_mcontext;
 
-  if (uintr_enabled)
-    sigframe.pretcode = reinterpret_cast<char *>(__syscall_trap_return_uintr);
-  else
-    sigframe.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
+  sigframe.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
 
   // can ignore caller-saved registers for the trap entry path
   tf.rax = GetOrigRax();
@@ -103,15 +63,10 @@ void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   sigframe.InvalidateAltStack();
   sigframe.uc.mask = 0;
 
-  if (uintr_enabled) {
-    uint64_t sp = reinterpret_cast<uint64_t>(&sigframe);
-    assert(sp % 16 == 8);
-    nosave_switch(reinterpret_cast<thread_fn_t>(UintrKFrameLoopReturn), sp, sp);
-  } else {
-    uint64_t sp = reinterpret_cast<uint64_t>(&sigframe.uc);
-    // __kframe_unwind_loop will provide a zero argument to RunSignals.
-    nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_loop), sp, 0);
-  }
+  uint64_t sp = reinterpret_cast<uint64_t>(&sigframe.uc);
+  // 0 argument provided for RunSignals.
+  nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_loop), sp,
+                0 /* rdi */);
 }
 
 FunctionCallTf &FunctionCallTf::CreateOnSyscallStack(Thread &th) {
