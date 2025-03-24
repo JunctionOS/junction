@@ -349,7 +349,11 @@ class Thread {
 
   [[nodiscard]] uint64_t correct_to_syscall_stack(uint64_t rsp) const {
     if (rsp_on_syscall_stack(rsp)) return rsp;
-    return get_syscall_stack_rsp();
+    // The syscall entry functions may place a small amount of data on the stack
+    // before switching. Reserve up to XSAVE_AREA_SIZE + kRedzoneSize space
+    // (XSAVE_AREA_SIZE for future syscall entry points that save extended
+    // states on entry.)
+    return get_syscall_stack_rsp() - XSAVE_AREA_SIZE - kRedzoneSize;
   }
 
   inline void mark_enter_kernel() {
