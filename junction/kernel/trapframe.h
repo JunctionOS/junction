@@ -81,9 +81,6 @@ class SyscallFrame : virtual public Trapframe {
   virtual void SetRax(uint64_t rax,
                       std::optional<uint64_t> rsp = std::nullopt) = 0;
 
-  // Copies registers to @dest_tf.
-  virtual void CopyRegs(thread_tf &dest_tf) const = 0;
-
   virtual SyscallFrame &CloneTo(uint64_t *rsp) const override = 0;
 
   [[nodiscard]] virtual uint64_t GetOrigRax() const = 0;
@@ -104,8 +101,6 @@ class KernelSignalTf final : public SyscallFrame {
   // Returns a reference to the underlying sigframe.
   [[nodiscard]] inline k_sigframe &GetFrame() { return sigframe; }
   [[nodiscard]] inline const k_sigframe &GetFrame() const { return sigframe; }
-
-  void CopyRegs(thread_tf &dest_tf) const override;
 
   JunctionSigframe &CloneSigframe(uint64_t *rsp) const override {
     k_sigframe *stack_tf = sigframe.CopyToStack(rsp);
@@ -206,8 +201,6 @@ class FunctionCallTf final : public SyscallFrame {
   static FunctionCallTf &CreateOnSyscallStack(Thread &th);
 
   void ReplaceTf(thread_tf *new_tf) { tf = new_tf; }
-
-  void CopyRegs(thread_tf &dest_tf) const override;
 
   [[nodiscard]] inline thread_tf &GetFrame() { return *tf; }
 

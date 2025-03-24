@@ -9,34 +9,6 @@
 
 namespace junction {
 
-template <typename Tf>
-void DoCopy(thread_tf &newtf, const Tf &oldtf) {
-  newtf.rdi = oldtf.rdi;
-  newtf.rsi = oldtf.rsi;
-  newtf.rdx = oldtf.rdx;
-  newtf.rcx = oldtf.rcx;
-  newtf.r8 = oldtf.r8;
-  newtf.r9 = oldtf.r9;
-  newtf.r10 = oldtf.r10;
-  newtf.r11 = oldtf.r11;
-  newtf.rbx = oldtf.rbx;
-  newtf.rbp = oldtf.rbp;
-  newtf.r12 = oldtf.r12;
-  newtf.r13 = oldtf.r13;
-  newtf.r14 = oldtf.r14;
-  newtf.r15 = oldtf.r15;
-  newtf.rsp = oldtf.rsp;
-  newtf.rip = oldtf.rip;
-}
-
-void KernelSignalTf::CopyRegs(thread_tf &dest_tf) const {
-  DoCopy(dest_tf, sigframe.uc.uc_mcontext);
-}
-
-void FunctionCallTf::CopyRegs(thread_tf &dest_tf) const {
-  DoCopy(dest_tf, *tf);
-}
-
 k_sigframe *KernelSignalTf::PushUserVisibleFrame(uint64_t *rsp) const {
   // transfer the frame
   void *fx_buf = sigframe.CopyXstateToStack(rsp);

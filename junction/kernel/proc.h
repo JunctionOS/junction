@@ -323,14 +323,6 @@ class Thread {
     return fcall_tf;
   }
 
-  void CopySyscallRegs(thread_tf &dest) const {
-    thread_tf *fncall_regs = GetCaladanThread()->entry_regs;
-    if (fncall_regs)
-      FunctionCallTf(fncall_regs).CopyRegs(dest);
-    else
-      CastTfToKernelSig().CopyRegs(dest);
-  }
-
   // Set @tf as the current trapframe generated when entering the Junction
   // kernel. This trapframe must not be a FunctionCallTf.
   void SetTrapframe(Trapframe &tf) {
