@@ -94,10 +94,6 @@ class KernelSignalTf final : public SyscallFrame {
   KernelSignalTf(k_ucontext *uc) : sigframe(*k_sigframe::FromUcontext(uc)) {}
   KernelSignalTf(const KernelSignalTf &tf) : sigframe(tf.sigframe) {}
 
-  // When kernel signals are used for interrupts instead of UIPIs, there exists
-  // a race condition when unwinding signal frames.
-  constexpr static bool HasStackSwitchRace() { return true; }
-
   // Returns a reference to the underlying sigframe.
   [[nodiscard]] inline k_sigframe &GetFrame() { return sigframe; }
   [[nodiscard]] inline const k_sigframe &GetFrame() const { return sigframe; }
@@ -187,6 +183,11 @@ class KernelSignalTf final : public SyscallFrame {
   k_sigframe &sigframe;
 };
 
+inline void InitializeThreadTf(thread_tf &tf) {
+  tf.rflags = 0;
+  tf.xsave_area = nullptr;
+}
+
 // Wrapper around thread_tfs that are set up during a function call-based
 // system call.
 class FunctionCallTf final : public SyscallFrame {
@@ -228,13 +229,13 @@ class FunctionCallTf final : public SyscallFrame {
 
   FunctionCallTf &CloneTo(uint64_t *rsp) const override {
     FunctionCallTf *stack_wrapper = AllocateOnStack<FunctionCallTf>(rsp);
-    thread_tf *stack_tf = PushToStack(rsp, *tf);
+    thread_tf *stack_tf = CopyRawToStack(rsp);
     new (stack_wrapper) FunctionCallTf(stack_tf);
     return *stack_wrapper;
   }
 
   JunctionSigframe &CloneSigframe(uint64_t *rsp) const override {
-    thread_tf *stack_tf = PushToStack(rsp, *tf);
+    thread_tf *stack_tf = CopyRawToStack(rsp);
     JunctionSigframe *jframe = AllocateOnStack<JunctionSigframe>(rsp);
     jframe->type = SigframeType::kJunctionTf;
     jframe->tf = stack_tf;
@@ -246,8 +247,19 @@ class FunctionCallTf final : public SyscallFrame {
 
   static FunctionCallTf *DoLoad(cereal::BinaryInputArchive &ar, uint64_t *rsp) {
     FunctionCallTf *fncall_tf = AllocateOnStack<FunctionCallTf>(rsp);
+
+    size_t xlen;
+    unsigned char *new_xarea = nullptr;
+    ar(xlen);
+    if (xlen) {
+      *rsp = AlignDown(*rsp - xlen, kXsaveAlignment);
+      new_xarea = reinterpret_cast<unsigned char *>(*rsp);
+      ar(cereal::binary_data(new_xarea, xlen));
+    }
+
     thread_tf *tf = AllocateOnStack<thread_tf>(rsp);
     ar(*tf);
+    tf->xsave_area = new_xarea;
     new (fncall_tf) FunctionCallTf(tf);
     return fncall_tf;
   }
@@ -255,6 +267,21 @@ class FunctionCallTf final : public SyscallFrame {
  private:
   inline uint64_t GetSysretUnwinderFunction() const {
     return reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
+  }
+
+  thread_tf *CopyRawToStack(uint64_t *rsp) const {
+    unsigned char *new_xarea = nullptr;
+
+    if (tf->xsave_area) {
+      size_t len = GetXsaveAreaSize(reinterpret_cast<xstate *>(tf->xsave_area));
+      *rsp = AlignDown(*rsp - len, kXsaveAlignment);
+      new_xarea = reinterpret_cast<unsigned char *>(*rsp);
+      std::memcpy(new_xarea, tf->xsave_area, len);
+    }
+
+    thread_tf *stack_tf = PushToStack(rsp, *tf);
+    stack_tf->xsave_area = new_xarea;
+    return stack_tf;
   }
 
   thread_tf *tf;
@@ -265,12 +292,6 @@ class UintrTf final : public Trapframe {
  public:
   UintrTf(u_sigframe &sigframe) : sigframe(sigframe) {}
   UintrTf(u_sigframe *sigframe) : sigframe(*sigframe) {}
-
-  // Unlike kernel signal-based interrupts, UIPI-based interrupts don't need to
-  // check if a thread has left the kernel but is still on the syscall stack
-  // because it uses the CLUI/UIRET instructions to block interrupts during this
-  // period.
-  constexpr static bool HasStackSwitchRace() { return false; }
 
   // Returns a reference to the underlying sigframe.
   [[nodiscard]] inline u_sigframe &GetFrame() { return sigframe; }

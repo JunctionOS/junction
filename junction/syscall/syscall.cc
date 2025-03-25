@@ -23,12 +23,14 @@ struct SyscallTarget {
         reinterpret_cast<uintptr_t>(name##_end)       \
   }
 
-const std::array<SyscallTarget, 7> syscallTargets = {
+const std::array<SyscallTarget, 9> syscallTargets = {
     {DECLARE_TARGET(junction_fncall_enter),
      DECLARE_TARGET(junction_fncall_enter_preserve_regs),
      DECLARE_TARGET(junction_fncall_stackswitch_enter),
+     DECLARE_TARGET(junction_fncall_stackswitch_enter_eax),
      DECLARE_TARGET(junction_fncall_stackswitch_enter_preserve_regs),
      DECLARE_TARGET(__kframe_unwind_loop),
+     DECLARE_TARGET(junction_zpoline_enter),
      DECLARE_TARGET(__fncall_return_exit_loop),
      DECLARE_TARGET(usys_rt_sigreturn)}};
 
@@ -45,16 +47,6 @@ __noinline FaultStatus CheckFaultIP(uintptr_t rip) {
 }
 
 static sysfn_t *dst_tbl;
-
-void SyscallForceStackSwitch() {
-  dst_tbl[453] = sys_tbl[451];
-  dst_tbl[454] = sys_tbl[452];
-}
-
-void SyscallRestoreNoStackSwitch() {
-  dst_tbl[453] = sys_tbl[453];
-  dst_tbl[454] = sys_tbl[454];
-}
 
 Status<void> SyscallInit() {
   dst_tbl = reinterpret_cast<sysfn_t *>(SYSTBL_TRAMPOLINE_LOC);

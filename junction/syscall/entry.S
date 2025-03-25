@@ -46,8 +46,12 @@
 	pushq   %rbx
 	.cfi_adjust_cfa_offset 8
 	.cfi_rel_offset rbx, 0
-	subq    $16, %rsp
-	.cfi_adjust_cfa_offset 16
+	pushq   %r11
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset r11, 0
+	pushq   %r10
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset r10, 0
 	pushq   %r9
 	.cfi_adjust_cfa_offset 8
 	.cfi_rel_offset r9, 0
@@ -88,8 +92,12 @@
 	popq   %r9
 	.cfi_adjust_cfa_offset -8
 	.cfi_restore r9
-	addq    $16, %rsp
-	.cfi_adjust_cfa_offset -16
+	popq   %r10
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore r10
+	popq   %r11
+	.cfi_adjust_cfa_offset -8
+	.cfi_restore r11
 	popq   %rbx
 	.cfi_adjust_cfa_offset -8
 	.cfi_restore rbx
@@ -121,11 +129,15 @@
 	.cfi_adjust_cfa_offset -8
 	.cfi_register rip, r11
 
-	// skip rflags
-	addq  $8, %rsp
+	// rflags
+	popf
+	.cfi_adjust_cfa_offset -8
 
 	// restore rsp
 	popq   %rsp
+
+	// Jump into RIP
+	jmpq *%r11
 .endm
 
 .macro RESTORETF_STACK
@@ -588,8 +600,8 @@ __kframe_unwind_uiret:
 	pushq %r11
 	.cfi_adjust_cfa_offset 8
 
-	// Skip rflags
-	subq   $8, %rsp
+	// rflags
+	pushfq
 	.cfi_adjust_cfa_offset 8
 
 	// push return IP
@@ -631,17 +643,16 @@ __kframe_unwind_uiret:
 	// Find bottom of syscall stack
 	movq    JUNCTION_STACK_OFFSET(%r11), %r11;
 
-	// subtract 32 to (A) allocate the last 3 fields of the trapframe
+	// subtract 16 to (A) allocate the last field of the trapframe (rsp)
 	// and (B) ensure correct alignment for the next call
-	addq    $(JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 32), %r11;
+	leaq    (JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 16)(%r11), %r11;
 
 	// save return stack pointer to new stack
 	leaq    8(%rsp), %r10;
-	movq    %r10, 16(%r11);
-
-	// save RIP to new stack
-	movq    (%rsp), %r10;
 	movq    %r10, (%r11);
+
+	// stash RIP in R10
+	movq    (%rsp), %r10;
 
 	// switch to new stack
 	movq 	%r11, %rsp;
@@ -649,8 +660,17 @@ __kframe_unwind_uiret:
 	// New CFI prologue
 	.cfi_remember_state
 	.cfi_def_cfa rsp, 0
-	.cfi_offset rsp, 16
-	.cfi_offset rip, 0
+	.cfi_offset rsp, 0
+	.cfi_register rip, r10
+
+	// Save rflags
+	pushfq
+	.cfi_adjust_cfa_offset 8
+
+	// Save RIP
+	pushq   %r10
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rip, 0
 
 	SAVETF_STACK
 
@@ -661,6 +681,107 @@ __kframe_unwind_uiret:
 	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE
 	.set SyscallStackArgument, 1
 .endm
+
+
+/**
+ */
+.macro JUNCTION_ZPOLINE_PROLOGUE
+	.cfi_startproc
+
+	// Mark begin syscall, *before* starting to use the syscall stack.
+	movq    %gs:__perthread___self(%rip), %r11;
+	movb    $1, JUNCTION_IN_SYSCALL_OFF(%r11);
+
+	// Find bottom of syscall stack
+	movq    JUNCTION_STACK_OFFSET(%r11), %r11;
+
+	// subtract 16 to (A) allocate the last field of the trapframe (%rsp)
+	// and (B) ensure correct alignment for the next call
+	leaq    (JUNCTION_STACK_SIZE - 2 * JUNCTION_STACK_RESERVED - 16)(%r11), %r11;
+
+	// save return stack pointer to new stack
+	leaq    8(%rsp), %rcx;
+	movq    %rcx, (%r11);
+
+	// stash RIP in RCX
+	movq    (%rsp), %rcx;
+
+	// switch to new stack
+	movq 	%r11, %rsp;
+
+	// New CFI prologue
+	.cfi_remember_state
+	.cfi_def_cfa rsp, 0
+	.cfi_offset rsp, 0
+	.cfi_register rip, rcx
+
+	// Save rflags
+	pushfq
+	.cfi_adjust_cfa_offset 8
+
+	// Save RIP
+	pushq   %rcx
+	.cfi_adjust_cfa_offset 8
+	.cfi_rel_offset rip, 0
+
+	SAVETF_STACK
+
+	// set eax:edx to active xstates
+	mov $1, %ecx
+	xgetbv
+
+	// get address of on stack xsave area
+	movq    JUNCTION_STACK_OFFSET(%r11), %r11;
+	addq    $(JUNCTION_STACK_SIZE - 2 * JUNCTION_STACK_RESERVED), %r11;
+
+	// Zero the xstate header
+	movq    $0, 0x200(%r11)
+	movq    $0, 0x208(%r11)
+	movq    $0, 0x210(%r11)
+	movq    $0, 0x218(%r11)
+	movq    $0, 0x220(%r11)
+	movq    $0, 0x228(%r11)
+	movq    $0, 0x230(%r11)
+	movq    $0, 0x238(%r11)
+
+	// save extended state, using eax:edx mask
+	xsavec  (%r11)
+
+	// save a pointer to the xsave area
+	movq %r11, XSAVE_PTR(%rsp)
+
+	// set up syscall argument registers
+	movq RDX(%rsp), %rdx
+	movq RAX(%rsp), %rax
+	movq R10(%rsp), %rcx
+.endm
+
+.macro TF_FULL_RET
+	movq  XSAVE_PTR(%rsp), %r11
+	test %r11, %r11
+	jz 4f
+
+	// set eax:edx to component mask saved in xstate
+	movq    0x200(%r11),%rax
+	movq    %rax,%rdx
+	shrq    $0x20,%rdx
+
+	// restore xstate
+	xrstor   (%r11)
+4:
+	RESTORETF_STACK
+.endm
+
+.align 16
+.globl junction_zpoline_enter
+.type junction_zpoline_enter, @function
+junction_zpoline_enter:
+
+	JUNCTION_ZPOLINE_PROLOGUE
+
+	CALL_SYSCALL_FUNC %rax %rsp %rdi
+
+	INTERRUPT_CHECK junction_zpoline_enter TF_FULL_RET
 
 /*
  * junction_fncall_enter - main entry point for system calls.
@@ -731,15 +852,7 @@ junction_fncall_enter_preserve_regs:
 
 	CALL_SYSCALL_FUNC %rax %rsp %rdi
 
-.macro FNCALL_RET_SAVE
-	RESTORETF_STACK
-	// correct rsp
-	subq    $8, %rsp;
-	.cfi_adjust_cfa_offset 8
-	ret
-.endm
-
-	INTERRUPT_CHECK junction_fncall_enter_preserve_regs FNCALL_RET_SAVE
+	INTERRUPT_CHECK junction_fncall_enter_preserve_regs RESTORETF_STACK
 
 .align 16
 .globl __fncall_return_exit_loop
@@ -748,12 +861,7 @@ __fncall_return_exit_loop:
 	.cfi_startproc
 	xorq   %rdi, %rdi
 
-.macro FNCALL_RET_SAVE_JMP
-	RESTORETF_STACK
-	jmp     *%r11
-.endm
-
-	INTERRUPT_CHECK __fncall_return_exit_loop FNCALL_RET_SAVE_JMP
+	INTERRUPT_CHECK __fncall_return_exit_loop TF_FULL_RET
 
 /*
  * junction_fncall_stackswitch_enter_preserve_regs - variant of
@@ -769,11 +877,19 @@ junction_fncall_stackswitch_enter_preserve_regs:
 
 	CALL_SYSCALL_FUNC %rax %rsp %rdi
 
-.macro RESTORETF_RET
-	RESTORETF_STACK_CFI_RESTORE
-	// in case of vfork(), the stack may no longer contain the return address.
-	// jump to the previously saved return address.
-	jmp     *%r11
-.endm
+	INTERRUPT_CHECK junction_fncall_stackswitch_enter_preserve_regs RESTORETF_STACK_CFI_RESTORE
 
-	INTERRUPT_CHECK junction_fncall_stackswitch_enter_preserve_regs RESTORETF_RET
+/* junction_fncall_stackswitch_enter_eax - entry point for runtimes that require
+* system calls to run on separate stacks.
+*
+* NOTE: this routine expects the system call number to be passed in eax.
+*/
+.align 16
+.globl junction_fncall_stackswitch_enter_eax
+.type junction_fncall_stackswitch_enter_eax, @function
+junction_fncall_stackswitch_enter_eax:
+	JUNCTION_FNCALL_STACKSWITCH_PROLOGUE_EAX
+
+	CALL_SYSCALL_FUNC %rax %rsp %rdi
+
+	INTERRUPT_CHECK junction_fncall_stackswitch_enter_eax FNCALL_STACKSWITCH_NOSAVE

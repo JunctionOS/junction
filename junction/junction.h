@@ -70,6 +70,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   }
 
   [[nodiscard]] bool using_chroot() const { return chroot_path.size() > 0; }
+  [[nodiscard]] bool zpoline() const { return zpoline_; }
 
   [[nodiscard]] const std::string &get_function_name() const {
     return function_name_;
@@ -89,6 +90,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   bool madv_remap;
   bool expecting_snapshot_;
   bool restore_populate_;
+  bool zpoline_;
   uid_t gid_;
   uid_t uid_;
   std::string chroot_path;
@@ -124,6 +126,7 @@ Status<void> init();
 Status<void> InitUnixTime();
 Status<void> InitControlServer();
 Status<void> InitChannelClient();
+Status<void> InitZpoline();
 Status<std::unique_ptr<Process>> InitTestProc();
 void MarkRuntimeReady();
 [[nodiscard]] bool IsRuntimeReady();

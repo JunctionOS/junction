@@ -277,6 +277,40 @@ bool MemoryMap::RecordHit(void *addr, size_t len, Time time,
   return first_hit;
 }
 
+bool MemoryMap::HotPatchInstructions(std::span<const std::byte> src,
+                                     std::span<std::byte> dst) {
+  if (TraceEnabled()) return false;
+
+  assert(src.size_bytes() == dst.size_bytes());
+
+  std::byte *page_start = PageAlignDown(dst.data());
+  std::byte *page_end = PageAlign(dst.data() + dst.size());
+
+  rt::ScopedLock l(mu_);
+  auto vma_ref = Find(reinterpret_cast<uintptr_t>(page_start));
+  if (unlikely(!vma_ref)) {
+    LOG(WARN) << "couldn't find VMA for page " << page_start;
+    return false;
+  }
+
+  VMArea &vma = *vma_ref;
+
+  if (unlikely(vma.get_end() < reinterpret_cast<uintptr_t>(page_end))) {
+    LOG_ONCE(INFO) << "Hotpatch: instructions spanning VMAs";
+    return false;
+  }
+
+  Status<void> ret =
+      KernelMProtect(page_start, page_end - page_start, PROT_READ | PROT_WRITE);
+  BUG_ON(!ret);
+
+  std::memcpy(dst.data(), src.data(), src.size_bytes());
+
+  ret = KernelMProtect(page_start, page_end - page_start, vma.prot);
+  BUG_ON(!ret);
+  return true;
+}
+
 // This function is called when there is a SIGSEGV and
 // the tracer is detected to be running
 //
@@ -285,16 +319,16 @@ bool MemoryMap::RecordHit(void *addr, size_t len, Time time,
 bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
   addr = PageAlignDown(addr);
 
-  rt::SpinGuard g(mm_lock_);
-  // In tracer mode, holding the global MM spin lock implies ownership of the
-  // shared mutex.
-  assert(!mu_.IsHeld());
-  // Acquire the shared mutex anyways, so that we don't fail debug asserts.
-  rt::ScopedLock l(mu_);
+  rt::UniqueLock g(mm_lock_, rt::DeferLock);
+  if (TraceEnabled()) {
+    g.Lock();
+    // In tracer mode, holding the global MM spin lock implies ownership of the
+    // shared mutex (acquire the shared mutex anyways, so that we don't fail
+    // debug asserts).
+    assert(!mu_.IsHeld());
+  }
 
-  // No race condition with beginning/ending tracing since the process is always
-  // fully stopped during these operations.
-  assert(tracer_);
+  rt::ScopedLock l(mu_);
 
   rt::RuntimeLibcGuard guard;
 
@@ -310,9 +344,13 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
   // access is invalid, don't record it since no data is accessed.
   if ((vma.prot & required_prot) == 0) return false;
 
-  // This access should have succeeded but is failing - it must be because we
-  // are tracing it.
-  assert(!!vma.traced);
+  // Exec fault
+  if (!tracer_ && vma.prot == (PROT_READ | PROT_EXEC) &&
+      required_prot == PROT_EXEC) {
+    return true;
+  }
+
+  if (!tracer_) return false;
 
   // An mprotect may have forced us to remap an already touched page as
   // PROT_NONE. Record the hit regardless and restore permissions.

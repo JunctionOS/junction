@@ -15,8 +15,6 @@ extern "C" {
 namespace junction {
 
 Status<void> SyscallInit();
-void SyscallForceStackSwitch();
-void SyscallRestoreNoStackSwitch();
 
 // Update in entry.S if changed.
 static_assert(offsetof(thread, stack) == JUNCTION_STACK_OFFSET);
@@ -28,6 +26,7 @@ static_assert(offsetof(thread, interrupt_state) == JUNCTION_INT_STATE_OFF);
 static_assert(offsetof(thread, tf) == CALADAN_TF_OFF);
 static_assert(offsetof(k_ucontext, uc_mcontext.rax) == SIGFRAME_RAX_OFFSET);
 static_assert(offsetof(k_ucontext, uc_mcontext) == SIGFRAME_SIGCONTEXT);
+static_assert(offsetof(thread_tf, xsave_area) == XSAVE_PTR);
 
 static_assert(offsetof(sigcontext, r8) == SIGCONTEXT_R8);
 static_assert(offsetof(sigcontext, r9) == SIGCONTEXT_R9);
@@ -79,6 +78,9 @@ extern "C" {
 // signal is ignored.
 void __jmp_syscall_restart_nosave(struct thread_tf *tf) __noreturn;
 
+SYSENTRY_ASM(junction_fncall_stackswitch_enter_eax)
+(long arg0, long arg1, long arg2, long arg3, long arg4, long arg5);
+
 // System call entry point for applications that require syscalls to run on an
 // alternate stack (ie Golang).
 SYSENTRY_ASM(junction_fncall_stackswitch_enter)
@@ -116,6 +118,8 @@ SYSENTRY_ASM(__fncall_return_exit_loop)();
 // Entry point for usys_rt_sigreturn, switches stacks and jumps to
 // usys_rt_sigreturn with the sigframe as an argument.
 SYSENTRY_ASM(usys_rt_sigreturn)() __noreturn;
+
+SYSENTRY_ASM(junction_zpoline_enter)();
 
 // Switches stacks and calls new function with 3 argument registers, enabling
 // preemption.

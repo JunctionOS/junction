@@ -126,7 +126,16 @@ extern uint64_t xsave_enabled_bitmap;
 extern uint32_t xsave_max_sizes[kXsaveMaxComponents];
 
 inline __nofp size_t GetXsaveAreaSize(uint64_t features) {
+  // Check that this subsystem has been initialized.
+  assert(xsave_enabled_bitmap);
   if (unlikely(!features)) return xsave_max_sizes[0];
   return xsave_max_sizes[63 - __builtin_clzl(features)];
 }
+
+inline __nofp size_t GetXsaveAreaSize(xstate *xs) {
+  // Check that this is a compacted form xsate.
+  assert(xs->xstate_hdr.xcomp_bv & BIT(63));
+  return GetXsaveAreaSize(xs->xstate_hdr.xcomp_bv & ~BIT(63));
+}
+
 }  // namespace junction

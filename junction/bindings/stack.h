@@ -144,6 +144,13 @@ T* PushToStack(uint64_t* rsp, const T& src) {
   return newT;
 }
 
+template <>
+inline thread_tf* PushToStack(uint64_t* rsp, const thread_tf& src) {
+  thread_tf* newT = AllocateOnStack<thread_tf, kStackAlign>(rsp);
+  new (newT) thread_tf(src);
+  return newT;
+}
+
 template <typename Callable, typename... Args>
 __noreturn void RunOnStackAt(uint64_t rsp, Callable&& func, Args&&... args) {
   using Data = rt::thread_internal::basic_data;

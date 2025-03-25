@@ -242,6 +242,9 @@ class alignas(kCacheLineSize) MemoryMap {
   // Returns true if this page fault is handled by the MM.
   bool HandlePageFault(uintptr_t addr, int required_prot, Time time);
 
+  bool HotPatchInstructions(std::span<const std::byte> src,
+                            std::span<std::byte> dst);
+
   [[nodiscard]] std::string get_bin_path() const;
   [[nodiscard]] std::string get_bin_name() const;
   [[nodiscard]] std::string_view get_cmd_line() const { return cmd_line_; }

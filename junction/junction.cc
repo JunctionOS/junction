@@ -104,6 +104,8 @@ po::options_description GetOptions() {
        "<prefix>.elf")  //
       ("stackswitch", po::bool_switch()->default_value(false),
        "use stack switching syscalls")  //
+      ("zpoline", po::bool_switch()->default_value(true),
+       "hotpatch syscall instructions using the zpoline technique")  //
       ("madv_remap", po::bool_switch()->default_value(false),
        "zero memory when MADV_FREE is used (intended for profiling)")  //
       ("cache_linux_fs", po::bool_switch()->default_value(false),
@@ -168,6 +170,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
 
   uid_ = vm["uid"].as<uid_t>();
   gid_ = vm["gid"].as<uid_t>();
+  zpoline_ = vm["zpoline"].as<bool>();
 
   strace = vm["strace"].as<bool>();
   stack_switching = vm["stackswitch"].as<bool>();
@@ -235,6 +238,9 @@ Status<void> init() {
   if (unlikely(!ret)) return ret;
 
   ret = SyscallInit();
+  if (unlikely(!ret)) return ret;
+
+  ret = InitZpoline();
   if (unlikely(!ret)) return ret;
 
   ret = InitChroot();

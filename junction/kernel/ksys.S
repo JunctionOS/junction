@@ -35,6 +35,7 @@ SYSCALL_456 mmap __NR_mmap
 SYSCALL_123 munmap __NR_munmap
 SYSCALL_123 mprotect __NR_mprotect
 SYSCALL_123 madvise __NR_madvise
+SYSCALL_456 mremap __NR_mremap
 
 SYSCALL_456 openat __NR_openat
 SYSCALL_123 close __NR_close

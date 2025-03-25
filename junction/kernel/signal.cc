@@ -176,6 +176,7 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
 
   const Trapframe *prev = &frame;
   FunctionCallTf restore_wrapper(restore_tf);
+  InitializeThreadTf(restore_tf);
   size_t sig_count = 0;
   while (true) {
     std::optional<DeliveredSignal> sig = hand.GetNextSignal();
@@ -639,7 +640,7 @@ void HandlePageFaultOnSyscallStack(KernelSignalTf &frame, int required_prot,
   } else if (unlikely(fstatus == FaultStatus::kCompletingSyscall)) {
     // signal delivered just as we were returning from a system call, rewind the
     // exit and try again.
-    myth.GetSyscallFrame().JmpUnwindSysret(myth);
+    myth.GetTrapframe().JmpUnwindSysret(myth);
   } else {
     // Landed on user code; simulate a syscall exit so we can check for signals.
     frame.JmpUnwindSysret(myth);
@@ -654,6 +655,9 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
                                            void *context) {
   assert_on_runtime_stack();
   assert_stack_is_aligned();
+
+  // Record fault time in case the tracer needs it.
+  Time time = Time::Now();
 
   if (unlikely(!context)) print_msg_abort("signal delivered without context");
 
@@ -673,19 +677,21 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
   const KernelSignalTf *prev_tf = perthread_get(trapped_frame);
   perthread_store(trapped_frame, nullptr);
 
-  // TODO(jf): replace with a global flag.
   Thread &myth = mythread();
-  MemoryMap &mm = myth.get_process().get_mem_map();
-  if (signo == SIGSEGV && mm.TraceEnabled()) {
-    // Record fault time in case the tracer needs it.
-    Time time = Time::Now();
 
+  // Give the memory map a chance to handle the fault
+  if (signo == SIGSEGV) {
+    MemoryMap &mm = myth.get_process().get_mem_map();
     int prot = sigsegv_sigcontext_to_prot(uc->uc.uc_mcontext);
 
     // We might have segfaulted with preemption disabled in the Junction kernel.
     // Not great, but if the page fault handler can fix it, we can keep going.
     if (was_preempt_disabled) {
-      if (mm.HandlePageFault(reinterpret_cast<uintptr_t>(info->si_addr), prot,
+      // It is only safe to enter the memory map when preemption is disabled if
+      // tracing was enabled, since all MM operations are synchronized with a
+      // spin lock during tracing.
+      if (mm.TraceEnabled() &&
+          mm.HandlePageFault(reinterpret_cast<uintptr_t>(info->si_addr), prot,
                              time))
         return;
       // Try to cleanly kill this program.
@@ -999,6 +1005,7 @@ void ThreadSignalHandler::DeliverSignals(Trapframe &entry, long rax) {
         entry->GetRsp() - std::max(kRedzoneSize, 2 * sizeof(thread_tf));
 
     thread_tf sighand_tf;
+    InitializeThreadTf(sighand_tf);
 
     PushUserSigFrame(d, &rsp, *entry, sighand_tf);
 

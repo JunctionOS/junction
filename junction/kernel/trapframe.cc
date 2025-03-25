@@ -73,6 +73,7 @@ FunctionCallTf &FunctionCallTf::CreateOnSyscallStack(Thread &th) {
   uint64_t rsp = th.get_syscall_stack_rsp();
   FunctionCallTf *stack_wrapper = AllocateOnStack<FunctionCallTf>(&rsp);
   thread_tf *stack_tf = AllocateOnStack<thread_tf>(&rsp);
+  InitializeThreadTf(*stack_tf);
   new (stack_wrapper) FunctionCallTf(stack_tf);
   return *stack_wrapper;
 }
@@ -92,6 +93,7 @@ uint64_t RewindIndirectSystemCall(uint64_t rip) {
 
   // NOTE: the register variant is not supported with snapshotting and we are
   // trying to avoid generating it in glibc.
+  // NOTE 2: the register variant is used for zpoline though.
   assert(!is_reg_operand);
 
   // check for debug purposes only
@@ -196,6 +198,16 @@ void KernelSignalTf::DoSave(cereal::BinaryOutputArchive &ar, int rax) const {
 
 void FunctionCallTf::DoSave(cereal::BinaryOutputArchive &ar, int rax) const {
   ar(SigframeType::kJunctionTf);
+
+  size_t xsave_len = 0;
+  if (tf->xsave_area) {
+    xsave_len = GetXsaveAreaSize(reinterpret_cast<xstate *>(tf->xsave_area));
+    ar(xsave_len);
+    ar(cereal::binary_data(tf->xsave_area, xsave_len));
+  } else {
+    ar(xsave_len);
+  }
+
   if (IsRestartSys(rax)) {
     thread_tf copy = *tf;
     copy.rax = GetOrigRax();

@@ -38,6 +38,8 @@ long ksys_default(long arg0, long arg1, long arg2, long arg3, long arg4,
                   long arg5, long sys_num);
 intptr_t ksys_mmap(void *addr, size_t length, int prot, int flags, int fd,
                    off_t offset);
+intptr_t ksys_mremap(void *oldaddr, size_t oldsz, size_t newsz, int flags,
+                     void *new_addr);
 int ksys_munmap(void *addr, size_t length);
 int ksys_mprotect(void *addr, size_t len, int prot);
 long ksys_madvise(void *addr, size_t length, int advice);
@@ -341,6 +343,14 @@ inline Status<void> KernelMAdvise(void *addr, size_t length, int hint) {
   int ret = ksys_madvise(addr, length, hint);
   if (ret < 0) return MakeError(-ret);
   return {};
+}
+
+inline Status<void *> KernelMRemap(void *old_addr, size_t old_sz,
+                                   size_t new_len, int flags,
+                                   void *new_addr = nullptr) {
+  intptr_t ret = ksys_mremap(old_addr, old_sz, new_len, flags, new_addr);
+  if (ret < 0) return MakeError(-ret);
+  return reinterpret_cast<void *>(ret);
 }
 
 // Get file status.

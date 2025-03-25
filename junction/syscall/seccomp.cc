@@ -257,6 +257,38 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
   mythread().mark_enter_kernel();
   mythread().SetTrapframe(stack_tf);
 
+  if (GetCfg().zpoline()) {
+    RunOnStackAt(rsp - kRedzoneSize, [] {
+      preempt_enable();
+
+      k_sigframe &new_frame = mythread().CastTfToKernelSig().GetFrame();
+
+      std::byte *insns =
+          reinterpret_cast<std::byte *>(new_frame.uc.uc_mcontext.rip - 2);
+
+      const std::byte new_insns[] = {std::byte{0xff}, std::byte{0xd0}};
+
+      myproc().get_mem_map().HotPatchInstructions(new_insns,
+                                                  std::span{insns, 2});
+
+      new_frame.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
+      thread_tf tf;
+      k_ucontext *ctx = &new_frame.uc;
+      tf.rip = reinterpret_cast<uint64_t>(sys_tbl[ctx->uc_mcontext.trapno]);
+      tf.rsp = reinterpret_cast<uint64_t>(&new_frame);
+      tf.rdi = ctx->uc_mcontext.rdi;
+      tf.rsi = ctx->uc_mcontext.rsi;
+      tf.rdx = ctx->uc_mcontext.rdx;
+      tf.r8 = ctx->uc_mcontext.r8;
+      tf.r9 = ctx->uc_mcontext.r9;
+      tf.rcx = ctx->uc_mcontext.r10;
+      preempt_disable();
+      __restore_tf_full_and_preempt_enable(&tf);
+      std::unreachable();
+    });
+    std::unreachable();
+  }
+
   // force return to syscall_trap_return
   new_frame.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
 

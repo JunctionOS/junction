@@ -135,8 +135,9 @@ systabl_targets[451] = "junction_fncall_stackswitch_enter"
 systabl_targets[452] = "junction_fncall_stackswitch_enter_preserve_regs"
 systabl_targets[453] = "junction_fncall_enter"
 systabl_targets[454] = "junction_fncall_enter_preserve_regs"
+systabl_targets[455] = "junction_fncall_stackswitch_enter_eax"
 
-for i in range(451, 455):
+for i in range(451, 456):
     systabl_strace_targets[i] = systabl_targets[i]
 
 

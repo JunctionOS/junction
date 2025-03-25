@@ -174,8 +174,6 @@ k_sigframe *k_sigframe::CopyToStack(uint64_t *dest_rsp) const {
 // feature i is in use, then every feature j < i is also in use (excluding those
 // that are not enabled).
 Status<void> InitXsave() {
-  if (!uintr_enabled) return {};
-
   // Fill the xstate component table
   cpuid_info regs;
   cpuid(kXsaveCpuid, 0, &regs);

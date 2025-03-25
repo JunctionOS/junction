@@ -36,6 +36,7 @@ add_library(syscall
   syscall_tbl.cc
   entry.S
   vdso/vdso_inc.S
+  zpoline.cc
 )
 
 set_source_files_properties(

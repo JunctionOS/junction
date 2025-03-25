@@ -302,6 +302,12 @@ class Thread {
     return *cur_trapframe_;
   }
 
+  inline KernelSignalTf &CastTfToKernelSig() const {
+    if constexpr (is_debug_build())
+      return dynamic_cast_guarded<KernelSignalTf &>(*cur_trapframe_);
+    return reinterpret_cast<KernelSignalTf &>(*cur_trapframe_);
+  }
+
   // The caller must be certain that they are executing in the context of a
   // system call and not an interrupt.
   SyscallFrame &GetSyscallFrame() {
@@ -479,12 +485,6 @@ class Thread {
     // The returned trapframe is only valid during a syscall (or until the
     // code has switched off of the syscall stack).
     assert(in_kernel() || rsp_on_syscall_stack());
-  }
-
-  inline KernelSignalTf &CastTfToKernelSig() const {
-    if constexpr (is_debug_build())
-      return dynamic_cast_guarded<KernelSignalTf &>(*cur_trapframe_);
-    return reinterpret_cast<KernelSignalTf &>(*cur_trapframe_);
   }
 
   // Hot items
