@@ -59,10 +59,6 @@ void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   assert(&th == &mythread());
   assert(th.in_kernel());
   th.SetTrapframe(*this);
-
-  sigframe.InvalidateAltStack();
-  sigframe.uc.mask = 0;
-
   uint64_t sp = reinterpret_cast<uint64_t>(&sigframe.uc);
   // 0 argument provided for RunSignals.
   nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_loop), sp,

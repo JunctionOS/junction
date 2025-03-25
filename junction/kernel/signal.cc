@@ -439,8 +439,6 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
   preempt_disable();
   assert_on_runtime_stack();
 
-  uc->InvalidateAltStack();
-
   thread_t *th = thread_self();
   thread_tf &out_tf = th->tf;
   KernelSignalTf sigframe(uc);
@@ -666,7 +664,6 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
     print_msg_abort("Unexpected signal delivered to Junction code");
 
   auto uc = k_sigframe::FromUcontext(reinterpret_cast<k_ucontext *>(context));
-  uc->InvalidateAltStack();
 
   bool was_preempt_disabled = unlikely(!preempt_enabled());
   // Update preemption counter to reflect that preemption is implicitly disabled
@@ -960,7 +957,7 @@ void CheckRestartSysPostHandler(SyscallFrame &entry, int rax,
 }
 
 // rax is non-zero only if returning from a system call.
-void ThreadSignalHandler::DeliverSignals(Trapframe &entry, int rax) {
+void ThreadSignalHandler::DeliverSignals(Trapframe &entry, long rax) {
   assert(&mythread() == &this_thread());
   assert(&entry == &mythread().GetTrapframe());
   std::optional<DeliveredSignal> sig;
@@ -1186,7 +1183,7 @@ long usys_pause() {
   return -ERESTARTNOHAND;
 }
 
-extern "C" void RunSignals(int rax) {
+extern "C" void RunSignals(long rax) {
   assert_stack_is_aligned();
   Thread &th = mythread();
   th.get_sighand().DeliverSignals(th.GetTrapframe(), rax);

@@ -1,4 +1,4 @@
-From 5888b7294400dd162382c7692fc08ab83755db34 Mon Sep 17 00:00:00 2001
+From 5fc0295ca20a67f4cc641af6b0fd94d38bb4afda Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
 Subject: [PATCH 18/35] preemption and signal updates
@@ -7,9 +7,9 @@ Subject: [PATCH 18/35] preemption and signal updates
  inc/runtime/thread.h |  4 +---
  runtime/cfg.c        |  8 --------
  runtime/defs.h       |  2 +-
- runtime/preempt.c    | 31 +++++++++++--------------------
+ runtime/preempt.c    | 20 --------------------
  runtime/sched.c      | 39 +++++++++++++++++++++++++++++----------
- 5 files changed, 42 insertions(+), 42 deletions(-)
+ 5 files changed, 31 insertions(+), 42 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index 8772d0ce..18dcc673 100644
@@ -80,56 +80,10 @@ index 69043666..b5e1567a 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 0ec08ad5..508ec513 100644
+index 0ec08ad5..a0c2dbba 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -4,6 +4,7 @@
- 
- #include <signal.h>
- #include <string.h>
-+#include <ucontext.h>
- 
- #include <asm/prctl.h>
- #include <immintrin.h>
-@@ -43,6 +44,8 @@ static __nofp inline void set_preempt_needed(void)
- /* handles preemptive cede signals from the iokernel */
- static void handle_sigusr1(int s, siginfo_t *si, void *c)
- {
-+	ucontext_t *ctx = (ucontext_t *)c;
-+
- 	STAT(PREEMPTIONS)++;
- 
- 	/* resume execution if preemption is disabled */
-@@ -53,6 +56,9 @@ static void handle_sigusr1(int s, siginfo_t *si, void *c)
- 
- 	WARN_ON_ONCE(!preempt_cede_needed(myk()));
- 
-+	// prevent sigreturn from updating altstack
-+	ctx->uc_stack.ss_flags = 4;
-+
- 	preempt_disable();
- 	thread_cede();
- }
-@@ -60,6 +66,8 @@ static void handle_sigusr1(int s, siginfo_t *si, void *c)
- /* handles preemptive yield signals from the iokernel */
- static void handle_sigusr2(int s, siginfo_t *si, void *c)
- {
-+	ucontext_t *ctx = (ucontext_t *)c;
-+
- 	STAT(PREEMPTIONS)++;
- 
- 	/* resume execution if preemption is disabled */
-@@ -72,6 +80,9 @@ static void handle_sigusr2(int s, siginfo_t *si, void *c)
- 	if (!preempt_yield_needed(myk()))
- 		return;
- 
-+	// prevent sigreturn from updating altstack
-+	ctx->uc_stack.ss_flags = 4;
-+
- 	thread_yield();
- }
- 
-@@ -162,25 +173,8 @@ void preempt(void)
+@@ -162,25 +162,8 @@ void preempt(void)
  
  int preempt_init_thread(void)
  {
@@ -155,7 +109,7 @@ index 0ec08ad5..508ec513 100644
  	return 0;
  }
  
-@@ -196,9 +190,6 @@ int preempt_init(void)
+@@ -196,9 +179,6 @@ int preempt_init(void)
  	struct sigaction act;
  	struct cpuid_info regs;
  

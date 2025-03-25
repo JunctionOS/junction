@@ -1,15 +1,15 @@
-From b0e2d7ae8495dcf4376fa193822ffbad9d3a7ba3 Mon Sep 17 00:00:00 2001
+From 8b1e606bcf1de11b5f331b8c1b028d7941b4df8e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 4 Apr 2023 02:26:06 +0000
 Subject: [PATCH 16/35] syscall nits
 
 ---
- base/syscall.S     | 42 +++++++++++++++++++++++++++++++++++++-----
- inc/base/syscall.h | 27 ++++++++++++++++++++++++++-
- 2 files changed, 63 insertions(+), 6 deletions(-)
+ base/syscall.S     | 49 +++++++++++++++++++++++++++++++++++++++-------
+ inc/base/syscall.h | 27 ++++++++++++++++++++++++-
+ 2 files changed, 68 insertions(+), 8 deletions(-)
 
 diff --git a/base/syscall.S b/base/syscall.S
-index 6783386..6f54f07 100644
+index 6783386a..118d2355 100644
 --- a/base/syscall.S
 +++ b/base/syscall.S
 @@ -7,13 +7,22 @@
@@ -39,11 +39,13 @@ index 6783386..6f54f07 100644
  .align 16
  .globl syscall_mmap
  syscall_mmap:
-@@ -40,12 +49,35 @@ syscall_ioctl:
+@@ -40,12 +49,38 @@ syscall_ioctl:
  .align 16
  .globl syscall_rt_sigreturn
  syscall_rt_sigreturn:
 -	movl    $__NR_rt_sigreturn, %eax
+-        // Invalidate the alternate signal stack entry in this frame
+-        // so the kernel doesn't change it.
 +	.cfi_startproc simple
 +	.cfi_signal_frame
 +	.cfi_def_cfa rsp, 40
@@ -67,9 +69,12 @@ index 6783386..6f54f07 100644
 +	.cfi_offset rcx, 112
 +
 +	movq    $__NR_rt_sigreturn, %rax
-         // Invalidate the alternate signal stack entry in this frame
-         // so the kernel doesn't change it.
++	// Invalidate the alternate signal stack entry in this frame
++	// so the kernel doesn't change it.
  	movl    $4, 24(%rsp)
++
++	// Set mask to 0
++	movq    $0, 296(%rsp)
  	syscall
  	ret
 +	.cfi_endproc
@@ -77,7 +82,7 @@ index 6783386..6f54f07 100644
  .align 16
  .globl syscall_madvise
 diff --git a/inc/base/syscall.h b/inc/base/syscall.h
-index 3d67b37..7f2de80 100644
+index 3d67b370..7f2de807 100644
 --- a/inc/base/syscall.h
 +++ b/inc/base/syscall.h
 @@ -6,6 +6,7 @@

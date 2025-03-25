@@ -253,8 +253,6 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
   assert(new_frame.uc.uc_mcontext.trapno >= 0 &&
          new_frame.uc.uc_mcontext.trapno < 4096);
 
-  new_frame.InvalidateAltStack();
-
   // stash a pointer to the sigframe in case we need to restart the syscall
   mythread().mark_enter_kernel();
   mythread().SetTrapframe(stack_tf);

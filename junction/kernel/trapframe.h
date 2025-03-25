@@ -157,7 +157,6 @@ class KernelSignalTf final : public SyscallFrame {
   }
 
   [[noreturn]] void JmpUnwind() {
-    sigframe.InvalidateAltStack();
     sigframe.uc.mask = 0;
     nosave_switch(reinterpret_cast<thread_fn_t>(GetUnwinderFunction()),
                   reinterpret_cast<uintptr_t>(&sigframe.uc), 0);

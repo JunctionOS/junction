@@ -63,6 +63,10 @@ struct k_ucontext {
   unsigned long mask; /* mask last for extensibility */
 };
 
+// Constants in syscall.S
+static_assert(offsetof(k_ucontext, uc_stack.ss_flags) == 24);
+static_assert(offsetof(k_ucontext, mask) == 296);
+
 struct k_sigframe {
   char *pretcode;
   struct k_ucontext uc;
@@ -74,11 +78,6 @@ struct k_sigframe {
 
   [[nodiscard]] inline uint64_t GetRsp() const { return uc.uc_mcontext.rsp; }
   [[nodiscard]] inline uint64_t GetRip() const { return uc.uc_mcontext.rip; }
-
-  // The kernel will replace the altstack when we call __rt_sigreturn. Since
-  // this call may happen from a different kernel thread then the one that the
-  // signal was delivered to, invalidate the altstack recorded in the sigframe.
-  inline void InvalidateAltStack() { uc.uc_stack.ss_flags = 4; }
 
   // Copy this signal frame's xstate to the stack @dest_rsp
   void *CopyXstateToStack(uint64_t *dest_rsp) const;
