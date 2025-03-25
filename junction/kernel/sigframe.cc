@@ -12,6 +12,8 @@ extern "C" {
 
 namespace junction {
 
+bool xsavec_available;
+
 // Bitmap of components that we can support.
 uint64_t xsave_enabled_bitmap;
 
@@ -176,17 +178,35 @@ k_sigframe *k_sigframe::CopyToStack(uint64_t *dest_rsp) const {
 Status<void> InitXsave() {
   // Fill the xstate component table
   cpuid_info regs;
+
+  cpuid(0x1, 0, &regs);
+  if ((regs.ecx & BIT(27)) == 0) {
+    LOG(INFO) << "xsave not supported";
+    return {};
+  }
+
+  cpuid(kXsaveCpuid, 1, &regs);
+  bool xsavec_available = regs.eax & BIT(1);
+
   cpuid(kXsaveCpuid, 0, &regs);
+  if (!xsave_max_size) xsave_max_size = regs.ecx;
+  assert(xsave_max_size == regs.ecx);
+
   size_t enabled_bitmap = regs.eax;
   enabled_bitmap |= (uint64_t)regs.edx << 32;
 
-  size_t last_size = offsetof(xstate, xsave_area);
+  size_t last_size =
+      xsavec_available ? offsetof(xstate, xsave_area) : xsave_max_size;
 
   // Legacy state area is always included.
   xsave_max_sizes[0] = xsave_max_sizes[1] = last_size;
 
   for (size_t i = 2; i < kXsaveMaxComponents; i++) {
     if ((enabled_bitmap & BIT(i)) == 0) continue;
+    if (!xsavec_available) {
+      xsave_max_sizes[i] = xsave_max_size;
+      continue;
+    }
     cpuid(kXsaveCpuid, i, &regs);
 
     bool align = (regs.ecx & BIT(1)) != 0;

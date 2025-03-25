@@ -120,6 +120,7 @@ SYSENTRY_ASM(__fncall_return_exit_loop)();
 SYSENTRY_ASM(usys_rt_sigreturn)() __noreturn;
 
 SYSENTRY_ASM(junction_zpoline_enter)();
+SYSENTRY_ASM(junction_zpoline_enter_noxsavec)();
 
 // Switches stacks and calls new function with 3 argument registers, enabling
 // preemption.

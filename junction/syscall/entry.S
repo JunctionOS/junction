@@ -685,7 +685,7 @@ __kframe_unwind_uiret:
 
 /**
  */
-.macro JUNCTION_ZPOLINE_PROLOGUE
+.macro JUNCTION_ZPOLINE_PROLOGUE xsave_routine
 	.cfi_startproc
 
 	// Mark begin syscall, *before* starting to use the syscall stack.
@@ -726,10 +726,6 @@ __kframe_unwind_uiret:
 
 	SAVETF_STACK
 
-	// set eax:edx to active xstates
-	mov $1, %ecx
-	xgetbv
-
 	// get address of on stack xsave area
 	movq    JUNCTION_STACK_OFFSET(%r11), %r11;
 	addq    $(JUNCTION_STACK_SIZE - 2 * JUNCTION_STACK_RESERVED), %r11;
@@ -744,8 +740,7 @@ __kframe_unwind_uiret:
 	movq    $0, 0x230(%r11)
 	movq    $0, 0x238(%r11)
 
-	// save extended state, using eax:edx mask
-	xsavec  (%r11)
+	\xsave_routine %r11
 
 	// save a pointer to the xsave area
 	movq %r11, XSAVE_PTR(%rsp)
@@ -772,16 +767,43 @@ __kframe_unwind_uiret:
 	RESTORETF_STACK
 .endm
 
+.macro XSAVEC_ROUTINE reg
+	// query active xstates, result in eax:edx
+	movl $1, %eax
+	xgetbv
+
+	xsavec (\reg)
+.endm
+
+.macro XSAVE_ROUTINE reg
+	movl $-1, %eax
+	movl $-1, %edx
+
+	// save all xstates
+	xsave (\reg)
+.endm
+
 .align 16
 .globl junction_zpoline_enter
 .type junction_zpoline_enter, @function
 junction_zpoline_enter:
 
-	JUNCTION_ZPOLINE_PROLOGUE
+	JUNCTION_ZPOLINE_PROLOGUE XSAVEC_ROUTINE
 
 	CALL_SYSCALL_FUNC %rax %rsp %rdi
 
 	INTERRUPT_CHECK junction_zpoline_enter TF_FULL_RET
+
+.align 16
+.globl junction_zpoline_enter_noxsavec
+.type junction_zpoline_enter_noxsavec, @function
+junction_zpoline_enter_noxsavec:
+
+        JUNCTION_ZPOLINE_PROLOGUE XSAVE_ROUTINE
+
+        CALL_SYSCALL_FUNC %rax %rsp %rdi
+
+        INTERRUPT_CHECK junction_zpoline_enter_noxsavec TF_FULL_RET
 
 /*
  * junction_fncall_enter - main entry point for system calls.

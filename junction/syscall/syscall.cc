@@ -23,7 +23,7 @@ struct SyscallTarget {
         reinterpret_cast<uintptr_t>(name##_end)       \
   }
 
-const std::array<SyscallTarget, 9> syscallTargets = {
+const std::array<SyscallTarget, 10> syscallTargets = {
     {DECLARE_TARGET(junction_fncall_enter),
      DECLARE_TARGET(junction_fncall_enter_preserve_regs),
      DECLARE_TARGET(junction_fncall_stackswitch_enter),
@@ -31,6 +31,7 @@ const std::array<SyscallTarget, 9> syscallTargets = {
      DECLARE_TARGET(junction_fncall_stackswitch_enter_preserve_regs),
      DECLARE_TARGET(__kframe_unwind_loop),
      DECLARE_TARGET(junction_zpoline_enter),
+     DECLARE_TARGET(junction_zpoline_enter_noxsavec),
      DECLARE_TARGET(__fncall_return_exit_loop),
      DECLARE_TARGET(usys_rt_sigreturn)}};
 

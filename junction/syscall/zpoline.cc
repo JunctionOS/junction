@@ -10,7 +10,7 @@ namespace junction {
 constexpr inline size_t kNopSledSize = 460;
 
 // Code from https://github.com/yasukata/zpoline/blob/master/main.c
-void FillJumpPage(uint8_t *mem) {
+void FillJumpPage(uint8_t *mem, long int (*fn)()) {
   memset(mem, 0x90, kNopSledSize);
 
   // optimization introduced by reviewer C
@@ -47,22 +47,14 @@ void FillJumpPage(uint8_t *mem) {
   // 49 bb [64-bit addr (8-byte)]    movabs [64-bit addr (8-byte)],%r11
   mem[kNopSledSize + 0x07] = 0x49;
   mem[kNopSledSize + 0x08] = 0xbb;
-  mem[kNopSledSize + 0x09] =
-      ((uint64_t)junction_zpoline_enter >> (8 * 0)) & 0xff;
-  mem[kNopSledSize + 0x0a] =
-      ((uint64_t)junction_zpoline_enter >> (8 * 1)) & 0xff;
-  mem[kNopSledSize + 0x0b] =
-      ((uint64_t)junction_zpoline_enter >> (8 * 2)) & 0xff;
-  mem[kNopSledSize + 0x0c] =
-      ((uint64_t)junction_zpoline_enter >> (8 * 3)) & 0xff;
-  mem[kNopSledSize + 0x0d] =
-      ((uint64_t)junction_zpoline_enter >> (8 * 4)) & 0xff;
-  mem[kNopSledSize + 0x0e] =
-      ((uint64_t)junction_zpoline_enter >> (8 * 5)) & 0xff;
-  mem[kNopSledSize + 0x0f] =
-      ((uint64_t)junction_zpoline_enter >> (8 * 6)) & 0xff;
-  mem[kNopSledSize + 0x10] =
-      ((uint64_t)junction_zpoline_enter >> (8 * 7)) & 0xff;
+  mem[kNopSledSize + 0x09] = ((uint64_t)fn >> (8 * 0)) & 0xff;
+  mem[kNopSledSize + 0x0a] = ((uint64_t)fn >> (8 * 1)) & 0xff;
+  mem[kNopSledSize + 0x0b] = ((uint64_t)fn >> (8 * 2)) & 0xff;
+  mem[kNopSledSize + 0x0c] = ((uint64_t)fn >> (8 * 3)) & 0xff;
+  mem[kNopSledSize + 0x0d] = ((uint64_t)fn >> (8 * 4)) & 0xff;
+  mem[kNopSledSize + 0x0e] = ((uint64_t)fn >> (8 * 5)) & 0xff;
+  mem[kNopSledSize + 0x0f] = ((uint64_t)fn >> (8 * 6)) & 0xff;
+  mem[kNopSledSize + 0x10] = ((uint64_t)fn >> (8 * 7)) & 0xff;
 
   // 41 ff e3                jmp    *%r11
   mem[kNopSledSize + 0x11] = 0x41;
@@ -78,7 +70,8 @@ Status<void> InitZpoline() {
   if (!mret) return MakeError(mret);
 
   uint8_t *mem = reinterpret_cast<uint8_t *>(*mret);
-  FillJumpPage(mem);
+  FillJumpPage(mem, xsavec_available ? junction_zpoline_enter
+                                     : junction_zpoline_enter_noxsavec);
 
   /*
    * mprotect(PROT_EXEC without PROT_READ), executed

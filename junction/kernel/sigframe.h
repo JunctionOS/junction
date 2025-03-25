@@ -124,6 +124,7 @@ extern "C" [[noreturn]] __nofp void UintrFullRestore(const u_sigframe *frame);
 Status<void> InitXsave();
 extern uint64_t xsave_enabled_bitmap;
 extern uint32_t xsave_max_sizes[kXsaveMaxComponents];
+extern bool xsavec_available;
 
 inline __nofp size_t GetXsaveAreaSize(uint64_t features) {
   // Check that this subsystem has been initialized.
@@ -134,8 +135,9 @@ inline __nofp size_t GetXsaveAreaSize(uint64_t features) {
 
 inline __nofp size_t GetXsaveAreaSize(xstate *xs) {
   // Check that this is a compacted form xsate.
-  assert(xs->xstate_hdr.xcomp_bv & BIT(63));
-  return GetXsaveAreaSize(xs->xstate_hdr.xcomp_bv & ~BIT(63));
+  if (xs->xstate_hdr.xcomp_bv & BIT(63))
+    return GetXsaveAreaSize(xs->xstate_hdr.xcomp_bv & ~BIT(63));
+  return GetXsaveAreaSize(xsave_enabled_bitmap);
 }
 
 }  // namespace junction
