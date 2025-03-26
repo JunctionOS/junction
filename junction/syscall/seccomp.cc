@@ -258,7 +258,7 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
   mythread().SetTrapframe(stack_tf);
 
   if (GetCfg().zpoline()) {
-    RunOnStackAt(rsp - kRedzoneSize, [] {
+    RunOnStackAtFromSignalStack(rsp - kRedzoneSize, [] {
       preempt_enable();
 
       k_sigframe &new_frame = mythread().CastTfToKernelSig().GetFrame();

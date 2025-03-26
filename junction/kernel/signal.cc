@@ -706,7 +706,7 @@ extern "C" void synchronous_signal_handler(int signo, siginfo_t *info,
     // Move the Linux trapframe to the syscall stack.
     KernelSignalTf &tf = KernelSignalTf(uc).CloneTo(&rsp);
 
-    RunOnStackAt(rsp, [=, tf = &tf] mutable {
+    RunOnStackAtFromSignalStack(rsp, [=, tf = &tf] mutable {
       HandlePageFaultOnSyscallStack(*tf, prot, time);
     });
     std::unreachable();

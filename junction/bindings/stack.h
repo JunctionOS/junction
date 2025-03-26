@@ -138,7 +138,7 @@ T* AllocateOnStack(uint64_t* rsp) {
 }
 
 template <>
-inline thread_tf *AllocateOnStack(uint64_t *rsp) {
+inline thread_tf* AllocateOnStack(uint64_t* rsp) {
   return AllocateOnStack<thread_tf, kStackAlign>(rsp);
 }
 
@@ -149,17 +149,20 @@ T* PushToStack(uint64_t* rsp, const T& src) {
   return newT;
 }
 
+// This variant transfers the invocation data to the target stack after
+// switching to the new stack. This must be used when the target stack may be
+// used by an interrupt handler before it is active (eg a syscall stack may be
+// used to hold a trapframe during a Yield). The caller must ensure that the
+// source stack remains valid until the Called function is run. Disabling
+// preemption may be insufficient if the source stack is a per-kthread signal
+// stack, since a kernel signal may be delivered at the bottom of the signal
+// stack once we switch.
 template <typename Callable, typename... Args>
-__noreturn void RunOnStackAt(uint64_t rsp, Callable&& func, Args&&... args) {
+__noreturn void __RunOnStackAtPostMove(uint64_t rsp, Callable&& func,
+                                       Args&&... args) {
   using Data = rt::thread_internal::basic_data;
   using Wrapper = rt::thread_internal::Wrapper<Data, Callable, Args...>;
 
-  // Copy invocation data to the target stack after switching to the target
-  // stack. This allows us to forward data to the syscall stack, which cannot be
-  // used until it is active since it may race with a signal handler. The caller
-  // must take care that the old stack/data remain valid until the function is
-  // run, which means possibly disabling preemption in the case of per-kthread
-  // stacks.
   Wrapper w(std::forward<Callable>(func), std::forward<Args>(args)...);
   rsp = AlignDown(rsp, 16) - 8;
 
@@ -174,9 +177,34 @@ __noreturn void RunOnStackAt(uint64_t rsp, Callable&& func, Args&&... args) {
   std::unreachable();
 }
 
+// This variant transfers the invocation data to the target stack before
+// switching. This variant must be used when the source stack can be overwritten
+// as soon as it is no longer in use (eg the per-kthread signal stack). When the
+// target stack is the syscall stack, preemption must be disabled until the
+// stack is switched so that interrupts don't overwrite the data on the syscall
+// stack.
 template <typename Callable, typename... Args>
-__noreturn void RunOnStack(stack& stack, size_t reserved, Callable&& func,
-                           Args&&... args)
+__noreturn void __RunOnStackAtPreMove(uint64_t rsp, Callable&& func,
+                                      Args&&... args) {
+  using Data = rt::thread_internal::basic_data;
+  using Wrapper = rt::thread_internal::Wrapper<Data, Callable, Args...>;
+
+  Wrapper* buf = AllocateOnStack<Wrapper>(&rsp);
+  new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
+  rsp = AlignDown(rsp, 16) - 8;
+
+  auto f = [](void* arg) {
+    Wrapper* w = reinterpret_cast<Wrapper*>(arg);
+    w->Run();
+  };
+
+  nosave_switch(f, rsp, reinterpret_cast<uint64_t>(buf));
+  std::unreachable();
+}
+
+template <typename Callable, typename... Args>
+__noreturn void __RunOnStackPostMove(stack& stack, size_t reserved,
+                                     Callable&& func, Args&&... args)
   requires std::invocable<Callable, Args...>
 {
   // Just run the function if we're already on the stack
@@ -188,15 +216,25 @@ __noreturn void RunOnStack(stack& stack, size_t reserved, Callable&& func,
   size_t offset = STACK_PTR_SIZE -
                   (align_up(reserved, sizeof(uintptr_t)) / sizeof(uintptr_t));
   uint64_t rsp = reinterpret_cast<uint64_t>(&stack.usable[offset]);
-  RunOnStackAt(rsp, std::forward<Callable>(func), std::forward<Args>(args)...);
+  __RunOnStackAtPostMove(rsp, std::forward<Callable>(func),
+                         std::forward<Args>(args)...);
 }
 
 template <typename Callable, typename... Args>
-auto CallOnStackAt(uint64_t rsp, Callable&& func, Args&&... args)
+auto __CallOnStack(stack& stack, size_t reserved, Callable&& func,
+                   Args&&... args)
   requires std::invocable<Callable, Args...>
 {
   using Data = rt::thread_internal::basic_data;
   using Wrapper = rt::thread_internal::Wrapper<Data, Callable, Args...>;
+
+  // Just run the function if we're already on the stack
+  if (IsOnStack(stack))
+    return std::forward<Callable>(func)(std::forward<Args>(args)...);
+
+  size_t offset = STACK_PTR_SIZE -
+                  (align_up(reserved, sizeof(uintptr_t)) / sizeof(uintptr_t));
+  uint64_t rsp = reinterpret_cast<uint64_t>(&stack.usable[offset]);
 
   Wrapper w(std::forward<Callable>(func), std::forward<Args>(args)...);
   rsp = AlignDown(rsp, 16) - 8;
@@ -211,52 +249,30 @@ auto CallOnStackAt(uint64_t rsp, Callable&& func, Args&&... args)
 }
 
 template <typename Callable, typename... Args>
-auto CallOnStack(stack& stack, size_t reserved, Callable&& func, Args&&... args)
-  requires std::invocable<Callable, Args...>
-{
-  // Just run the function if we're already on the stack
-  if (IsOnStack(stack))
-    return std::forward<Callable>(func)(std::forward<Args>(args)...);
-
-  size_t offset = STACK_PTR_SIZE -
-                  (align_up(reserved, sizeof(uintptr_t)) / sizeof(uintptr_t));
-  uint64_t rsp = reinterpret_cast<uint64_t>(&stack.usable[offset]);
-  return CallOnStackAt(rsp, std::forward<Callable>(func),
-                       std::forward<Args>(args)...);
-}
-
-template <typename Callable, typename... Args>
-__noreturn void RunOnStack(stack& stack, Callable&& func, Args&&... args)
-  requires std::invocable<Callable, Args...>
-{
-  assert(&stack != &GetSyscallStack());
-  RunOnStack(stack, 0, std::forward<Callable>(func),
-             std::forward<Args>(args)...);
+__noreturn void RunOnStackAtFromSignalStack(uint64_t rsp, Callable&& func,
+                                            Args&&... args) {
+  assert_preempt_disabled();
+  __RunOnStackAtPreMove(rsp, std::forward<Callable>(func),
+                        std::forward<Args>(args)...);
 }
 
 template <typename Callable, typename... Args>
 __noreturn void RunOnSyscallStack(Callable&& func, Args&&... args)
   requires std::invocable<Callable, Args...>
 {
-  RunOnStack(GetSyscallStack(), 2 * XSAVE_AREA_SIZE + kRedzoneSize,
-             std::forward<Callable>(func), std::forward<Args>(args)...);
-}
-
-template <typename Callable, typename... Args>
-auto CallOnStack(stack& stack, Callable&& func, Args&&... args)
-  requires std::invocable<Callable, Args...>
-{
-  assert(&stack != &GetSyscallStack());
-  return CallOnStack(stack, 0, std::forward<Callable>(func),
-                     std::forward<Args>(args)...);
+  assert(!on_runtime_stack());
+  __RunOnStackPostMove(GetSyscallStack(), 2 * XSAVE_AREA_SIZE + kRedzoneSize,
+                       std::forward<Callable>(func),
+                       std::forward<Args>(args)...);
 }
 
 template <typename Callable, typename... Args>
 auto CallOnSyscallStack(Callable&& func, Args&&... args)
   requires std::invocable<Callable, Args...>
 {
-  return CallOnStack(GetSyscallStack(), 2 * XSAVE_AREA_SIZE + kRedzoneSize,
-                     std::forward<Callable>(func), std::forward<Args>(args)...);
+  return __CallOnStack(GetSyscallStack(), 2 * XSAVE_AREA_SIZE + kRedzoneSize,
+                       std::forward<Callable>(func),
+                       std::forward<Args>(args)...);
 }
 
 }  // namespace junction
