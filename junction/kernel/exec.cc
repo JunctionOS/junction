@@ -262,8 +262,7 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
 
   // We can allocate a thread_tf on the syscall stack but not the
   // FunctionCallTf wrapper. Use the Thread instance's fcall_tf.
-  thread_tf start_tf;
-  InitializeThreadTf(start_tf);
+  NewThreadTf start_tf;
 
   Thread &myth = mythread();
   Process &p = myth.get_process();

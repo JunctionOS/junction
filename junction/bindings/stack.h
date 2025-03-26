@@ -137,17 +137,15 @@ T* AllocateOnStack(uint64_t* rsp) {
   return reinterpret_cast<T*>(*rsp);
 }
 
+template <>
+inline thread_tf *AllocateOnStack(uint64_t *rsp) {
+  return AllocateOnStack<thread_tf, kStackAlign>(rsp);
+}
+
 template <typename T>
 T* PushToStack(uint64_t* rsp, const T& src) {
   T* newT = AllocateOnStack<T>(rsp);
   new (newT) T(src);
-  return newT;
-}
-
-template <>
-inline thread_tf* PushToStack(uint64_t* rsp, const thread_tf& src) {
-  thread_tf* newT = AllocateOnStack<thread_tf, kStackAlign>(rsp);
-  new (newT) thread_tf(src);
   return newT;
 }
 

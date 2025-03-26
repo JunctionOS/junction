@@ -72,8 +72,8 @@ FunctionCallTf &FunctionCallTf::CreateOnSyscallStack(Thread &th) {
          (uintr_enabled && !TestUIF()));
   uint64_t rsp = th.get_syscall_stack_rsp();
   FunctionCallTf *stack_wrapper = AllocateOnStack<FunctionCallTf>(&rsp);
-  thread_tf *stack_tf = AllocateOnStack<thread_tf>(&rsp);
-  InitializeThreadTf(*stack_tf);
+  NewThreadTf *stack_tf = AllocateOnStack<NewThreadTf>(&rsp);
+  new (stack_tf) NewThreadTf();
   new (stack_wrapper) FunctionCallTf(stack_tf);
   return *stack_wrapper;
 }

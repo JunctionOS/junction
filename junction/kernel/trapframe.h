@@ -183,10 +183,12 @@ class KernelSignalTf final : public SyscallFrame {
   k_sigframe &sigframe;
 };
 
-inline void InitializeThreadTf(thread_tf &tf) {
-  tf.rflags = 0;
-  tf.xsave_area = nullptr;
-}
+struct alignas(kStackAlign) NewThreadTf : public thread_tf {
+  NewThreadTf() {
+    rflags = 0;
+    xsave_area = nullptr;
+  };
+};
 
 // Wrapper around thread_tfs that are set up during a function call-based
 // system call.

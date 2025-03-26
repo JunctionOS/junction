@@ -176,7 +176,6 @@ void PushUserSigFrame(const DeliveredSignal &signal, uint64_t *rsp,
 
   const Trapframe *prev = &frame;
   FunctionCallTf restore_wrapper(restore_tf);
-  InitializeThreadTf(restore_tf);
   size_t sig_count = 0;
   while (true) {
     std::optional<DeliveredSignal> sig = hand.GetNextSignal();
@@ -442,6 +441,7 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
 
   thread_t *th = thread_self();
   thread_tf &out_tf = th->tf;
+  NewThreadTf newtf;
   KernelSignalTf sigframe(uc);
 
   uint64_t rsp = sigframe.GetRsp() - kRedzoneSize;
@@ -465,12 +465,12 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
       // the exit and check for signals again.
       myth.GetTrapframe().MakeUnwinderSysret(myth, out_tf);
     } else if (signo == SIGURG &&
-               ApplyAllSignals(myth, &rsp, sigframe, out_tf)) {
+               ApplyAllSignals(myth, &rsp, sigframe, newtf)) {
       // A signal was successfully delivered and out_tf has the signal handler,
       // move it to the syscall stack and get a new frame to exit the kernel and
       // unwind that.
       rsp = myth.get_syscall_stack_rsp();
-      FunctionCallTf(out_tf).CloneTo(&rsp).JmpUnwindSysretPreemptEnable(myth);
+      FunctionCallTf(newtf).CloneTo(&rsp).JmpUnwindSysretPreemptEnable(myth);
       std::unreachable();
     } else {
       // Nothing happened with this signal yet, but we will need to restore it
@@ -1004,8 +1004,7 @@ void ThreadSignalHandler::DeliverSignals(Trapframe &entry, long rax) {
     uint64_t rsp =
         entry->GetRsp() - std::max(kRedzoneSize, 2 * sizeof(thread_tf));
 
-    thread_tf sighand_tf;
-    InitializeThreadTf(sighand_tf);
+    NewThreadTf sighand_tf;
 
     PushUserSigFrame(d, &rsp, *entry, sighand_tf);
 
