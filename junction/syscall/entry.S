@@ -769,7 +769,7 @@ __kframe_unwind_uiret:
 
 .macro XSAVEC_ROUTINE reg
 	// query active xstates, result in eax:edx
-	movl $1, %eax
+	movl $1, %ecx
 	xgetbv
 
 	xsavec (\reg)

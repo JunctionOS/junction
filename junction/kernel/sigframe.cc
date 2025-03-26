@@ -186,7 +186,7 @@ Status<void> InitXsave() {
   }
 
   cpuid(kXsaveCpuid, 1, &regs);
-  bool xsavec_available = regs.eax & BIT(1);
+  xsavec_available = regs.eax & BIT(1);
 
   cpuid(kXsaveCpuid, 0, &regs);
   if (!xsave_max_size) xsave_max_size = regs.ecx;
