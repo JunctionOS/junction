@@ -334,7 +334,7 @@ bool MemoryMap::HandlePageFault(uintptr_t addr, int required_prot, Time time) {
 
   auto vma_ref = Find(addr);
   if (unlikely(!vma_ref)) {
-    LOG(WARN) << "couldn't find VMA for page " << addr;
+    DLOG(WARN) << "couldn't find VMA for page " << (void *)addr;
     return false;
   }
 

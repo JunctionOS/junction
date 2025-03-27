@@ -2,6 +2,10 @@
 
 #pragma once
 
+extern "C" {
+#include <asm/ops.h>
+}
+
 #include <immintrin.h>
 
 #include <span>
@@ -106,6 +110,12 @@ struct xstate {
 };
 
 static_assert(offsetof(xstate, xstate_hdr) == 512);
+
+inline bool CPUHasPKUSupport() {
+  cpuid_info regs;
+  cpuid(0x7, 0, &regs);
+  return (regs.ecx & BIT(3)) > 0;
+}
 
 // XSaveCompact saves the set of extended CPU states specified in @features into
 // @buf using the compacted format. It uses the init optimization to avoid

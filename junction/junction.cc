@@ -171,6 +171,11 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   uid_ = vm["uid"].as<uid_t>();
   gid_ = vm["gid"].as<uid_t>();
   zpoline_ = vm["zpoline"].as<bool>();
+  if (zpoline_ && !CPUHasPKUSupport()) {
+    zpoline_ = false;
+    std::cerr << "zpoline disabled: no support for execute-only memory"
+              << std::endl;
+  }
 
   strace = vm["strace"].as<bool>();
   stack_switching = vm["stackswitch"].as<bool>();
@@ -191,7 +196,7 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   terminate_after_snapshot_ = vm["snapshot_terminate"].as<bool>();
 
   if (mem_trace_ && !stack_switching) {
-    LOG(WARN) << "Enabling stack switching for memory tracing";
+    std::cerr << "Enabling stack switching for memory tracing" << std::endl;
     stack_switching = true;
   }
 
