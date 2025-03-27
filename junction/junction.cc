@@ -104,7 +104,7 @@ po::options_description GetOptions() {
        "<prefix>.elf")  //
       ("stackswitch", po::bool_switch()->default_value(false),
        "use stack switching syscalls")  //
-      ("zpoline", po::bool_switch()->default_value(true),
+      ("zpoline", po::bool_switch()->default_value(false),
        "hotpatch syscall instructions using the zpoline technique")  //
       ("madv_remap", po::bool_switch()->default_value(false),
        "zero memory when MADV_FREE is used (intended for profiling)")  //

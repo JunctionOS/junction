@@ -1,7 +1,7 @@
 #!/bin/bash
 
 function usage() {
-    echo "usage: scripts/test.sh [-d|--debug] [-h|--help] [--no-uintr] [-n|--dry-run] [--no-remove] [--use_chroot] [regex]" >&2
+    echo "usage: scripts/test.sh [-d|--debug] [-h|--help] [--no-uintr] [-n|--dry-run] [--no-remove] [--use_chroot] [--force_zpoline] [regex]" >&2
     exit 255
 }
 
@@ -11,6 +11,7 @@ DRY_RUN=""
 MODE="Release"
 TIMEOUT=240
 USECHROOT=""
+ZPOLINE=""
 
 for arg in "$@"; do
     shift
@@ -20,6 +21,7 @@ for arg in "$@"; do
         '--no-uintr') NOUINTR="nouintr" ;;
         '--no-remove') REM_FILES="y" ;;
         '-n'|'--dry-run') DRY_RUN="--show-only" ;;
+        '--force_zpoline') ZPOLINE=1 ;;
         '--use-chroot') USECHROOT=1 ;;
         *)
             if [[ -z ${REGEX} ]]; then
@@ -75,13 +77,17 @@ if [[ ! -z ${USECHROOT} ]]; then
         echo "Missing chroot dir."
         exit 255
     fi
-    export EXTRA_JUNCTION_FLAGS=" --chroot ${CHROOT_DIR} --cache_linux_fs "
+    export EXTRA_JUNCTION_FLAGS=" --chroot ${CHROOT_DIR} --cache_linux_fs ${EXTRA_JUNCTION_FLAGS}"
     ${SCRIPT_DIR}/chroot_mount.sh
 
     function cleanup {
         ${SCRIPT_DIR}/chroot_mount.sh -u
     }
     trap cleanup SIGINT SIGTERM EXIT
+fi
+
+if [[ ! -z ${ZPOLINE} ]]; then
+   export EXTRA_JUNCTION_FLAGS="${EXTRA_JUNCTION_FLAGS} --interpreter_path --glibc_path --zpoline"
 fi
 
 if [ -z "${REGEX}" ]; then
