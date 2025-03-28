@@ -323,7 +323,8 @@ class Thread {
   }
 
   FunctionCallTf &ReplaceEntryRegs(thread_tf &tf) {
-    assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)));
+    assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)) ||
+           &tf == GetCaladanThread()->entry_regs);
     assert(reinterpret_cast<uint64_t>(&tf) % kStackAlign == 0);
     GetCaladanThread()->entry_regs = &tf;
     fcall_tf.ReplaceTf(&tf);
