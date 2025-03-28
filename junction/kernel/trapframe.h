@@ -180,6 +180,10 @@ class KernelSignalTf final : public SyscallFrame {
     return reinterpret_cast<uintptr_t>(__kframe_unwind_uiret);
   }
 
+  inline uint64_t GetSysretUnwindRdi() const {
+    return GetOrigRax() != -1UL ? sigframe.uc.uc_mcontext.rax : 0;
+  }
+
   k_sigframe &sigframe;
 };
 
@@ -187,6 +191,7 @@ struct alignas(kStackAlign) NewThreadTf : public thread_tf {
   NewThreadTf() {
     rflags = 0;
     xsave_area = nullptr;
+    orig_rax = -1UL;
   };
 };
 
@@ -269,6 +274,10 @@ class FunctionCallTf final : public SyscallFrame {
  private:
   inline uint64_t GetSysretUnwinderFunction() const {
     return reinterpret_cast<uint64_t>(__fncall_return_exit_loop);
+  }
+
+  inline uint64_t GetSysretUnwindRdi() const {
+    return tf->orig_rax != -1UL ? tf->rax : 0;
   }
 
   thread_tf *CopyRawToStack(uint64_t *rsp) const {

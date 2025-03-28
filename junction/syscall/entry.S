@@ -881,8 +881,6 @@ junction_fncall_enter_preserve_regs:
 .type __fncall_return_exit_loop, @function
 __fncall_return_exit_loop:
 	.cfi_startproc
-	xorq   %rdi, %rdi
-
 	INTERRUPT_CHECK __fncall_return_exit_loop TF_FULL_RET
 
 /*

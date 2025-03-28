@@ -122,7 +122,7 @@ Status<std::shared_ptr<SockType>> GetPeer(UnixSocketAddr &addr,
     Status<std::shared_ptr<Inode>> ino = LookupInode(myproc().get_fs(), name);
     if (!ino) return MakeError(ECONNREFUSED);
     UnixSocketInode<SockType> *uino =
-        dynamic_cast<UnixSocketInode<SockType> *>(ino->get());
+        dynamic_cast_guarded<UnixSocketInode<SockType> *>(ino->get());
     if (!uino) return MakeError(ECONNREFUSED);
     remote = uino->get_sock().lock();
   } else {

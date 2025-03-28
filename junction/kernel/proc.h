@@ -331,12 +331,14 @@ class Thread {
   }
 
   // Set @tf as the current trapframe generated when entering the Junction
-  // kernel. This trapframe must not be a FunctionCallTf.
+  // kernel. This trapframe must not be a FunctionCallTf (use ReplaceEntryRegs)
+  // instead.
   void SetTrapframe(Trapframe &tf) {
     DebugSafetyCheck();
     assert(rsp_on_syscall_stack(reinterpret_cast<uint64_t>(&tf)) ||
            &tf == &fcall_tf);
     assert(!rsp_on_syscall_stack(tf.GetRsp()));
+    assert(!dynamic_cast_guarded<FunctionCallTf *>(&tf));
 
     GetCaladanThread()->entry_regs = nullptr;
     cur_trapframe_ = &tf;

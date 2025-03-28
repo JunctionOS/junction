@@ -29,7 +29,7 @@ void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   th.SetTrapframe(*this);
   unwind_tf.rip = reinterpret_cast<uint64_t>(__kframe_unwind_loop);
   unwind_tf.rsp = reinterpret_cast<uint64_t>(&sigframe.uc);
-  unwind_tf.rdi = 0;  // argument for RunSignals
+  unwind_tf.rdi = GetSysretUnwindRdi();  // argument for RunSignals
   // Stack aligned to allow assembly code to make function calls without
   // aligning the stack.
   assert(unwind_tf.rsp % kStackAlign == 0);
@@ -60,9 +60,8 @@ void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   assert(th.in_kernel());
   th.SetTrapframe(*this);
   uint64_t sp = reinterpret_cast<uint64_t>(&sigframe.uc);
-  // 0 argument provided for RunSignals.
   nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_loop), sp,
-                0 /* rdi */);
+                GetSysretUnwindRdi());
 }
 
 FunctionCallTf &FunctionCallTf::CreateOnSyscallStack(Thread &th) {
@@ -119,19 +118,19 @@ void FunctionCallTf::ResetToSyscallStart() {
 [[noreturn]] void FunctionCallTf::JmpUnwindSysret(Thread &th) {
   assert(&th == &mythread());
   assert(th.in_kernel());
-  th.SetTrapframe(*this);
+  th.ReplaceEntryRegs(*tf);
   nosave_switch(reinterpret_cast<thread_fn_t>(GetSysretUnwinderFunction()),
-                reinterpret_cast<uint64_t>(tf), 0);
+                reinterpret_cast<uint64_t>(tf), GetSysretUnwindRdi());
 }
 
 [[noreturn]] void FunctionCallTf::JmpUnwindSysretPreemptEnable(Thread &th) {
   assert_preempt_disabled();
   assert(&th == &mythread());
   assert(th.in_kernel());
-  th.SetTrapframe(*this);
+  th.ReplaceEntryRegs(*tf);
   nosave_switch_preempt_enable(
       reinterpret_cast<thread_fn_t>(GetSysretUnwinderFunction()),
-      reinterpret_cast<uint64_t>(tf), 0);
+      reinterpret_cast<uint64_t>(tf), GetSysretUnwindRdi());
 }
 
 extern "C" [[noreturn]] void UintrLoopReturn(UintrTf *frame) {
@@ -156,9 +155,10 @@ extern "C" [[noreturn]] void UintrLoopReturn(UintrTf *frame) {
 }
 
 void FunctionCallTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
-  th.SetTrapframe(*this);
+  th.ReplaceEntryRegs(*tf);
   unwind_tf.rsp = reinterpret_cast<uint64_t>(tf);
   unwind_tf.rip = GetSysretUnwinderFunction();
+  unwind_tf.rdi = GetSysretUnwindRdi();
   // Stack aligned to allow assembly code to make function calls without
   // aligning the stack.
   assert(unwind_tf.rsp % kStackAlign == 0);
