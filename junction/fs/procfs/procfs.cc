@@ -37,6 +37,22 @@ std::string GetMemInfo() {
   return ss.str();
 }
 
+// TODO(jfried): fill out this implementation.
+std::string GetStat() {
+  rt::RuntimeLibcGuard g;
+  std::ostringstream ss;
+
+  ss << "cpu\n";
+  for (size_t i = 0; i < rt::RuntimeMaxCores(); i++) {
+    ss << "cpu" << i << "\n";
+  }
+
+  for (size_t i = 0; i < 200; i++) ss << "a";
+  ss << "\n";
+
+  return ss.str();
+}
+
 std::string GetMounts() {
   return "tmpfs / tmpfs rw,nosuid,nodev,inode64 0 0\n";
 }
@@ -502,6 +518,7 @@ class ProcRootDir : public ProcFSDir {
     AddDentLockedNoCheck("self", MakeLink(0777, GetPidString));
     AddDentLockedNoCheck("meminfo", MakeInode(0444, GetMemInfo));
     AddDentLockedNoCheck("mounts", MakeInode(0444, GetMounts));
+    AddDentLockedNoCheck("stat", MakeInode(0444, GetStat));
   }
 
  private:
