@@ -72,7 +72,7 @@ class Trapframe {
 class SyscallFrame : virtual public Trapframe {
  public:
   // Immediately restart this system call.
-  [[noreturn]] virtual void JmpRestartSyscall() = 0;
+  [[noreturn]] virtual void JmpSyscallStart() = 0;
 
   // Modify the trapframe to repeat the system call when restored.
   virtual void ResetToSyscallStart() = 0;
@@ -146,7 +146,8 @@ class KernelSignalTf final : public SyscallFrame {
 
   void MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) override;
 
-  [[noreturn]] void JmpRestartSyscall() override;
+  [[noreturn]] void JmpSyscallStartPreemptEnable();
+  [[noreturn]] void JmpSyscallStart() override;
   void ResetToSyscallStart() override {
     sigframe.uc.uc_mcontext.rip -= 2;
     sigframe.uc.uc_mcontext.rax = sigframe.uc.uc_mcontext.trapno;
@@ -154,8 +155,8 @@ class KernelSignalTf final : public SyscallFrame {
 
   [[noreturn]] void JmpUnwind() {
     sigframe.uc.mask = 0;
-    nosave_switch(reinterpret_cast<thread_fn_t>(GetUnwinderFunction()),
-                  reinterpret_cast<uintptr_t>(&sigframe.uc), 0);
+    __nosave_switch(reinterpret_cast<thread_fn_t>(GetUnwinderFunction()),
+                    reinterpret_cast<uintptr_t>(&sigframe.uc), 0);
   }
 
   inline void MakeUnwinder(thread_tf &unwind_tf) const {
@@ -218,7 +219,7 @@ class FunctionCallTf final : public SyscallFrame {
 
   [[noreturn]] void JmpUnwindSysret(Thread &th) override;
 
-  [[noreturn]] void JmpRestartSyscall() override;
+  [[noreturn]] void JmpSyscallStart() override;
   void ResetToSyscallStart() override;
 
   void SetRax(uint64_t rax, std::optional<uint64_t> rsp) override {

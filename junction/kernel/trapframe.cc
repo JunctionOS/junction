@@ -35,24 +35,19 @@ void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   assert(unwind_tf.rsp % kStackAlign == 0);
 }
 
-[[noreturn]] void KernelSignalTf::JmpRestartSyscall() {
-  thread_tf tf;
-  sigcontext &ctx = sigframe.uc.uc_mcontext;
-
+[[noreturn]] void KernelSignalTf::JmpSyscallStart() {
   sigframe.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
+  __nosave_switch(__kframe_syscall_jmp, reinterpret_cast<uint64_t>(&sigframe),
+                  reinterpret_cast<uint64_t>(sys_tbl[GetOrigRax()]));
+  std::unreachable();
+}
 
-  // can ignore caller-saved registers for the trap entry path
-  tf.rax = GetOrigRax();
-  tf.rsp = reinterpret_cast<uint64_t>(&sigframe);
-  tf.rdi = ctx.rdi;
-  tf.rsi = ctx.rsi;
-  tf.rdx = ctx.rdx;
-  tf.r8 = ctx.r8;
-  tf.r9 = ctx.r9;
-  tf.rcx = ctx.r10;
-  assert(tf.rax < SYS_NR);
-  tf.rip = reinterpret_cast<uint64_t>(sys_tbl[tf.rax]);
-  __jmp_syscall_restart_nosave(&tf);
+[[noreturn]] void KernelSignalTf::JmpSyscallStartPreemptEnable() {
+  sigframe.pretcode = reinterpret_cast<char *>(__syscall_trap_return);
+  __nosave_switch_preempt_enable(
+      __kframe_syscall_jmp, reinterpret_cast<uint64_t>(&sigframe),
+      reinterpret_cast<uint64_t>(sys_tbl[GetOrigRax()]));
+  std::unreachable();
 }
 
 [[noreturn]] void KernelSignalTf::JmpUnwindSysret(Thread &th) {
@@ -60,8 +55,8 @@ void KernelSignalTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   assert(th.in_kernel());
   th.SetTrapframe(*this);
   uint64_t sp = reinterpret_cast<uint64_t>(&sigframe.uc);
-  nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_loop), sp,
-                GetSysretUnwindRdi());
+  __nosave_switch(reinterpret_cast<thread_fn_t>(__kframe_unwind_loop), sp,
+                  GetSysretUnwindRdi());
 }
 
 FunctionCallTf &FunctionCallTf::CreateOnSyscallStack(Thread &th) {
@@ -110,17 +105,18 @@ void FunctionCallTf::ResetToSyscallStart() {
   tf->rax = GetOrigRax();
 }
 
-[[noreturn]] void FunctionCallTf::JmpRestartSyscall() {
-  ResetToSyscallStart();
-  __jmp_syscall_restart_nosave(tf);
+[[noreturn]] void FunctionCallTf::JmpSyscallStart() {
+  __nosave_switch(reinterpret_cast<thread_fn_t>(__functionframe_syscall_jmp),
+                  reinterpret_cast<uint64_t>(tf),
+                  reinterpret_cast<uint64_t>(sys_tbl[GetOrigRax()]));
 }
 
 [[noreturn]] void FunctionCallTf::JmpUnwindSysret(Thread &th) {
   assert(&th == &mythread());
   assert(th.in_kernel());
   th.ReplaceEntryRegs(*tf);
-  nosave_switch(reinterpret_cast<thread_fn_t>(GetSysretUnwinderFunction()),
-                reinterpret_cast<uint64_t>(tf), GetSysretUnwindRdi());
+  __nosave_switch(reinterpret_cast<thread_fn_t>(GetSysretUnwinderFunction()),
+                  reinterpret_cast<uint64_t>(tf), GetSysretUnwindRdi());
 }
 
 [[noreturn]] void FunctionCallTf::JmpUnwindSysretPreemptEnable(Thread &th) {
@@ -128,7 +124,7 @@ void FunctionCallTf::ResetToSyscallStart() {
   assert(&th == &mythread());
   assert(th.in_kernel());
   th.ReplaceEntryRegs(*tf);
-  nosave_switch_preempt_enable(
+  __nosave_switch_preempt_enable(
       reinterpret_cast<thread_fn_t>(GetSysretUnwinderFunction()),
       reinterpret_cast<uint64_t>(tf), GetSysretUnwindRdi());
 }
@@ -170,7 +166,7 @@ void FunctionCallTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {
   th.SetTrapframe(*this);
   uint64_t rdi = reinterpret_cast<uint64_t>(this);
   uint64_t rsp = AlignForFunctionEntry(reinterpret_cast<uint64_t>(&sigframe));
-  nosave_switch(reinterpret_cast<thread_fn_t>(UintrLoopReturn), rsp, rdi);
+  __nosave_switch(reinterpret_cast<thread_fn_t>(UintrLoopReturn), rsp, rdi);
 }
 
 void UintrTf::MakeUnwinderSysret(Thread &th, thread_tf &unwind_tf) {

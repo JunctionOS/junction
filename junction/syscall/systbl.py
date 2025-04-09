@@ -118,6 +118,8 @@ TYPE_ARR.update({
     ("unshare", 0): 'static_cast<strace::CloneFlag>',
     ("prctl", 0): 'static_cast<strace::PrctlOp>',
     ("rt_sigprocmask", 0): 'static_cast<strace::SigProcMaskOp>',
+    ("waitpid", 2): 'static_cast<strace::WaitOptions>',
+    ("waitid", 3): 'static_cast<strace::WaitOptions>',
 })
 
 SKIP_STRACE_TARGET = [

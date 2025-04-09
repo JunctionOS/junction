@@ -250,9 +250,9 @@ void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
 
   // switch to the runtime stack and re-enable user interrupts
   if (preempt_cede_needed(myk()))
-    nosave_switch_setui(thread_finish_cede, stack);
+    __nosave_switch_setui(thread_finish_cede, stack);
   else
-    nosave_switch_setui(thread_finish_yield, stack);
+    __nosave_switch_setui(thread_finish_yield, stack);
 
   std::unreachable();
 }
@@ -278,7 +278,7 @@ void HandleKickUintrFinish(thread_t *th, u_sigframe *uintr_frame,
     thread_tf out_tf;
     myth.mark_enter_kernel();
     myth.GetTrapframe().MakeUnwinderSysret(myth, out_tf);
-    __switch_and_interrupt_enable(&out_tf);
+    nosave_switch_interrupt_enable(out_tf);
   }
 
   uintr_frame->AttachXstate(xsave_buf);
@@ -304,14 +304,14 @@ void HandleKickUintrFinish(thread_t *th, u_sigframe *uintr_frame,
     myth.mark_enter_kernel();
 
     new_entry_frame->MakeUnwinderSysret(myth, jmp_tf);
-    __switch_and_interrupt_enable(&jmp_tf);
+    nosave_switch_interrupt_enable(jmp_tf);
     std::unreachable();
   }
 
   // Not stopped, so we can jump directly into the signal handler.
   // TODO(jf): make this use UIRET.
   if (applied) {
-    __switch_and_interrupt_enable(&out_tf.GetFrame());
+    nosave_switch_interrupt_enable(out_tf.GetFrame());
     std::unreachable();
   }
 
@@ -488,7 +488,7 @@ extern "C" void caladan_signal_handler(int signo, siginfo_t *info,
   if (signo == SIGURG) {
     // No need to yield to the scheduler, just return to the interrupted code.
     // If a preempt is pending, we will catch it when re-enabling preemption.
-    __switch_and_preempt_enable(&out_tf);
+    nosave_switch_preempt_enable(out_tf);
   }
 
   // restore runtime FS register.
@@ -534,8 +534,9 @@ void SynchronousKill(Thread &th, const KernelSignalTf &sigframe,
   th.mark_enter_kernel();
   th.SetTrapframe(stack_tf);
   new_frame.pretcode = 0;  // Won't return
-  nosave_switch_preempt_enable(reinterpret_cast<thread_fn_t>(&usys_exit_group),
-                               AlignForFunctionEntry(rsp), 128 + signo);
+  __nosave_switch_preempt_enable(
+      reinterpret_cast<thread_fn_t>(&usys_exit_group),
+      AlignForFunctionEntry(rsp), 128 + signo);
   std::unreachable();
 }
 
@@ -819,7 +820,7 @@ extern "C" [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp) {
   Trapframe &tf = jframe->CloneTo(&out_rsp);
   thread_tf unwind;
   tf.MakeUnwinderSysret(myth, unwind);
-  __switch_and_preempt_enable(&unwind);
+  nosave_switch_preempt_enable(unwind);
   std::unreachable();
 }
 
@@ -995,7 +996,7 @@ void ThreadSignalHandler::DeliverSignals(Trapframe &entry, long rax) {
 
     // Check if we need to restart the system call.
     if (!IsRestartSys(rax)) return;
-    myth.GetSyscallFrame().JmpRestartSyscall();
+    myth.GetSyscallFrame().JmpSyscallStart();
     std::unreachable();
   }
 

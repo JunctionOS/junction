@@ -74,10 +74,6 @@ extern "C" {
   extern const char name##_end[];      \
   long name
 
-// Restart a system call, used when a signal interrupts a system call but the
-// signal is ignored.
-void __jmp_syscall_restart_nosave(struct thread_tf *tf) __noreturn;
-
 SYSENTRY_ASM(junction_fncall_stackswitch_enter_eax)
 (long arg0, long arg1, long arg2, long arg3, long arg4, long arg5);
 
@@ -103,6 +99,12 @@ SYSENTRY_ASM(junction_fncall_enter_preserve_regs)
 // into __kframe_unwind_loop.
 void __syscall_trap_return();
 
+// Start a kframe syscall (kframe on stack, argument is handler address).
+void __kframe_syscall_jmp(void *target_addr);
+
+// Start a fncall syscall (tf on stack, argument is handler address).
+void __functionframe_syscall_jmp(void *target_addr);
+
 // Unwind a kernel signal frame on the system call stack. Checks for pending
 // signals before fully unwinding the frame. Useable whether or not UINTR is
 // enabled.
@@ -121,18 +123,6 @@ SYSENTRY_ASM(usys_rt_sigreturn)() __noreturn;
 
 SYSENTRY_ASM(junction_zpoline_enter)();
 SYSENTRY_ASM(junction_zpoline_enter_noxsavec)();
-
-// Switches stacks and calls new function with 3 argument registers, enabling
-// preemption.
-void __switch_and_preempt_enable(struct thread_tf *tf) __noreturn;
-
-// Switches stacks and calls new function with 3 argument registers, enabling
-// interrupts.
-void __switch_and_interrupt_enable(struct thread_tf *tf) __noreturn;
-
-// Same as __switch_and_preempt_enable, but also restores callee-saved
-// registers, RAX, R10, and six standard argument registers.
-void __restore_tf_full_and_preempt_enable(struct thread_tf *tf);
 }
 
 }  // namespace junction

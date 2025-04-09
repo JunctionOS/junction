@@ -429,6 +429,14 @@ bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
   return done_one;
 }
 
+void PrintArg(int option, WaitOptions, rt::Logger &ss) {
+  const static std::map<int, std::string> flags = {
+      VAL(WEXITED), VAL(WSTOPPED),  VAL(WCONTINUED), VAL(WNOHANG),
+      VAL(WNOWAIT), VAL(WUNTRACED), VAL(WCONTINUED),
+  };
+  PrintFlagArr(flags, option, ss);
+}
+
 void PrintArg(int op, MessageFlag, rt::Logger &ss) {
   PrintFlagArr(msg_flags, op, ss);
 }

@@ -220,195 +220,6 @@ usys_rt_sigreturn:
 usys_rt_sigreturn_postcall:
 usys_rt_sigreturn_end:
 
-/**
- * __jmp_syscall_restart_nosave - restarts syscall
- * @tf: the trap frame to restore (%rdi), safe to live on the same stack as the
- * rsp that it restores to.
- *
- * Does not return.
- */
-.align 16
-.globl __jmp_syscall_restart_nosave
-.type __jmp_syscall_restart_nosave, @function
-__jmp_syscall_restart_nosave:
-
-	/* restore callee regs */
-	movq    RBX(%rdi), %rbx
-	movq    RBP(%rdi), %rbp
-	movq    R12(%rdi), %r12
-	movq    R13(%rdi), %r13
-	movq    R14(%rdi), %r14
-	movq    R15(%rdi), %r15
-	movq    RAX(%rdi), %rax
-
-	/* set function arguments */
-	movq    RSI(%rdi), %rsi /* ARG1 */
-	movq    RDX(%rdi), %rdx /* ARG2 */
-	movq    RCX(%rdi), %rcx /* ARG3 */
-	movq    R8(%rdi), %r8 /* ARG4 */
-	movq    R9(%rdi), %r9 /* ARG5 */
-
-	/* move ip and stack to temp registers */
-	movq    RIP(%rdi), %r11
-	movq    RSP(%rdi), %r10
-
-	/* restore RDI, lose access to tf */
-	movq    RDI(%rdi), %rdi /* ARG0 */
-
-	/* restore IP and stack */
-	movq %r10, %rsp
-	jmpq *%r11
-	nop
-
-
-/**
- * __restore_tf_full_and_preempt_enable - switches stacks,
- * restoring callee saved registers, and syscall argument registers, and RAX
- * @tf: the trap frame to restore (%rdi)
- *
- * Re-enables preemption.
- * Does not return.
- */
-.align 16
-.globl __restore_tf_full_and_preempt_enable
-.type __restore_tf_full_and_preempt_enable, @function
-__restore_tf_full_and_preempt_enable:
-
-	/* restore ip and stack */
-	movq    RSP(%rdi), %rsp
-	movq    RIP(%rdi), %r11
-
-	/* restore callee regs */
-	movq    RBX(%rdi), %rbx
-	movq    RBP(%rdi), %rbp
-	movq    R12(%rdi), %r12
-	movq    R13(%rdi), %r13
-	movq    R14(%rdi), %r14
-	movq    R15(%rdi), %r15
-	movq    RAX(%rdi), %rax
-
-	/* set function arguments */
-	movq    RSI(%rdi), %rsi /* ARG1 */
-	movq    RDX(%rdi), %rdx /* ARG2 */
-
-	movq    RCX(%rdi), %rcx /* ARG3 */
-	movq    R10(%rdi), %r10 /* ARG3 (syscall) */
-	movq    R8(%rdi), %r8 /* ARG4 */
-	movq    R9(%rdi), %r9 /* ARG5 */
-
-	movq    RDI(%rdi), %rdi /* ARG0 */
-
-	/* re-enable preemption */
-	subl	$1, %gs:__perthread_preempt_cnt(%rip)
-	jz	    1f
-
-	/* jump into trap frame */
-	jmpq	*%r11
-	nop
-
-1:	/* cold-path, save RIP and park the kthread */
-	pushq   %r11
-	pushq   %rax
-	pushq	%rdi
-	pushq	%rsi
-	pushq	%rdx
-	pushq   %r10
-	pushq   %r8
-	pushq   %r9
-	pushq	%rcx
-	pushq	%r15
-	movq	%rsp, %r15
-	andq	$-16, %rsp /* ensure correct stack alignment */
-	call	preempt
-	movq	%r15, %rsp /* restore SP */
-	popq	%r15
-	popq    %rcx
-	popq    %r9
-	popq    %r8
-	popq    %r10
-	popq	%rdx
-	popq	%rsi
-	popq	%rdi
-	popq    %rax
-	popq    %r11
-	jmpq	*%r11
-
-/**
- * __switch_and_preempt_enable - switches stacks,
- * calls new function with 3 argument registers
- * @tf: the trap frame to restore (%rdi)
- *
- * Re-enables preemption.
- * Does not return.
- */
-.align 16
-.globl __switch_and_preempt_enable
-.type __switch_and_preempt_enable, @function
-__switch_and_preempt_enable:
-
-	/* restore ip and stack */
-	movq    RSP(%rdi), %rsp
-	movq    RIP(%rdi), %rcx
-
-	/* set arguments */
-	movq    RSI(%rdi), %rsi /* ARG1 */
-	movq    RDX(%rdi), %rdx /* ARG2 */
-	movq    RDI(%rdi), %rdi /* ARG0 */
-
-	/* re-enable preemption */
-	subl	$1, %gs:__perthread_preempt_cnt(%rip)
-	jz	    1f
-
-	/* jump into trap frame */
-	jmpq	*%rcx
-	nop
-
-1:	/* cold-path, save RIP and park the kthread */
-	pushq	%rdi
-	pushq	%rsi
-	pushq	%rdx
-	pushq	%rcx
-	pushq	%r15
-	movq	%rsp, %r15
-	andq	$-16, %rsp /* ensure correct stack alignment */
-	call	preempt
-	movq	%r15, %rsp /* restore SP */
-	popq	%r15
-	popq    %rcx
-	popq	%rdx
-	popq	%rsi
-	popq	%rdi
-	jmpq	*%rcx
-
-/**
- * __switch_and_interrupt_enable - switches stacks,
- * calls new function with 3 argument registers
- * @tf: the trap frame to restore (%rdi)
- *
- * Re-enables interrupts.
- * Does not return.
- */
-.align 16
-.globl __switch_and_interrupt_enable
-.type __switch_and_interrupt_enable, @function
-__switch_and_interrupt_enable:
-
-	/* restore ip and stack */
-	movq    RSP(%rdi), %rsp
-	movq    RIP(%rdi), %rcx
-
-	/* set arguments */
-	movq    RSI(%rdi), %rsi /* ARG1 */
-	movq    RDX(%rdi), %rdx /* ARG2 */
-	movq    RDI(%rdi), %rdi /* ARG0 */
-
-	/* enable interrupts */
-	stui
-
-	/* jump into trap frame */
-	jmpq	*%rcx
-	nop
-
 /*
  * Macro that does a looped check for signals upon exit by clearing the
  * in_kernel flag and then checking for pending signals. If any signals are
@@ -496,6 +307,34 @@ __kframe_unwind_loop:
 .endm
 
 	INTERRUPT_CHECK __kframe_unwind_loop RT_SIGRETURN
+
+
+/**
+ * __kframe_syscall_jmp - jumps into a syscall handler using the arguments in
+ * the kframe provided on the stack. the target address is provided as the first
+ * argument and the function is called on the stack above the kframe. The caller
+ * should ensure that pretcode is set to an appropriate unwinder function.
+ * No return.
+ */
+.align 16
+.globl __kframe_syscall_jmp
+.type __kframe_syscall_jmp, @function
+__kframe_syscall_jmp:
+	.cfi_startproc simple
+	.cfi_signal_frame
+	SIGCONTEXT_CFA_ONSTACK
+
+	movq %rdi, %r10
+
+	movq (8 + SIGFRAME_SIGCONTEXT + SIGCONTEXT_RDI)(%rsp), %rdi
+	movq (8 + SIGFRAME_SIGCONTEXT + SIGCONTEXT_RSI)(%rsp), %rsi
+	movq (8 + SIGFRAME_SIGCONTEXT + SIGCONTEXT_RDX)(%rsp), %rdx
+	movq (8 + SIGFRAME_SIGCONTEXT + SIGCONTEXT_R10)(%rsp), %rcx
+	movq (8 + SIGFRAME_SIGCONTEXT + SIGCONTEXT_R8)(%rsp), %r8
+	movq (8 + SIGFRAME_SIGCONTEXT + SIGCONTEXT_R9)(%rsp), %r9
+
+	jmpq *%r10
+	.cfi_endproc
 
 
 #define TMP_RIP %r8
@@ -726,6 +565,10 @@ __kframe_unwind_uiret:
 
 	SAVETF_STACK
 
+	// Save the fourth argument in rcx in the trapframe so we can easily find it
+	// when restarting the syscall.
+	movq %r10, RCX(%rsp)
+
 	// get address of on stack xsave area
 	movq    JUNCTION_STACK_OFFSET(%r11), %r11;
 	addq    $(JUNCTION_STACK_SIZE - 2 * JUNCTION_STACK_RESERVED), %r11;
@@ -745,10 +588,12 @@ __kframe_unwind_uiret:
 	// save a pointer to the xsave area
 	movq %r11, XSAVE_PTR(%rsp)
 
-	// set up syscall argument registers
+	// set up syscall argument registers (rax, rcx, rdx clobbered by xsave
+	// routines).
 	movq RDX(%rsp), %rdx
 	movq RAX(%rsp), %rax
-	movq R10(%rsp), %rcx
+	movq %r10, %rcx
+
 .endm
 
 .macro TF_FULL_RET
@@ -875,6 +720,38 @@ junction_fncall_enter_preserve_regs:
 	CALL_SYSCALL_FUNC %rax %rsp %rdi
 
 	INTERRUPT_CHECK junction_fncall_enter_preserve_regs RESTORETF_STACK
+
+
+/**
+ * __functionframe_syscall_jmp - jumps into a syscall handler using the
+ * arguments in the thread_tf provided on the stack. the target address is
+ * provided as the first argument and the function is called on the stack above
+ * the tf.
+ * No return.
+ */
+.align 16
+.globl __functionframe_syscall_jmp
+.type __functionframe_syscall_jmp, @function
+__functionframe_syscall_jmp:
+
+	movq %rdi, %r10
+
+	movq RDI(%rsp), %rdi
+	movq RSI(%rsp), %rsi
+	movq RDX(%rsp), %rdx
+	movq RCX(%rsp), %rcx
+	movq R8(%rsp), %r8
+	movq R9(%rsp), %r9
+
+	callq *%r10
+
+	// store rax in tf
+	movq    %rax, RAX(%rsp)
+
+	// setup return value as 1st argument for RunSignals
+	movq    %rax, %rdi
+
+	jmp __fncall_return_exit_loop
 
 .align 16
 .globl __fncall_return_exit_loop

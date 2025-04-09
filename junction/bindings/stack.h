@@ -12,14 +12,16 @@ extern "C" {
 #include "junction/base/bits.h"
 #include "junction/bindings/thread.h"
 
-extern "C" [[noreturn]] void nosave_switch(thread_fn_t fn, uint64_t stack,
-                                           uint64_t arg0);
+extern "C" [[noreturn]] void __nosave_switch(thread_fn_t fn, uint64_t stack,
+                                             uint64_t arg0);
 
-extern "C" [[noreturn]] void nosave_switch_preempt_enable(thread_fn_t fn,
-                                                          uint64_t stack,
-                                                          uint64_t arg0);
+extern "C" [[noreturn]] void __nosave_switch_preempt_enable(thread_fn_t fn,
+                                                            uint64_t stack,
+                                                            uint64_t arg0);
 
-extern "C" [[noreturn]] void nosave_switch_setui(void (*fn)(void), void* stack);
+extern "C" [[noreturn]] void __nosave_switch_setui(void (*fn)(void),
+                                                   void* stack,
+                                                   uint64_t arg0 = 0);
 
 extern "C" void _stack_switch_link(uint64_t arg0, uint64_t stack,
                                    thread_fn_t fn);
@@ -28,6 +30,16 @@ namespace junction {
 
 inline constexpr size_t kStackAlign = 16;
 inline constexpr size_t kRedzoneSize = 128;
+
+[[noreturn]] inline void nosave_switch_preempt_enable(thread_tf& tf) {
+  __nosave_switch_preempt_enable(reinterpret_cast<thread_fn_t>(tf.rip), tf.rsp,
+                                 tf.rdi);
+}
+
+[[noreturn]] inline void nosave_switch_interrupt_enable(thread_tf& tf) {
+  __nosave_switch_setui(reinterpret_cast<void (*)()>(tf.rip),
+                        reinterpret_cast<void*>(tf.rsp), tf.rdi);
+}
 
 __always_inline __nofp constexpr uintptr_t AlignForFunctionEntry(
     uintptr_t val) noexcept {
@@ -173,7 +185,7 @@ __noreturn void __RunOnStackAtPostMove(uint64_t rsp, Callable&& func,
     std::unreachable();
   };
 
-  nosave_switch(f, rsp, reinterpret_cast<uint64_t>(&w));
+  __nosave_switch(f, rsp, reinterpret_cast<uint64_t>(&w));
   std::unreachable();
 }
 
@@ -198,7 +210,7 @@ __noreturn void __RunOnStackAtPreMove(uint64_t rsp, Callable&& func,
     w->Run();
   };
 
-  nosave_switch(f, rsp, reinterpret_cast<uint64_t>(buf));
+  __nosave_switch(f, rsp, reinterpret_cast<uint64_t>(buf));
   std::unreachable();
 }
 

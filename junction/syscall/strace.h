@@ -84,6 +84,7 @@ DECLARE_STRACE_TYPE(SocketType, int)
 DECLARE_STRACE_TYPE(MessageFlag, int)
 DECLARE_STRACE_TYPE(PrctlOp, long)
 DECLARE_STRACE_TYPE(SigProcMaskOp, int)
+DECLARE_STRACE_TYPE(WaitOptions, int);
 
 void PrintArg(int *fds, FDPair *, rt::Logger &ss);
 
@@ -103,6 +104,29 @@ inline void PrintArg(struct timespec *t, U, rt::Logger &ss) {
   ss << "{tv_sec=" << t->tv_sec << ", tv_nsec=" << t->tv_nsec << "}";
 }
 
+inline void PrintArg(struct timeval tv, rt::Logger &ss) {
+  ss << "{tv_sec=" << tv.tv_sec << ", tv_usec=" << tv.tv_usec << "}";
+}
+
+template <typename U>
+inline void PrintArg(const struct itimerval *it, U, rt::Logger &ss) {
+  if (!it) {
+    ss << "NULL";
+    return;
+  }
+  ss << "{it_interval=";
+  PrintArg(it->it_interval, ss);
+  ss << ", it_value=";
+  PrintArg(it->it_value, ss);
+  ss << "}";
+}
+
+template <typename U>
+inline void PrintArg(struct itimerval *it, U x, rt::Logger &ss) {
+  const struct itimerval *cit = it;
+  PrintArg(cit, x, ss);
+}
+
 template <typename U>
 inline void PrintArg(const struct sockaddr *addr, U, rt::Logger &ss) {
   PrintArg(addr, ss);
@@ -116,6 +140,20 @@ inline void PrintArg(struct sockaddr *addr, U, rt::Logger &ss) {
 template <typename U>
 inline void PrintArg(cap_user_header_t hdrp, U, rt::Logger &ss) {
   ss << "{" << hdrp->version << ", " << hdrp->pid << "}";
+}
+
+template <typename U>
+inline void PrintArg(idtype_t idt, U, rt::Logger &ss) {
+  if (idt == P_PID)
+    ss << "P_PID";
+  else if (idt == P_PIDFD)
+    ss << "P_PIDFD";
+  else if (idt == P_PGID)
+    ss << "P_PGID";
+  else if (P_ALL)
+    ss << "P_ALL";
+  else
+    ss << idt;
 }
 
 void PrintArg(const cap_user_data_t, rt::Logger &ss);

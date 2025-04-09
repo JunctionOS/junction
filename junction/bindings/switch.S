@@ -8,7 +8,7 @@
 .text
 
 /**
- * nosave_switch_preempt_enable - jumps to a function without saving the current stack
+ * __nosave_switch_preempt_enable - jumps to a function without saving the current stack
  * frame, and re-enables preemption.
  * @fn: the function pointer to call (%rdi)
  * @stack: the stack to use (%rsi)
@@ -17,9 +17,9 @@
  * No return value.
  */
 .align 16
-.globl nosave_switch_preempt_enable
-.type nosave_switch_preempt_enable, @function
-nosave_switch_preempt_enable:
+.globl __nosave_switch_preempt_enable
+.type __nosave_switch_preempt_enable, @function
+__nosave_switch_preempt_enable:
 	/* switch to new stack */
 	movq	%rsi, %rsp
 
@@ -49,7 +49,7 @@ nosave_switch_preempt_enable:
 	jmpq	*%r11
 
 /**
- * nosave_switch - jumps to a function without saving the current stack
+ * __nosave_switch - jumps to a function without saving the current stack
  * frame.
  * @fn: the function pointer to call (%rdi)
  * @stack: the stack to use (%rsi)
@@ -58,9 +58,9 @@ nosave_switch_preempt_enable:
  * No return value.
  */
 .align 16
-.globl nosave_switch
-.type nosave_switch, @function
-nosave_switch:
+.globl __nosave_switch
+.type __nosave_switch, @function
+__nosave_switch:
 	/* switch to new stack */
 	movq    %rsi, %rsp
 
@@ -74,25 +74,29 @@ nosave_switch:
 	jmpq    *%rsi
 
 /**
- * nosave_switch_setui - jumps to a function without saving the current stack
+ * __nosave_switch_setui - jumps to a function without saving the current stack
  * frame and re-enables user interrupts once on the new stack.
  * @fn: the function pointer to call (%rdi)
  * @stack: the stack to use (%rsi)
+ * @arg0: an argument to @fn (%rdx)
  *
  * No return value.
  */
 .align 16
-.globl nosave_switch_setui
-.type nosave_switch_setui, @function
-nosave_switch_setui:
+.globl __nosave_switch_setui
+.type __nosave_switch_setui, @function
+__nosave_switch_setui:
 	/* switch to new stack */
 	movq    %rsi, %rsp
+
+	movq    %rdi, %rsi
+	movq    %rdx, %rdi
 
 	/* enable interrupts */
 	stui
 
 	/* jump to fn */
-	jmpq    *%rdi
+	jmpq    *%rsi
 
 /*
  * _stack_switch_link - runs a function on a different stack
