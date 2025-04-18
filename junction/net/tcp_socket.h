@@ -82,6 +82,11 @@ class TCPSocket : public Socket {
     return std::make_shared<TCPSocket>(std::move(*ret), flags);
   }
 
+  [[nodiscard]] Status<size_t> get_input_bytes() const override {
+    if (state_ != SocketState::kSockConnected) return MakeError(EINVAL);
+    return TcpConn().GetInputBytes();
+  }
+
   Status<void> Shutdown(int how) override {
     if (state_ == SocketState::kSockConnected) return TcpConn().Shutdown(how);
 

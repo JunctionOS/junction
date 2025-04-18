@@ -206,6 +206,10 @@ class TCPConn : public VectoredReader, public VectoredWriter {
     return {};
   }
 
+  [[nodiscard]] uint32_t GetInputBytes() const {
+    return tcp_get_input_bytes(c_);
+  }
+
   // Reads from the TCP stream.
   Status<size_t> Read(std::span<std::byte> buf, bool peek, bool nonblocking) {
     ssize_t ret =
