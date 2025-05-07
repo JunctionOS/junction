@@ -41,14 +41,33 @@ Status<void> LinuxInode::SetSize(size_t size) {
 }
 
 Status<void> MountLinux(IDir &parent, std::string name, std::string_view path) {
-  struct stat buf;
-  int ret = ksys_newfstatat(AT_FDCWD, path.data(), &buf, AT_EMPTY_PATH);
-  if (ret) return MakeError(-ret);
-  allowed_devs.insert(buf.st_dev);
-  if constexpr (linux_fs_writeable())
-    parent.AddIDirNoCheck<LinuxWrIDir>(std::move(name), buf, std::string(path));
-  else
-    parent.AddIDirNoCheck<LinuxIDir>(std::move(name), buf, std::string(path));
+  Status<KernelStatBuf> tmp = KernelStat(path.data());
+  if (!tmp) return MakeError(tmp);
+
+  KernelStatBuf &buf = *tmp;
+
+  if (buf.is_directory()) {
+    allowed_devs.insert(buf.st_dev());
+    if constexpr (linux_fs_writeable())
+      parent.AddIDirNoCheck<LinuxWrIDir>(std::move(name), buf,
+                                         std::string(path));
+    else
+      parent.AddIDirNoCheck<LinuxIDir>(std::move(name), buf, std::string(path));
+    return {};
+  }
+
+  std::shared_ptr<Inode> ino;
+
+  if (buf.is_symlink()) {
+    char buf2[PATH_MAX];
+    Status<std::string_view> target = linux_root_fd.ReadLinkAt(path, {buf2});
+    if (!target) return MakeError(target);
+    ino = std::make_shared<LinuxISoftLink>(buf, std::string(*target));
+  } else {
+    ino = std::make_shared<LinuxInode>(buf, std::string(path));
+  }
+
+  parent.Link(std::move(name), std::move(ino));
   return {};
 }
 
