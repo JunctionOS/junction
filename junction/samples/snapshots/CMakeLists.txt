@@ -50,6 +50,32 @@ macro(add_snapshot_restore_test_stop_count test_name stop_count test_commands)
     COMMAND sh -c "sudo -E $<TARGET_FILE:junction_run> ${CONFIG} $EXTRA_JUNCTION_FLAGS --jif -r -- ${JIF_METADATA} ${JIF_FRAGMENTED_ORD}"
   )
 
+  add_test(
+    NAME ${test_name}_post_actions
+    COMMAND ${CMAKE_SOURCE_DIR}/scripts/clean_test_outputs.sh
+            ${JIF_METADATA}
+            ${JIF}
+            ${JIF_ITREES_ORD}
+            ${JIF_FRAGMENTED_ORD}
+            ${ELF_METADATA}
+            ${ELF}
+            ${ORD}
+  )
+
+  set_tests_properties(${test_name}_post_actions PROPERTIES FIXTURES_CLEANUP cleanup_${test_name})
+
+  foreach(dep_test IN ITEMS
+    ${test_name}_snapshot_elf
+    ${test_name}_restore_elf
+    ${test_name}_snapshot_jif
+    ${test_name}_process_jifs
+    ${test_name}_restore_jif
+    ${test_name}_restore_itrees_ord_jif
+    ${test_name}_restore_fragmented_ord_jif
+  )
+    set_tests_properties(${dep_test} PROPERTIES FIXTURES_REQUIRED cleanup_${test_name})
+  endforeach()
+
   set_tests_properties(${test_name}_restore_elf PROPERTIES DEPENDS ${test_name}_snapshot_elf)
   set_tests_properties(${test_name}_restore_jif PROPERTIES DEPENDS ${test_name}_snapshot_jif)
   set_tests_properties(${test_name}_process_jifs PROPERTIES DEPENDS ${test_name}_restore_jif)
