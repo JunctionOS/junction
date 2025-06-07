@@ -58,7 +58,9 @@ struct VMArea {
 
   size_t DataLength() const {
     if (type != VMType::kFile) return Length();
-    return std::min(PageAlign(file->get_size() - offset), Length());
+    size_t sz = file->get_size();
+    if (static_cast<size_t>(offset) > sz) return 0;
+    return std::min(PageAlign(sz - offset), Length());
   }
 
   std::string TypeString() const {
