@@ -179,7 +179,10 @@ Status<elf_data::interp_data> LoadInterp(MemoryMap &mm, FSRoot &fs,
 
   // Open the file.
   Status<JunctionFile> file = JunctionFile::Open(fs, path, 0, FileMode::kRead);
-  if (!file) return MakeError(file);
+  if (!file) {
+    LOG(ERR) << "exec: failed to find interpreter at " << path;
+    return MakeError(file);
+  }
 
   // Load the ELF header.
   Status<elf_header> hdr = ReadHeader(*file);

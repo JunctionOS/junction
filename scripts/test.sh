@@ -19,7 +19,7 @@ for arg in "$@"; do
         '--help'|'-h') usage ;;
         '--debug'|'-d') MODE="Debug" ;;
         '--no-uintr') NOUINTR="nouintr" ;;
-        '--no-remove') REM_FILES="y" ;;
+        '--no-remove') export REM_FILES="y" ;;
         '-n'|'--dry-run') DRY_RUN="--show-only" ;;
         '--force_zpoline') ZPOLINE=1 ;;
         '--use-chroot') USECHROOT=1 ;;
