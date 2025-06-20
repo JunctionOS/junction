@@ -1,4 +1,4 @@
-From 325390feb08123b2599104799cb96d18598a7be5 Mon Sep 17 00:00:00 2001
+From 865c50c0aa1c109546c49c981439100e2478942c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Fri, 29 Mar 2024 14:19:53 -0400
 Subject: [PATCH 26/35] sched: mark newly created threads
@@ -8,10 +8,10 @@ Subject: [PATCH 26/35] sched: mark newly created threads
  1 file changed, 2 insertions(+)
 
 diff --git a/runtime/sched.c b/runtime/sched.c
-index c27a7b5..e2d28f5 100644
+index 2d2f2766..49122e8b 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -859,6 +859,8 @@ static __always_inline thread_t *__thread_create(void)
+@@ -860,6 +860,8 @@ static __always_inline thread_t *__thread_create(void)
  	th->junction_thread = false;
  	th->link_armed = false;
  	th->cur_kthread = NCPU;

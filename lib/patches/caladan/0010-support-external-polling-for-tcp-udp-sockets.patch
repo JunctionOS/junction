@@ -1,4 +1,4 @@
-From 9ee0d0cddc7a6b90a0be2ce664a7ebfed4b54c0a Mon Sep 17 00:00:00 2001
+From b37c469fbc18b65c74fea1097d4ef626ed593474 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 14 Mar 2023 10:23:33 -0400
 Subject: [PATCH 10/35] support external polling for tcp/udp sockets
@@ -14,7 +14,7 @@ Subject: [PATCH 10/35] support external polling for tcp/udp sockets
  7 files changed, 191 insertions(+), 8 deletions(-)
 
 diff --git a/inc/runtime/poll.h b/inc/runtime/poll.h
-index 8658690..86046ef 100644
+index 8658690d..86046ef4 100644
 --- a/inc/runtime/poll.h
 +++ b/inc/runtime/poll.h
 @@ -9,6 +9,29 @@
@@ -48,7 +48,7 @@ index 8658690..86046ef 100644
  	spinlock_t		lock;
  	struct list_head	triggered;
 diff --git a/inc/runtime/tcp.h b/inc/runtime/tcp.h
-index 338fdf3..4d01ca2 100644
+index 338fdf34..4d01ca24 100644
 --- a/inc/runtime/tcp.h
 +++ b/inc/runtime/tcp.h
 @@ -5,6 +5,7 @@
@@ -70,7 +70,7 @@ index 338fdf3..4d01ca2 100644
 +			                    poll_notif_fn_t clearfn, unsigned long data);
 +
 diff --git a/inc/runtime/udp.h b/inc/runtime/udp.h
-index 1e15c46..2aa84ef 100644
+index 1e15c460..2aa84efa 100644
 --- a/inc/runtime/udp.h
 +++ b/inc/runtime/udp.h
 @@ -9,6 +9,7 @@
@@ -91,7 +91,7 @@ index 1e15c46..2aa84ef 100644
  /*
   * UDP Parallel API
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index c3104af..32bca48 100644
+index c3104afe..32bca489 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
 @@ -3,6 +3,7 @@
@@ -290,7 +290,7 @@ index c3104af..32bca48 100644
   * tcp_init_late - starts the TCP worker thread
   *
 diff --git a/runtime/net/tcp.h b/runtime/net/tcp.h
-index e9fd3ef..625281b 100644
+index e9fd3ef3..625281bd 100644
 --- a/runtime/net/tcp.h
 +++ b/runtime/net/tcp.h
 @@ -92,6 +92,8 @@ struct tcpconn {
@@ -303,7 +303,7 @@ index e9fd3ef..625281b 100644
  	bool			rx_closed;
  	bool			rx_exclusive;
 diff --git a/runtime/net/tcp_in.c b/runtime/net/tcp_in.c
-index d3fac68..0499c1d 100644
+index d3fac688..0499c1d9 100644
 --- a/runtime/net/tcp_in.c
 +++ b/runtime/net/tcp_in.c
 @@ -7,6 +7,8 @@
@@ -348,7 +348,7 @@ index d3fac68..0499c1d 100644
  		if (++c->acks_delayed_cnt >= 2) {
  			do_ack = true;
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index b213278..f3df6b3 100644
+index 13a9a990..fce0ab8c 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -3,6 +3,7 @@

@@ -1,4 +1,4 @@
-From d3ed58b3d4dd89a02deab1f84e5672a1c9b69992 Mon Sep 17 00:00:00 2001
+From 5a41b32e1b2b62546602fbde50f2f2fcdbbe283b Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 8 Dec 2022 15:05:23 -0500
 Subject: [PATCH 03/35] runtime: allow uthreads to set their own fsbase values
@@ -12,18 +12,18 @@ Subject: [PATCH 03/35] runtime: allow uthreads to set their own fsbase values
  5 files changed, 58 insertions(+), 14 deletions(-)
 
 diff --git a/build/shared.mk b/build/shared.mk
-index 293196d4..5c14ac1c 100644
+index de2c7c36..73c6c28a 100644
 --- a/build/shared.mk
 +++ b/build/shared.mk
 @@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
  
  # shared toolchain definitions
  INC = -I$(ROOT_PATH)/inc
--FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -muintr
-+FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -muintr -mfsgsbase
- LDFLAGS = -T $(ROOT_PATH)/base/base.ld
- CC      ?= gcc
- LD      = $(CC)
+-FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64
++FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -mfsgsbase
+ 
+ ifeq ($(CONFIG_NO_UINTR),n)
+ FLAGS += -muintr -DCONFIG_UINTR
 diff --git a/inc/asm/ops.h b/inc/asm/ops.h
 index c6515737..01b4219a 100644
 --- a/inc/asm/ops.h
@@ -85,7 +85,7 @@ index d71d30f1..c653e681 100644
  
  /*
 diff --git a/runtime/defs.h b/runtime/defs.h
-index d7c8a1c6..e4c36f71 100644
+index b138cdd3..c9d7a810 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -52,11 +52,13 @@ struct thread {

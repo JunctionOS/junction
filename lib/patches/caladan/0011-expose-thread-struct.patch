@@ -1,4 +1,4 @@
-From 856b65a738bfdaeb8328fbd78678af855629be37 Mon Sep 17 00:00:00 2001
+From ff1caa64f40b6dff5e9f14a9e3925a27af6cc35f Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 14 Feb 2023 18:16:43 -0500
 Subject: [PATCH 11/35] expose thread struct
@@ -88,7 +88,7 @@ index c653e681..7e0c61d9 100644
  
  
 diff --git a/runtime/defs.h b/runtime/defs.h
-index e4c36f71..50579733 100644
+index c9d7a810..4309dbb6 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -45,27 +45,6 @@

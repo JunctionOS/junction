@@ -1,4 +1,4 @@
-From b28f2d3b24576093e6a08e93addcedff615df9bd Mon Sep 17 00:00:00 2001
+From 66bfcd1b13caed4ba4b9e62c50ce490d308c1546 Mon Sep 17 00:00:00 2001
 From: Ben Holmes <bcwh@csail.mit.edu>
 Date: Thu, 19 Sep 2024 16:03:58 +0000
 Subject: [PATCH 32/35] add function dispatcher to loadgen
@@ -12,7 +12,7 @@ Subject: [PATCH 32/35] add function dispatcher to loadgen
  create mode 100644 apps/synthetic/src/serverless.rs
 
 diff --git a/apps/synthetic/Cargo.toml b/apps/synthetic/Cargo.toml
-index 86246f6..6b28f28 100644
+index 86246f61..6b28f282 100644
 --- a/apps/synthetic/Cargo.toml
 +++ b/apps/synthetic/Cargo.toml
 @@ -19,6 +19,7 @@ serde = "1.0"
@@ -24,7 +24,7 @@ index 86246f6..6b28f28 100644
  [profile.release]
  debug=false
 diff --git a/apps/synthetic/src/main.rs b/apps/synthetic/src/main.rs
-index 29f3227..0efcf6f 100644
+index 29f3227b..0efcf6fa 100644
 --- a/apps/synthetic/src/main.rs
 +++ b/apps/synthetic/src/main.rs
 @@ -17,7 +17,7 @@ extern crate arrayvec;
@@ -383,7 +383,7 @@ index 29f3227..0efcf6f 100644
  }
 diff --git a/apps/synthetic/src/serverless.rs b/apps/synthetic/src/serverless.rs
 new file mode 100644
-index 0000000..06ea243
+index 00000000..06ea243c
 --- /dev/null
 +++ b/apps/synthetic/src/serverless.rs
 @@ -0,0 +1,64 @@
@@ -452,7 +452,7 @@ index 0000000..06ea243
 +    }
 +}
 diff --git a/bindings/rust/src/udp.rs b/bindings/rust/src/udp.rs
-index 9a07d1e..d24b98a 100644
+index 9a07d1e2..d24b98ad 100644
 --- a/bindings/rust/src/udp.rs
 +++ b/bindings/rust/src/udp.rs
 @@ -63,6 +63,7 @@ impl UdpConnection {

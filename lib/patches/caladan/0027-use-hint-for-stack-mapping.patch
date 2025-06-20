@@ -1,4 +1,4 @@
-From e096cd2b364cef9c9fab35ff2abed853022f65e5 Mon Sep 17 00:00:00 2001
+From f04d730afe6b8f293648c35ed2c3c0edb682c245 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 26 May 2024 17:52:46 -0400
 Subject: [PATCH 27/35] use hint for stack mapping
@@ -8,7 +8,7 @@ Subject: [PATCH 27/35] use hint for stack mapping
  1 file changed, 9 insertions(+), 3 deletions(-)
 
 diff --git a/runtime/stack.c b/runtime/stack.c
-index 191832d..ff1506f 100644
+index 114bd9cc..97ce4793 100644
 --- a/runtime/stack.c
 +++ b/runtime/stack.c
 @@ -14,15 +14,17 @@

@@ -1,4 +1,4 @@
-From df0f1626ffff6d6c890112cf1065f1b16bd25eab Mon Sep 17 00:00:00 2001
+From 46266596c6d03bd26dd9f9873abdafe840c1bc5e Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 20 Feb 2023 17:11:28 -0500
 Subject: [PATCH 15/35] add support for alternate syscall stacks
@@ -14,9 +14,9 @@ intercepted with seccomp. using this option disables preemption in the runtime.
  runtime/cfg.c        |  9 ++++++++-
  runtime/defs.h       |  1 +
  runtime/init.c       |  2 +-
- runtime/preempt.c    | 20 ++++++++++++++++++++
+ runtime/preempt.c    | 21 +++++++++++++++++++++
  runtime/sched.c      |  7 +++++++
- 6 files changed, 38 insertions(+), 2 deletions(-)
+ 6 files changed, 39 insertions(+), 2 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
 index 3b481c58..1b7a964b 100644
@@ -65,7 +65,7 @@ index cbf240a7..c88d746a 100644
  
  /**
 diff --git a/runtime/defs.h b/runtime/defs.h
-index b1177bd8..69043666 100644
+index d77e3c1f..a9c6f0e5 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -457,6 +457,7 @@ extern unsigned int cfg_request_hardware_queues;
@@ -77,7 +77,7 @@ index b1177bd8..69043666 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/init.c b/runtime/init.c
-index 862446d1..859adc62 100644
+index 4e20ffeb..9220e00d 100644
 --- a/runtime/init.c
 +++ b/runtime/init.c
 @@ -58,10 +58,10 @@ static const struct init_entry global_init_handlers[] = {
@@ -93,10 +93,10 @@ index 862446d1..859adc62 100644
  	THREAD_INITIALIZER(timer),
  	THREAD_INITIALIZER(smalloc),
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index a0c2dbba..0ec08ad5 100644
+index ad642061..cfb947c6 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -162,8 +162,25 @@ void preempt(void)
+@@ -166,8 +166,25 @@ void preempt(void)
  
  int preempt_init_thread(void)
  {
@@ -122,10 +122,11 @@ index a0c2dbba..0ec08ad5 100644
  	return 0;
  }
  
-@@ -179,6 +196,9 @@ int preempt_init(void)
- 	struct sigaction act;
+@@ -184,6 +201,10 @@ int preempt_init(void)
+ 	int ret;
  	struct cpuid_info regs;
- 
+ #endif
++
 +	if (use_sigaltstack)
 +		return 0;
 +

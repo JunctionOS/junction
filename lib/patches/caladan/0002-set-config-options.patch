@@ -1,41 +1,27 @@
-From e1216b0bdd017b665a3c9b2f1cc2a47f559a3f16 Mon Sep 17 00:00:00 2001
+From f8d2456e28f29c8e1ad04177a0f25eff6e07082c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 21 Nov 2022 00:00:45 -0500
 Subject: [PATCH 02/35] set config options
 
 ---
- build/config             |  8 ++++----
+ build/config             |  2 +-
  build/init_submodules.sh | 12 ++++++------
- 2 files changed, 10 insertions(+), 10 deletions(-)
+ 2 files changed, 7 insertions(+), 7 deletions(-)
 
 diff --git a/build/config b/build/config
-index 22d357f..008a756 100644
+index 7bcdcc1a..d5a65e3f 100644
 --- a/build/config
 +++ b/build/config
-@@ -1,16 +1,16 @@
- # build configuration options (set to y for "yes", n for "no")
- 
- # Enable Mellanox ConnectX-4,5 NIC Support
--CONFIG_MLX5=n
-+CONFIG_MLX5=y
- # Enable SPDK NVMe support
- CONFIG_SPDK=n
- # Enable debug build mode (slower but enables several runtime checks)
- CONFIG_DEBUG=n
- # Enable additional compiler optimizations (may reduce compatibility)
--CONFIG_OPTIMIZE=n
-+CONFIG_OPTIMIZE=y
- # Allow runtimes to access Mellanox ConnectX-5 NICs directly (kernel bypass)
--CONFIG_DIRECTPATH=n
-+CONFIG_DIRECTPATH=y
+@@ -9,6 +9,6 @@ CONFIG_OPTIMIZE=y
  # Build with clang instead of gcc
  CONFIG_CLANG=n
  # Build with split TX pool
 -CONFIG_SPLIT_TX=n
-\ No newline at end of file
 +CONFIG_SPLIT_TX=y
+ # Don't compile with UINTR instructions (useful for out-of-date compilers)
+ CONFIG_NO_UINTR=n
 diff --git a/build/init_submodules.sh b/build/init_submodules.sh
-index c23e789..2ce610e 100755
+index aa1a5083..af88002e 100755
 --- a/build/init_submodules.sh
 +++ b/build/init_submodules.sh
 @@ -67,12 +67,12 @@ export EXTRA_LDFLAGS=

@@ -1,4 +1,4 @@
-From 4425ff09a0890a6015aa5361d5f96d3c64359930 Mon Sep 17 00:00:00 2001
+From 82802e2ee1fe1715eee104ca39d2ea2b48e69af8 Mon Sep 17 00:00:00 2001
 From: "girfan@mit.edu" <girfan@mit.edu>
 Date: Tue, 31 Jan 2023 13:12:33 -0500
 Subject: [PATCH 09/35] Do not call mbind in __mem_map_anom
@@ -10,7 +10,7 @@ Subject: [PATCH 09/35] Do not call mbind in __mem_map_anom
  3 files changed, 8 insertions(+), 6 deletions(-)
 
 diff --git a/base/mem.c b/base/mem.c
-index 6a5e5ce..9dc7f80 100644
+index 6a5e5ceb..9dc7f80b 100644
 --- a/base/mem.c
 +++ b/base/mem.c
 @@ -88,10 +88,12 @@ __mem_map_anom(void *base, size_t len, size_t pgsize,
@@ -27,7 +27,7 @@ index 6a5e5ce..9dc7f80 100644
  	if (cfg_transparent_hugepages_enabled && (pgsize > PGSIZE_4KB)) {
  	  if (syscall_madvise(addr, len, MADV_HUGEPAGE))
 diff --git a/base/page.c b/base/page.c
-index e0a6b33..9f1adef 100644
+index e0a6b339..9f1adef2 100644
 --- a/base/page.c
 +++ b/base/page.c
 @@ -354,7 +354,7 @@ int page_init(void)
@@ -40,7 +40,7 @@ index e0a6b33..9f1adef 100644
  		node->tbl = mem_map_anom(
  			(char *)addr + i * LGPAGE_META_LEN,
 diff --git a/base/slab.c b/base/slab.c
-index 0d5c799..6241255 100644
+index 0d5c7991..6241255c 100644
 --- a/base/slab.c
 +++ b/base/slab.c
 @@ -90,7 +90,7 @@ __slab_create(struct slab *s, const char *name, size_t size,
@@ -89,5 +89,5 @@ index 0d5c799..6241255 100644
  
  			if (n->flags & SLAB_FLAG_LGPAGE) {
 -- 
-2.34.1
+2.43.0
 

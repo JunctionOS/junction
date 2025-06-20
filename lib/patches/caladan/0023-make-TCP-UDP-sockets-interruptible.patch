@@ -1,4 +1,4 @@
-From a5f6affd97ebac32a96f4caa4182c7d8b3d472b6 Mon Sep 17 00:00:00 2001
+From 853e074efde494393a44a08065428382145f6ec5 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 4 Oct 2023 21:33:11 +0000
 Subject: [PATCH 23/35] make TCP/UDP sockets interruptible
@@ -12,7 +12,7 @@ Subject: [PATCH 23/35] make TCP/UDP sockets interruptible
  5 files changed, 139 insertions(+), 57 deletions(-)
 
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index 32bca48..b5be566 100644
+index 32bca489..b5be566a 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
 @@ -171,7 +171,7 @@ void tcp_free_rx_bufs(void)
@@ -258,7 +258,7 @@ index 32bca48..b5be566 100644
  }
  
 diff --git a/runtime/net/tcp.h b/runtime/net/tcp.h
-index 625281b..0c87d75 100644
+index 625281bd..0c87d75f 100644
 --- a/runtime/net/tcp.h
 +++ b/runtime/net/tcp.h
 @@ -6,11 +6,11 @@
@@ -276,7 +276,7 @@ index 625281b..0c87d75 100644
  #include "defs.h"
  #include "waitq.h"
 diff --git a/runtime/net/tcp_in.c b/runtime/net/tcp_in.c
-index 0499c1d..9f5bbec 100644
+index 0499c1d9..9f5bbec4 100644
 --- a/runtime/net/tcp_in.c
 +++ b/runtime/net/tcp_in.c
 @@ -498,7 +498,7 @@ __tcp_rx_conn(tcpconn_t *c, struct mbuf *m, uint32_t ack, uint32_t snd_nxt,
@@ -289,7 +289,7 @@ index 0499c1d..9f5bbec 100644
  
  	/*
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index f3df6b3..eb279b2 100644
+index fce0ab8c..7c9921a2 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -115,19 +115,17 @@ static void udp_conn_err(struct trans_entry *e, int err)
@@ -394,7 +394,7 @@ index f3df6b3..eb279b2 100644
  	spin_unlock(&c->inq_lock);
  	spin_unlock_np(&c->outq_lock);
 diff --git a/runtime/net/waitq.h b/runtime/net/waitq.h
-index 17fed7f..afb5479 100644
+index 17fed7f9..afb54790 100644
 --- a/runtime/net/waitq.h
 +++ b/runtime/net/waitq.h
 @@ -8,22 +8,51 @@

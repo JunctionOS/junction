@@ -1,4 +1,4 @@
-From 86ea49dac02d8cb8bfc4134fe5002f081dc26174 Mon Sep 17 00:00:00 2001
+From a675333621b78fff3812ccd68e6b55b178e1ffdb Mon Sep 17 00:00:00 2001
 From: Ben Holmes <bcwh@csail.mit.edu>
 Date: Tue, 1 Oct 2024 16:18:37 +0000
 Subject: [PATCH 33/35] tcp: support vectorized peek
@@ -9,7 +9,7 @@ Subject: [PATCH 33/35] tcp: support vectorized peek
  2 files changed, 126 insertions(+), 48 deletions(-)
 
 diff --git a/inc/runtime/tcp.h b/inc/runtime/tcp.h
-index a106170..432edef 100644
+index a106170f..432edef4 100644
 --- a/inc/runtime/tcp.h
 +++ b/inc/runtime/tcp.h
 @@ -38,6 +38,7 @@ extern int tcp_get_status(tcpconn_t *c);
@@ -21,7 +21,7 @@ index a106170..432edef 100644
  extern ssize_t tcp_writev(tcpconn_t *c, const struct iovec *iov, int iovcnt);
  extern int tcp_shutdown(tcpconn_t *c, int how);
 diff --git a/runtime/net/tcp.c b/runtime/net/tcp.c
-index b0a1d61..0f67bd8 100644
+index b0a1d610..0f67bd87 100644
 --- a/runtime/net/tcp.c
 +++ b/runtime/net/tcp.c
 @@ -864,17 +864,8 @@ struct netaddr tcp_remote_addr(tcpconn_t *c)

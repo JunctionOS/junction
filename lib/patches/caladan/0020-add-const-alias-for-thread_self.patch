@@ -1,4 +1,4 @@
-From 8c5762501fbdb6fd09854e603b87b63f3925114d Mon Sep 17 00:00:00 2001
+From 7c2cb69b959622d94def01589c5d238e1f7c74cc Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 5 Jun 2024 18:14:30 -0400
 Subject: [PATCH 20/35] add const alias for thread_self
@@ -38,12 +38,12 @@ index e33bef17..10b17f06 100644
   * These attributes are defined only with the sparse checker tool.
   */
 diff --git a/inc/base/thread.h b/inc/base/thread.h
-index e8a5feaa..07201300 100644
+index ad8bce0a..18ab2fd8 100644
 --- a/inc/base/thread.h
 +++ b/inc/base/thread.h
 @@ -16,6 +16,13 @@
    typeof(type) __perthread_##name __perthread                                  \
-       __attribute__((section(".perthread,\"\",@nobits#")))
+       __attribute__((section(".perthread")))
  
 +#define DEFINE_PERTHREAD_ALIAS(type, name, alias_name)                         \
 +  extern typeof(type) __perthread_##alias_name                                 \

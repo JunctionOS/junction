@@ -1,4 +1,4 @@
-From 3fa0d8d6ab6e3ecdc73e533055fcc8d384388047 Mon Sep 17 00:00:00 2001
+From 13cd244f5e26e07643874039f69f59495f9ab6bb Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Fri, 17 Feb 2023 17:01:44 -0500
 Subject: [PATCH 12/35] enlarge stacks
@@ -8,7 +8,7 @@ Subject: [PATCH 12/35] enlarge stacks
  1 file changed, 2 insertions(+), 2 deletions(-)
 
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 50579733..b1177bd8 100644
+index 4309dbb6..d77e3c1f 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -31,8 +31,8 @@

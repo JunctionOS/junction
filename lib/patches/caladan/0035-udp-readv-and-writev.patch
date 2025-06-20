@@ -1,4 +1,4 @@
-From b2da651d57da4116a5de9e33ff8f4da2808e412c Mon Sep 17 00:00:00 2001
+From 2e5cb381f1eb4fd53bcac313a45337b0b706c9f7 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 9 Oct 2024 18:29:54 -0400
 Subject: [PATCH 35/35] udp readv and writev
@@ -9,7 +9,7 @@ Subject: [PATCH 35/35] udp readv and writev
  2 files changed, 151 insertions(+)
 
 diff --git a/inc/runtime/udp.h b/inc/runtime/udp.h
-index bde1aba..70bced8 100644
+index bde1abad..70bced87 100644
 --- a/inc/runtime/udp.h
 +++ b/inc/runtime/udp.h
 @@ -45,6 +45,10 @@ extern ssize_t udp_read_from2(udpconn_t *c, void *buf, size_t len,
@@ -24,7 +24,7 @@ index bde1aba..70bced8 100644
  static inline ssize_t udp_read_from(udpconn_t *c, void *buf, size_t len,
  			     struct netaddr *raddr)
 diff --git a/runtime/net/udp.c b/runtime/net/udp.c
-index 0926388..3300c64 100644
+index 59f09e91..216511f0 100644
 --- a/runtime/net/udp.c
 +++ b/runtime/net/udp.c
 @@ -390,6 +390,77 @@ ssize_t udp_read_from2(udpconn_t *c, void *buf, size_t len,

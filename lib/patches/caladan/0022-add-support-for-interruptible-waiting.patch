@@ -1,4 +1,4 @@
-From 9e7e9a979312066cd25b805738bad27360563473 Mon Sep 17 00:00:00 2001
+From e50beaacba9e93a587eb2e81c45ef0b205c35da3 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 28 Sep 2023 22:57:58 +0000
 Subject: [PATCH 22/35] add support for interruptible waiting
@@ -274,7 +274,7 @@ index b5ea331e..28cb3b03 100644
 +extern void timer_sleep_interruptible(uint64_t duration_us);
 \ No newline at end of file
 diff --git a/runtime/defs.h b/runtime/defs.h
-index b5e1567a..fd1acbe2 100644
+index 17ee6dd5..847e0416 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -48,10 +48,10 @@

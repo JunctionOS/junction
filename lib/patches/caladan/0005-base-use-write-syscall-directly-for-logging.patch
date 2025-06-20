@@ -1,4 +1,4 @@
-From 42921e32f17d034009d2d96c521f446eeb970365 Mon Sep 17 00:00:00 2001
+From 680ca54f79df84b033fcfdb9bdd5a427446d2247 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 4 Jan 2023 14:08:00 -0500
 Subject: [PATCH 05/35] base: use write syscall directly for logging
@@ -10,7 +10,7 @@ Subject: [PATCH 05/35] base: use write syscall directly for logging
  3 files changed, 19 insertions(+), 6 deletions(-)
 
 diff --git a/base/log.c b/base/log.c
-index 4cf2dfa..c085086 100644
+index 4cf2dfa1..c085086b 100644
 --- a/base/log.c
 +++ b/base/log.c
 @@ -11,6 +11,7 @@
@@ -51,7 +51,7 @@ index 4cf2dfa..c085086 100644
  
  #define MAX_CALL_DEPTH	256
 diff --git a/base/syscall.S b/base/syscall.S
-index adf99c5..6783386 100644
+index adf99c5b..6783386a 100644
 --- a/base/syscall.S
 +++ b/base/syscall.S
 @@ -6,6 +6,14 @@
@@ -70,7 +70,7 @@ index adf99c5..6783386 100644
  .globl syscall_mmap
  syscall_mmap:
 diff --git a/inc/base/syscall.h b/inc/base/syscall.h
-index 88d3662..3d67b37 100644
+index 88d36628..3d67b370 100644
 --- a/inc/base/syscall.h
 +++ b/inc/base/syscall.h
 @@ -21,4 +21,5 @@ extern void syscall_rt_sigreturn(void);

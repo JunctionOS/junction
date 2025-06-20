@@ -1,4 +1,4 @@
-From 5fc0295ca20a67f4cc641af6b0fd94d38bb4afda Mon Sep 17 00:00:00 2001
+From be6b18a8d99599d731c0d6fcbd74ad9f19f6cd5f Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
 Subject: [PATCH 18/35] preemption and signal updates
@@ -60,7 +60,7 @@ index c88d746a..552fcbe9 100644
   * Parsing Infrastructure
   */
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 69043666..b5e1567a 100644
+index a9c6f0e5..17ee6dd5 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -72,6 +72,7 @@ struct stack {
@@ -80,10 +80,10 @@ index 69043666..b5e1567a 100644
  extern void kthread_park(void);
  extern void kthread_park_now(void);
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 0ec08ad5..a0c2dbba 100644
+index cfb947c6..de0fd8b7 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -162,25 +162,8 @@ void preempt(void)
+@@ -166,25 +166,8 @@ void preempt(void)
  
  int preempt_init_thread(void)
  {
@@ -109,9 +109,9 @@ index 0ec08ad5..a0c2dbba 100644
  	return 0;
  }
  
-@@ -196,9 +179,6 @@ int preempt_init(void)
- 	struct sigaction act;
+@@ -202,9 +185,6 @@ int preempt_init(void)
  	struct cpuid_info regs;
+ #endif
  
 -	if (use_sigaltstack)
 -		return 0;

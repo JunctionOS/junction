@@ -1,4 +1,4 @@
-From 8d6236a63c1536cf1840f6d5590dfc5a1befe8fa Mon Sep 17 00:00:00 2001
+From cd69f118f7b26487995f2d118a5f41335e65193a Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 31 Dec 2023 04:21:49 +0000
 Subject: [PATCH 24/35] uintr
@@ -35,10 +35,10 @@ index 07557617..689ecf3b 100644
      uint16_t        last_cpu;
      uint16_t        cur_kthread;
 diff --git a/runtime/preempt.c b/runtime/preempt.c
-index 508ec513..6b40da3a 100644
+index de0fd8b7..7f955ead 100644
 --- a/runtime/preempt.c
 +++ b/runtime/preempt.c
-@@ -27,6 +27,8 @@
+@@ -26,6 +26,8 @@
  
  /* the current preemption count */
  DEFINE_PERTHREAD(unsigned int, preempt_cnt);
@@ -47,7 +47,7 @@ index 508ec513..6b40da3a 100644
  /* perthread stack to use supply for UIPIs */
  DEFINE_PERTHREAD(void *, uintr_stack);
  /* maximum size in bytes needed for xsave */
-@@ -173,8 +175,20 @@ void preempt(void)
+@@ -166,8 +168,20 @@ void preempt(void)
  
  int preempt_init_thread(void)
  {
@@ -69,7 +69,7 @@ index 508ec513..6b40da3a 100644
  	return 0;
  }
  
-@@ -216,6 +230,7 @@ int preempt_init(void)
+@@ -212,6 +226,7 @@ int preempt_init(void)
  	}
  
  	log_info("uintr: enabled");

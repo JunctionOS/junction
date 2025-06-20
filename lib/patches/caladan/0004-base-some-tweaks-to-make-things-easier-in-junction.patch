@@ -1,4 +1,4 @@
-From ee71b0c089019d6b5b244e693337b674b3cc016f Mon Sep 17 00:00:00 2001
+From 91e91b77c943190411c23ae396db4d291f9644c6 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Wed, 30 Nov 2022 18:58:31 -0500
 Subject: [PATCH 04/35] base: some tweaks to make things easier in junction
@@ -13,7 +13,7 @@ Subject: [PATCH 04/35] base: some tweaks to make things easier in junction
  4 files changed, 13 insertions(+), 3 deletions(-)
 
 diff --git a/base/init.c b/base/init.c
-index c9c4460..da9fb53 100644
+index c8ac0477..bdc3502d 100644
 --- a/base/init.c
 +++ b/base/init.c
 @@ -6,6 +6,7 @@
@@ -34,7 +34,7 @@ index c9c4460..da9fb53 100644
  
  /* we initialize these early subsystems by hand */
 diff --git a/base/log.c b/base/log.c
-index 088f83f..4cf2dfa 100644
+index 088f83f1..4cf2dfa1 100644
 --- a/base/log.c
 +++ b/base/log.c
 @@ -62,7 +62,7 @@ void logk_bug(bool fatal, const char *expr,
@@ -47,7 +47,7 @@ index 088f83f..4cf2dfa 100644
  	if (fatal)
  		init_shutdown(EXIT_FAILURE);
 diff --git a/base/syscall.S b/base/syscall.S
-index df53b75..adf99c5 100644
+index df53b754..adf99c5b 100644
 --- a/base/syscall.S
 +++ b/base/syscall.S
 @@ -53,5 +53,11 @@ syscall_mprotect:
@@ -63,7 +63,7 @@ index df53b75..adf99c5 100644
  .globl base_syscall_end
  base_syscall_end:
 diff --git a/inc/base/syscall.h b/inc/base/syscall.h
-index c10f9fb..88d3662 100644
+index c10f9fb3..88d36628 100644
 --- a/inc/base/syscall.h
 +++ b/inc/base/syscall.h
 @@ -7,6 +7,8 @@
