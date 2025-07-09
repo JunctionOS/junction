@@ -332,6 +332,19 @@ class file_desc {
       if (file) OnDescriptorClose(*this);
     }
 
+    // Delete copy.
+    close_handle(const close_handle &) = delete;
+    close_handle &operator=(const close_handle &) = delete;
+
+    // Implement move.
+    close_handle(close_handle &&o) noexcept
+        : file(std::exchange(o.file, nullptr)), fd(std::exchange(o.fd, -1)) {}
+    close_handle &operator=(close_handle &&o) noexcept {
+      file = std::exchange(o.file, nullptr);
+      fd = std::exchange(o.fd, -1);
+      return *this;
+    }
+
    private:
     friend class file_desc;
     close_handle(std::shared_ptr<File> file, int fd)
