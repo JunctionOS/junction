@@ -1,16 +1,33 @@
-From 169c537455d5ac18e16f6a6ca558009c5c8a5949 Mon Sep 17 00:00:00 2001
-From: Josh Fried <joshuafried@gmail.com>
-Date: Wed, 4 Jan 2023 14:08:13 -0500
-Subject: [PATCH 06/35] remove shim tls implementation
+From 69660b71b113c0903e070fb6dc13d6a48d9ddb88 Mon Sep 17 00:00:00 2001
+From: Gohar Irfan Chaudhry <girfan@mit.edu>
+Date: Tue, 8 Nov 2022 14:39:42 -0500
+Subject: [PATCH 01/13] shim nits
 
+no-op pthread_mutex_destroy to let libc exit handlers succeed
+
+remove shim tls implementation
 ---
- shim/tls.c | 116 -----------------------------------------------------
- 1 file changed, 116 deletions(-)
+ shim/sync.c |   2 +-
+ shim/tls.c  | 116 ----------------------------------------------------
+ 2 files changed, 1 insertion(+), 117 deletions(-)
  delete mode 100644 shim/tls.c
 
+diff --git a/shim/sync.c b/shim/sync.c
+index 30053f1..2bb76b4 100644
+--- a/shim/sync.c
++++ b/shim/sync.c
+@@ -81,7 +81,7 @@ int pthread_mutex_unlock(pthread_mutex_t *mutex)
+ 
+ int pthread_mutex_destroy(pthread_mutex_t *mutex)
+ {
+-	NOTSELF(pthread_mutex_destroy, mutex);
++//	NOTSELF(pthread_mutex_destroy, mutex);
+ 	return 0;
+ }
+ 
 diff --git a/shim/tls.c b/shim/tls.c
 deleted file mode 100644
-index 83634ef2..00000000
+index 83634ef..0000000
 --- a/shim/tls.c
 +++ /dev/null
 @@ -1,116 +0,0 @@

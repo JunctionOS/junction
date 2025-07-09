@@ -1,56 +1,47 @@
-From afa94622a89f4aa3c2d2b960ea2f8fa0dfa254c3 Mon Sep 17 00:00:00 2001
+From 6d46b3c710bcdfca4288a95d294c7fdcd6962648 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 27 Apr 2023 17:53:14 -0400
-Subject: [PATCH 17/35] thread nit
+Subject: [PATCH 08/13] thread nit
 
 ---
- inc/runtime/thread.h |  1 +
- runtime/sched.c      | 15 ++++++++++-----
- 2 files changed, 11 insertions(+), 5 deletions(-)
+ inc/runtime/thread.h | 1 +
+ runtime/sched.c      | 9 +++++++--
+ 2 files changed, 8 insertions(+), 2 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 1b7a964b..8772d0ce 100644
+index 060b30d..9bb8882 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -29,6 +29,7 @@ extern void thread_ready_head(thread_t *thread);
+@@ -52,6 +52,7 @@ extern void thread_ready_head(thread_t *thread);
  extern thread_t *thread_create(thread_fn_t fn, void *arg);
  extern thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t len);
  extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
 +extern void thread_free(thread_t *th);
  
  DECLARE_PERTHREAD(thread_t *, __self);
- DECLARE_PERTHREAD(unsigned int, kthread_idx);
+ DECLARE_PERTHREAD_ALIAS(thread_t * const, __self, __const_self);
 diff --git a/runtime/sched.c b/runtime/sched.c
-index d58a0fa1..0e46a133 100644
+index 9e9d9b4..b9d82be 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
-@@ -912,21 +912,26 @@ int thread_spawn_main(thread_fn_t fn, void *arg)
+@@ -918,6 +918,12 @@ int thread_spawn_main(thread_fn_t fn, void *arg)
  	return 0;
  }
  
 +void thread_free(thread_t *th)
 +{
-+	gc_remove_thread(th);
 +	stack_free(th->stack);
-+	if (th->syscallstack)
-+		stack_free(th->syscallstack);
 +	tcache_free(perthread_ptr(thread_pt), th);
 +}
 +
  static void thread_finish_exit(void)
  {
  	struct thread *th = thread_self();
- 
--	gc_remove_thread(th);
- 	perthread_store(__self, NULL);
- 
- 	/* if the main thread dies, kill the whole program */
+@@ -928,8 +934,7 @@ static void thread_finish_exit(void)
  	if (unlikely(th->main_thread))
  		init_shutdown(EXIT_SUCCESS);
  
 -	stack_free(th->stack);
--	if (th->syscallstack)
--		stack_free(th->syscallstack);
 -	tcache_free(perthread_ptr(thread_pt), th);
 +	thread_free(th);
  

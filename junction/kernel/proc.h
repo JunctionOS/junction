@@ -48,7 +48,7 @@ inline constexpr long kMaxCapability = 63;
 
 inline bool SignalIfOwned(struct kthread *k, const thread_t *th) {
   spin_lock_np(&k->lock);
-  bool found = access_once(th->cur_kthread) == k->kthread_idx;
+  bool found = access_once(th->cur_kthread) == kthread_idx(k);
   // send IPI with lock held to prevent potential race where the core parks and
   // invalidates its target table entry.
   if (found && uintr_enabled) SendUipi(k->curr_cpu);
@@ -272,11 +272,11 @@ class Thread {
     // cur_kthread is updated with the scheduler lock held, and is set to NCPU
     // when it is scheduled out.
     unsigned int kthread = access_once(th->cur_kthread);
-    if (kthread < NCPU && SignalIfOwned(ks[kthread], th)) return;
+    if (kthread < NCPU && SignalIfOwned(&ks[kthread], th)) return;
 
     // thread is hopping around, check with each other kthread.
     for (unsigned int i = 0; i < maxks; i++)
-      if (SignalIfOwned(ks[i], th)) return;
+      if (SignalIfOwned(&ks[i], th)) return;
 
     // this thread is not observed running on any core. at this point we have
     // synchronized with each other kthread's scheduler lock, ensuring that

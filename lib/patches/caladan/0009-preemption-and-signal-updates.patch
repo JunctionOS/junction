@@ -1,0 +1,122 @@
+From cb0cee6c7bf4e72708e8bf40c8898f92a061a114 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Mon, 10 Jul 2023 03:17:58 -0400
+Subject: [PATCH 09/13] preemption and signal updates
+
+---
+ inc/runtime/thread.h |  2 +-
+ runtime/defs.h       |  1 +
+ runtime/preempt.c    |  1 +
+ runtime/sched.c      | 31 +++++++++++++++++++++++++++++--
+ 4 files changed, 32 insertions(+), 3 deletions(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 9bb8882..3a61fdf 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -35,7 +35,7 @@ struct thread {
+ 	struct list_node	interruptible_link;
+ 	uint64_t	tlsvar;
+ 	uint64_t	fsbase;
+-	unsigned long		junction_tstate_buf[8];
++	unsigned long		junction_tstate_buf[24];
+ };
+ 
+ extern uint64_t thread_get_total_cycles(thread_t *th);
+diff --git a/runtime/defs.h b/runtime/defs.h
+index 694c199..3093af3 100644
+--- a/runtime/defs.h
++++ b/runtime/defs.h
+@@ -71,6 +71,7 @@ struct stack {
+ };
+ 
+ DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
++DECLARE_PERTHREAD(void *, runtime_stack);
+ 
+ /**
+  * stack_alloc - allocates a stack
+diff --git a/runtime/preempt.c b/runtime/preempt.c
+index ad64206..de0fd8b 100644
+--- a/runtime/preempt.c
++++ b/runtime/preempt.c
+@@ -184,6 +184,7 @@ int preempt_init(void)
+ 	int ret;
+ 	struct cpuid_info regs;
+ #endif
++
+ 	act.sa_flags = SA_SIGINFO | SA_NODEFER;
+ 
+ 	if (sigemptyset(&act.sa_mask) != 0) {
+diff --git a/runtime/sched.c b/runtime/sched.c
+index b9d82be..f38396d 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -3,6 +3,7 @@
+  */
+ 
+ #include <sched.h>
++#include <signal.h>
+ #include <immintrin.h>
+ 
+ #include <base/stddef.h>
+@@ -24,7 +25,7 @@ DEFINE_PERTHREAD(thread_t *, __self);
+ DEFINE_PERTHREAD_ALIAS(thread_t * const, __self, __const_self);
+ 
+ /* a pointer to the top of the per-kthread (TLS) runtime stack */
+-static DEFINE_PERTHREAD(void *, runtime_stack);
++DEFINE_PERTHREAD(void *, runtime_stack);
+ DEFINE_PERTHREAD(uint64_t, runtime_fsbase);
+ /* Flag to prevent watchdog from running */
+ bool disable_watchdog;
+@@ -730,7 +731,26 @@ uint64_t thread_get_total_cycles(thread_t *th) {
+ 	return cycles;
+ }
+ 
+-static void thread_finish_cede(void)
++void thread_finish_yield(void)
++{
++	thread_t *curth = thread_self();
++	struct kthread *k = myk();
++
++	assert_preempt_disabled();
++
++	spin_lock(&k->lock);
++
++	/* check for softirqs */
++	softirq_run_locked(k);
++
++	curth->thread_ready = false;
++	curth->last_cpu = k->curr_cpu;
++	thread_ready_locked(curth);
++
++	schedule();
++}
++
++void thread_finish_cede(void)
+ {
+ 	struct kthread *k = myk();
+ 	thread_t *myth = thread_self();
+@@ -997,6 +1017,7 @@ static void runtime_top_of_stack(void)
+  */
+ int sched_init_thread(void)
+ {
++	stack_t ss;
+ 	struct stack *s;
+ 
+ 	tcache_init_perthread(thread_tcache, perthread_ptr(thread_pt));
+@@ -1008,6 +1029,12 @@ int sched_init_thread(void)
+ 	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
+ 	perthread_store(runtime_fsbase, _readfsbase_u64());
+ 
++	ss.ss_sp = &s->usable[0];
++	ss.ss_size = RUNTIME_STACK_SIZE;
++	ss.ss_flags = 0;
++	if (sigaltstack(&ss, NULL) == -1)
++		return -errno;
++
+ 	return 0;
+ }
+ 
+-- 
+2.43.0
+

@@ -1,14 +1,14 @@
-From 48193e458ab28b822833d939457c0ebc589ebd82 Mon Sep 17 00:00:00 2001
+From 0a31f6c028ecda4e231c32bcde33e75b2beeb9c5 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Tue, 24 Jan 2023 22:54:00 -0500
-Subject: [PATCH 07/35] tcp: increase window size
+Subject: [PATCH 04/13] tcp: increase window size
 
 ---
  runtime/net/tcp.h | 2 +-
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/runtime/net/tcp.h b/runtime/net/tcp.h
-index b208bf13..e9fd3ef3 100644
+index 761349b..0c87d75 100644
 --- a/runtime/net/tcp.h
 +++ b/runtime/net/tcp.h
 @@ -17,7 +17,7 @@

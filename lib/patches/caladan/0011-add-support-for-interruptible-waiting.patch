@@ -1,0 +1,101 @@
+From 7fb46e16361b998744ebd19160aa0bca77f3c227 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 28 Sep 2023 22:57:58 +0000
+Subject: [PATCH 11/13] add support for interruptible waiting
+
+---
+ inc/runtime/thread.h | 16 +++++-----------
+ runtime/sched.c      | 13 +++++++++++++
+ 2 files changed, 18 insertions(+), 11 deletions(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 3a61fdf..0b422c8 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -23,8 +23,13 @@ struct thread {
+ 	bool	main_thread:1;
+ 	bool	has_fsbase:1;
+ 	bool	thread_ready:1;
++	bool	link_armed:1;
++	bool	junction_thread;
+ 	bool	thread_running;
++	bool	in_syscall;
+ 	atomic8_t	interrupt_state;
++	struct thread_tf	*entry_regs;
++	unsigned long	junction_tstate_buf[20];
+ 	struct stack	*stack;
+ 	uint16_t	last_cpu;
+ 	uint16_t	cur_kthread;
+@@ -35,7 +40,6 @@ struct thread {
+ 	struct list_node	interruptible_link;
+ 	uint64_t	tlsvar;
+ 	uint64_t	fsbase;
+-	unsigned long		junction_tstate_buf[24];
+ };
+ 
+ extern uint64_t thread_get_total_cycles(thread_t *th);
+@@ -71,16 +75,6 @@ static inline thread_t *thread_self(void)
+ 	return perthread_read_const_p(__const_self);
+ }
+ 
+-static inline uint64_t get_uthread_specific(void)
+-{
+-    return thread_self()->tlsvar;
+-}
+-
+-static inline void set_uthread_specific(uint64_t val)
+-{
+-    thread_self()->tlsvar = val;
+-}
+-
+ 
+ /*
+  * High-level routines, use this API most of the time.
+diff --git a/runtime/sched.c b/runtime/sched.c
+index f38396d..3e86d37 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -41,6 +41,9 @@ static DEFINE_PERTHREAD(struct tcache_perthread, thread_pt);
+ /* used to track cycle usage in scheduler */
+ static DEFINE_PERTHREAD(uint64_t, last_tsc);
+ 
++// Junction overrides this function.
++void __weak on_sched(thread_t *th) {}
++
+ /**
+  * In inc/runtime/thread.h, this function is declared inline (rather than static
+  * inline) so that it is accessible to the Rust bindings. As a result, it must
+@@ -94,6 +97,10 @@ static void jmp_thread(thread_t *th)
+ 	set_fsbase(th->fsbase);
+ 
+ 	th->thread_running = true;
++
++	if (th->junction_thread)
++		on_sched(th);
++
+ 	__jmp_thread(&th->tf);
+ }
+ 
+@@ -124,6 +131,10 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
+ 	set_fsbase(newth->fsbase);
+ 
+ 	newth->thread_running = true;
++
++	if (newth->junction_thread)
++		on_sched(newth);
++
+ 	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
+ }
+ 
+@@ -843,6 +854,8 @@ static __always_inline thread_t *__thread_create(void)
+ 	th->thread_ready = false;
+ 	th->thread_running = false;
+ 	th->tlsvar = 0;
++	th->junction_thread = false;
++	th->link_armed = false;
+ 	th->cur_kthread = NCPU;
+ 	// Can be used to detect newly created thread.
+ 	th->ready_tsc = 0;
+-- 
+2.43.0
+

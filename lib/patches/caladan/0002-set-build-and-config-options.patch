@@ -1,15 +1,16 @@
-From f8d2456e28f29c8e1ad04177a0f25eff6e07082c Mon Sep 17 00:00:00 2001
+From 4b1764f52d32cc82797028ee02d1d4f06757d561 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 21 Nov 2022 00:00:45 -0500
-Subject: [PATCH 02/35] set config options
+Subject: [PATCH 02/13] set build and config options
 
 ---
  build/config             |  2 +-
  build/init_submodules.sh | 12 ++++++------
- 2 files changed, 7 insertions(+), 7 deletions(-)
+ build/shared.mk          |  2 +-
+ 3 files changed, 8 insertions(+), 8 deletions(-)
 
 diff --git a/build/config b/build/config
-index 7bcdcc1a..d5a65e3f 100644
+index 7bcdcc1..d5a65e3 100644
 --- a/build/config
 +++ b/build/config
 @@ -9,6 +9,6 @@ CONFIG_OPTIMIZE=y
@@ -21,7 +22,7 @@ index 7bcdcc1a..d5a65e3f 100644
  # Don't compile with UINTR instructions (useful for out-of-date compilers)
  CONFIG_NO_UINTR=n
 diff --git a/build/init_submodules.sh b/build/init_submodules.sh
-index aa1a5083..af88002e 100755
+index aa1a508..af88002 100755
 --- a/build/init_submodules.sh
 +++ b/build/init_submodules.sh
 @@ -67,12 +67,12 @@ export EXTRA_LDFLAGS=
@@ -43,6 +44,19 @@ index aa1a5083..af88002e 100755
  
  echo building PCM
  cd deps/pcm
+diff --git a/build/shared.mk b/build/shared.mk
+index 73c6c28..f742b16 100644
+--- a/build/shared.mk
++++ b/build/shared.mk
+@@ -9,7 +9,7 @@ include $(ROOT_PATH)/build/config
+ 
+ # shared toolchain definitions
+ INC = -I$(ROOT_PATH)/inc
+-FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -mfsgsbase
++FLAGS  = -g -Wall -D_GNU_SOURCE $(INC) -m64 -mxsavec -m64 -mxsave -m64 -mfsgsbase -fno-stack-protector
+ 
+ ifeq ($(CONFIG_NO_UINTR),n)
+ FLAGS += -muintr -DCONFIG_UINTR
 -- 
 2.43.0
 

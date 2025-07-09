@@ -1,0 +1,33 @@
+From a6fcfdfbf770302975931d388edb82eff157a96e Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 20 Jun 2024 19:27:11 -0400
+Subject: [PATCH 13/13] thread buffer tweaks
+
+---
+ inc/runtime/thread.h | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index e560d1a..57c622c 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -31,7 +31,7 @@ struct thread {
+ 	bool	xsave_area_in_use:1;
+ 	atomic8_t	interrupt_state;
+ 	struct thread_tf	*entry_regs;
+-	unsigned long	junction_tstate_buf[22];
++	unsigned long	junction_tstate_buf[8];
+ 	struct stack	*stack;
+ 	uint16_t	last_cpu;
+ 	uint16_t	cur_kthread;
+@@ -42,6 +42,7 @@ struct thread {
+ 	struct list_node	interruptible_link;
+ 	uint64_t	tlsvar;
+ 	uint64_t	fsbase;
++	unsigned long	junction_cold_state_buf[32];
+ };
+ 
+ extern uint64_t thread_get_total_cycles(thread_t *th);
+-- 
+2.43.0
+

@@ -322,7 +322,7 @@ void HandleKickUintrFinish(thread_t *th, u_sigframe *uintr_frame,
 inline bool __nofp InterruptNeeded(thread_t *th) {
   if (ACCESS_ONCE(th->interrupt_state.cnt)) return true;
 
-  struct kthread *k = perthread_read(mykthread);
+  struct kthread *k = &ks[perthread_read(thread_id)];
   return preempt_cede_needed(k) | preempt_yield_needed(k);
 }
 
