@@ -1,7 +1,7 @@
 #pragma once
 
 extern "C" {
-#include <linux/rseq.h>
+#include "linux_rseq.h"
 }
 
 #include "junction/bindings/thread.h"

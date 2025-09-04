@@ -5,6 +5,10 @@
 #include "junction/bindings/log.h"
 #include "junction/kernel/proc.h"
 
+#ifndef P_PIDFD
+#define P_PIDFD 3
+#endif
+
 namespace junction {
 
 // Log a message that is prefixed with the PID and TID

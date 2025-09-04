@@ -7,6 +7,7 @@ extern "C" {
 #include <sys/auxv.h>
 
 #include "lib/caladan/runtime/defs.h"
+#include "linux_rseq.h"
 }
 
 #include <cstring>
@@ -23,6 +24,11 @@ extern "C" {
 #include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
 #include "junction/syscall/vdso.h"
+
+#ifndef AT_RSEQ_FEATURE_SIZE
+#define AT_RSEQ_FEATURE_SIZE 27 /* rseq supported feature size */
+#define AT_RSEQ_ALIGN 28        /* rseq allocation alignment */
+#endif
 
 namespace junction {
 namespace {

@@ -35,6 +35,10 @@ extern "C" {
 #include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
 
+#ifndef P_PIDFD
+#define P_PIDFD 3
+#endif
+
 namespace junction {
 
 inline constexpr uint64_t kThreadRequiredFlags =

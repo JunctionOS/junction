@@ -194,6 +194,19 @@ const std::map<int, std::string> fcntls{
     VAL(F_SET_FILE_RW_HINT),
 };
 
+#ifndef PR_SET_VMA
+#define PR_SET_VMA 0x53564d41
+#endif
+
+#ifndef PR_GET_AUXV
+#define PR_GET_AUXV 0x41555856
+#endif
+
+#ifndef PR_SET_MDWE
+#define PR_SET_MDWE 65
+#define PR_GET_MDWE 66
+#endif
+
 const std::map<int, std::string> prctl_ops{
     VAL(PR_CAP_AMBIENT),
     VAL(PR_CAPBSET_READ),
