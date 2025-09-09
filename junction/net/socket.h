@@ -157,7 +157,9 @@ class Socket : public File {
     return {};
   }
 
-  [[nodiscard]] std::string get_filename() const override { return "socket:"; }
+  [[nodiscard]] std::string get_filename(const FSRoot &fs) const override {
+    return "socket:";
+  }
 
  private:
   friend class cereal::access;

@@ -3,7 +3,10 @@ namespace junction.ctl_schema;
 table RunRequest {
     bin: string;
     argv: [string];
+    envp: [string];
     is_init: bool;
+    cwd: string;
+    fsroot: string;
 }
 
 table SnapshotRequest {
@@ -18,6 +21,8 @@ table RestoreRequest {
     chan: int32;
     argument: string;
 }
+
+table PSRequest {}
 
 table StartTraceRequest {
     pid: uint64;
@@ -39,6 +44,7 @@ table GetStatsRequest {
 union InnerRequest {
     run: RunRequest,
     snapshot: SnapshotRequest,
+    ps: PSRequest,
     restore: RestoreRequest,
     startTrace: StartTraceRequest,
     stopTrace: StopTraceRequest,

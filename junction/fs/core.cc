@@ -45,6 +45,7 @@ Status<std::shared_ptr<DirectoryEntry>> WalkPath(
   for (const std::string_view &v : path) {
     if (v.empty() || v == ".") continue;
     if (v == "..") {
+      if (curent == fs.get_root_ent()) continue;
       curent = curent->get_parent_ent();
       curdir = static_cast<IDir *>(&curent->get_inode_ref());
       continue;
@@ -158,6 +159,7 @@ Status<Entry> LookupEntry(const FSRoot &fs, std::shared_ptr<IDir> pos,
   IDir &dir = static_cast<IDir &>(ino);
 
   if (name == "..") {
+    if (*ret == fs.get_root_ent()) return Entry{dir.get_this(), {}, true};
     Status<std::shared_ptr<IDir>> parent = (*ret)->get_parent_dir();
     if (unlikely(!parent)) return MakeError(parent);
     return Entry{std::move(*parent), {}, true};
@@ -293,7 +295,8 @@ Status<std::shared_ptr<File>> ISoftLink::Open(
 // Attempts to get the full path from the root of the filesystem to this IDir by
 // traversing the chain of parents. The result is placed in @dst and an updated
 // span is returned.
-[[nodiscard]] Status<void> DirectoryEntry::GetFullPath(std::ostream &os) {
+[[nodiscard]] Status<void> DirectoryEntry::GetFullPath(const FSRoot &fs,
+                                                       std::ostream &os) {
   // This entry is no longer valid, return the name stored in name_.
   if (!intrusive_ref_) {
     rt::SpinGuard g(lock_);
@@ -307,7 +310,7 @@ Status<std::shared_ptr<File>> ISoftLink::Open(
     auto [name, parent] = cur->get_info();
     if (unlikely(!parent)) return MakeError(ESTALE);
     // TODO - check if the parent is the root instead?
-    if (parent.get() == cur.get()) break;
+    if (cur == fs.get_root_ent()) break;
     paths.emplace_back(std::move(name));
     cur = std::move(parent);
   }
@@ -596,7 +599,7 @@ long usys_getcwd(char *buf, size_t size) {
   FSRoot &fs = myproc().get_fs();
   rt::RuntimeLibcGuard g;
   std::ospanstream out(std::span<char>(buf, size - 1));
-  Status<void> pth = fs.get_cwd_ent()->GetFullPath(out);
+  Status<void> pth = fs.get_cwd_ent()->GetFullPath(fs, out);
   if (unlikely(!pth)) return -ENOENT;
   if (unlikely(out.fail())) return -ERANGE;
   size_t sz = out.span().size();
@@ -803,7 +806,8 @@ void DirectoryEntry::save(cereal::BinaryOutputArchive &ar) const {
     ar(true, name_, get_inode(), get_parent_ent());
   } else {
     std::string path;
-    Status<std::string> ret = const_cast<DirectoryEntry *>(this)->GetPathStr();
+    Status<std::string> ret =
+        const_cast<DirectoryEntry *>(this)->GetPathStr(FSRoot::GetGlobalRoot());
     if (ret) path = std::move(*ret);
     ar(false, path, get_inode());
   }

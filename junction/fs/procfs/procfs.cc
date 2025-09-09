@@ -261,8 +261,9 @@ class FDDir : public ProcFSDir {
     if (fds_with_symlink_inodes_.size() <= static_cast<size_t>(fd))
       fds_with_symlink_inodes_.resize(1 + fd * 2);
     fds_with_symlink_inodes_.set(fd);
-    return AddDentLockedNoCheck(std::to_string(fd),
-                                std::make_shared<ProcFSLink>(f.get_filename()));
+    return AddDentLockedNoCheck(
+        std::to_string(fd),
+        std::make_shared<ProcFSLink>(f.get_filename(FSRoot::GetGlobalRoot())));
   }
 
   void DeleteEntry(int fd) {

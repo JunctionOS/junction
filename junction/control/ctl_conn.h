@@ -63,6 +63,24 @@ class ControlConn {
     return Send(std::move(fbb));
   }
 
+  Status<void> RunResponse(pid_t pid) {
+    flatbuffers::FlatBufferBuilder fbb;
+    auto inner = ctl_schema::CreateRunResponse(fbb, pid);
+    auto resp = ctl_schema::CreateResponse(
+        fbb, ctl_schema::InnerResponse_runResponse, inner.Union());
+    fbb.FinishSizePrefixed(resp);
+    return Send(std::move(fbb));
+  }
+
+  Status<void> PSResponse(const std::vector<pid_t> &pids) {
+    flatbuffers::FlatBufferBuilder fbb;
+    auto inner = ctl_schema::CreatePSResponseDirect(fbb, &pids);
+    auto resp = ctl_schema::CreateResponse(
+        fbb, ctl_schema::InnerResponse_psResponse, inner.Union());
+    fbb.FinishSizePrefixed(resp);
+    return Send(std::move(fbb));
+  }
+
   Status<void> InvokeResponse(const std::string &result) {
     flatbuffers::FlatBufferBuilder fbb;
     auto msg = fbb.CreateString(result);
@@ -106,6 +124,8 @@ class ControlConn {
     fbb.FinishSizePrefixed(resp);
     return Send(std::move(fbb));
   }
+
+  rt::TCPConn &&SeizeConn() { return std::move(conn_); }
 
  private:
   void Reset() { request_ = nullptr; }

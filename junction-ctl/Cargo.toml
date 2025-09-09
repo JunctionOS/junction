@@ -9,5 +9,6 @@ edition = "2021"
 anyhow = "1.0.81"
 clap = { version = "4.5.4", features = ["derive"] }
 easy-repl = "0.2.1"
+libc = "0.2"
 
 flatbuffers = { path = "../lib/flatbuffers/rust/flatbuffers" }

@@ -63,20 +63,7 @@ struct VMArea {
     return std::min(PageAlign(sz - offset), Length());
   }
 
-  std::string TypeString() const {
-    switch (type) {
-      case VMType::kNormal:
-        return "";
-      case VMType::kHeap:
-        return "[heap]";
-      case VMType::kStack:
-        return "[stack]";
-      case VMType::kFile:
-        return file->get_filename();
-      default:
-        return "";
-    }
-  }
+  std::string TypeString() const;
 
   std::string ProtString() const {
     std::string tmp("---p");

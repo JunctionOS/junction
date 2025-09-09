@@ -208,14 +208,14 @@ class DirectoryEntry : public std::enable_shared_from_this<DirectoryEntry> {
   }
 
   // Place the full path of this entry into os.
-  [[nodiscard]] Status<void> GetFullPath(std::ostream &os);
+  [[nodiscard]] Status<void> GetFullPath(const FSRoot &fs, std::ostream &os);
 
   // Get the full pathname to this directory entry in a string. This slower
   // variant should be used outside of performance critical sections.
-  [[nodiscard]] Status<std::string> GetPathStr() {
+  [[nodiscard]] Status<std::string> GetPathStr(const FSRoot &fs) {
     rt::RuntimeLibcGuard g;
     std::stringstream ss;
-    if (Status<void> ret = GetFullPath(ss); !ret) return MakeError(ret);
+    if (Status<void> ret = GetFullPath(fs, ss); !ret) return MakeError(ret);
     return ss.str();
   }
 
@@ -276,7 +276,9 @@ class DirectoryEntry : public std::enable_shared_from_this<DirectoryEntry> {
     if (intrusive_ref_.use_count() > 1) {
       rt::RuntimeLibcGuard g;
       std::stringstream ss;
-      if (Status<void> ret = GetFullPath(ss); !ret) BUG();
+      // TODO: fixme
+      // if (Status<void> ret = GetFullPath(FSRoot::GetGlobalRoot(), ss); !ret)
+      // BUG();
       ss << " (deleted)";
       rt::SpinGuard g1(lock_);
       name_ = ss.str();

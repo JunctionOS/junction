@@ -7,9 +7,9 @@
 #include "junction/control/ctl_conn.h"
 #include "junction/control/serverless.h"
 #include "junction/kernel/proc.h"
+#include "junction/net/tcp_socket.h"
 #include "junction/run.h"
 #include "junction/snapshot/snapshot.h"
-
 namespace junction {
 
 bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
@@ -31,22 +31,26 @@ bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
   std::vector<std::string_view> argv;
   argv.reserve(argc);
 
-  for (size_t idx = 0; idx < argc; idx += 1) {
+  for (size_t idx = 0; idx < argc; idx += 1)
     argv.push_back(fb_argv->Get(idx)->string_view());
-  }
 
   // Initialize environment and arguments
   auto [envp_s, envp_view] = BuildEnvp();
-  auto proc = CreateFirstProcess(req->bin()->string_view(), argv, envp_view,
-                                 req->is_init());
+
+  for (size_t i = 0; i < req->envp()->size(); i += 1)
+    envp_view.push_back(req->envp()->Get(i)->string_view());
+
+  Thread *th = nullptr;
+  auto proc =
+      CreateFirstProcess(req->bin()->string_view(), argv, envp_view,
+                         req->is_init(), std::string{req->cwd()->string_view()},
+                         std::string{req->fsroot()->string_view()}, &th);
   if (!proc) {
     std::ostringstream error_msg;
     error_msg << "failed to run(";
 
     size_t idx = 0;
-    for (; idx < argc - 1; idx++) {
-      error_msg << argv[idx] << ", ";
-    }
+    for (; idx < argc - 1; idx++) error_msg << argv[idx] << ", ";
     error_msg << argv[idx] << "): " << proc.error();
     if (!c.SendError(error_msg.str())) {
       LOG(WARN) << "ctl: failed to send error: " << error_msg.str();
@@ -55,12 +59,16 @@ bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
     return false;
   }
 
-  if (!c.SendSuccess()) {
-    LOG(WARN) << "ctl: failed to send success";
+  if (!c.RunResponse((*proc)->get_pid())) {
+    LOG(WARN) << "ctl: failed to send response";
     return true;
   }
 
-  return false;
+  auto file = std::make_shared<TCPSocket>(c.SeizeConn());
+  (*proc)->get_file_table().InsertAt(1, file);
+  (*proc)->get_file_table().InsertAt(2, file);
+  th->ThreadReady();
+  return true;
 }
 bool HandleSnapshot(ControlConn &c, const ctl_schema::SnapshotRequest *req) {
   LOG(INFO) << "handling snapshot request";
@@ -236,6 +244,18 @@ bool HandleGetStats(ControlConn &c, const ctl_schema::GetStatsRequest *req) {
   return false;
 }
 
+bool HandlePS(ControlConn &c, const ctl_schema::PSRequest *req) {
+  LOG(INFO) << "handling ps request";
+  std::vector<pid_t> pids;
+  Process::ForEachProcess(
+      [&pids](const Process &proc) { pids.push_back(proc.get_pid()); });
+
+  if (!c.PSResponse(pids)) {
+    LOG(WARN) << "ctl: failed to send ps response";
+    return true;
+  }
+  return false;
+}
 bool HandleRequest(ControlConn &c, const ctl_schema::Request *req) {
   switch (req->inner_type()) {
     case ctl_schema::InnerRequest_run:
@@ -252,6 +272,8 @@ bool HandleRequest(ControlConn &c, const ctl_schema::Request *req) {
       return HandleSignal(c, req->inner_as_signal());
     case ctl_schema::InnerRequest_getStats:
       return HandleGetStats(c, req->inner_as_getStats());
+    case ctl_schema::InnerRequest_ps:
+      return HandlePS(c, req->inner_as_ps());
     default:
       // TODO(control): send error back
       return true;

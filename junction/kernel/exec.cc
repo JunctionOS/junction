@@ -254,7 +254,7 @@ Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   if (!ret) return MakeError(ret);
 
   if (unlikely(GetCfg().strace_enabled())) {
-    Status<std::string> filename = ctx.file.get_dent()->GetPathStr();
+    Status<std::string> filename = ctx.file.get_dent()->GetPathStr(ctx.fs);
     BUG_ON(!filename);
     LogSyscallDirect("execve", *filename, ctx.get_argv_view(), envp);
   }

@@ -37,6 +37,9 @@ namespace detail {
 void file_desc::OnDescriptorClose(file_desc::close_handle &handle) {
   // Note that fd number may be reused at this point, only use in situations
   // where that race is OK.
+
+  // TODO: better way of mapping file tables to procfs's.
+  if (!IsJunctionThread()) return;
   myproc().get_procfs().NotifyFDDestroy(handle.fd);
   Inode *ino = handle.file->get_inode();
   if (ino) ino->NotifyDescriptorClosed(myproc());
@@ -359,7 +362,7 @@ Status<long> File::Ioctl(unsigned long request, char *argp) {
 }
 
 void File::save_dent_path(cereal::BinaryOutputArchive &ar) const {
-  Status<std::string> ret = get_dent_ref().GetPathStr();
+  Status<std::string> ret = get_dent_ref().GetPathStr(FSRoot::GetGlobalRoot());
   if (!ret) throw std::runtime_error("stale file handle");
   ar(*ret);
 }
@@ -443,13 +446,13 @@ File::File(FileType type, unsigned int flags, FileMode mode,
       ino_(&ent->get_inode_ref()),
       dent_(std::move(ent)) {}
 
-[[nodiscard]] std::string File::get_filename() const {
+[[nodiscard]] std::string File::get_filename(const FSRoot &fs) const {
   if (!dent_) return "";
   std::string out;
   out.reserve(PATH_MAX);
   rt::RuntimeLibcGuard g;
   std::ostringstream ss(std::move(out));
-  Status<void> ret = dent_->GetFullPath(ss);
+  Status<void> ret = dent_->GetFullPath(fs, ss);
   if (unlikely(!ret)) return "[STALE]";
   return ss.str();
 }

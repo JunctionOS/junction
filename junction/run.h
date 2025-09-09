@@ -9,7 +9,8 @@ namespace junction {
 
 Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, std::vector<std::string_view> &argv,
-    const std::vector<std::string_view> &envp, bool is_init = true);
+    const std::vector<std::string_view> &envp, bool is_init = true,
+    std::string cwd = "/", std::string root = "/", Thread **th_out = nullptr);
 
 std::pair<std::vector<std::string>, std::vector<std::string_view>> BuildEnvp();
 }  // namespace junction

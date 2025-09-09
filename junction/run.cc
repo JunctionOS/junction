@@ -16,10 +16,36 @@ namespace junction {
 
 Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, std::vector<std::string_view> &argv,
-    const std::vector<std::string_view> &envp, bool is_init) {
+    const std::vector<std::string_view> &envp, bool is_init, std::string cwd,
+    std::string fsroot, Thread **th_out) {
+  Status<std::shared_ptr<Inode>> ino =
+      LookupInode(FSRoot::GetGlobalRoot(), fsroot, true);
+  if (unlikely(!ino)) {
+    LOG(ERR) << "failed to find " << fsroot;
+    return MakeError(ino);
+  }
+  if (unlikely(!(*ino)->is_dir())) {
+    LOG(ERR) << "fsroot is not a directory: " << fsroot;
+    return MakeError(ENOTDIR);
+  }
+
+  FSRoot f(std::static_pointer_cast<IDir>(*ino),
+           std::static_pointer_cast<IDir>(*ino));
+  ino = LookupInode(f, cwd, true);
+  if (unlikely(!ino)) {
+    LOG(ERR) << "failed to find cwd" << cwd;
+    return MakeError(ino);
+  }
+  if (unlikely(!(*ino)->is_dir())) {
+    LOG(ERR) << "cwd is not a directory: " << cwd;
+    return MakeError(ENOTDIR);
+  }
+
+  f.SetCwd(std::static_pointer_cast<IDir>(std::move(*ino)));
+
   // Create the process object
   Status<std::pair<std::shared_ptr<Process>, Thread *>> tmp =
-      Process::CreateInit();
+      Process::CreateInit(f);
   if (!tmp) return MakeError(tmp);
   auto &[proc, th] = *tmp;
 
@@ -54,7 +80,10 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
 
   th->mark_enter_kernel();
   entry.MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
-  th->ThreadReady();
+  if (th_out)
+    *th_out = th;
+  else
+    th->ThreadReady();
   return std::move(proc);
 }
 

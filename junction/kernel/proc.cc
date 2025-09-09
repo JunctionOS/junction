@@ -354,14 +354,15 @@ bool Process::ThreadFinish(Thread *th) {
   return remaining_threads == 0;
 }
 
-Status<std::pair<std::shared_ptr<Process>, Thread *>> Process::CreateInit() {
+Status<std::pair<std::shared_ptr<Process>, Thread *>> Process::CreateInit(
+    FSRoot &fsr) {
   Status<pid_t> pid = AllocNewSession();
   if (!pid) return MakeError(pid);
 
   Status<std::shared_ptr<MemoryMap>> mm = MemoryMap::Create(kMemoryMappingSize);
   if (!mm) return MakeError(mm);
 
-  auto proc = std::make_shared<Process>(*pid, std::move(*mm));
+  auto proc = std::make_shared<Process>(*pid, std::move(*mm), fsr);
 
   thread_t *th = thread_create(nullptr, 0);
   if (!th) return MakeError(ENOMEM);
