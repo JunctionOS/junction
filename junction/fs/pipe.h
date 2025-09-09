@@ -188,6 +188,10 @@ class WaitableChannel {
   [[nodiscard]] bool is_empty() const { return chan_.is_empty(); }
   [[nodiscard]] bool is_full() const { return chan_.is_full(); }
 
+  [[nodiscard]] Status<size_t> get_readable_bytes() const {
+    return chan_.get_readable_bytes();
+  }
+
  private:
   [[nodiscard]] bool reader_is_closed() const {
     return reader_closed_.load(std::memory_order_acquire);

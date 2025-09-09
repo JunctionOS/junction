@@ -726,6 +726,13 @@ class UnixStreamSocket : public Socket {
        cereal::base_class<Socket>(construct.ptr()));
   }
 
+ protected:
+  [[nodiscard]] Status<size_t> get_input_bytes() const override {
+    if (state_ == SocketState::kSockConnected)
+      return Connection().rx->get_readable_bytes();
+    return MakeError(EINVAL);
+  }
+
  private:
   [[nodiscard]] std::weak_ptr<UnixStreamSocket> weak_this() {
     return std::static_pointer_cast<UnixStreamSocket>(shared_from_this());

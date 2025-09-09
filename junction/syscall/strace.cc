@@ -207,6 +207,11 @@ const std::map<int, std::string> fcntls{
 #define PR_GET_MDWE 66
 #endif
 
+const std::map<int, std::string> poll_flags{
+    VAL(POLLIN),     VAL(POLLPRI),    VAL(POLLOUT),    VAL(POLLRDHUP),
+    VAL(POLLERR),    VAL(POLLHUP),    VAL(POLLNVAL),   VAL(POLLRDNORM),
+    VAL(POLLRDBAND), VAL(POLLWRNORM), VAL(POLLWRBAND), VAL(POLLMSG)};
+
 const std::map<int, std::string> prctl_ops{
     VAL(PR_CAP_AMBIENT),
     VAL(PR_CAPBSET_READ),
@@ -335,13 +340,41 @@ void PrintArg(const sigset_t *sigmask, rt::Logger &ss) {
   ss << "}";
 }
 
-void PrintValMap(const std::map<int, std::string> &map, int val,
-                 rt::Logger &ss) {
+void PrintIoctlReq(unsigned int request, rt::Logger &ss) {
+  unsigned int dir = _IOC_DIR(request);
+  unsigned int type = _IOC_TYPE(request);
+  unsigned int nr = _IOC_NR(request);
+  unsigned int size = _IOC_SIZE(request);
+
+  ss << "_IOC(";
+
+  bool printed = false;
+  if (dir & _IOC_READ) {
+    ss << "_IOC_READ";
+    printed = true;
+  }
+  if (dir & _IOC_WRITE) {
+    if (printed) ss << "|";
+    ss << "_IOC_WRITE";
+    printed = true;
+  }
+  if (!printed) {
+    ss << "0";
+  }
+
+  ss << ", 0x" << std::hex << type << ", 0x" << std::hex << nr << ", 0x"
+     << std::hex << size << ")";
+}
+
+bool PrintValMap(const std::map<int, std::string> &map, int val, rt::Logger &ss,
+                 bool print_on_miss = true) {
   auto it = map.find(val);
-  if (it != map.end())
+  if (it != map.end()) {
     ss << it->second;
-  else
-    ss << val;
+    return true;
+  }
+  if (print_on_miss) ss << val;
+  return false;
 }
 
 void PrintArg(const cap_user_data_t datap, rt::Logger &ss) {
@@ -442,6 +475,25 @@ bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
   return done_one;
 }
 
+bool PrintArg(struct pollfd el, rt::Logger &ss, bool first) {
+  if (!first) ss << ", ";
+  ss << "{fd=" << el.fd << ", events=";
+  PrintFlagArr(poll_flags, el.events, ss);
+  ss << ", revents=";
+  PrintFlagArr(poll_flags, el.revents, ss);
+  ss << "}";
+  return true;
+}
+
+bool PrintArg(const struct epoll_event el, rt::Logger &ss, bool first) {
+  if (!el.events) return false;
+  if (!first) ss << ", ";
+  ss << "{events=";
+  PrintFlagArr(poll_flags, el.events, ss);
+  ss << ", data=" << el.data.u64 << "}";
+  return true;
+}
+
 void PrintArg(int option, WaitOptions, rt::Logger &ss) {
   const static std::map<int, std::string> flags = {
       VAL(WEXITED), VAL(WSTOPPED),  VAL(WCONTINUED), VAL(WNOHANG),
@@ -483,7 +535,7 @@ void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss) {
 }
 
 void PrintArg(unsigned int op, IoctlOp, rt::Logger &ss) {
-  PrintValMap(ioctls, op, ss);
+  if (!PrintValMap(ioctls, op, ss, false)) PrintIoctlReq(op, ss);
 }
 
 void PrintArg(int flags, MMapFlag, rt::Logger &ss) {

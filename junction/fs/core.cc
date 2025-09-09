@@ -379,7 +379,9 @@ long usys_mkdirat(int dirfd, const char *pathname, mode_t mode) {
 }
 
 long usys_unlink(const char *pathname) {
-  Status<Entry> entry = LookupEntry(myproc().get_fs(), pathname);
+  std::string_view pathnamev(pathname);
+  if (pathnamev == "") return -ENOENT;
+  Status<Entry> entry = LookupEntry(myproc().get_fs(), pathnamev);
   if (!entry) return MakeCError(entry);
   Status<void> ret = Unlink(*entry);
   if (!ret) return MakeCError(ret);

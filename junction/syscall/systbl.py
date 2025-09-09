@@ -130,6 +130,13 @@ SKIP_STRACE_TARGET = [
     "clone3",
     "rt_sigreturn"]
 
+ARRAY_ARGS = {
+    ("poll", 0) : 1,
+    ("epoll_wait", 1) : 2,
+    ("epoll_pwait", 1) : 2,
+    ("epoll_pwait2", 1) : 2,
+}
+
 systabl_targets = [None for i in range(SYS_NR)]
 systabl_strace_targets = [None for i in range(SYS_NR)]
 
@@ -142,23 +149,32 @@ systabl_targets[455] = "junction_fncall_stackswitch_enter_eax"
 for i in range(451, 456):
     systabl_strace_targets[i] = systabl_targets[i]
 
-
 def genLogSyscallCall(pretty_name, with_ret, fnname):
     ret = ""
+
+    fn = "\n\t{"
+    for i in range(6):
+        if (pretty_name, i) in ARRAY_ARGS:
+            fn += f"\n\t\tstrace::ArrayInfo arrinfo{i} = {{reinterpret_cast<void *>(arg{i}), static_cast<size_t>(arg{ARRAY_ARGS[(pretty_name, i)]})}};"
+
     if with_ret:
         if (pretty_name, -1) in TYPE_ARR:
             ret = f"{TYPE_ARR[(pretty_name, -1)]}(ret), "
         else:
             ret = "ret, "
-    fn = f"\n\tLogSyscall({ret}\"{pretty_name}\", &{fnname},"
+
+    fn += f"\n\t\tLogSyscall({ret}\"{pretty_name}\", &{fnname},"
     for i in range(6):
-        if (pretty_name, i) not in TYPE_ARR:
-            fn += f"\n\t\t(arg{i})"
+        if (pretty_name, i) in ARRAY_ARGS:
+            fn += f"\n\t\t\t(&arrinfo{i})"
+        elif (pretty_name, i) not in TYPE_ARR:
+            fn += f"\n\t\t\t(arg{i})"
         else:
-            fn += f"\n\t\t{TYPE_ARR[(pretty_name, i)]}(arg{i})"
+            fn += f"\n\t\t\t{TYPE_ARR[(pretty_name, i)]}(arg{i})"
         if i < 5:
             fn += ","
     fn += ");"
+    fn += "\n\t}"
     return fn
 
 

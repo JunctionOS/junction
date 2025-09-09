@@ -190,6 +190,31 @@ constexpr void UnpackArgs(rt::Logger &ss, Ret (*fn)(UsysArgs...), ArgT &args,
 
 std::string GetFcntlName(int cmd);
 
+struct ArrayInfo {
+  void *ptr;
+  size_t size;
+};
+
+bool PrintArg(struct pollfd el, rt::Logger &ss, bool first);
+bool PrintArg(const struct epoll_event el, rt::Logger &ss, bool first);
+
+template <typename U>
+inline void PrintArgSpan(std::span<const U> span, rt::Logger &ss) {
+  ss << "[";
+  int cnt = 0;
+  for (const auto &el : span) {
+    if (PrintArg(el, ss, cnt == 0)) cnt++;
+  }
+  ss << "]";
+}
+
+template <typename T>
+inline void PrintArg(T *, ArrayInfo *arrinfo, rt::Logger &ss) {
+  // Make a span from the array info
+  std::span<const T> span(reinterpret_cast<T *>(arrinfo->ptr), arrinfo->size);
+  PrintArgSpan(span, ss);
+}
+
 }  // namespace strace
 
 template <typename Ret, typename... RegisterArgs, typename UsysRet,

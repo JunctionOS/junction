@@ -41,7 +41,11 @@ class JunctionFile {
   ~JunctionFile() = default;
 
   // Read from the file.
-  Status<size_t> Read(std::span<std::byte> buf) { return f_->Read(buf, &off_); }
+  Status<size_t> Read(std::span<std::byte> buf) {
+    Status<size_t> ret = f_->Read(buf, &off_);
+    if (ret && *ret == 0) return MakeError(EUNEXPECTEDEOF);
+    return ret;
+  }
 
   // Write to the file.
   Status<size_t> Write(std::span<const std::byte> buf) {

@@ -99,13 +99,13 @@ Status<DirectoryEntry *> LinuxIDir::AddInode(const struct stat &stat,
 
   std::shared_ptr<Inode> ino;
 
-  if (S_ISREG(stat.st_mode)) {
-    ino = std::make_shared<LinuxInode>(stat, std::move(abspath));
-  } else if (S_ISLNK(stat.st_mode)) {
+  if (S_ISLNK(stat.st_mode)) {
     char buf[PATH_MAX];
     Status<std::string_view> target = linux_root_fd.ReadLinkAt(abspath, {buf});
     if (!target) return MakeError(target);
     ino = std::make_shared<LinuxISoftLink>(stat, std::string(*target));
+  } else {
+    ino = std::make_shared<LinuxInode>(stat, std::move(abspath));
   }
 
   if (ino) return AddDentLockedNoCheck(std::string(entry_name), std::move(ino));

@@ -82,6 +82,8 @@ void FileTable::Resize(size_t len) {
     rt::RCUFree(std::move(farr_));
     farr_ = std::move(narr);
     close_on_exec_.resize(new_cap);
+  } else {
+    farr_->len = len;
   }
 }
 

@@ -372,6 +372,10 @@ class ProcessDir : public ProcFSDir {
     AddDentLockedNoCheck(
         "stat", MakeInode(0444, [p = proc_] { return GetProcStat(p); }));
 
+    DirectoryEntry *dx = AddIDirLockedNoCheck<ProcFSDir>("ns", 0555);
+    static_cast<ProcFSDir &>(dx->get_inode_ref())
+        .Link("pid", MakeInode(0444, [p = proc_] { return ""; }));
+
     DirectoryEntry *de = AddIDirLockedNoCheck<FDDir>(std::string(kFDDirName));
     fd_dir_ =
         static_cast<FDDir &>(de->get_inode_ref()).shared_from_base<FDDir>();
