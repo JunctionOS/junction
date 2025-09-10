@@ -71,6 +71,8 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
 long usys_statfs(const char *path, struct statfs *buf);
 long usys_fstatfs(int fd, struct statfs *buf);
 long usys_stat(const char *path, struct stat *statbuf);
+long usys_statx(int dirfd, const char *pathname, int flag, unsigned int mask,
+                struct statx *statxbuf);
 long usys_lstat(const char *path, struct stat *statbuf);
 long usys_fstat(int fd, struct stat *statbuf);
 long usys_getdents(unsigned int fd, void *dirp, unsigned int count);

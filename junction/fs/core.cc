@@ -1,5 +1,9 @@
 // core.cc - core file system support
 
+extern "C" {
+#include <sys/stat.h>
+}
+
 #include <algorithm>
 #include <spanstream>
 #include <utility>
@@ -277,6 +281,12 @@ Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(Process &p, int dirfd,
                                                        std::string_view path,
                                                        bool chase_link) {
   if (!PathIsValid(path)) return MakeError(EINVAL);
+  if (path.empty()) {
+    FileTable &ftbl = p.get_file_table();
+    File *f = ftbl.Get(dirfd);
+    if (unlikely(!f)) return MakeError(EBADF);
+    return f->get_dent();
+  }
   Status<std::shared_ptr<IDir>> pathd = GetPathDirAt(p, dirfd, path);
   if (!pathd) return MakeError(pathd);
   bool must_be_dir;
@@ -631,6 +641,44 @@ long usys_stat(const char *path, struct stat *statbuf) {
   if (!tmp) return MakeCError(tmp);
   Status<void> stat = (*tmp)->GetStats(statbuf);
   if (!stat) return MakeCError(stat);
+  return 0;
+}
+
+long usys_statx(int dirfd, const char *pathname_c, int flag, unsigned int mask,
+                struct statx *statxbuf) {
+  if (!pathname_c) return -EFAULT;
+  std::string_view pathname(pathname_c);
+  bool chase_link = !(flag & AT_SYMLINK_NOFOLLOW);
+  bool at_empty_path = flag & AT_EMPTY_PATH;
+  if (pathname.empty() && !at_empty_path) return -ENOENT;
+  Process &p = myproc();
+  Status<std::shared_ptr<Inode>> tmp =
+      LookupInode(p, dirfd, pathname, chase_link);
+  if (!tmp) return MakeCError(tmp);
+  struct stat statbuf;
+  Status<void> stat = (*tmp)->GetStats(&statbuf);
+  if (!stat) return MakeCError(stat);
+
+  memset(statxbuf, 0, sizeof(struct statx));
+  statxbuf->stx_mode = statbuf.st_mode;
+  statxbuf->stx_blksize = statbuf.st_blksize;
+  statxbuf->stx_nlink = statbuf.st_nlink;
+  statxbuf->stx_uid = statbuf.st_uid;
+  statxbuf->stx_gid = statbuf.st_gid;
+  statxbuf->stx_ino = statbuf.st_ino;
+  statxbuf->stx_size = statbuf.st_size;
+  statxbuf->stx_blocks = statbuf.st_blocks;
+  statxbuf->stx_blksize = statbuf.st_blksize;
+  statxbuf->stx_mnt_id = statbuf.st_dev;
+  statxbuf->stx_mask = STATX_BASIC_STATS;
+
+  statxbuf->stx_atime.tv_sec = statbuf.st_atim.tv_sec;
+  statxbuf->stx_atime.tv_nsec = statbuf.st_atim.tv_nsec;
+  statxbuf->stx_mtime.tv_sec = statbuf.st_mtim.tv_sec;
+  statxbuf->stx_mtime.tv_nsec = statbuf.st_mtim.tv_nsec;
+  statxbuf->stx_ctime.tv_sec = statbuf.st_ctim.tv_sec;
+  statxbuf->stx_ctime.tv_nsec = statbuf.st_ctim.tv_nsec;
+
   return 0;
 }
 

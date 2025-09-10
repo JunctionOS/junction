@@ -8,6 +8,7 @@ extern "C" {
 #include <signal.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 }
 
@@ -192,6 +193,39 @@ const std::map<int, std::string> fcntls{
     VAL(F_SET_RW_HINT),
     VAL(F_GET_FILE_RW_HINT),
     VAL(F_SET_FILE_RW_HINT),
+};
+
+const std::map<int, std::string> statx_mask_flags{
+    VAL(STATX_TYPE),
+    VAL(STATX_MODE),
+    VAL(STATX_NLINK),
+    VAL(STATX_UID),
+    VAL(STATX_GID),
+    VAL(STATX_ATIME),
+    VAL(STATX_MTIME),
+    VAL(STATX_CTIME),
+    VAL(STATX_INO),
+    VAL(STATX_SIZE),
+    VAL(STATX_BLOCKS),
+    VAL(STATX_BASIC_STATS),
+    // VAL(STATX_ALL), // same as STATX_BASIC_STATS | STATX_BTIME
+    VAL(STATX_BTIME),
+    VAL(STATX_MNT_ID),
+    VAL(STATX_DIOALIGN),
+};
+
+const std::map<int, std::string> at_flags{
+    VAL(AT_SYMLINK_NOFOLLOW),
+    VAL(AT_REMOVEDIR),
+    VAL(AT_SYMLINK_FOLLOW),
+    VAL(AT_NO_AUTOMOUNT),
+    VAL(AT_EMPTY_PATH),
+    VAL(AT_STATX_SYNC_TYPE),
+    VAL(AT_STATX_SYNC_AS_STAT),
+    VAL(AT_STATX_FORCE_SYNC),
+    VAL(AT_STATX_DONT_SYNC),
+    VAL(AT_RECURSIVE),
+    VAL(AT_EACCESS),
 };
 
 #ifndef PR_SET_VMA
@@ -451,7 +485,10 @@ void PrintArg(int op, EpollOp, rt::Logger &ss) {
 }
 
 void PrintArg(const char *arg, PathName *, rt::Logger &ss) {
-  ss << "\"" << arg << "\"";
+  if (!arg)
+    ss << "<null>";
+  else
+    ss << "\"" << arg << "\"";
 }
 
 void PrintArg(int fd, AtFD, rt::Logger &ss) {
@@ -464,13 +501,19 @@ void PrintArg(int fd, AtFD, rt::Logger &ss) {
 bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
                   rt::Logger &ss) {
   bool done_one = false;
-  for (const auto &[flag, name] : map) {
+  for (int i = 0; i < 32; i++) {
+    int flag = 1 << i;
     if (!(flags & flag)) continue;
     if (!done_one)
       done_one = true;
     else
       ss << "|";
-    ss << name;
+    auto it = map.find(flag);
+    if (it != map.end()) {
+      ss << it->second;
+    } else {
+      ss << "1 << " << i;
+    }
   }
   return done_one;
 }
@@ -494,17 +537,10 @@ bool PrintArg(const struct epoll_event el, rt::Logger &ss, bool first) {
   return true;
 }
 
-void PrintArg(int option, WaitOptions, rt::Logger &ss) {
-  const static std::map<int, std::string> flags = {
-      VAL(WEXITED), VAL(WSTOPPED),  VAL(WCONTINUED), VAL(WNOHANG),
-      VAL(WNOWAIT), VAL(WUNTRACED), VAL(WCONTINUED),
-  };
-  PrintFlagArr(flags, option, ss);
-}
-
-void PrintArg(int op, MessageFlag, rt::Logger &ss) {
-  PrintFlagArr(msg_flags, op, ss);
-}
+const std::map<int, std::string> wait_flags = {
+    VAL(WEXITED), VAL(WSTOPPED),  VAL(WCONTINUED), VAL(WNOHANG),
+    VAL(WNOWAIT), VAL(WUNTRACED), VAL(WCONTINUED),
+};
 
 void PrintArg(int prot, ProtFlag, rt::Logger &ss) {
   if (prot == PROT_NONE) {
@@ -536,14 +572,6 @@ void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss) {
 
 void PrintArg(unsigned int op, IoctlOp, rt::Logger &ss) {
   if (!PrintValMap(ioctls, op, ss, false)) PrintIoctlReq(op, ss);
-}
-
-void PrintArg(int flags, MMapFlag, rt::Logger &ss) {
-  PrintFlagArr(mmap_flags, flags, ss);
-}
-
-void PrintArg(unsigned long flags, CloneFlag, rt::Logger &ss) {
-  PrintFlagArr(clone_flags, flags, ss);
 }
 
 void PrintArg(int flags, OpenFlag, rt::Logger &ss) {

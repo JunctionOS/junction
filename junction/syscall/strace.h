@@ -72,10 +72,20 @@ inline void PrintArg(const char *arg, T, rt::Logger &ss) {
   enum class type_name : int {};                  \
   void PrintArg(type_type, type_name, rt::Logger &ss);
 
+extern bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
+                         rt::Logger &ss);
+
+#define DECLARE_STRACE_FLAG_ARR(type_name, type_type, map_name)      \
+  enum class type_name : int {};                                     \
+  extern const std::map<int, std::string> map_name;                  \
+  inline void PrintArg(type_type flags, type_name, rt::Logger &ss) { \
+    PrintFlagArr(map_name, flags, ss);                               \
+  }
+
 DECLARE_STRACE_TYPE(AtFD, int);
 DECLARE_STRACE_TYPE(ProtFlag, int);
-DECLARE_STRACE_TYPE(MMapFlag, int);
-DECLARE_STRACE_TYPE(CloneFlag, unsigned long);
+DECLARE_STRACE_FLAG_ARR(MMapFlag, int, mmap_flags);
+DECLARE_STRACE_FLAG_ARR(CloneFlag, unsigned long, clone_flags);
 DECLARE_STRACE_TYPE(EpollOp, int);
 DECLARE_STRACE_TYPE(OpenFlag, int);
 DECLARE_STRACE_TYPE(SignalNumber, int);
@@ -85,10 +95,12 @@ DECLARE_STRACE_TYPE(IoctlOp, unsigned int)
 DECLARE_STRACE_TYPE(FcntlOp, unsigned int)
 DECLARE_STRACE_TYPE(SocketDomain, int)
 DECLARE_STRACE_TYPE(SocketType, int)
-DECLARE_STRACE_TYPE(MessageFlag, int)
+DECLARE_STRACE_FLAG_ARR(MessageFlag, int, msg_flags);
 DECLARE_STRACE_TYPE(PrctlOp, long)
 DECLARE_STRACE_TYPE(SigProcMaskOp, int)
-DECLARE_STRACE_TYPE(WaitOptions, int);
+DECLARE_STRACE_FLAG_ARR(WaitOptions, int, wait_flags);
+DECLARE_STRACE_FLAG_ARR(StatxMask, unsigned int, statx_mask_flags);
+DECLARE_STRACE_FLAG_ARR(AtFlag, int, at_flags);
 
 void PrintArg(int *fds, FDPair *, rt::Logger &ss);
 
@@ -144,6 +156,20 @@ inline void PrintArg(struct sockaddr *addr, U, rt::Logger &ss) {
 template <typename U>
 inline void PrintArg(cap_user_header_t hdrp, U, rt::Logger &ss) {
   ss << "{" << hdrp->version << ", " << hdrp->pid << "}";
+}
+
+template <typename U>
+inline void PrintArg(struct stat *stat, U, rt::Logger &ss) {
+  ss << "{st_mode=";
+  if ((stat->st_mode & kTypeMask) == kTypeRegularFile) ss << "S_IFREG";
+  if ((stat->st_mode & kTypeMask) == kTypeDirectory) ss << "S_IFDIR";
+  if ((stat->st_mode & kTypeMask) == kTypeCharacter) ss << "S_IFCHR";
+  if ((stat->st_mode & kTypeMask) == kTypeBlock) ss << "S_IFBLK";
+  if ((stat->st_mode & kTypeMask) == kTypeFIFO) ss << "S_IFIFO";
+  if ((stat->st_mode & kTypeMask) == kTypeSocket) ss << "S_IFSOCK";
+  if ((stat->st_mode & kTypeMask) == kTypeSymLink) ss << "S_IFLNK";
+  ss << "|0" << std::oct << (stat->st_mode & kModeMask) << std::dec;
+  ss << ", st_size=" << stat->st_size << "...}";
 }
 
 template <typename U>

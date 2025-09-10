@@ -55,6 +55,7 @@ fstatfs
 stat
 lstat
 fstat
+statx
 getdents
 getdents64
 mkdir

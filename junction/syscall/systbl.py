@@ -56,6 +56,7 @@ STRACE_ARGS_THAT_ARE_PATHNAMES = set([
     ("symlink", 1),
     ("symlinkat", 0),
     ("symlinkat", 2),
+    ("statx", 1),
 ])
 
 AT_FDS = [
@@ -74,6 +75,7 @@ AT_FDS = [
     ("linkat", 0),
     ("linkat", 2),
     ("readlinkat", 0),
+    ("statx", 0),
 ]
 
 TYPE_ARR = {
@@ -120,6 +122,8 @@ TYPE_ARR.update({
     ("rt_sigprocmask", 0): 'static_cast<strace::SigProcMaskOp>',
     ("waitpid", 2): 'static_cast<strace::WaitOptions>',
     ("waitid", 3): 'static_cast<strace::WaitOptions>',
+    ("statx", 3): 'static_cast<strace::StatxMask>',
+    ("statx", 2): 'static_cast<strace::AtFlag>',
 })
 
 SKIP_STRACE_TARGET = [
