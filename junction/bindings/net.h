@@ -18,6 +18,8 @@ namespace junction::rt {
 
 // UDP Connections.
 class UDPConn {
+  friend class BindToken;
+
  public:
   UDPConn() = default;
   ~UDPConn() {
@@ -141,6 +143,7 @@ class UDPConn {
 // TCP connections.
 class TCPConn : public VectoredReader, public VectoredWriter {
   friend class TCPQueue;
+  friend class BindToken;
 
  public:
   TCPConn() = default;
@@ -292,6 +295,8 @@ class TCPConn : public VectoredReader, public VectoredWriter {
 
 // TCP listener queues.
 class TCPQueue {
+  friend class BindToken;
+
  public:
   TCPQueue() = default;
   ~TCPQueue() {
@@ -348,6 +353,101 @@ class TCPQueue {
   explicit TCPQueue(tcpqueue_t *q) noexcept : q_(q) {}
 
   tcpqueue_t *q_{nullptr};
+};
+
+// Bind token wrapper for managing port reservations.
+class BindToken {
+ public:
+  BindToken() = default;
+  ~BindToken() {
+    if (is_valid()) trans_release_port(token_);
+  }
+
+  // Move support.
+  BindToken(BindToken &&other) noexcept
+      : token_(std::exchange(other.token_, nullptr)) {}
+  BindToken &operator=(BindToken &&other) noexcept {
+    token_ = std::exchange(other.token_, nullptr);
+    return *this;
+  }
+
+  // disable copy.
+  BindToken(const BindToken &) = delete;
+  BindToken &operator=(const BindToken &) = delete;
+
+  // Allocates a bind token for the given local address and protocol.
+  static Status<BindToken> Allocate(netaddr laddr, uint8_t proto,
+                                    bool reuse_port = false) {
+    bind_token_t *token = nullptr;
+    int ret = trans_reserve_port(&laddr, proto, reuse_port, &token);
+    if (ret) return MakeError(-ret);
+    return BindToken(token);
+  }
+
+  // Allocates a TCP bind token.
+  static Status<BindToken> AllocateTCP(netaddr laddr, bool reuse_port = false) {
+    return Allocate(laddr, IPPROTO_TCP, reuse_port);
+  }
+
+  // Allocates a UDP bind token.
+  static Status<BindToken> AllocateUDP(netaddr laddr, bool reuse_port = false) {
+    return Allocate(laddr, IPPROTO_UDP, reuse_port);
+  }
+
+  // Checks if this holds a valid bind token.
+  [[nodiscard]] bool is_valid() const { return token_ != nullptr; }
+
+  // Gets the local address associated with this token.
+  [[nodiscard]] netaddr LocalAddr() const { return get_netaddr(token_); }
+
+  // Consumes this token for a TCP dial operation.
+  Status<TCPConn> DialTCP(netaddr raddr, bool nonblocking = false) {
+    if (!is_valid()) return MakeError(EINVAL);
+    tcpconn_t *c;
+    int ret = __tcp_dial({}, raddr, &c, nonblocking, token_);
+    if (ret && !(nonblocking && ret == -EINPROGRESS)) return MakeError(-ret);
+    // Token is consumed, clear it
+    token_ = nullptr;
+    return TCPConn(c);
+  }
+
+  // Consumes this token for a TCP listen operation.
+  Status<TCPQueue> ListenTCP(int backlog) {
+    if (!is_valid()) return MakeError(EINVAL);
+    tcpqueue_t *q;
+    int ret = __tcp_listen({}, backlog, &q, token_);
+    if (ret) return MakeError(-ret);
+    // Token is consumed, clear it
+    token_ = nullptr;
+    return TCPQueue(q);
+  }
+
+  // Consumes this token for a UDP dial operation.
+  Status<UDPConn> DialUDP(netaddr raddr) {
+    if (!is_valid()) return MakeError(EINVAL);
+    udpconn_t *c;
+    int ret = __udp_dial({}, raddr, &c, token_);
+    if (ret) return MakeError(-ret);
+    // Token is consumed, clear it
+    token_ = nullptr;
+    return UDPConn(c);
+  }
+
+  // Consumes this token for a UDP listen operation.
+  Status<UDPConn> ListenUDP() {
+    if (!is_valid()) return MakeError(EINVAL);
+    udpconn_t *c;
+    int ret = __udp_listen({}, &c, token_);
+    if (ret) return MakeError(-ret);
+    // Token is consumed, clear it
+    token_ = nullptr;
+    return UDPConn(c);
+  }
+
+ private:
+  explicit BindToken(bind_token_t *token) noexcept : token_(token) {}
+
+  bind_token_t *token_{nullptr};
 };
 
 }  // namespace junction::rt

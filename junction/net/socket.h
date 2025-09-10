@@ -143,6 +143,11 @@ class Socket : public File {
     return MakeError(EINVAL);
   }
 
+  virtual Status<void> SetSockOpt(int level, int optname,
+                                  std::span<const std::byte> value) {
+    return MakeError(EINVAL);
+  }
+
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
     return ReadFrom(buf, SockAddrPtr{});
   }
