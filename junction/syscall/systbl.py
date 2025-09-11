@@ -167,7 +167,7 @@ def genLogSyscallCall(pretty_name, with_ret, fnname):
         else:
             ret = "ret, "
 
-    fn += f"\n\t\tLogSyscall({ret}\"{pretty_name}\", &{fnname},"
+    fn += f"\n\t\tLogSyscall(ctx, {ret}\"{pretty_name}\", &{fnname},"
     for i in range(6):
         if (pretty_name, i) in ARRAY_ARGS:
             fn += f"\n\t\t\t(&arrinfo{i})"
@@ -182,15 +182,18 @@ def genLogSyscallCall(pretty_name, with_ret, fnname):
     return fn
 
 
-def emit_strace_target(pretty_name, function_name, output):
+def emit_strace_target(pretty_name, function_name, output, sysnr):
     fn = f"\nextern \"C\" __attribute__((cold)) int64_t {function_name}_trace(int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5) {'{'}"
     fn += "\n\tassert_stack_is_aligned();"
+    fn += f"\n\tstrace::SyscallCtx ctx(std::make_tuple(arg0, arg1, arg2, arg3, arg4, arg5), {sysnr});"
     runsyscall_cmd = f"\n\tint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 
     if STRACE_LOG_BEFORE_RETURN:
         fn += genLogSyscallCall(pretty_name, False, function_name)
 
     fn += runsyscall_cmd
+
+    fn += f"\n\tctx.retval = ret;"
 
     if STRACE_LOG_AFTER_RETURN:
         fn += genLogSyscallCall(pretty_name, True, function_name)
@@ -363,7 +366,7 @@ with open(USYS_LIST) as f:
         systabl_targets[sysnr] = target
         if name not in SKIP_STRACE_TARGET:
             systabl_strace_targets[sysnr] = emit_strace_target(
-                name, target, dispatch_file)
+                name, target, dispatch_file, sysnr)
         else:
             systabl_strace_targets[sysnr] = target
 
@@ -374,7 +377,7 @@ for i in range(SYS_NR):
     name = syscall_nr_to_name.get(i, f"SYS_{i}")
     target = emit_enosys_target(name, i, dispatch_file)
     systabl_targets[i] = target
-    systabl_strace_targets[i] = emit_strace_target(name, target, dispatch_file)
+    systabl_strace_targets[i] = emit_strace_target(name, target, dispatch_file, i)
 
 
 # generate the sysfn table

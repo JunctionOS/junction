@@ -182,7 +182,7 @@ long DoClone(clone_args *cl_args, uint64_t rsp) {
       myproc().WaitForFullStop();
     }
     if (unlikely(GetCfg().strace_enabled()))
-      LogSyscall(newth.get_tid(), "vfork", &usys_vfork);
+      LogSyscallDirect(newth.get_tid(), "vfork");
     {
       rt::Preempt::Lock();
       newth.ThreadReady();
@@ -707,7 +707,7 @@ long usys_vfork() {
 
   long ret = DoClone(&cl_args, mythread().GetSyscallFrame().GetRsp());
   if (unlikely(GetCfg().strace_enabled() && ret < 0))
-    LogSyscall(ret, "vfork", &usys_vfork);
+    LogSyscallDirect(ret, "vfork");
 
   return ret;
 }
@@ -720,12 +720,12 @@ long usys_clone3(struct clone_args *cl_args, size_t size) {
     ret = DoClone(cl_args, cl_args->stack + cl_args->stack_size);
 
   if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall(ret, "clone3", &usys_clone,
-               static_cast<strace::CloneFlag>(cl_args->flags),
-               reinterpret_cast<void *>(cl_args->stack),
-               reinterpret_cast<void *>(cl_args->parent_tid),
-               reinterpret_cast<void *>(cl_args->child_tid),
-               reinterpret_cast<void *>(cl_args->tls));
+    LogSyscallDirect(ret, "clone3",
+                     static_cast<strace::CloneFlag>(cl_args->flags),
+                     reinterpret_cast<void *>(cl_args->stack),
+                     reinterpret_cast<void *>(cl_args->parent_tid),
+                     reinterpret_cast<void *>(cl_args->child_tid),
+                     reinterpret_cast<void *>(cl_args->tls));
 
   return ret;
 }
@@ -745,11 +745,11 @@ long usys_clone(unsigned long clone_flags, unsigned long newsp,
 
   long ret = DoClone(&cl_args, newsp);
   if (unlikely(GetCfg().strace_enabled())) {
-    LogSyscall(
-        ret, "clone", &usys_clone, static_cast<strace::CloneFlag>(clone_flags),
-        reinterpret_cast<void *>(newsp),
-        reinterpret_cast<void *>(parent_tidptr),
-        reinterpret_cast<void *>(child_tidptr), reinterpret_cast<void *>(tls));
+    LogSyscallDirect(ret, "clone", static_cast<strace::CloneFlag>(clone_flags),
+                     reinterpret_cast<void *>(newsp),
+                     reinterpret_cast<void *>(parent_tidptr),
+                     reinterpret_cast<void *>(child_tidptr),
+                     reinterpret_cast<void *>(tls));
   }
   return ret;
 }
@@ -781,14 +781,13 @@ __noinline Thread *gdb_mythread() {
 __noinline Process *gdb_myproc() { return &mythread().get_process(); }
 
 [[noreturn]] void usys_exit(int status) {
-  if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall("exit", &usys_exit, status);
+  if (unlikely(GetCfg().strace_enabled())) LogSyscallDirect("exit", status);
   FinishExit(status);
 }
 
 void usys_exit_group(int status) {
   if (unlikely(GetCfg().strace_enabled()))
-    LogSyscall("exit_group", &usys_exit_group, status);
+    LogSyscallDirect("exit_group", status);
   myproc().DoExit(status);
   FinishExit(status);
 }

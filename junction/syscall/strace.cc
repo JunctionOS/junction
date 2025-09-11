@@ -351,7 +351,7 @@ const char *sigmap[] = {
 const std::map<int, std::string> sigprocmask_how{
     VAL(SIG_BLOCK), VAL(SIG_UNBLOCK), VAL(SIG_SETMASK)};
 
-void PrintArg(const sigset_t *sigmask, rt::Logger &ss) {
+void PrintSigset(const sigset_t *sigmask, rt::Logger &ss) {
   if (!sigmask) {
     ss << "NULL";
     return;
@@ -411,7 +411,7 @@ bool PrintValMap(const std::map<int, std::string> &map, int val, rt::Logger &ss,
   return false;
 }
 
-void PrintArg(const cap_user_data_t datap, rt::Logger &ss) {
+void PrintUserCap(const cap_user_data_t datap, rt::Logger &ss) {
   if (!datap) {
     ss << "NULL";
     return;
@@ -458,40 +458,46 @@ void PrintArg(const struct sockaddr *addr, rt::Logger &ss) {
   ss << ip << ":" << ntoh16(sin->sin_port);
 }
 
-void PrintArg(int op, SocketDomain, rt::Logger &ss) {
+void PrintArg(int op, SocketDomain, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   PrintValMap(sock_domains, op, ss);
 }
 
-void PrintArg(int op, SocketType, rt::Logger &ss) {
+void PrintArg(int op, SocketType, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   int type = op & ~(SOCK_NONBLOCK | SOCK_CLOEXEC);
   PrintValMap(sock_types, type, ss);
   if (op & SOCK_NONBLOCK) ss << "|SOCK_NONBLOCK";
   if (op & SOCK_CLOEXEC) ss << "|SOCK_CLOEXEC";
 }
 
-void PrintArg(int advice, MAdviseHint, rt::Logger &ss) {
+void PrintArg(int advice, MAdviseHint, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   PrintValMap(madvise_hints, advice, ss);
 }
 
-void PrintArg(int signo, SignalNumber, rt::Logger &ss) {
+void PrintArg(int signo, SignalNumber, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   if (static_cast<size_t>(signo) <= ARRAY_SIZE(sigmap))
     ss << sigmap[signo - 1];
   else
     ss << "SIGRT" << signo;
 }
 
-void PrintArg(int op, EpollOp, rt::Logger &ss) {
+void PrintArg(int op, EpollOp, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   PrintValMap(epoll_ctl_ops, op, ss);
 }
 
-void PrintArg(const char *arg, PathName *, rt::Logger &ss) {
+void PrintArg(const char *arg, PathName *, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   if (!arg)
     ss << "<null>";
   else
     ss << "\"" << arg << "\"";
 }
 
-void PrintArg(int fd, AtFD, rt::Logger &ss) {
+void PrintArg(int fd, AtFD, rt::Logger &ss, [[maybe_unused]] SyscallCtx &ctx) {
   if (fd == AT_FDCWD)
     ss << "AT_FDCWD";
   else
@@ -542,7 +548,8 @@ const std::map<int, std::string> wait_flags = {
     VAL(WNOWAIT), VAL(WUNTRACED), VAL(WCONTINUED),
 };
 
-void PrintArg(int prot, ProtFlag, rt::Logger &ss) {
+void PrintArg(int prot, ProtFlag, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   if (prot == PROT_NONE) {
     ss << "PROT_NONE";
     return;
@@ -550,7 +557,8 @@ void PrintArg(int prot, ProtFlag, rt::Logger &ss) {
   PrintFlagArr(protection_flags, prot, ss);
 }
 
-void PrintArg(int op, FutexOp, rt::Logger &ss) {
+void PrintArg(int op, FutexOp, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   int cmd = op & FUTEX_CMD_MASK;
   PrintValMap(futex_flags, cmd, ss);
 
@@ -558,23 +566,28 @@ void PrintArg(int op, FutexOp, rt::Logger &ss) {
   if (op & FUTEX_CLOCK_REALTIME) ss << "|FUTEX_CLOCK_REALTIME";
 }
 
-void PrintArg(int op, SigProcMaskOp, rt::Logger &ss) {
+void PrintArg(int op, SigProcMaskOp, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   PrintValMap(sigprocmask_how, op, ss);
 }
 
-void PrintArg(long op, PrctlOp, rt::Logger &ss) {
+void PrintArg(long op, PrctlOp, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   PrintValMap(prctl_ops, op, ss);
 }
 
-void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss) {
+void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   PrintValMap(fcntls, op, ss);
 }
 
-void PrintArg(unsigned int op, IoctlOp, rt::Logger &ss) {
+void PrintArg(unsigned int op, IoctlOp, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   if (!PrintValMap(ioctls, op, ss, false)) PrintIoctlReq(op, ss);
 }
 
-void PrintArg(int flags, OpenFlag, rt::Logger &ss) {
+void PrintArg(int flags, OpenFlag, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   bool done_one = PrintFlagArr(open_flags, flags, ss);
   if ((flags & (O_WRONLY | O_RDWR)) == 0) {
     if (done_one) ss << "|";
@@ -582,7 +595,8 @@ void PrintArg(int flags, OpenFlag, rt::Logger &ss) {
   }
 }
 
-void PrintArg(int *fds, FDPair *, rt::Logger &ss) {
+void PrintArg(int *fds, FDPair *, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
   ss << "[" << fds[0] << ", " << fds[1] << "]";
 }
 

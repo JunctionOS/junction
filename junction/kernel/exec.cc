@@ -307,8 +307,7 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
     if (replace_non_reloc) {
       // Log while the memory is still available.
       if (unlikely(GetCfg().strace_enabled()))
-        LogSyscall("execve", &usys_execve, (strace::PathName *)filename, argv,
-                   envp);
+        LogSyscallDirect("execve", (strace::PathName *)filename, argv, envp);
 
       ctx.TakeArgvOwnership();
 
@@ -339,8 +338,8 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
 
     // The syscall has suceeded.
     if (unlikely(GetCfg().strace_enabled() && !replace_non_reloc))
-      LogSyscall(0, "execve", &usys_execve, (strace::PathName *)filename, argv,
-                 envp);
+      LogSyscallDirect((long)0, std::string_view("execve"),
+                       (strace::PathName *)filename, argv, envp);
 
     // Reset rseq since its memory may become invalid (and may be accessed if
     // preemption occurs).
