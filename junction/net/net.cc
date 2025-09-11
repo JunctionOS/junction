@@ -219,6 +219,45 @@ ssize_t usys_recvmsg(int sockfd, struct msghdr *msg, int flags) {
   return static_cast<ssize_t>(*ret);
 }
 
+ssize_t usys_recvmmsg(int sockfd, struct mmsghdr *msgvec, int vlen, int flags,
+                      struct timespec *timeout) {
+  bool peek = flags & kMsgPeek;
+  bool nonblocking = flags & kMsgDontWait;
+  bool wait_for_one = flags & kMsgWaitOne;
+  flags = flags & ~(kMsgNoSignal | kMsgPeek | kMsgDontWait | kMsgWaitOne);
+  if (unlikely(flags != 0)) {
+    LOG_ONCE(WARN) << "recvmmsg ignoring flags" << flags;
+    return -EINVAL;
+  }
+
+  auto sock_ret = FDToSocket(sockfd);
+  if (unlikely(!sock_ret)) return MakeCError(sock_ret);
+  Socket &s = sock_ret.value().get();
+
+  // The timeout is fairly buggy as implemented in Linux (only checks after each
+  // message is received); we do the same here.
+  Time end_time;
+  if (timeout) end_time = Time::Now() + Duration(*timeout);
+  Status<size_t> ret;
+  int i;
+
+  for (i = 0; i < vlen; i++) {
+    struct msghdr *msg = &msgvec[i].msg_hdr;
+    if (msg->msg_control || msg->msg_controllen)
+      LOG_ONCE(WARN) << "recvmmsg: ignoring control message";
+    const SockAddrPtr p = SockAddrPtr::asConst(
+        reinterpret_cast<const sockaddr *>(msg->msg_name), &msg->msg_namelen);
+    nonblocking |= (i > 0 && wait_for_one);
+    ret = s.ReadvFrom({msg->msg_iov, msg->msg_iovlen}, p, peek, nonblocking);
+    if (unlikely(!ret)) break;
+    msgvec[i].msg_len = *ret;
+    if (timeout && Time::Now() >= end_time) break;
+  }
+
+  if (i == 0 && vlen > 0) return MakeCError(ret);
+  return i;
+}
+
 ssize_t usys_sendto(int sockfd, const void *buf, size_t len, int flags,
                     const struct sockaddr *dest_addr, socklen_t addrlen) {
   bool nonblocking = flags & kMsgDontWait;

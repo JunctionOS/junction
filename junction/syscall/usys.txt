@@ -87,6 +87,7 @@ setsockopt
 getsockopt
 recvfrom
 recvmsg
+recvmmsg
 sendto
 sendmsg
 sendmmsg
@@ -201,3 +202,4 @@ munlock:::stub
 mlockall:::stub
 munlockall:::stub
 setpriority:::stub
+getpriority:::stub

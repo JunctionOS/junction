@@ -125,6 +125,8 @@ ssize_t usys_sendmsg(int sockfd, const struct msghdr *msg, int flags);
 ssize_t usys_sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
                       int flags);
 ssize_t usys_recvmsg(int sockfd, struct msghdr *msg, int flags);
+ssize_t usys_recvmmsg(int sockfd, struct mmsghdr *msgvec, int vlen, int flags,
+                      struct timespec *timeout);
 long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 long usys_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
                   int flags);
