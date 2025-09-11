@@ -1,4 +1,4 @@
-From 7fb46e16361b998744ebd19160aa0bca77f3c227 Mon Sep 17 00:00:00 2001
+From 0799a7ce15fa7b7147667764852216877e6d158c Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 28 Sep 2023 22:57:58 +0000
 Subject: [PATCH 11/13] add support for interruptible waiting
@@ -9,7 +9,7 @@ Subject: [PATCH 11/13] add support for interruptible waiting
  2 files changed, 18 insertions(+), 11 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 3a61fdf..0b422c8 100644
+index 4e3454e..f3e3d18 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -23,8 +23,13 @@ struct thread {
@@ -26,15 +26,15 @@ index 3a61fdf..0b422c8 100644
  	struct stack	*stack;
  	uint16_t	last_cpu;
  	uint16_t	cur_kthread;
-@@ -35,7 +40,6 @@ struct thread {
- 	struct list_node	interruptible_link;
+@@ -36,7 +41,6 @@ struct thread {
+ 	size_t			waitq_micros;
  	uint64_t	tlsvar;
  	uint64_t	fsbase;
 -	unsigned long		junction_tstate_buf[24];
  };
  
  extern uint64_t thread_get_total_cycles(thread_t *th);
-@@ -71,16 +75,6 @@ static inline thread_t *thread_self(void)
+@@ -72,16 +76,6 @@ static inline thread_t *thread_self(void)
  	return perthread_read_const_p(__const_self);
  }
  
@@ -52,7 +52,7 @@ index 3a61fdf..0b422c8 100644
  /*
   * High-level routines, use this API most of the time.
 diff --git a/runtime/sched.c b/runtime/sched.c
-index f38396d..3e86d37 100644
+index ed817f3..9c44e77 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -41,6 +41,9 @@ static DEFINE_PERTHREAD(struct tcache_perthread, thread_pt);
@@ -87,9 +87,9 @@ index f38396d..3e86d37 100644
  	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
  }
  
-@@ -843,6 +854,8 @@ static __always_inline thread_t *__thread_create(void)
- 	th->thread_ready = false;
+@@ -844,6 +855,8 @@ static __always_inline thread_t *__thread_create(void)
  	th->thread_running = false;
+ 	th->waitq_micros = 0;
  	th->tlsvar = 0;
 +	th->junction_thread = false;
 +	th->link_armed = false;

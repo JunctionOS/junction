@@ -31,7 +31,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockUnbound)) return MakeError(EINVAL);
     Status<netaddr> na = addr.ToNetAddr();
     if (unlikely(!na)) return MakeError(na);
-    Status<rt::BindToken> ret = rt::BindToken::AllocateTCP(*na, reuse_port_);
+    Status<rt::BindToken> ret = rt::BindToken::AllocateTCP(*na, reuse_port());
     if (unlikely(!ret)) return MakeError(ret);
     v_ = std::move(*ret);
     state_ = SocketState::kSockBound;
@@ -150,6 +150,7 @@ class TCPSocket : public Socket {
                        [[maybe_unused]] off_t *off = nullptr) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return TcpConn().Write(buf);
   }
 
@@ -158,6 +159,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     return TcpConn().Read(buf, peek, nonblocking);
   }
 
@@ -166,6 +168,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return TcpConn().Write(buf, nonblocking);
   }
 
@@ -174,6 +177,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return TcpConn().Writev(iov, nonblocking);
   }
 
@@ -181,6 +185,7 @@ class TCPSocket : public Socket {
                         [[maybe_unused]] off_t *off = nullptr) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return TcpConn().Writev(iov);
   }
 
@@ -189,6 +194,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     return TcpConn().Readv(iov, peek, nonblocking);
   }
 
@@ -196,43 +202,40 @@ class TCPSocket : public Socket {
                        [[maybe_unused]] off_t *off) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     return TcpConn().Readv(iov);
   }
 
-  Status<int> GetSockOpt(int level, int optname) const override {
+ protected:
+  Status<size_t> GetSockOptImpl(int level, int optname,
+                                std::span<std::byte> value) const override {
     if (level != SOL_SOCKET) return MakeError(EINVAL);
+    int ret;
+    Status<void> rret;
     switch (optname) {
       case SO_ACCEPTCONN:
-        return state_ == SocketState::kSockListening ? 1 : 0;
+        ret = state_ == SocketState::kSockListening ? 1 : 0;
+        break;
       case SO_DOMAIN:
-        return AF_INET;
+        ret = AF_INET;
+        break;
       case SO_PROTOCOL:
-        return IPPROTO_TCP;
+        ret = IPPROTO_TCP;
+        break;
       case SO_TYPE:
-        return SOCK_STREAM;
+        ret = SOCK_STREAM;
+        break;
       case SO_ERROR:
-        if (state_ == SocketState::kSockConnected) {
-          Status<void> ret = TcpConn().GetStatus();
-          return ret ? 0 : ret.error().code();
-        }
-        /* fallthrough */
+        if (state_ != SocketState::kSockConnected) return MakeError(EINVAL);
+        rret = TcpConn().GetStatus();
+        ret = rret ? 0 : rret.error().code();
+        break;
       default:
         return MakeError(EINVAL);
     }
-  }
-
-  Status<void> SetSockOpt(int level, int optname,
-                          std::span<const std::byte> optval) override {
-    if (level != SOL_SOCKET) return MakeError(EINVAL);
-    switch (optname) {
-      case SO_REUSEADDR:
-      case SO_REUSEPORT:
-        if (state_ != SocketState::kSockUnbound) return MakeError(EINVAL);
-        reuse_port_ = *reinterpret_cast<const int *>(optval.data());
-        return {};
-      default:
-        return MakeError(EINVAL);
-    }
+    if (value.size() < sizeof(int)) return MakeError(EINVAL);
+    *reinterpret_cast<int *>(value.data()) = ret;
+    return sizeof(int);
   }
 
  private:
@@ -289,7 +292,7 @@ class TCPSocket : public Socket {
 
     switch (state_) {
       case SocketState::kSockBound:
-        ar(BindToken().LocalAddr(), reuse_port_);
+        ar(BindToken().LocalAddr());
         break;
       case SocketState::kSockConnected:
         ar(TcpConn().LocalAddr(), TcpConn().RemoteAddr());
@@ -309,8 +312,9 @@ class TCPSocket : public Socket {
     if (state_ == SocketState::kSockUnbound) return;
     if (state_ == SocketState::kSockBound) {
       netaddr addr;
-      ar(addr, reuse_port_);
-      Status<rt::BindToken> ret = rt::BindToken::AllocateTCP(addr, reuse_port_);
+      ar(addr, reuse_port());
+      Status<rt::BindToken> ret =
+          rt::BindToken::AllocateTCP(addr, reuse_port());
       BUG_ON(!ret);
       v_ = std::move(*ret);
       return;
@@ -358,7 +362,6 @@ class TCPSocket : public Socket {
 
   SocketState state_;
   int backlog_;
-  bool reuse_port_{false};
   std::atomic_bool is_shut_{false};
   std::variant<rt::TCPConn, rt::TCPQueue, rt::BindToken> v_;
 };

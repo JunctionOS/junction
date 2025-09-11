@@ -1,4 +1,4 @@
-From a6fcfdfbf770302975931d388edb82eff157a96e Mon Sep 17 00:00:00 2001
+From eb04f13ca52e9834910888791ac32d06b06c7096 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Thu, 20 Jun 2024 19:27:11 -0400
 Subject: [PATCH 13/13] thread buffer tweaks
@@ -8,7 +8,7 @@ Subject: [PATCH 13/13] thread buffer tweaks
  1 file changed, 2 insertions(+), 1 deletion(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index e560d1a..57c622c 100644
+index 40efaf6..0e4a664 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
 @@ -31,7 +31,7 @@ struct thread {
@@ -20,8 +20,8 @@ index e560d1a..57c622c 100644
  	struct stack	*stack;
  	uint16_t	last_cpu;
  	uint16_t	cur_kthread;
-@@ -42,6 +42,7 @@ struct thread {
- 	struct list_node	interruptible_link;
+@@ -43,6 +43,7 @@ struct thread {
+ 	size_t			waitq_micros;
  	uint64_t	tlsvar;
  	uint64_t	fsbase;
 +	unsigned long	junction_cold_state_buf[32];

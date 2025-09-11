@@ -171,13 +171,15 @@ long usys_getsockopt(int sockfd, int level, int option_name, void *option_value,
     return 0;
   }
   Socket &s = sock_ret.value().get();
-  Status<int> val = s.GetSockOpt(level, option_name);
+  Status<size_t> val = s.GetSockOpt(
+      level, option_name,
+      std::span<std::byte>(reinterpret_cast<std::byte *>(option_value),
+                           option_len ? *option_len : 0));
   if (!val) {
     LOG_ONCE(WARN) << "Unsupported: getsockopt";
-  } else {
-    if (!option_len || *option_len < sizeof(int)) return -EINVAL;
-    *reinterpret_cast<int *>(option_value) = *val;
+    return MakeCError(val);
   }
+  *option_len = *val;
   return 0;
 }
 

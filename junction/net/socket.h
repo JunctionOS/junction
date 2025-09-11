@@ -18,6 +18,7 @@ static_assert(kFlagCloseExec == SOCK_CLOEXEC);
 inline constexpr unsigned int kMsgNoSignal = MSG_NOSIGNAL;
 inline constexpr unsigned int kMsgPeek = MSG_PEEK;
 inline constexpr unsigned int kMsgDontWait = MSG_DONTWAIT;
+inline constexpr unsigned int kMsgWaitOne = MSG_WAITFORONE;
 inline constexpr unsigned int kSockTypeMask = 0xf;
 
 enum class UnixSocketAddressType {
@@ -139,13 +140,48 @@ class Socket : public File {
     return MakeError(ENOTCONN);
   }
 
-  virtual Status<int> GetSockOpt(int level, int optname) const {
-    return MakeError(EINVAL);
+  Status<size_t> GetSockOpt(int level, int optname,
+                            std::span<std::byte> value) const {
+    if (level != SOL_SOCKET) return MakeError(EINVAL);
+    switch (optname) {
+      case SO_REUSEPORT:
+        if (value.size() < sizeof(int)) return MakeError(EINVAL);
+        *reinterpret_cast<int *>(value.data()) = reuse_port() ? 1 : 0;
+        return sizeof(int);
+      case SO_RCVTIMEO:
+        if (value.size() < sizeof(timeval)) return MakeError(EINVAL);
+        *reinterpret_cast<timeval *>(value.data()) = read_timeout_.Timeval();
+        return sizeof(timeval);
+      case SO_SNDTIMEO:
+        if (value.size() < sizeof(timeval)) return MakeError(EINVAL);
+        *reinterpret_cast<timeval *>(value.data()) = write_timeout_.Timeval();
+        return sizeof(timeval);
+      default:
+        return GetSockOptImpl(level, optname, value);
+    }
   }
 
-  virtual Status<void> SetSockOpt(int level, int optname,
-                                  std::span<const std::byte> value) {
-    return MakeError(EINVAL);
+  Status<void> SetSockOpt(int level, int optname,
+                          std::span<const std::byte> value) {
+    if (level != SOL_SOCKET) return MakeError(EINVAL);
+    switch (optname) {
+      case SO_REUSEADDR:
+      case SO_REUSEPORT:
+        reuse_port_ = *reinterpret_cast<const int *>(value.data());
+        return {};
+      case SO_RCVTIMEO:
+        if (value.size() < sizeof(timeval)) return MakeError(EINVAL);
+        read_timeout_ =
+            Duration(*reinterpret_cast<const timeval *>(value.data()));
+        return {};
+      case SO_SNDTIMEO:
+        if (value.size() < sizeof(timeval)) return MakeError(EINVAL);
+        write_timeout_ =
+            Duration(*reinterpret_cast<const timeval *>(value.data()));
+        return {};
+      default:
+        return SetSockOptImpl(level, optname, value);
+    }
   }
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
@@ -166,18 +202,38 @@ class Socket : public File {
     return "socket:";
   }
 
+ protected:
+  [[nodiscard]] Duration read_timeout() const { return read_timeout_; }
+  [[nodiscard]] Duration write_timeout() const { return write_timeout_; }
+  [[nodiscard]] bool reuse_port() const { return reuse_port_; }
+
+  virtual Status<void> SetSockOptImpl(int level, int optname,
+                                      std::span<const std::byte> optval) {
+    return MakeError(EINVAL);
+  }
+  virtual Status<size_t> GetSockOptImpl(int level, int optname,
+                                        std::span<std::byte> value) const {
+    return MakeError(EINVAL);
+  }
+
  private:
   friend class cereal::access;
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(cereal::base_class<File>(this));
+    ar(reuse_port_, read_timeout_, write_timeout_,
+       cereal::base_class<File>(this));
   }
 
   template <class Archive>
   void load(Archive &ar) {
-    ar(cereal::base_class<File>(this));
+    ar(reuse_port_, read_timeout_, write_timeout_,
+       cereal::base_class<File>(this));
   }
+
+  bool reuse_port_{false};
+  Duration read_timeout_{0};
+  Duration write_timeout_{0};
 };
 
 }  // namespace junction

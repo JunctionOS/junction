@@ -23,7 +23,7 @@ class UDPSocket : public Socket {
     if (unlikely(conn_.is_valid())) return MakeError(EINVAL);
     Status<netaddr> na = addr.ToNetAddr();
     if (unlikely(!na)) return MakeError(na);
-    Status<rt::BindToken> ret = rt::BindToken::AllocateUDP(*na, reuse_port_);
+    Status<rt::BindToken> ret = rt::BindToken::AllocateUDP(*na, reuse_port());
     if (unlikely(!ret)) return MakeError(ret);
     bind_token_ = std::move(*ret);
     return {};
@@ -48,18 +48,21 @@ class UDPSocket : public Socket {
   Status<size_t> Read(std::span<std::byte> buf,
                       [[maybe_unused]] off_t *off) override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     return conn_.Read(buf);
   }
 
   Status<size_t> Write(std::span<const std::byte> buf,
                        [[maybe_unused]] off_t *off) override {
     if (unlikely(!conn_.is_valid())) return MakeError(EDESTADDRREQ);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return conn_.Write(buf);
   }
 
   Status<size_t> Writev(std::span<const iovec> iov,
                         [[maybe_unused]] off_t *off) override {
     if (unlikely(!conn_.is_valid())) return MakeError(EDESTADDRREQ);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return conn_.WritevTo(iov, nullptr, is_nonblocking());
   }
 
@@ -69,6 +72,7 @@ class UDPSocket : public Socket {
       if (Status<void> ret = TrySetupConn(false); !ret) return MakeError(ret);
     }
     netaddr ra;
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     Status<size_t> ret =
         conn_.ReadFrom(buf, raddr ? &ra : nullptr, peek, nonblocking);
     if (unlikely(!ret)) return ret;
@@ -82,6 +86,7 @@ class UDPSocket : public Socket {
       if (Status<void> ret = TrySetupConn(false); !ret) return MakeError(ret);
     }
     netaddr ra;
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     Status<size_t> ret =
         conn_.ReadvFrom(iov, raddr ? &ra : nullptr, peek, nonblocking);
     if (unlikely(!ret)) return ret;
@@ -94,6 +99,7 @@ class UDPSocket : public Socket {
     if (!conn_.is_valid()) {
       if (Status<void> ret = TrySetupConn(true); !ret) return MakeError(ret);
     }
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     if (raddr) {
       Status<netaddr> ra = raddr.ToNetAddr();
       if (unlikely(!ra)) return MakeError(ra);
@@ -107,7 +113,7 @@ class UDPSocket : public Socket {
     if (!conn_.is_valid()) {
       if (Status<void> ret = TrySetupConn(true); !ret) return MakeError(ret);
     }
-
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     if (raddr) {
       Status<netaddr> ra = raddr.ToNetAddr();
       if (unlikely(!ra)) return MakeError(ra);
@@ -145,33 +151,27 @@ class UDPSocket : public Socket {
     return {};
   }
 
-  Status<int> GetSockOpt(int level, int optname) const override {
+ protected:
+  Status<size_t> GetSockOptImpl(int level, int optname,
+                                std::span<std::byte> value) const override {
     if (level != SOL_SOCKET) return MakeError(EINVAL);
+    int ret;
     switch (optname) {
       case SO_DOMAIN:
-        return AF_INET;
+        ret = AF_INET;
+        break;
       case SO_PROTOCOL:
-        return IPPROTO_UDP;
+        ret = IPPROTO_UDP;
+        break;
       case SO_TYPE:
-        return SOCK_DGRAM;
+        ret = SOCK_DGRAM;
+        break;
       default:
         return MakeError(EINVAL);
     }
-  }
-
-  Status<void> SetSockOpt(int level, int optname,
-                          std::span<const std::byte> optval) override {
-    if (level != SOL_SOCKET) return MakeError(EINVAL);
-    switch (optname) {
-      case SO_REUSEADDR:
-      case SO_REUSEPORT:
-        if (conn_.is_valid() || bind_token_.is_valid())
-          return MakeError(EINVAL);
-        reuse_port_ = *reinterpret_cast<const int *>(optval.data());
-        return {};
-      default:
-        return MakeError(EINVAL);
-    }
+    if (value.size() < sizeof(int)) return MakeError(EINVAL);
+    *reinterpret_cast<int *>(value.data()) = ret;
+    return sizeof(int);
   }
 
  private:
@@ -221,7 +221,7 @@ class UDPSocket : public Socket {
   template <class Archive>
   void save(Archive &ar) const {
     ar(cereal::base_class<Socket>(this), conn_.is_valid(),
-       bind_token_.is_valid(), reuse_port_);
+       bind_token_.is_valid());
     if (conn_.is_valid())
       ar(conn_.LocalAddr(), conn_.RemoteAddr(), is_shut_);
     else if (bind_token_.is_valid())
@@ -231,8 +231,7 @@ class UDPSocket : public Socket {
   template <class Archive>
   void load(Archive &ar) {
     bool conn_is_valid, bind_token_is_valid;
-    ar(cereal::base_class<Socket>(this), conn_is_valid, bind_token_is_valid,
-       reuse_port_);
+    ar(cereal::base_class<Socket>(this), conn_is_valid, bind_token_is_valid);
 
     netaddr laddr, raddr;
 
@@ -240,7 +239,7 @@ class UDPSocket : public Socket {
       assert(!conn_.is_valid());
       ar(laddr);
       Status<rt::BindToken> ret =
-          rt::BindToken::AllocateUDP(laddr, reuse_port_);
+          rt::BindToken::AllocateUDP(laddr, reuse_port());
       if (unlikely(!ret)) {
         LOG(ERR) << "failed to restore UDP bind token @ " << laddr.ip << ":"
                  << laddr.port;
@@ -282,7 +281,6 @@ class UDPSocket : public Socket {
   rt::UDPConn conn_;
   rt::BindToken bind_token_;
   std::atomic_bool is_shut_{false};
-  bool reuse_port_{false};
 };
 
 }  // namespace junction
