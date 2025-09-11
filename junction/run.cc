@@ -32,7 +32,7 @@ Status<FSRoot> CreateFSRoot(const std::string &fsroot, const std::string &cwd) {
     root = std::static_pointer_cast<IDir>(std::move(*ino));
   }
 
-  FSRoot f(root, std::move(root));
+  FSRoot f(root, root);
 
   if (cwd.empty()) {
     f.SetCwd(FSRoot::GetGlobalRoot().get_cwd());
