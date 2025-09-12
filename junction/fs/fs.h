@@ -547,6 +547,11 @@ class IDir : public Inode, protected DentryMap<IDir> {
   // Create makes a new normal file.
   virtual Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                                mode_t mode, FileMode fmode) = 0;
+  // CreateTemp creates a new temporary file.
+  virtual Status<std::shared_ptr<File>> CreateTemp(int flags, mode_t mode,
+                                                   FileMode fmode) {
+    return MakeError(EOPNOTSUPP);
+  };
   // GetDents returns a vector of the current entries.
   virtual std::vector<dir_entry> GetDents() = 0;
 

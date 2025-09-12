@@ -115,6 +115,15 @@ Status<std::shared_ptr<DirectoryEntry>> MemIDir::LinkReturn(
   return AddDentLockedReturn(std::string(name), std::move(ino));
 }
 
+Status<std::shared_ptr<File>> MemIDir::CreateTemp(int flags, mode_t mode,
+                                                  FileMode fmode) {
+  Status<std::shared_ptr<MemInode>> ino = MemInode::Create(mode);
+  if (unlikely(!ino)) return MakeError(ino);
+  auto sp = std::make_shared<DirectoryEntry>(
+      std::string{}, std::shared_ptr<DirectoryEntry>{}, std::move(*ino));
+  return sp->Open(flags, fmode);
+}
+
 Status<std::shared_ptr<File>> MemIDir::Create(std::string_view name, int flags,
                                               mode_t mode, FileMode fmode) {
   DoInitCheck();

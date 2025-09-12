@@ -33,6 +33,7 @@ enum class FileType : int {
   kSymlink,
   kInotify,
   kSignalFd,
+  kPath,
 };
 
 //

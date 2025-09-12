@@ -225,8 +225,15 @@ Status<void> HardLink(std::shared_ptr<Inode> src, const Entry &dst_path) {
 Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
                                    int combined_flags, mode_t mode) {
   auto &[idir, name, must_be_dir] = path;
-
   auto [flags, fmode] = FromFlags(combined_flags);
+
+  bool target_must_be_dir = flags & kFlagDirectory;
+  bool target_no_follow = flags & kFlagNoFollow;
+  bool wants_path_file = flags & kFlagPath;
+  bool truncate = flags & kFlagTruncate;
+  bool create = flags & kFlagCreate;
+  bool exclusive = flags & kFlagExclusive;
+  bool wants_temp_file = (flags & kFlagTemp) == kFlagTemp;
 
   // Special case for "/"
   if (!name.size()) {
@@ -236,21 +243,43 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
 
   Status<std::shared_ptr<DirectoryEntry>> in = idir->LookupDent(name);
   if (!in) {
-    if (flags & kFlagCreate)
+    if (create && !target_must_be_dir)
       return idir->Create(name, flags, mode & ~fs.get_umask(), fmode);
     return MakeError(ENOENT);
   }
 
-  if (flags & kFlagExclusive) return MakeError(EEXIST);
+  if (exclusive && create) return MakeError(EEXIST);
 
-  if ((*in)->get_inode_ref().is_symlink()) {
-    if (!must_be_dir && (flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
-      return MakeError(ELOOP);
-    in = WalkPath(fs, std::move(idir), {name}, true);
-    if (!in) return MakeError(in);
+  Inode *ino = &(*in)->get_inode_ref();
+  if (target_must_be_dir && !ino->is_dir()) return MakeError(ENOTDIR);
+
+  // Create a temporary file in the directory from @path.
+  if (wants_temp_file) {
+    static_assert(kFlagTemp & kFlagDirectory,
+                  "kFlagTemp implies kFlagDirectory");
+    assert(target_must_be_dir && ino->is_dir());
+    IDir &idir = static_cast<IDir &>(*ino);
+    return idir.CreateTemp(flags, mode & ~fs.get_umask(), fmode);
   }
 
-  if (flags & kFlagTruncate) (*in)->get_inode_ref().SetSize(0);
+  // Resolve symlink unless kFlagNoFollow is set.
+  if (ino->is_symlink()) {
+    if (!target_no_follow) {
+      in = WalkPath(fs, std::move(idir), {name}, true);
+      if (!in) return MakeError(in);
+      ino = &(*in)->get_inode_ref();
+    } else if (!wants_path_file) {
+      return MakeError(ELOOP);
+    }
+  }
+
+  // Caller wants a file that just references this path, does not need
+  // read/write/map operations
+  if (wants_path_file)
+    return std::make_shared<File>(FileType::kPath, flags, fmode,
+                                  std::move(*in));
+
+  if (truncate) ino->SetSize(0);
   return (*in)->Open(flags, fmode);
 }
 

@@ -689,11 +689,14 @@ long usys_fcntl(int fd, unsigned int cmd, unsigned long arg) {
       else
         return -EINVAL;
       return 0;
-    case F_GETFL:
-      return ToFlags(f->get_mode()) | f->get_flags();
+    case F_GETFL: {
+      int flags = ToFlags(f->get_mode()) | f->get_flags();
+      if (f->get_type() == FileType::kPath) flags |= O_PATH;
+      return flags;
+    }
     case F_SETFL:
       arg &= ~(O_RDONLY | O_WRONLY | O_RDWR | O_CREAT | O_EXCL | O_NOCTTY |
-               O_TRUNC);
+               O_TRUNC | O_PATH);
       if (arg & ~kFlagNonblock)
         LOG_ONCE(WARN) << "fcntl: F_SETFL ignoring some flags " << arg;
       f->set_flags((f->get_flags() & ~kFlagNonblock) | (arg & kFlagNonblock));
