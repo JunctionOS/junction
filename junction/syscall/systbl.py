@@ -124,6 +124,8 @@ TYPE_ARR.update({
     ("waitid", 3): 'static_cast<strace::WaitOptions>',
     ("statx", 3): 'static_cast<strace::StatxMask>',
     ("statx", 2): 'static_cast<strace::AtFlag>',
+    ("getsockopt", 1): 'static_cast<strace::SockoptLevel>',
+    ("setsockopt", 1): 'static_cast<strace::SockoptLevel>',
 })
 
 SKIP_STRACE_TARGET = [

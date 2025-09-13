@@ -23,7 +23,7 @@ struct FDPair {};
 struct SyscallCtx {
   std::tuple<long, long, long, long, long, long> args;
   long sysn;
-  std::optional<std::string> arg_strs[6];
+  std::optional<std::stringstream> arg_strs[6];
   std::optional<long> retval;
 };
 
@@ -94,6 +94,8 @@ extern bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
     PrintFlagArr(map_name, flags, ss);                             \
   }
 
+DECLARE_STRACE_TYPE(SockoptLevel, int);
+
 DECLARE_STRACE_TYPE(AtFD, int);
 DECLARE_STRACE_TYPE(ProtFlag, int);
 DECLARE_STRACE_FLAG_ARR(MMapFlag, int, mmap_flags);
@@ -129,9 +131,8 @@ inline void PrintArg(const std::vector<std::string_view> &arg,
 
 void PrintArg(const struct sockaddr *addr, rt::Logger &ss);
 
-template <typename U>
-inline void PrintArg(struct timespec *t, U, rt::Logger &ss,
-                     [[maybe_unused]] SyscallCtx &ctx) {
+template <typename Logger>
+inline void PrintArg(const struct timespec *t, Logger &ss) {
   if (!t) {
     ss << "NULL";
     return;
@@ -139,7 +140,14 @@ inline void PrintArg(struct timespec *t, U, rt::Logger &ss,
   ss << "{tv_sec=" << t->tv_sec << ", tv_nsec=" << t->tv_nsec << "}";
 }
 
-inline void PrintArg(struct timeval tv, rt::Logger &ss) {
+template <typename U>
+inline void PrintArg(struct timespec *t, U, rt::Logger &ss,
+                     [[maybe_unused]] SyscallCtx &ctx) {
+  PrintArg(t, ss);
+}
+
+template <typename Logger>
+inline void PrintArg(struct timeval tv, Logger &ss) {
   ss << "{tv_sec=" << tv.tv_sec << ", tv_usec=" << tv.tv_usec << "}";
 }
 
@@ -237,9 +245,7 @@ template <int N, typename Ret, typename... UsysArgs, typename ArgT>
 constexpr void UnpackArgs(rt::Logger &ss, Ret (*fn)(UsysArgs...), ArgT &args,
                           SyscallCtx &ctx, bool last = true) {
   if constexpr (N > 0) UnpackArgs<N - 1>(ss, fn, args, ctx, false);
-  if (ctx.arg_strs[N]) {
-    ss << *ctx.arg_strs[N];
-  } else {
+  if (!(ss.absorb(ctx.arg_strs[N]))) {
     using ArgType = std::tuple_element_t<N, std::tuple<UsysArgs...>>;
     PrintArg(((const ArgType)std::get<N>(args)), std::get<N>(args), ss, ctx);
   }
@@ -261,6 +267,10 @@ inline void PrintArgSpan(std::span<const U> span, rt::Logger &ss) {
   ss << "[";
   int cnt = 0;
   for (const auto &el : span) {
+    if (cnt == 2) {
+      ss << ", ...";
+      break;
+    }
     if (PrintArg(el, ss, cnt == 0)) cnt++;
   }
   ss << "]";
@@ -318,11 +328,8 @@ void LogSyscallDirect(long retval, std::string_view name, Args... args) {
 
   (
       [&logger, &i, &ctx, n = sizeof...(args)](auto arg) {
-        if (ctx.arg_strs[i]) {
-          logger << *ctx.arg_strs[i];
-        } else {
+        if (!logger.absorb(ctx.arg_strs[i]))
           strace::PrintArg(arg, arg, logger, ctx);
-        }
         if (++i != n) logger << ", ";
       }(args),
       ...);
@@ -343,11 +350,8 @@ void LogSyscallDirect(std::string_view name, Args... args) {
 
   (
       [&](auto arg) {
-        if (ctx.arg_strs[i]) {
-          logger << *ctx.arg_strs[i];
-        } else {
+        if (!logger.absorb(ctx.arg_strs[i]))
           strace::PrintArg(arg, arg, logger, ctx);
-        }
         if (++i != sizeof...(args)) logger << ", ";
       }(args),
       ...);

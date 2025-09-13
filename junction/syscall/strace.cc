@@ -58,17 +58,25 @@ const std::map<int, std::string> mmap_flags{
 };
 
 const std::map<int, std::string> open_flags{
-    {O_APPEND, "O_APPEND"},       {O_ASYNC, "O_ASYNC"},
-    {O_CLOEXEC, "O_CLOEXEC"},     {O_CREAT, "O_CREAT"},
-    {O_DIRECT, "O_DIRECT"},       {O_DIRECTORY, "O_DIRECTORY"},
-    {O_DSYNC, "O_DSYNC"},         {O_EXCL, "O_EXCL"},
-    {O_LARGEFILE, "O_LARGEFILE"}, {O_NOATIME, "O_NOATIME"},
-    {O_NOCTTY, "O_NOCTTY"},       {O_NOFOLLOW, "O_NOFOLLOW"},
-    {O_NONBLOCK, "O_NONBLOCK"},   {O_PATH, "O_PATH"},
-    {O_SYNC, "O_SYNC"},           {O_TMPFILE, "O_TMPFILE"},
-    {O_TRUNC, "O_TRUNC"},         {O_WRONLY, "O_WRONLY"},
+    {O_APPEND, "O_APPEND"},
+    {O_ASYNC, "O_ASYNC"},
+    {O_CLOEXEC, "O_CLOEXEC"},
+    {O_CREAT, "O_CREAT"},
+    {O_DIRECT, "O_DIRECT"},
+    {O_DIRECTORY, "O_DIRECTORY"},
+    {O_DSYNC, "O_DSYNC"},
+    {O_EXCL, "O_EXCL"},
+    {O_LARGEFILE, "O_LARGEFILE"},
+    {O_NOATIME, "O_NOATIME"},
+    {O_NOCTTY, "O_NOCTTY"},
+    {O_NOFOLLOW, "O_NOFOLLOW"},
+    {O_NONBLOCK, "O_NONBLOCK"},
+    {O_PATH, "O_PATH"},
+    {O_SYNC, "O_SYNC"},
+    {O_TRUNC, "O_TRUNC"},
+    {O_WRONLY, "O_WRONLY"},
     {O_RDWR, "O_RDWR"},
-};
+    {(O_TMPFILE & ~O_DIRECTORY), "O_TMPFILE"}};
 
 const std::map<int, std::string> madvise_hints{
     {MADV_NORMAL, "MADV_NORMAL"},
@@ -140,6 +148,13 @@ const std::map<int, std::string> futex_flags{
     {FUTEX_CMP_REQUEUE_PI, "FUTEX_CMP_REQUEUE_PI"},
     {FUTEX_WAIT_REQUEUE_PI, "FUTEX_WAIT_REQUEUE_PI"},
 };
+
+const std::set<int> futex_ops_with_val2{FUTEX_CMP_REQUEUE, FUTEX_WAKE_OP,
+                                        FUTEX_CMP_REQUEUE_PI};
+
+const std::set<int> futex_ops_with_timeout{FUTEX_WAIT, FUTEX_WAIT_BITSET,
+                                           FUTEX_LOCK_PI, FUTEX_LOCK_PI2,
+                                           FUTEX_WAIT_REQUEUE_PI};
 
 const std::map<int, std::string> ioctls{
     VAL(TCGETS), VAL(TCSETS), VAL(TCSETSW), VAL(TCSETSF), VAL(TCGETA),
@@ -564,6 +579,14 @@ void PrintArg(int op, FutexOp, rt::Logger &ss,
 
   if (op & FUTEX_PRIVATE_FLAG) ss << "|FUTEX_PRIVATE";
   if (op & FUTEX_CLOCK_REALTIME) ss << "|FUTEX_CLOCK_REALTIME";
+
+  if (futex_ops_with_val2.count(cmd)) {
+    ctx.arg_strs[3].emplace() << (uint32_t)std::get<3>(ctx.args);
+  } else if (futex_ops_with_timeout.count(cmd)) {
+    const struct timespec *t =
+        reinterpret_cast<const struct timespec *>(std::get<3>(ctx.args));
+    PrintArg(t, ctx.arg_strs[3].emplace());
+  }
 }
 
 void PrintArg(int op, SigProcMaskOp, rt::Logger &ss,
@@ -600,6 +623,165 @@ void PrintArg(int *fds, FDPair *, rt::Logger &ss,
   ss << "[" << fds[0] << ", " << fds[1] << "]";
 }
 
+const std::map<int, std::string> sockopt_levels = {
+    VAL(SOL_SOCKET),   VAL(IPPROTO_IP),  VAL(IPPROTO_TCP), VAL(IPPROTO_UDP),
+    VAL(IPPROTO_IPV6), VAL(IPPROTO_RAW), VAL(SOL_NETLINK),
+};
+
+const std::map<int, std::string> sock_options = {
+    VAL(SO_DEBUG),
+    VAL(SO_REUSEADDR),
+    VAL(SO_TYPE),
+    VAL(SO_ERROR),
+    VAL(SO_DONTROUTE),
+    VAL(SO_BROADCAST),
+    VAL(SO_SNDBUF),
+    VAL(SO_RCVBUF),
+    VAL(SO_KEEPALIVE),
+    VAL(SO_OOBINLINE),
+    VAL(SO_NO_CHECK),
+    VAL(SO_PRIORITY),
+    VAL(SO_LINGER),
+    VAL(SO_BSDCOMPAT),
+    VAL(SO_REUSEPORT),
+    VAL(SO_PASSCRED),
+    VAL(SO_PEERCRED),
+    VAL(SO_RCVLOWAT),
+    VAL(SO_SNDLOWAT),
+    VAL(SO_RCVTIMEO),
+    VAL(SO_SNDTIMEO),
+    VAL(SO_SECURITY_AUTHENTICATION),
+    VAL(SO_SECURITY_ENCRYPTION_TRANSPORT),
+    VAL(SO_SECURITY_ENCRYPTION_NETWORK),
+    VAL(SO_BINDTODEVICE),
+    VAL(SO_DETACH_FILTER),
+    VAL(SO_PEERNAME),
+    VAL(SO_TIMESTAMP_OLD),
+    VAL(SO_ACCEPTCONN),
+    VAL(SO_PEERSEC),
+    VAL(SO_SNDBUFFORCE),
+    VAL(SO_RCVBUFFORCE),
+    VAL(SO_PASSSEC),
+    VAL(SO_TIMESTAMPNS_OLD),
+    VAL(SO_MARK),
+    VAL(SO_TIMESTAMPING_OLD),
+    VAL(SO_PROTOCOL),
+    VAL(SO_DOMAIN),
+    VAL(SO_RXQ_OVFL),
+    VAL(SO_WIFI_STATUS),
+    VAL(SO_PEEK_OFF),
+    VAL(SO_NOFCS),
+    VAL(SO_LOCK_FILTER),
+    VAL(SO_SELECT_ERR_QUEUE),
+    VAL(SO_BUSY_POLL),
+    VAL(SO_MAX_PACING_RATE),
+    VAL(SO_BPF_EXTENSIONS),
+    VAL(SO_INCOMING_CPU),
+    VAL(SO_ATTACH_BPF),
+    VAL(SO_ATTACH_REUSEPORT_CBPF),
+    VAL(SO_ATTACH_REUSEPORT_EBPF),
+    VAL(SO_CNX_ADVICE),
+    VAL(SO_MEMINFO),
+    VAL(SO_INCOMING_NAPI_ID),
+    VAL(SO_COOKIE),
+    VAL(SO_PEERGROUPS),
+    VAL(SO_ZEROCOPY),
+    VAL(SO_TXTIME),
+    VAL(SO_BINDTOIFINDEX),
+    VAL(SO_TIMESTAMP_NEW),
+    VAL(SO_TIMESTAMPNS_NEW),
+    VAL(SO_TIMESTAMPING_NEW),
+    VAL(SO_RCVTIMEO_NEW),
+    VAL(SO_SNDTIMEO_NEW),
+    VAL(SO_DETACH_REUSEPORT_BPF),
+    VAL(SO_PREFER_BUSY_POLL),
+    VAL(SO_BUSY_POLL_BUDGET),
+    VAL(SO_NETNS_COOKIE),
+    VAL(SO_BUF_LOCK),
+    VAL(SO_RESERVE_MEM),
+    VAL(SO_TXREHASH),
+    VAL(SO_RCVMARK),
+    VAL(SO_PASSPIDFD),
+    VAL(SO_PEERPIDFD),
+    // VAL(SO_RCVPRIORITY),
+    // VAL(SO_PASSRIGHTS),
+    // VAL(SO_INQ),
+};
+
+const std::set<int> intlike_sockopts = {
+    SO_DEBUG,
+    SO_REUSEADDR,
+    SO_DONTROUTE,
+    SO_BROADCAST,
+    SO_SNDBUF,
+    SO_RCVBUF,
+    SO_KEEPALIVE,
+    SO_OOBINLINE,
+    SO_NO_CHECK,
+    SO_PRIORITY,
+    SO_BSDCOMPAT,
+    SO_REUSEPORT,
+    SO_PASSCRED,
+    SO_RCVLOWAT,
+    SO_SNDLOWAT,
+    SO_DETACH_FILTER,
+    SO_TIMESTAMP_OLD,
+    SO_ACCEPTCONN,
+    SO_SNDBUFFORCE,
+    SO_RCVBUFFORCE,
+    SO_PASSSEC,
+    SO_TIMESTAMPNS_OLD,
+    SO_MARK,
+    SO_TIMESTAMPING_OLD,
+    SO_RXQ_OVFL,
+    SO_WIFI_STATUS,
+    SO_PEEK_OFF,
+    SO_NOFCS,
+    SO_LOCK_FILTER,
+    SO_SELECT_ERR_QUEUE,
+    SO_BUSY_POLL,
+    SO_INCOMING_CPU,
+    SO_CNX_ADVICE,
+    SO_INCOMING_NAPI_ID,
+    SO_ZEROCOPY,
+    SO_TIMESTAMP_NEW,
+    SO_TIMESTAMPNS_NEW,
+    SO_TIMESTAMPING_NEW,
+    SO_DETACH_REUSEPORT_BPF,
+    SO_PREFER_BUSY_POLL,
+    SO_BUSY_POLL_BUDGET,
+    SO_RESERVE_MEM,
+    SO_RCVMARK,
+    SO_PASSPIDFD,
+    // SO_RCVPRIORITY,
+    // SO_PASSRIGHTS,
+    // SO_INQ
+};
+
+void PrintArg(int level, SockoptLevel, rt::Logger &ss, SyscallCtx &ctx) {
+  PrintValMap(sockopt_levels, level, ss);
+  int sockopt = std::get<2>(ctx.args);
+  switch (level) {
+    case SOL_SOCKET: {
+      auto it = sock_options.find(sockopt);
+      if (it == sock_options.end()) return;
+      ctx.arg_strs[2].emplace(it->second);
+      if (intlike_sockopts.count(sockopt)) {
+        ctx.arg_strs[3].emplace()
+            << "[" << *reinterpret_cast<int *>(std::get<3>(ctx.args)) << "]";
+        ctx.arg_strs[4].emplace();
+      } else if (sockopt == SO_RCVTIMEO || sockopt == SO_SNDTIMEO) {
+        struct timeval tv =
+            *reinterpret_cast<struct timeval *>(std::get<3>(ctx.args));
+        PrintArg(tv, ctx.arg_strs[3].emplace());
+        ctx.arg_strs[4].emplace();
+      }
+      break;
+    }
+    default:
+      break;
+  }
+}
 }  // namespace strace
 
 void LogSignal(const siginfo_t &info) {
