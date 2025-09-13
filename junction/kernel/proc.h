@@ -153,6 +153,8 @@ struct Credential {
 
 class ThreadRef;
 
+[[noreturn]] void FinishExit(int status);
+
 // Thread is a UNIX thread object.
 class Thread {
  public:

@@ -1000,6 +1000,11 @@ void ThreadSignalHandler::DeliverSignals(Trapframe &entry, long rax) {
     std::unreachable();
   }
 
+  if (unlikely(myproc().exited())) {
+    FinishExit(0);
+    std::unreachable();
+  }
+
   if (IsRestartSys(rax))
     CheckRestartSysPostHandler(myth.GetSyscallFrame(), rax, *sig);
 
