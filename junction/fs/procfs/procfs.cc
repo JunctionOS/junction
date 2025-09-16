@@ -59,6 +59,7 @@ std::string GetMounts() {
 
 // /proc/net/snmp
 std::string GetSNMPInfo() {
+  rt::RuntimeLibcGuard g;
   static std::string snmp_info = R"(
 Ip: Forwarding DefaultTTL InReceives InHdrErrors InAddrErrors ForwDatagrams InUnknownProtos InDiscards InDelivers OutRequests OutDiscards OutNoRoutes ReasmTimeout ReasmReqds ReasmOKs ReasmFails FragOKs FragFails FragCreates OutTransmits
 Ip: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
@@ -76,6 +77,7 @@ UdpLite: 0 0 0 0 0 0 0 0 0)";
 }
 // /proc/net/dev
 std::string GetDev() {
+  rt::RuntimeLibcGuard g;
   return R"(Inter-|   Receive                                                |  Transmit
  face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
       eth0: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)";
