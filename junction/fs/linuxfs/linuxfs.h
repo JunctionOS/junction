@@ -64,7 +64,8 @@ class LinuxInode : public Inode {
   [[nodiscard]] Status<void> SetSize(size_t sz) override;
 
  private:
-  const std::string path_;
+  friend class LinuxWrIDir;
+  std::string path_;
   const off_t size_;
   const time_t mtime_;
   const dev_t dev_;
@@ -121,7 +122,7 @@ class LinuxIDir : public memfs::MemIDir {
     return result;
   }
 
-  const std::string path_;
+  std::string path_;
 };
 
 class LinuxWrIDir : public LinuxIDir {

@@ -199,7 +199,23 @@ Status<void> LinuxWrIDir::DoRename(LinuxWrIDir &src, std::string_view src_name,
                                           linux_root_fd, dst_path, replace);
   if (!ret) return ret;
 
-  if (src.is_initialized()) return MoveFrom(src, src_name, dst_name, replace);
+  if (src.is_initialized()) {
+    // This is pretty hacky, maybe we can come up with a better design if the
+    // writeable linuxfs becomes more important.
+    auto on_success = [this, &dst_path](DirectoryEntry *dent) {
+      Inode *inode = &dent->get_inode_ref();
+      // TODO: this is also possibly race-y, should consider protecting the
+      // path_ with rcu.
+      if (inode->is_dir()) {
+        LinuxWrIDir *dir = fast_cast<LinuxWrIDir *>(inode);
+        dir->path_ = dst_path;
+      } else if (inode->is_regular()) {
+        LinuxInode *file = fast_cast<LinuxInode *>(inode);
+        file->path_ = dst_path;
+      }
+    };
+    return MoveFrom(src, src_name, dst_name, replace, on_success);
+  }
 
   if (!is_initialized()) return {};
 

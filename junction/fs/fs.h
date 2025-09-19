@@ -371,9 +371,10 @@ class DentryMap {
 
   [[nodiscard]] size_t size() const { return dents_.size(); }
 
-  [[nodiscard]] Status<void> MoveFrom(DentryMap &src, std::string_view src_name,
-                                      std::string_view dst_name,
-                                      bool overwrite) {
+  [[nodiscard]] Status<void> MoveFrom(
+      DentryMap &src, std::string_view src_name, std::string_view dst_name,
+      bool overwrite,
+      std::function<void(DirectoryEntry *)> on_success = nullptr) {
     assert_locked();
     assert(src.getdir().lock_.IsHeld());
 
@@ -412,6 +413,8 @@ class DentryMap {
       dents_.insert_commit(*dent, commit_data);
       dent->parent_.store(getdir().get_entry(), std::memory_order_relaxed);
     }
+
+    if (on_success) on_success(dent);
 
     return {};
   }
