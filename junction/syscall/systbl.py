@@ -141,6 +141,7 @@ ARRAY_ARGS = {
     ("epoll_wait", 1) : 2,
     ("epoll_pwait", 1) : 2,
     ("epoll_pwait2", 1) : 2,
+    ("recvmmsg", 1) : 2,
 }
 
 systabl_targets = [None for i in range(SYS_NR)]

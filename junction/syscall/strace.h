@@ -24,6 +24,7 @@ struct SyscallCtx {
   std::tuple<long, long, long, long, long, long> args;
   long sysn;
   std::optional<std::stringstream> arg_strs[6];
+  std::optional<std::stringstream> ret_str;
   std::optional<long> retval;
 };
 
@@ -83,15 +84,15 @@ inline void PrintArg(const char *arg, T, rt::Logger &ss,
   enum class type_name : int {};                  \
   void PrintArg(type_type, type_name, rt::Logger &ss, SyscallCtx &ctx);
 
-extern bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
-                         rt::Logger &ss);
+template <typename Logger>
+bool PrintFlagArr(const std::map<int, std::string> &map, int flags, Logger &ss);
 
 #define DECLARE_STRACE_FLAG_ARR(type_name, type_type, map_name)    \
   enum class type_name : int {};                                   \
   extern const std::map<int, std::string> map_name;                \
   inline void PrintArg(type_type flags, type_name, rt::Logger &ss, \
                        [[maybe_unused]] SyscallCtx &ctx) {         \
-    PrintFlagArr(map_name, flags, ss);                             \
+    if (!PrintFlagArr(map_name, flags, ss)) ss << 0;               \
   }
 
 DECLARE_STRACE_TYPE(SockoptLevel, int);
@@ -130,6 +131,29 @@ inline void PrintArg(const std::vector<std::string_view> &arg,
 }
 
 void PrintArg(const struct sockaddr *addr, rt::Logger &ss);
+
+// void PrintArg(const struct msghdr *msg, rt::Logger &ss);
+void PrintArg(const struct msghdr &msg, rt::Logger &ss);
+
+inline bool PrintArg(const struct mmsghdr &msg, rt::Logger &ss, bool first) {
+  if (!first) ss << ", ";
+  ss << "{msg_len=" << msg.msg_len << ", msg_hdr=";
+  PrintArg(msg.msg_hdr, ss);
+  ss << "}";
+  return true;
+}
+
+template <typename U>
+inline void PrintArg(const struct msghdr *msg, U, rt::Logger &ss,
+                     [[maybe_unused]] SyscallCtx &ctx) {
+  PrintArg(*msg, ss);
+}
+
+template <typename U>
+inline void PrintArg(struct msghdr *msg, U, rt::Logger &ss,
+                     [[maybe_unused]] SyscallCtx &ctx) {
+  PrintArg(*msg, ss);
+}
 
 template <typename Logger>
 inline void PrintArg(const struct timespec *t, Logger &ss) {
@@ -299,6 +323,7 @@ void LogSyscall(strace::SyscallCtx &ctx, Ret retval, std::string_view name,
     strace::UnpackArgs<n_args - 1>(logger, fn, args_t, ctx);
   }
   logger << ") = " << retval;
+  if (ctx.ret_str) logger << " (" << ctx.ret_str.value().str() << ")";
   if ((long)retval < 0) logger << " [" << Error(-((long)retval)) << "]";
 }
 

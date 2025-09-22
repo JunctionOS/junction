@@ -486,6 +486,15 @@ void PrintArg(int op, SocketType, rt::Logger &ss,
   if (op & SOCK_CLOEXEC) ss << "|SOCK_CLOEXEC";
 }
 
+void PrintArg(const struct msghdr &msg, rt::Logger &ss) {
+  ss << "{msg_name=";
+  PrintArg(reinterpret_cast<const struct sockaddr *>(msg.msg_name), ss);
+  ss << ", msg_namelen=" << msg.msg_namelen << ", msg_iov=" << msg.msg_iov
+     << ", msg_iovlen=" << msg.msg_iovlen << ", msg_control=" << msg.msg_control
+     << ", msg_controllen=" << msg.msg_controllen
+     << ", msg_flags=" << msg.msg_flags << "}";
+}
+
 void PrintArg(int advice, MAdviseHint, rt::Logger &ss,
               [[maybe_unused]] SyscallCtx &ctx) {
   PrintValMap(madvise_hints, advice, ss);
@@ -519,8 +528,9 @@ void PrintArg(int fd, AtFD, rt::Logger &ss, [[maybe_unused]] SyscallCtx &ctx) {
     ss << fd;
 }
 
+template <typename Logger>
 bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
-                  rt::Logger &ss) {
+                  Logger &ss) {
   bool done_one = false;
   for (int i = 0; i < 32; i++) {
     int flag = 1 << i;
@@ -599,23 +609,37 @@ void PrintArg(long op, PrctlOp, rt::Logger &ss,
   PrintValMap(prctl_ops, op, ss);
 }
 
+template <typename Logger>
+void PrintOpenFlag(int flags, Logger &ss, bool include_mode = true) {
+  bool done_one = PrintFlagArr(open_flags, flags, ss);
+  if (include_mode && (flags & (O_WRONLY | O_RDWR)) == 0) {
+    if (done_one) ss << "|";
+    ss << "O_RDONLY";
+  }
+}
+
+void PrintArg(int flags, OpenFlag, rt::Logger &ss,
+              [[maybe_unused]] SyscallCtx &ctx) {
+  PrintOpenFlag(flags, ss);
+}
+
 void PrintArg(unsigned int op, FcntlOp, rt::Logger &ss,
               [[maybe_unused]] SyscallCtx &ctx) {
   PrintValMap(fcntls, op, ss);
+  if (op == F_SETFL) {
+    PrintOpenFlag(static_cast<int>(std::get<2>(ctx.args)),
+                  ctx.arg_strs[2].emplace(), false);
+  } else if (op == F_GETFL && ctx.retval) {
+    PrintOpenFlag(static_cast<int>(ctx.retval.value()), ctx.ret_str.emplace());
+  }
 }
 
 void PrintArg(unsigned int op, IoctlOp, rt::Logger &ss,
               [[maybe_unused]] SyscallCtx &ctx) {
   if (!PrintValMap(ioctls, op, ss, false)) PrintIoctlReq(op, ss);
-}
-
-void PrintArg(int flags, OpenFlag, rt::Logger &ss,
-              [[maybe_unused]] SyscallCtx &ctx) {
-  bool done_one = PrintFlagArr(open_flags, flags, ss);
-  if ((flags & (O_WRONLY | O_RDWR)) == 0) {
-    if (done_one) ss << "|";
-    ss << "O_RDONLY";
-  }
+  if (op == FIONBIO)
+    ctx.arg_strs[2].emplace()
+        << "[" << *reinterpret_cast<int *>(std::get<2>(ctx.args)) << "]";
 }
 
 void PrintArg(int *fds, FDPair *, rt::Logger &ss,
