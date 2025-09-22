@@ -42,3 +42,11 @@ add_executable(unix_socket_dgram_test
 
 test_bin(unix_socket_stream_test "$<TARGET_FILE:unix_socket_stream_test>")
 test_bin(unix_socket_dgram_test "$<TARGET_FILE:unix_socket_dgram_test>")
+
+add_executable(udp_socket_test
+  udp_socket_test.cc
+)
+target_link_libraries(udp_socket_test
+  "$<LINK_LIBRARY:WHOLE_ARCHIVE,gtest_main>"
+)
+test_bin(udp_socket_test "$<TARGET_FILE:udp_socket_test>")

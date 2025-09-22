@@ -23,23 +23,26 @@ class UDPSocket : public Socket {
     if (unlikely(conn_.is_valid())) return MakeError(EINVAL);
     Status<netaddr> na = addr.ToNetAddr();
     if (unlikely(!na)) return MakeError(na);
-    Status<rt::BindToken> ret = rt::BindToken::AllocateUDP(*na, reuse_port());
+    Status<rt::BindToken> token = rt::BindToken::AllocateUDP(*na, reuse_port());
+    if (unlikely(!token)) return MakeError(token);
+    Status<rt::UDPConn> ret = token->ListenUDP();
     if (unlikely(!ret)) return MakeError(ret);
-    bind_token_ = std::move(*ret);
+    InstallConn(std::move(*ret));
     return {};
   }
 
   Status<void> Connect(const SockAddrPtr addr) override {
-    if (unlikely(conn_.is_valid())) return MakeError(EISCONN);
+    netaddr laddr;
+    if (conn_.is_valid()) {
+      netaddr remote = conn_.RemoteAddr();
+      if (unlikely(remote.ip || remote.port)) return MakeError(EISCONN);
+      laddr = conn_.LocalAddr();
+    } else {
+      laddr = {0, 0};
+    }
     Status<netaddr> raddr = addr.ToNetAddr();
     if (unlikely(!raddr)) return MakeError(raddr);
-
-    Status<rt::UDPConn> ret;
-    if (bind_token_.is_valid())
-      ret = bind_token_.DialUDP(*raddr);
-    else
-      ret = rt::UDPConn::Dial({}, *raddr);
-
+    Status<rt::UDPConn> ret = rt::UDPConn::Dial(laddr, *raddr);
     if (unlikely(!ret)) return MakeError(ret);
     InstallConn(std::move(*ret));
     return {};
@@ -68,9 +71,7 @@ class UDPSocket : public Socket {
 
   Status<size_t> ReadFrom(std::span<std::byte> buf, SockAddrPtr raddr,
                           bool peek, bool nonblocking) override {
-    if (unlikely(!conn_.is_valid())) {
-      if (Status<void> ret = TrySetupConn(false); !ret) return MakeError(ret);
-    }
+    if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
     netaddr ra;
     rt::RuntimeWaitqTimeout timeout(read_timeout());
     Status<size_t> ret =
@@ -82,9 +83,7 @@ class UDPSocket : public Socket {
 
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
                            bool nonblocking) override {
-    if (unlikely(!conn_.is_valid())) {
-      if (Status<void> ret = TrySetupConn(false); !ret) return MakeError(ret);
-    }
+    if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
     netaddr ra;
     rt::RuntimeWaitqTimeout timeout(read_timeout());
     Status<size_t> ret =
@@ -97,7 +96,7 @@ class UDPSocket : public Socket {
   Status<size_t> WriteTo(std::span<const std::byte> buf,
                          const SockAddrPtr raddr, bool nonblocking) override {
     if (!conn_.is_valid()) {
-      if (Status<void> ret = TrySetupConn(true); !ret) return MakeError(ret);
+      if (Status<void> ret = TrySetupConn(); !ret) return MakeError(ret);
     }
     rt::RuntimeWaitqTimeout timeout(write_timeout());
     if (raddr) {
@@ -111,7 +110,7 @@ class UDPSocket : public Socket {
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
                           bool nonblocking) override {
     if (!conn_.is_valid()) {
-      if (Status<void> ret = TrySetupConn(true); !ret) return MakeError(ret);
+      if (Status<void> ret = TrySetupConn(); !ret) return MakeError(ret);
     }
     rt::RuntimeWaitqTimeout timeout(write_timeout());
     if (raddr) {
@@ -140,10 +139,6 @@ class UDPSocket : public Socket {
 
   Status<void> LocalAddr(SockAddrPtr laddr) const override {
     assert(laddr);
-    if (bind_token_.is_valid()) {
-      laddr.FromNetAddr(bind_token_.LocalAddr());
-      return {};
-    }
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
     Status<netaddr> ret = conn_.LocalAddr();
     if (unlikely(!ret)) return MakeError(ret);
@@ -176,7 +171,6 @@ class UDPSocket : public Socket {
 
  private:
   void SetupPollSource() override {
-    if (!conn_.is_valid()) return;
     PollSource &s = get_poll_source();
     conn_.InstallPollSource(PollSourceSet, PollSourceClear,
                             reinterpret_cast<unsigned long>(&s));
@@ -190,27 +184,17 @@ class UDPSocket : public Socket {
   }
 
   inline void InstallConn(rt::UDPConn &&new_conn) {
-    assert(!conn_.is_valid());
-    assert(!bind_token_.is_valid());
+    if (conn_.is_valid() && IsPollSourceSetup())
+      conn_.InstallPollSource(nullptr, nullptr, 0);
     conn_ = std::move(new_conn);
     if (is_nonblocking()) conn_.SetNonBlocking(true);
     if (IsPollSourceSetup()) SetupPollSource();
   }
 
-  // UDP sockets can be initiated on the fly without calling connect.
-  Status<void> TrySetupConn(bool is_outbound) {
+  // UDP sockets can be initiated on the fly without calling bind/connect.
+  Status<void> TrySetupConn() {
     assert(!conn_.is_valid());
-    // An attempt to read without an already defined local port does not make
-    // sense, just return an error.
-    if (!bind_token_.is_valid() && !is_outbound) return MakeError(EINVAL);
-
-    Status<rt::UDPConn> ret;
-    if (bind_token_.is_valid()) {
-      ret = bind_token_.ListenUDP();
-    } else {
-      ret = rt::UDPConn::Listen({});
-    }
-
+    Status<rt::UDPConn> ret = rt::UDPConn::Listen({});
     if (unlikely(!ret)) return MakeError(ret);
     InstallConn(std::move(*ret));
     return {};
@@ -220,36 +204,17 @@ class UDPSocket : public Socket {
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(cereal::base_class<Socket>(this), conn_.is_valid(),
-       bind_token_.is_valid());
-    if (conn_.is_valid())
-      ar(conn_.LocalAddr(), conn_.RemoteAddr(), is_shut_);
-    else if (bind_token_.is_valid())
-      ar(bind_token_.LocalAddr());
+    ar(cereal::base_class<Socket>(this), conn_.is_valid());
+    if (conn_.is_valid()) ar(conn_.LocalAddr(), conn_.RemoteAddr(), is_shut_);
   }
 
   template <class Archive>
   void load(Archive &ar) {
-    bool conn_is_valid, bind_token_is_valid;
-    ar(cereal::base_class<Socket>(this), conn_is_valid, bind_token_is_valid);
+    bool conn_is_valid;
+    ar(cereal::base_class<Socket>(this), conn_is_valid);
+    if (!conn_is_valid) return;
 
     netaddr laddr, raddr;
-
-    if (bind_token_is_valid) {
-      assert(!conn_.is_valid());
-      ar(laddr);
-      Status<rt::BindToken> ret =
-          rt::BindToken::AllocateUDP(laddr, reuse_port());
-      if (unlikely(!ret)) {
-        LOG(ERR) << "failed to restore UDP bind token @ " << laddr.ip << ":"
-                 << laddr.port;
-        BUG();
-      }
-      bind_token_ = std::move(*ret);
-      return;
-    }
-
-    if (!conn_is_valid) return;
 
     ar(laddr, raddr, is_shut_);
 
@@ -279,7 +244,6 @@ class UDPSocket : public Socket {
   // Otherwise, UDPSocket will be created with a valid rt::UDPConn which will be
   // stored here (as a result of Bind/Connect calls).
   rt::UDPConn conn_;
-  rt::BindToken bind_token_;
   std::atomic_bool is_shut_{false};
 };
 

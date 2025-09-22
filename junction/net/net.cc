@@ -206,8 +206,10 @@ ssize_t usys_recvmsg(int sockfd, struct msghdr *msg, int flags) {
     LOG_ONCE(WARN) << "recvmsg ignoring flags" << flags;
     return -EINVAL;
   }
-  if (msg->msg_control || msg->msg_controllen)
+  if (msg->msg_control || msg->msg_controllen) {
     LOG_ONCE(WARN) << "recvmsg: ignoring control message";
+    msg->msg_controllen = 0;
+  }
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
   Socket &s = sock_ret.value().get();
@@ -242,19 +244,23 @@ ssize_t usys_recvmmsg(int sockfd, struct mmsghdr *msgvec, int vlen, int flags,
   int i;
 
   for (i = 0; i < vlen; i++) {
+    if (timeout && Time::Now() >= end_time) break;
     struct msghdr *msg = &msgvec[i].msg_hdr;
-    if (msg->msg_control || msg->msg_controllen)
+    if (msg->msg_control || msg->msg_controllen) {
       LOG_ONCE(WARN) << "recvmmsg: ignoring control message";
+      msg->msg_controllen = 0;
+    }
     const SockAddrPtr p = SockAddrPtr::asConst(
         reinterpret_cast<const sockaddr *>(msg->msg_name), &msg->msg_namelen);
     nonblocking |= (i > 0 && wait_for_one);
     ret = s.ReadvFrom({msg->msg_iov, msg->msg_iovlen}, p, peek, nonblocking);
-    if (unlikely(!ret)) break;
+    if (unlikely(!ret)) {
+      if (i > 0) return i;
+      return MakeCError(ret);
+    }
     msgvec[i].msg_len = *ret;
-    if (timeout && Time::Now() >= end_time) break;
   }
 
-  if (i == 0 && vlen > 0) return MakeCError(ret);
   return i;
 }
 
