@@ -256,6 +256,64 @@ const std::map<int, std::string> at_flags{
 #define PR_GET_MDWE 66
 #endif
 
+void PrintEscapedString(std::span<const char> str, rt::Logger &ss) {
+  if (!str.size()) {
+    ss << "\"\"";
+    return;
+  }
+
+  ss << "\"";
+  size_t len = 0;
+  const char *pos = str.data();
+  while (len < std::min(str.size(), kMaxEscapedStringLen)) {
+    unsigned char c = *pos++;
+    if (c >= 32 && c <= 126 && c != '\\' && c != '"') {
+      // Printable ASCII characters (except \ and ")
+      ss << c;
+    } else {
+      // Escape special characters
+      switch (c) {
+        case '\\':
+          ss << "\\\\";
+          break;
+        case '"':
+          ss << "\\\"";
+          break;
+        case '\n':
+          ss << "\\n";
+          break;
+        case '\r':
+          ss << "\\r";
+          break;
+        case '\t':
+          ss << "\\t";
+          break;
+        case '\f':
+          ss << "\\f";
+          break;
+        case '\v':
+          ss << "\\v";
+          break;
+        case '\b':
+          ss << "\\b";
+          break;
+        case '\a':
+          ss << "\\a";
+          break;
+        default:
+          // Print non-printable chars as octal
+          ss << '\\' << std::oct << std::setfill('0') << std::setw(3)
+             << static_cast<unsigned int>(c) << std::dec;
+      }
+    }
+    len++;
+  }
+  if (*pos) {
+    ss << "...";
+  }
+  ss << "\"";
+}
+
 const std::map<int, std::string> poll_flags{
     VAL(POLLIN),     VAL(POLLPRI),    VAL(POLLOUT),    VAL(POLLRDHUP),
     VAL(POLLERR),    VAL(POLLHUP),    VAL(POLLNVAL),   VAL(POLLRDNORM),
@@ -486,13 +544,18 @@ void PrintArg(int op, SocketType, rt::Logger &ss,
   if (op & SOCK_CLOEXEC) ss << "|SOCK_CLOEXEC";
 }
 
-void PrintArg(const struct msghdr &msg, rt::Logger &ss) {
+void PrintArg(const struct msghdr *msg, rt::Logger &ss, SyscallCtx &ctx) {
   ss << "{msg_name=";
-  PrintArg(reinterpret_cast<const struct sockaddr *>(msg.msg_name), ss);
-  ss << ", msg_namelen=" << msg.msg_namelen << ", msg_iov=" << msg.msg_iov
-     << ", msg_iovlen=" << msg.msg_iovlen << ", msg_control=" << msg.msg_control
-     << ", msg_controllen=" << msg.msg_controllen
-     << ", msg_flags=" << msg.msg_flags << "}";
+  PrintArg(reinterpret_cast<const struct sockaddr *>(msg->msg_name), ss);
+  ss << ", msg_namelen=" << msg->msg_namelen << ", msg_iov=";
+
+  std::span<const iovec> span(reinterpret_cast<const iovec *>(msg->msg_iov),
+                              msg->msg_iovlen);
+  PrintArgSpan(span, ss, ctx);
+  ss << ", msg_iovlen=" << msg->msg_iovlen
+     << ", msg_control=" << msg->msg_control
+     << ", msg_controllen=" << msg->msg_controllen
+     << ", msg_flags=" << msg->msg_flags << "}";
 }
 
 void PrintArg(int advice, MAdviseHint, rt::Logger &ss,
@@ -549,22 +612,20 @@ bool PrintFlagArr(const std::map<int, std::string> &map, int flags,
   return done_one;
 }
 
-bool PrintArg(struct pollfd el, rt::Logger &ss, bool first) {
-  if (!first) ss << ", ";
-  ss << "{fd=" << el.fd << ", events=";
-  PrintFlagArr(poll_flags, el.events, ss);
+bool PrintArg(const struct pollfd *el, rt::Logger &ss, SyscallCtx &ctx) {
+  ss << "{fd=" << el->fd << ", events=";
+  PrintFlagArr(poll_flags, el->events, ss);
   ss << ", revents=";
-  PrintFlagArr(poll_flags, el.revents, ss);
+  PrintFlagArr(poll_flags, el->revents, ss);
   ss << "}";
   return true;
 }
 
-bool PrintArg(const struct epoll_event el, rt::Logger &ss, bool first) {
-  if (!el.events) return false;
-  if (!first) ss << ", ";
+bool PrintArg(const struct epoll_event *el, rt::Logger &ss, SyscallCtx &ctx) {
+  if (!el->events) return false;
   ss << "{events=";
-  PrintFlagArr(poll_flags, el.events, ss);
-  ss << ", data=" << el.data.u64 << "}";
+  PrintFlagArr(poll_flags, el->events, ss);
+  ss << ", data=" << el->data.u64 << "}";
   return true;
 }
 

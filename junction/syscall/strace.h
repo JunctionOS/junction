@@ -11,6 +11,8 @@
 
 namespace junction {
 
+inline constexpr size_t kMaxEscapedStringLen = 32;
+
 // Log a message that is prefixed with the PID and TID
 #define PLOG(level) \
   LOG(level) << "[" << myproc().get_pid() << ":" << mythread().get_tid() << "] "
@@ -56,6 +58,8 @@ inline void PrintList(const U &array, rt::Logger &ss) {
   ss << "]";
 }
 
+void PrintEscapedString(std::span<const char> str, rt::Logger &ss);
+
 // Default: print any syscall argument using the defined type in usys.h.
 template <typename T, typename U>
 inline void PrintArg(const T arg, const U, rt::Logger &ss,
@@ -67,7 +71,12 @@ inline void PrintArg(const T arg, const U, rt::Logger &ss,
 template <typename U>
 inline void PrintArg(char *arg, U, rt::Logger &ss,
                      [[maybe_unused]] SyscallCtx &ctx) {
-  ss << (void *)arg;
+  if (!arg) {
+    ss << "NULL";
+    return;
+  }
+  std::span<const char> span(arg, strnlen(arg, kMaxEscapedStringLen));
+  PrintEscapedString(span, ss);
 }
 
 // Override: print char *s that are annotated as PathNames.
@@ -77,7 +86,12 @@ void PrintArg(const char *arg, PathName *, rt::Logger &ss, SyscallCtx &ctx);
 template <typename T>
 inline void PrintArg(const char *arg, T, rt::Logger &ss,
                      [[maybe_unused]] SyscallCtx &ctx) {
-  ss << (const void *)arg;
+  if (!arg) {
+    ss << "NULL";
+    return;
+  }
+  std::span<const char> span(arg, strnlen(arg, kMaxEscapedStringLen));
+  PrintEscapedString(span, ss);
 }
 
 #define DECLARE_STRACE_TYPE(type_name, type_type) \
@@ -133,12 +147,12 @@ inline void PrintArg(const std::vector<std::string_view> &arg,
 void PrintArg(const struct sockaddr *addr, rt::Logger &ss);
 
 // void PrintArg(const struct msghdr *msg, rt::Logger &ss);
-void PrintArg(const struct msghdr &msg, rt::Logger &ss);
+void PrintArg(const struct msghdr *msg, rt::Logger &ss, SyscallCtx &ctx);
 
-inline bool PrintArg(const struct mmsghdr &msg, rt::Logger &ss, bool first) {
-  if (!first) ss << ", ";
-  ss << "{msg_len=" << msg.msg_len << ", msg_hdr=";
-  PrintArg(msg.msg_hdr, ss);
+inline bool PrintArg(const struct mmsghdr *msg, rt::Logger &ss,
+                     [[maybe_unused]] SyscallCtx &ctx) {
+  ss << "{msg_len=" << msg->msg_len << ", msg_hdr=";
+  PrintArg(&msg->msg_hdr, ss, ctx);
   ss << "}";
   return true;
 }
@@ -146,13 +160,13 @@ inline bool PrintArg(const struct mmsghdr &msg, rt::Logger &ss, bool first) {
 template <typename U>
 inline void PrintArg(const struct msghdr *msg, U, rt::Logger &ss,
                      [[maybe_unused]] SyscallCtx &ctx) {
-  PrintArg(*msg, ss);
+  PrintArg(msg, ss, ctx);
 }
 
 template <typename U>
 inline void PrintArg(struct msghdr *msg, U, rt::Logger &ss,
                      [[maybe_unused]] SyscallCtx &ctx) {
-  PrintArg(*msg, ss);
+  PrintArg(msg, ss, ctx);
 }
 
 template <typename Logger>
@@ -280,14 +294,31 @@ std::string GetFcntlName(int cmd);
 
 struct ArrayInfo {
   void *ptr;
+  ssize_t size;
+};
+
+struct ByteSpan {
+  const void *ptr;
   size_t size;
 };
 
-bool PrintArg(struct pollfd el, rt::Logger &ss, bool first);
-bool PrintArg(const struct epoll_event el, rt::Logger &ss, bool first);
+bool PrintArg(const struct pollfd *el, rt::Logger &ss, SyscallCtx &ctx);
+bool PrintArg(const struct epoll_event *el, rt::Logger &ss, SyscallCtx &ctx);
+
+inline bool PrintArg(const struct iovec *iov, rt::Logger &ss,
+                     [[maybe_unused]] SyscallCtx &ctx) {
+  ss << "{iov_base=";
+  PrintEscapedString(
+      std::span<const char>(reinterpret_cast<const char *>(iov->iov_base),
+                            iov->iov_len),
+      ss);
+  ss << ", iov_len=" << iov->iov_len << "}";
+  return true;
+}
 
 template <typename U>
-inline void PrintArgSpan(std::span<const U> span, rt::Logger &ss) {
+inline void PrintArgSpan(std::span<const U> span, rt::Logger &ss,
+                         SyscallCtx &ctx) {
   ss << "[";
   int cnt = 0;
   for (const auto &el : span) {
@@ -295,7 +326,8 @@ inline void PrintArgSpan(std::span<const U> span, rt::Logger &ss) {
       ss << ", ...";
       break;
     }
-    if (PrintArg(el, ss, cnt == 0)) cnt++;
+    if (cnt != 0) ss << ", ";
+    if (PrintArg(&el, ss, ctx)) cnt++;
   }
   ss << "]";
 }
@@ -303,9 +335,25 @@ inline void PrintArgSpan(std::span<const U> span, rt::Logger &ss) {
 template <typename T>
 inline void PrintArg(T *, ArrayInfo *arrinfo, rt::Logger &ss,
                      [[maybe_unused]] SyscallCtx &ctx) {
+  if (arrinfo->size <= 0) {
+    ss << "{}";
+    return;
+  }
   // Make a span from the array info
   std::span<const T> span(reinterpret_cast<T *>(arrinfo->ptr), arrinfo->size);
-  PrintArgSpan(span, ss);
+  PrintArgSpan(span, ss, ctx);
+}
+
+template <typename T>
+inline void PrintArg(T *, ByteSpan *binfo, rt::Logger &ss,
+                     [[maybe_unused]] SyscallCtx &ctx) {
+  if (binfo->size <= 0) {
+    return;
+  }
+  // Make a span from the array info
+  std::span<const char> span(reinterpret_cast<const char *>(binfo->ptr),
+                             binfo->size);
+  PrintEscapedString(span, ss);
 }
 
 }  // namespace strace

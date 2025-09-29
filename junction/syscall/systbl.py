@@ -142,6 +142,24 @@ ARRAY_ARGS = {
     ("epoll_pwait", 1) : 2,
     ("epoll_pwait2", 1) : 2,
     ("recvmmsg", 1) : 2,
+    ("writev", 1) : 2,
+    ("readv", 1) : 2,
+    ("pwritev", 1) : 2,
+    ("pwritev2", 1) : 2,
+    ("preadv", 1) : 2,
+}
+
+BYTE_SPAN_ARGS = {
+    ("read", 1): 2,
+    ("write", 1) : 2,
+    ("pread64", 1) : 2,
+    ("pwrite64", 1) : 2,
+    ("pread", 1) : 2,
+    ("pwrite", 1) : 2,
+    ("recv", 1): 2,
+    ("recvfrom", 1): 2,
+    ("send", 1): 2,
+    ("sendto", 1): 2,
 }
 
 systabl_targets = [None for i in range(SYS_NR)]
@@ -162,7 +180,9 @@ def genLogSyscallCall(pretty_name, with_ret, fnname):
     fn = "\n\t{"
     for i in range(6):
         if (pretty_name, i) in ARRAY_ARGS:
-            fn += f"\n\t\tstrace::ArrayInfo arrinfo{i} = {{reinterpret_cast<void *>(arg{i}), static_cast<size_t>(arg{ARRAY_ARGS[(pretty_name, i)]})}};"
+            fn += f"\n\t\tstrace::ArrayInfo arrinfo{i} = {{reinterpret_cast<void *>(arg{i}), static_cast<ssize_t>(arg{ARRAY_ARGS[(pretty_name, i)]})}};"
+        elif (pretty_name, i) in BYTE_SPAN_ARGS:
+            fn += f"\n\t\tstrace::ByteSpan binfo{i} = {{reinterpret_cast<void *>(arg{i}), static_cast<size_t>(arg{BYTE_SPAN_ARGS[(pretty_name, i)]})}};"
 
     if with_ret:
         if (pretty_name, -1) in TYPE_ARR:
@@ -174,6 +194,8 @@ def genLogSyscallCall(pretty_name, with_ret, fnname):
     for i in range(6):
         if (pretty_name, i) in ARRAY_ARGS:
             fn += f"\n\t\t\t(&arrinfo{i})"
+        elif (pretty_name, i) in BYTE_SPAN_ARGS:
+            fn += f"\n\t\t\t(&binfo{i})"
         elif (pretty_name, i) not in TYPE_ARR:
             fn += f"\n\t\t\t(arg{i})"
         else:
