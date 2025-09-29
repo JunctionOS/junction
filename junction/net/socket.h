@@ -21,6 +21,10 @@ inline constexpr unsigned int kMsgDontWait = MSG_DONTWAIT;
 inline constexpr unsigned int kMsgWaitOne = MSG_WAITFORONE;
 inline constexpr unsigned int kSockTypeMask = 0xf;
 
+// Bits defined by Junction to track requested socket options.
+inline constexpr size_t kSockOptPktInfo = BIT(0);
+inline constexpr size_t kSockOptRecvTos = BIT(1);
+
 enum class UnixSocketAddressType {
   Unnamed = 0,  // No name assigned.
   Pathname,     // Sockets using a path in the file system
@@ -51,6 +55,11 @@ struct sockaddr_un {
   sa_family_t sun_family;
   char sun_path[108];
 };
+
+// Similarly provide defintions for IP socket options to avoid pulling in
+// Linux headers that conflict with Caladan.
+inline constexpr int kIPRecvTosOptName = 13;  // IP_TOS
+inline constexpr int kIPPktInfoOptName = 8;   // IP_PKTINFO
 
 struct SockAddrPtr {
   explicit SockAddrPtr() : addr(nullptr), addrlen(nullptr) {}
@@ -111,8 +120,8 @@ class Socket : public File {
     return MakeError(ENOTCONN);
   }
   virtual Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr,
-                                   bool peek = false,
-                                   bool nonblocking = false) {
+                                   bool peek = false, bool nonblocking = false,
+                                   aux_rx_pkt_data *aux = nullptr) {
     return MakeError(ENOTCONN);
   }
   virtual Status<size_t> WriteTo(std::span<const std::byte> buf,
@@ -123,7 +132,8 @@ class Socket : public File {
 
   virtual Status<size_t> WritevTo(std::span<const iovec> iov,
                                   const SockAddrPtr raddr,
-                                  bool nonblocking = false) {
+                                  bool nonblocking = false,
+                                  aux_tx_pkt_data *aux = nullptr) {
     return MakeError(ENOTCONN);
   }
 
@@ -141,48 +151,10 @@ class Socket : public File {
   }
 
   Status<size_t> GetSockOpt(int level, int optname,
-                            std::span<std::byte> value) const {
-    if (level != SOL_SOCKET) return MakeError(EINVAL);
-    switch (optname) {
-      case SO_REUSEPORT:
-        if (value.size() < sizeof(int)) return MakeError(EINVAL);
-        *reinterpret_cast<int *>(value.data()) = reuse_port() ? 1 : 0;
-        return sizeof(int);
-      case SO_RCVTIMEO:
-        if (value.size() < sizeof(timeval)) return MakeError(EINVAL);
-        *reinterpret_cast<timeval *>(value.data()) = read_timeout_.Timeval();
-        return sizeof(timeval);
-      case SO_SNDTIMEO:
-        if (value.size() < sizeof(timeval)) return MakeError(EINVAL);
-        *reinterpret_cast<timeval *>(value.data()) = write_timeout_.Timeval();
-        return sizeof(timeval);
-      default:
-        return GetSockOptImpl(level, optname, value);
-    }
-  }
+                            std::span<std::byte> value) const;
 
   Status<void> SetSockOpt(int level, int optname,
-                          std::span<const std::byte> value) {
-    if (level != SOL_SOCKET) return MakeError(EINVAL);
-    switch (optname) {
-      case SO_REUSEADDR:
-      case SO_REUSEPORT:
-        reuse_port_ = *reinterpret_cast<const int *>(value.data());
-        return {};
-      case SO_RCVTIMEO:
-        if (value.size() < sizeof(timeval)) return MakeError(EINVAL);
-        read_timeout_ =
-            Duration(*reinterpret_cast<const timeval *>(value.data()));
-        return {};
-      case SO_SNDTIMEO:
-        if (value.size() < sizeof(timeval)) return MakeError(EINVAL);
-        write_timeout_ =
-            Duration(*reinterpret_cast<const timeval *>(value.data()));
-        return {};
-      default:
-        return SetSockOptImpl(level, optname, value);
-    }
-  }
+                          std::span<const std::byte> value);
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
     return ReadFrom(buf, SockAddrPtr{});
@@ -202,6 +174,8 @@ class Socket : public File {
     return "socket:";
   }
 
+  [[nodiscard]] size_t socket_options() const { return socket_options_; }
+
  protected:
   [[nodiscard]] Duration read_timeout() const { return read_timeout_; }
   [[nodiscard]] Duration write_timeout() const { return write_timeout_; }
@@ -211,29 +185,56 @@ class Socket : public File {
                                       std::span<const std::byte> optval) {
     return MakeError(EINVAL);
   }
+
   virtual Status<size_t> GetSockOptImpl(int level, int optname,
                                         std::span<std::byte> value) const {
     return MakeError(EINVAL);
   }
+
+  virtual Status<void> SetIPSocketOptions(int optname,
+                                          std::span<const std::byte> optval) {
+    return MakeError(EINVAL);
+  }
+
+  virtual Status<size_t> GetIPSocketOptions(int optname,
+                                            std::span<std::byte> value) const {
+    return MakeError(EINVAL);
+  }
+
+  void add_socket_option(size_t option) { socket_options_ |= option; }
+
+  void remove_socket_option(size_t option) { socket_options_ &= ~option; }
 
  private:
   friend class cereal::access;
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(reuse_port_, read_timeout_, write_timeout_,
+    ar(reuse_port_, read_timeout_, write_timeout_, socket_options_,
        cereal::base_class<File>(this));
   }
 
   template <class Archive>
   void load(Archive &ar) {
-    ar(reuse_port_, read_timeout_, write_timeout_,
+    ar(reuse_port_, read_timeout_, write_timeout_, socket_options_,
        cereal::base_class<File>(this));
   }
 
   bool reuse_port_{false};
   Duration read_timeout_{0};
   Duration write_timeout_{0};
+  size_t socket_options_{0};
+};
+
+class IPSocket : public Socket {
+  using Socket::Socket;
+
+ protected:
+  Status<void> SetIPSocketOptions(int optname,
+                                  std::span<const std::byte> optval) override;
+
+  Status<size_t> GetIPSocketOptions(int optname,
+                                    std::span<std::byte> value) const override;
 };
 
 }  // namespace junction

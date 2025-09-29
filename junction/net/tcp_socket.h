@@ -16,12 +16,12 @@ extern "C" {
 
 namespace junction {
 
-class TCPSocket : public Socket {
+class TCPSocket : public IPSocket {
  public:
   TCPSocket(int flags = 0) noexcept
-      : Socket(flags), state_(SocketState::kSockUnbound) {}
+      : IPSocket(flags), state_(SocketState::kSockUnbound) {}
   TCPSocket(rt::TCPConn conn, int flags = 0) noexcept
-      : Socket(flags),
+      : IPSocket(flags),
         state_(SocketState::kSockConnected),
         v_(std::move(conn)) {}
 
@@ -173,7 +173,8 @@ class TCPSocket : public Socket {
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
-                          bool nonblocking) override {
+                          bool nonblocking,
+                          [[maybe_unused]] aux_tx_pkt_data *aux) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
@@ -190,7 +191,8 @@ class TCPSocket : public Socket {
   }
 
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
-                           bool nonblocking) override {
+                           bool nonblocking,
+                           [[maybe_unused]] aux_rx_pkt_data *aux) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
@@ -288,7 +290,7 @@ class TCPSocket : public Socket {
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(cereal::base_class<Socket>(this), state_);
+    ar(cereal::base_class<IPSocket>(this), state_);
 
     switch (state_) {
       case SocketState::kSockBound:
@@ -307,7 +309,7 @@ class TCPSocket : public Socket {
 
   template <class Archive>
   void load(Archive &ar) {
-    ar(cereal::base_class<Socket>(this), state_);
+    ar(cereal::base_class<IPSocket>(this), state_);
 
     if (state_ == SocketState::kSockUnbound) return;
     if (state_ == SocketState::kSockBound) {

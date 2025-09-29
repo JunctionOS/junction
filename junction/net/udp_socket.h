@@ -13,9 +13,9 @@
 
 namespace junction {
 
-class UDPSocket : public Socket {
+class UDPSocket : public IPSocket {
  public:
-  UDPSocket(int flags = 0) noexcept : Socket(flags) {}
+  UDPSocket(int flags = 0) noexcept : IPSocket(flags) {}
   ~UDPSocket() override = default;
 
   Status<void> Bind(const SockAddrPtr addr) override {
@@ -82,12 +82,12 @@ class UDPSocket : public Socket {
   }
 
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
-                           bool nonblocking) override {
+                           bool nonblocking, aux_rx_pkt_data *aux) override {
     if (unlikely(!conn_.is_valid())) return MakeError(EINVAL);
     netaddr ra;
     rt::RuntimeWaitqTimeout timeout(read_timeout());
     Status<size_t> ret =
-        conn_.ReadvFrom(iov, raddr ? &ra : nullptr, peek, nonblocking);
+        conn_.ReadvFrom(iov, raddr ? &ra : nullptr, peek, nonblocking, aux);
     if (unlikely(!ret)) return ret;
     if (raddr) raddr.FromNetAddr(ra);
     return ret;
@@ -108,7 +108,7 @@ class UDPSocket : public Socket {
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
-                          bool nonblocking) override {
+                          bool nonblocking, aux_tx_pkt_data *aux) override {
     if (!conn_.is_valid()) {
       if (Status<void> ret = TrySetupConn(); !ret) return MakeError(ret);
     }
@@ -116,9 +116,9 @@ class UDPSocket : public Socket {
     if (raddr) {
       Status<netaddr> ra = raddr.ToNetAddr();
       if (unlikely(!ra)) return MakeError(ra);
-      return conn_.WritevTo(iov, &*ra, nonblocking);
+      return conn_.WritevTo(iov, &*ra, nonblocking, aux);
     }
-    return conn_.WritevTo(iov, nullptr, nonblocking);
+    return conn_.WritevTo(iov, nullptr, nonblocking, aux);
   }
 
   Status<void> Shutdown([[maybe_unused]] int how) override {
@@ -204,14 +204,14 @@ class UDPSocket : public Socket {
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(cereal::base_class<Socket>(this), conn_.is_valid());
+    ar(cereal::base_class<IPSocket>(this), conn_.is_valid());
     if (conn_.is_valid()) ar(conn_.LocalAddr(), conn_.RemoteAddr(), is_shut_);
   }
 
   template <class Archive>
   void load(Archive &ar) {
     bool conn_is_valid;
-    ar(cereal::base_class<Socket>(this), conn_is_valid);
+    ar(cereal::base_class<IPSocket>(this), conn_is_valid);
     if (!conn_is_valid) return;
 
     netaddr laddr, raddr;

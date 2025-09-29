@@ -253,7 +253,8 @@ class UnixDatagramSocket : public Socket {
   }
 
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
-                           bool nonblocking) override {
+                           bool nonblocking,
+                           [[maybe_unused]] aux_rx_pkt_data *aux) override {
     UnixSocketAddr rem;
     nonblocking |= is_nonblocking();
     Status<size_t> ret = rx_->DoRead(nonblocking, [&](DatagramChannel &chan) {
@@ -303,7 +304,8 @@ class UnixDatagramSocket : public Socket {
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
-                          bool nonblocking) override {
+                          bool nonblocking,
+                          [[maybe_unused]] aux_tx_pkt_data *aux) override {
     if (writer_closed_) return MakeError(EPIPE);
     Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer(raddr);
     if (!tmp) return MakeError(tmp);
@@ -663,7 +665,8 @@ class UnixStreamSocket : public Socket {
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
-                          bool nonblocking) override {
+                          bool nonblocking,
+                          [[maybe_unused]] aux_tx_pkt_data *aux) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
@@ -679,7 +682,8 @@ class UnixStreamSocket : public Socket {
   }
 
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
-                           bool nonblocking) override {
+                           bool nonblocking,
+                           [[maybe_unused]] aux_rx_pkt_data *aux) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromUnixAddr(Connection().peer_name);
