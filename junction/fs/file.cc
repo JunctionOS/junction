@@ -213,7 +213,7 @@ long usys_ftruncate(int fd, off_t length) {
   return 0;
 }
 
-ssize_t usys_read(int fd, char *buf, size_t len) {
+ssize_t usys_read(int fd, void *buf, size_t len) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f || !f->is_readable())) return -EBADF;
@@ -232,7 +232,7 @@ ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt) {
   return static_cast<ssize_t>(*ret);
 }
 
-ssize_t usys_write(int fd, const char *buf, size_t len) {
+ssize_t usys_write(int fd, const void *buf, size_t len) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f || !f->is_writeable())) return -EBADF;
@@ -241,7 +241,7 @@ ssize_t usys_write(int fd, const char *buf, size_t len) {
   return static_cast<ssize_t>(*ret);
 }
 
-ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset) {
+ssize_t usys_pread64(int fd, void *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f || !f->is_readable())) return -EBADF;
@@ -269,9 +269,7 @@ Status<size_t> File::Writev(std::span<const iovec> vec, off_t *off) {
   Status<size_t> ret;
   for (auto &v : vec) {
     if (!v.iov_len) continue;
-    ret = Write(
-        writable_span(reinterpret_cast<const char *>(v.iov_base), v.iov_len),
-        off);
+    ret = Write(writable_span(v), off);
     if (!ret) break;
     total_bytes += *ret;
     if (*ret < v.iov_len) break;
@@ -285,8 +283,7 @@ Status<size_t> File::Readv(std::span<iovec> vec, off_t *off) {
   Status<size_t> ret;
   for (auto &v : vec) {
     if (!v.iov_len) continue;
-    ret = Read(readable_span(reinterpret_cast<char *>(v.iov_base), v.iov_len),
-               off);
+    ret = Read(readable_span(v), off);
     if (!ret) break;
     total_bytes += *ret;
     if (!is_nonblocking() || *ret < v.iov_len) break;
@@ -519,7 +516,7 @@ ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
   return static_cast<ssize_t>(*ret);
 }
 
-ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset) {
+ssize_t usys_pwrite64(int fd, const void *buf, size_t len, off_t offset) {
   FileTable &ftbl = myproc().get_file_table();
   File *f = ftbl.Get(fd);
   if (unlikely(!f || !f->is_writeable())) return -EBADF;

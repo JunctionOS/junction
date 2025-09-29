@@ -47,11 +47,11 @@ long usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
 long usys_unlinkat(int dirfd, const char *pathname, int flags);
 long usys_symlink(const char *target, const char *pathname);
 long usys_symlinkat(const char *target, int dirfd, const char *pathname);
-ssize_t usys_read(int fd, char *buf, size_t len);
+ssize_t usys_read(int fd, void *buf, size_t len);
 ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt);
-ssize_t usys_write(int fd, const char *buf, size_t len);
-ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset);
-ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset);
+ssize_t usys_write(int fd, const void *buf, size_t len);
+ssize_t usys_pread64(int fd, void *buf, size_t len, off_t offset);
+ssize_t usys_pwrite64(int fd, const void *buf, size_t len, off_t offset);
 ssize_t usys_writev(int fd, const iovec *iov, int iovcnt);
 ssize_t usys_pwritev(int fd, const iovec *iov, int iovcnt, off_t offset);
 ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
