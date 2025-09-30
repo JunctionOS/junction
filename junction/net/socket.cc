@@ -1,5 +1,7 @@
 #include "junction/net/socket.h"
 
+#include "junction/bindings/log.h"
+
 namespace junction {
 
 Status<size_t> Socket::GetSockOpt(int level, int optname,
@@ -56,16 +58,18 @@ Status<void> IPSocket::SetIPSocketOptions(int optname,
                                           std::span<const std::byte> optval) {
   if (optval.size() < sizeof(int)) return MakeError(EINVAL);
   const int val = *reinterpret_cast<const int *>(optval.data());
-  if (optname == kIPRecvTosOptName) {
+  if (optname == IP_RECVTOS) {
     if (!val)
       remove_socket_option(kSockOptRecvTos);
     else
       add_socket_option(kSockOptRecvTos);
-  } else if (optname == kIPPktInfoOptName) {
+  } else if (optname == IP_PKTINFO) {
     if (!val)
       remove_socket_option(kSockOptPktInfo);
     else
       add_socket_option(kSockOptPktInfo);
+  } else if (optname == IP_MTU_DISCOVER) {
+    LOG_ONCE(WARN) << "Setsockopt: ignoring IP_MTU_DISCOVER directive";
   } else {
     return MakeError(EINVAL);
   }
@@ -76,10 +80,13 @@ Status<size_t> IPSocket::GetIPSocketOptions(int optname,
                                             std::span<std::byte> value) const {
   if (value.size() < sizeof(int)) return MakeError(EINVAL);
   int *optval = reinterpret_cast<int *>(value.data());
-  if (optname == kIPRecvTosOptName) {
+  if (optname == IP_RECVTOS) {
     *optval = socket_options() & kSockOptRecvTos ? 1 : 0;
-  } else if (optname == kIPPktInfoOptName) {
+  } else if (optname == IP_PKTINFO) {
     *optval = socket_options() & kSockOptPktInfo ? 1 : 0;
+  } else if (optname == IP_MTU) {
+    LOG_ONCE(WARN) << "Getsockopt: reporting default (non-path specific) MTU";
+    *optval = udp_get_payload_size();
   } else {
     return MakeError(EINVAL);
   }

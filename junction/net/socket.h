@@ -56,11 +56,6 @@ struct sockaddr_un {
   char sun_path[108];
 };
 
-// Similarly provide defintions for IP socket options to avoid pulling in
-// Linux headers that conflict with Caladan.
-inline constexpr int kIPRecvTosOptName = 13;  // IP_TOS
-inline constexpr int kIPPktInfoOptName = 8;   // IP_PKTINFO
-
 struct SockAddrPtr {
   explicit SockAddrPtr() : addr(nullptr), addrlen(nullptr) {}
   SockAddrPtr(struct sockaddr *addr, socklen_t *addrlen)
