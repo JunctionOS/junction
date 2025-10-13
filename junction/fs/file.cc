@@ -739,7 +739,7 @@ long usys_ioctl(int fd, unsigned int request, char *argp) {
 class NothingFile : public File {
  public:
   NothingFile(FileType type, int flags = 0)
-      : File(type, flags, FileMode::kReadWrite){};
+      : File(type, flags, FileMode::kReadWrite) {};
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
     if (is_nonblocking()) return MakeError(EAGAIN);
     rt::Preempt p;

@@ -19,7 +19,7 @@ void server() {
     return;
   }
 
-  struct sockaddr_un server_addr {};
+  struct sockaddr_un server_addr{};
   server_addr.sun_family = AF_UNIX;
   strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
 
@@ -32,7 +32,7 @@ void server() {
   }
 
   char buffer[1024];
-  struct sockaddr_un client_addr {};
+  struct sockaddr_un client_addr{};
   socklen_t client_len = sizeof(client_addr);
 
   while (true) {
@@ -68,7 +68,7 @@ void client() {
   }
 
   // Client socket (optional bind)
-  struct sockaddr_un client_addr {};
+  struct sockaddr_un client_addr{};
   client_addr.sun_family = AF_UNIX;
   strncpy(client_addr.sun_path, "/tmp/unix_dgram_client_socket",
           sizeof(client_addr.sun_path) - 1);
@@ -83,7 +83,7 @@ void client() {
   }
 
   // Server address
-  struct sockaddr_un server_addr {};
+  struct sockaddr_un server_addr{};
   server_addr.sun_family = AF_UNIX;
   strncpy(server_addr.sun_path, SOCKET_PATH, sizeof(server_addr.sun_path) - 1);
 

@@ -239,9 +239,7 @@ int main(int argc, char *argv[]) {
   int binary_argc = argc - i - (found_dash ? 1 : 0);
   int junction_argc = i;
 
-  if (binary_argc > 0) {
-    binary_args = &argv[i + 1];
-  }
+  if (binary_argc > 0) { binary_args = &argv[i + 1]; }
 
   junction::Status<void> ret =
       junction::GetCfg().FillFromArgs(junction_argc, argv);

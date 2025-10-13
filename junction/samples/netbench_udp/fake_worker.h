@@ -26,7 +26,7 @@ enum {
  *
  * Returns true if the integer is a power of two.
  */
-#define is_power_of_two(x) ((x) != 0 && !((x) & ((x)-1)))
+#define is_power_of_two(x) ((x) != 0 && !((x) & ((x) - 1)))
 
 /**
  * align_up - rounds a value up to an alignment
@@ -35,10 +35,10 @@ enum {
  *
  * Returns an aligned value.
  */
-#define align_up(x, align)                  \
-  ({                                        \
-    assert(is_power_of_two(align));         \
-    (((x)-1) | ((typeof(x))(align)-1)) + 1; \
+#define align_up(x, align)                      \
+  ({                                            \
+    assert(is_power_of_two(align));             \
+    (((x) - 1) | ((typeof(x))(align) - 1)) + 1; \
   })
 
 class FakeWorker {

@@ -33,12 +33,12 @@ using IntrusiveSetNode = boost::intrusive::set_member_hook<
     boost::intrusive::link_mode<boost::intrusive::safe_link>>;
 #endif  // DEBUG
 
-template <typename T, IntrusiveListNode T::*PtrToMember>
+template <typename T, IntrusiveListNode T::* PtrToMember>
 using IntrusiveList = boost::intrusive::list<
     T, boost::intrusive::member_hook<T, IntrusiveListNode, PtrToMember>,
     boost::intrusive::constant_time_size<false>>;
 
-template <typename T, IntrusiveSetNode T::*PtrToMember>
+template <typename T, IntrusiveSetNode T::* PtrToMember>
 using IntrusiveSet = boost::intrusive::set<
     T, boost::intrusive::member_hook<T, IntrusiveSetNode, PtrToMember>,
     boost::intrusive::constant_time_size<false>>;

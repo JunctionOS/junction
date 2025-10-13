@@ -311,9 +311,7 @@ std::vector<double> PoissonWorker(int c, double req_rate, double service_time) {
       now = microtime();
     }
     double diff = now - expstart - sched[i];
-    if (diff > kMaxCatchUpUS) {
-      continue;
-    }
+    if (diff > kMaxCatchUpUS) { continue; }
 
     barrier();
     start_us[i] = microtime();
@@ -468,9 +466,7 @@ void ClientHandler() {
 
 int main(int argc, char* argv[]) {
   int err = time_init();
-  if (err) {
-    return err;
-  }
+  if (err) { return err; }
 
   if (argc < 2) {
     std::cerr << "usage: <server|client> ..." << std::endl;
@@ -494,9 +490,7 @@ int main(int argc, char* argv[]) {
   threads = std::stoi(argv[2], nullptr, 0);
 
   raddr.sin_family = AF_INET;
-  if (inet_pton(AF_INET, argv[3], &raddr.sin_addr) != 1) {
-    return -EINVAL;
-  }
+  if (inet_pton(AF_INET, argv[3], &raddr.sin_addr) != 1) { return -EINVAL; }
   raddr.sin_port = htons(kNetbenchPort);
 
   n = std::stoll(argv[4], nullptr, 0);

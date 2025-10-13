@@ -21,9 +21,7 @@ inline void PrintArg(const char **array, U, rt::Logger &ss) {
   ss << "[";
   int cnt = 0;
   while (*array) {
-    if (cnt++ != 0) {
-      ss << ", ";
-    }
+    if (cnt++ != 0) { ss << ", "; }
     ss << *array;
     array++;
   }
@@ -35,9 +33,7 @@ inline void PrintList(const U &array, rt::Logger &ss) {
   ss << "[";
   int cnt = 0;
   for (const auto &el : array) {
-    if (cnt++ != 0) {
-      ss << ", ";
-    }
+    if (cnt++ != 0) { ss << ", "; }
     ss << el;
   }
   ss << "]";

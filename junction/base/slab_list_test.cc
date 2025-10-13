@@ -48,9 +48,7 @@ TEST_F(SlabListTest, FillTest) {
   std::fill(sl.begin(), sl.end(), val);
 
   // Read back filled values.
-  for (const std::byte& v : sl) {
-    EXPECT_EQ(v, val);
-  }
+  for (const std::byte& v : sl) { EXPECT_EQ(v, val); }
 }
 
 TEST_F(SlabListTest, CopyNTest) {
@@ -67,9 +65,7 @@ TEST_F(SlabListTest, CopyNTest) {
   // Copy from src to dst.
   SlabList<kBlockSize> dst;
   for (size_t i = 0; i < iters; i++) {
-    if (dst.size() - off < src.size()) {
-      dst.Resize(src.size() + off);
-    }
+    if (dst.size() - off < src.size()) { dst.Resize(src.size() + off); }
     auto it = std::copy_n(src.begin(), src.size(), dst.begin() + off);
     EXPECT_EQ(it, dst.end());
     off += src.size();
@@ -103,7 +99,5 @@ TEST_F(SlabListTest, ShiftRightTest) {
   std::shift_right(truth.begin(), truth.end(), shift_by);
 
   // Compare with the same operation performed on std::vector.
-  for (size_t i = shift_by; i < size; i++) {
-    EXPECT_EQ(sl[i], truth[i]);
-  }
+  for (size_t i = shift_by; i < size; i++) { EXPECT_EQ(sl[i], truth[i]); }
 }

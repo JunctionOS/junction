@@ -11,9 +11,7 @@ std::atomic_int ctr = 0;
 
 void *func(void *) {
   printf("[from thread]: started\n");
-  while (!stop.load()) {
-    ctr += 1;
-  }
+  while (!stop.load()) { ctr += 1; }
   printf("[from thread]: finished: %d\n", ctr.load());
   return NULL;
 }

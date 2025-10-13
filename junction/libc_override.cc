@@ -18,8 +18,7 @@ extern "C" {
 
 static size_t __strlen(const char *msg) {
   size_t len;
-  for (len = 0; *msg; msg++, len++)
-    ;
+  for (len = 0; *msg; msg++, len++);
   return len;
 }
 

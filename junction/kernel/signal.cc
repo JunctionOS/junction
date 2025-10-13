@@ -109,8 +109,7 @@ static const k_sigaction SigKillAction = {
 
 static size_t __strlen(const char *msg) {
   size_t len;
-  for (len = 0; *msg; msg++, len++)
-    ;
+  for (len = 0; *msg; msg++, len++);
   return len;
 }
 
@@ -859,10 +858,10 @@ ThreadSignalHandler::ThreadSignalHandler(Thread &thread,
                                          const ThreadSignalHandler &clone_hand)
     : shared_q_(thread.get_process().get_signal_queue()),
       blocked_(clone_hand.get_blocked_mask()),
-      mythread_(thread){};
+      mythread_(thread) {};
 
 ThreadSignalHandler::ThreadSignalHandler(Thread &thread)
-    : shared_q_(thread.get_process().get_signal_queue()), mythread_(thread){};
+    : shared_q_(thread.get_process().get_signal_queue()), mythread_(thread) {};
 
 // Find next actionable signal
 std::optional<DeliveredSignal> ThreadSignalHandler::GetNextSignal() {
