@@ -1,0 +1,15 @@
+name: PR Title Format Check
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  pr_title_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR Title
+        uses: Slashgear/action-check-pr-title@v4.3.0
+        with:
+          regexp: "^(feat|test|ci|chore|enhance): .+$"
+          helpMessage: "PR title must follow Conventional Commits, e.g., 'feat: add new feature'"
