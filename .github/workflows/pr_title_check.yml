@@ -5,11 +5,22 @@ on:
     types: [opened, edited, reopened, synchronize]
 
 jobs:
-  pr_title_check:
+  dev_pr_title_check:
+    if: github.base_ref == 'dev'
     runs-on: ubuntu-latest
     steps:
-      - name: Check PR Title
+      - name: Check PR Title for Dev
         uses: Slashgear/action-check-pr-title@v4.3.0
         with:
           regexp: "^(feat|test|ci|chore|enhance): .+$"
-          helpMessage: "PR title must follow Conventional Commits, e.g., 'feat: add new feature'"
+          helpMessage: "PR title for dev must follow Conventional Commits, e.g., 'feat: add new feature'"
+
+  main_pr_title_check:
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check PR Title for Main
+        uses: Slashgear/action-check-pr-title@v4.3.0
+        with:
+          regexp: "^Release v[0-9]+\\.[0-9]+\\.[0-9]+(: .+)?$"
+          helpMessage: "PR title for main must be in the format 'Release v1.2.3' or 'Release v1.2.3: <Description>'"
