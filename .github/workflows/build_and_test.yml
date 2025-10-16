@@ -1,0 +1,65 @@
+name: Build and Test Junction
+
+on:
+  pull_request:
+    branches:
+      - dev
+      - main
+
+jobs:
+  build_junction:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@a54c7afa936fefeb4456b2dd8068152669aa8203
+        with:
+          toolchain: 1.82
+
+      - name: Checkout submodules
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Extract glibc submodule commit
+        run: /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
+
+      - name: Extract caladan submodule commit
+        run: /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
+
+      - name: Retrieve cached install dir
+        uses: actions/cache@v4
+        with:
+          path: |
+            install
+            lib/.glibc_installed_ver
+          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/install_glibc.sh', 'scripts/install.sh') }}
+
+      - name: Retrieve cached caladan submodule binaries
+        uses: actions/cache@v4
+        with:
+          path: |
+            lib/caladan/dpdk/build
+            lib/caladan/rdma-core/build
+            lib/caladan/deps/pcm/build
+            lib/.caladan_installed_ver
+          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan-ci/*') }}
+
+      - name: Retrieve cached python venv
+        uses: actions/cache@v4
+        with:
+          path: |
+            bin/venv
+            bin/node_modules
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-12 g++-12
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
+          ./scripts/install.sh --ci
+
+      - name: Build Junction
+        run: |
+          ./scripts/build.sh --ci

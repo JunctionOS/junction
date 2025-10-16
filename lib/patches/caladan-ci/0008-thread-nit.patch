@@ -1,0 +1,52 @@
+From 6d46b3c710bcdfca4288a95d294c7fdcd6962648 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Thu, 27 Apr 2023 17:53:14 -0400
+Subject: [PATCH 08/13] thread nit
+
+---
+ inc/runtime/thread.h | 1 +
+ runtime/sched.c      | 9 +++++++--
+ 2 files changed, 8 insertions(+), 2 deletions(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 060b30d..9bb8882 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -52,6 +52,7 @@ extern void thread_ready_head(thread_t *thread);
+ extern thread_t *thread_create(thread_fn_t fn, void *arg);
+ extern thread_t *thread_create_with_buf(thread_fn_t fn, void **buf, size_t len);
+ extern void thread_set_fsbase(thread_t *th, uint64_t fsbase);
++extern void thread_free(thread_t *th);
+ 
+ DECLARE_PERTHREAD(thread_t *, __self);
+ DECLARE_PERTHREAD_ALIAS(thread_t * const, __self, __const_self);
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 9e9d9b4..b9d82be 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -918,6 +918,12 @@ int thread_spawn_main(thread_fn_t fn, void *arg)
+ 	return 0;
+ }
+ 
++void thread_free(thread_t *th)
++{
++	stack_free(th->stack);
++	tcache_free(perthread_ptr(thread_pt), th);
++}
++
+ static void thread_finish_exit(void)
+ {
+ 	struct thread *th = thread_self();
+@@ -928,8 +934,7 @@ static void thread_finish_exit(void)
+ 	if (unlikely(th->main_thread))
+ 		init_shutdown(EXIT_SUCCESS);
+ 
+-	stack_free(th->stack);
+-	tcache_free(perthread_ptr(thread_pt), th);
++	thread_free(th);
+ 
+ 	spin_lock(&myk()->lock);
+ 	schedule();
+-- 
+2.43.0
+
