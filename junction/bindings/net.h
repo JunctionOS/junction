@@ -87,7 +87,7 @@ class UDPConn {
   Status<size_t> ReadvFrom(std::span<const iovec> iov, netaddr *raddr,
                            bool peek, bool nonblocking) {
     ssize_t ret = udp_readv_from2(c_, iov.data(), static_cast<int>(iov.size()),
-                                  raddr, peek, nonblocking);
+                                  raddr, peek, nonblocking, nullptr);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
@@ -104,7 +104,7 @@ class UDPConn {
   Status<size_t> WritevTo(std::span<const iovec> iov, const netaddr *raddr,
                           bool nonblocking = false) {
     ssize_t ret = udp_writev_to2(c_, iov.data(), static_cast<int>(iov.size()),
-                                 raddr, nonblocking);
+                                 raddr, nonblocking, nullptr);
     if (ret < 0) return MakeError(static_cast<int>(-ret));
     return ret;
   }
