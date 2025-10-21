@@ -18,7 +18,7 @@ cd $CALADAN_DIR/
 git -c user.name="x" -c user.email="x" am $CALADAN_PATCHES_DIR/*
 
 prev=$(cat "$ROOT_DIR/lib/.caladan_installed_ver" 2>&1 || true)
-cur=$(cat "$CALADAN_PATCHES_DIR"/* | sha256sum)
+cur=$((cd ${ROOT_DIR}; git ls-tree HEAD lib/caladan; cat "$CALADAN_PATCHES_DIR"/*) | sha256sum)
 
 # Install Caladan
 if [ "$prev" != "$cur" ] || [ ! -f $CALADAN_DIR/deps/pcm/build/src/libpcm.a ]; then
@@ -27,4 +27,4 @@ fi
 
 (cd ksched && make -j `nproc`)
 
-cat $CALADAN_PATCHES_DIR/* | sha256sum >  $CALADAN_DIR/../.caladan_installed_ver
+printf '%s\n' "$cur" > $CALADAN_DIR/../.caladan_installed_ver

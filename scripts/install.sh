@@ -25,4 +25,7 @@ cd $SCRIPT_DIR
 ./install_caladan.sh
 ./install_glibc.sh
 ./install_flatbuffers.sh
-./install_function_bench.sh
+
+touch ${ROOT_DIR}/.install_script_ran
+
+#./install_function_bench.sh
