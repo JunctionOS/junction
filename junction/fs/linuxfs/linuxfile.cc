@@ -40,8 +40,9 @@ LinuxFile::~LinuxFile() {
   return buf.st_size;
 }
 
-Status<size_t> __attribute__((cold))
-TraceLinuxRead(int fd, std::span<std::byte> buf, off_t *off) {
+Status<size_t> __attribute__((cold)) TraceLinuxRead(int fd,
+                                                    std::span<std::byte> buf,
+                                                    off_t *off) {
   // Read one page at a time during tracing.
   off_t loff = *off;
   size_t read = 0;

@@ -1,0 +1,348 @@
+diff --git a/inc/runtime/preempt.h b/inc/runtime/preempt.h
+index bc6e10f..6c3da71 100644
+--- a/inc/runtime/preempt.h
++++ b/inc/runtime/preempt.h
+@@ -13,6 +13,7 @@ DECLARE_PERTHREAD(void *, uintr_stack);
+ extern void preempt(void);
+ extern void uintr_asm_return(void);
+ 
++extern bool uintr_enabled;
+ extern size_t xsave_max_size;
+ extern size_t xsave_features;
+ 
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 3c80761..e8713a7 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -23,8 +23,15 @@ struct thread {
+ 	bool	main_thread:1;
+ 	bool	has_fsbase:1;
+ 	bool	thread_ready:1;
++	bool	link_armed:1;
++	bool	junction_thread;
+ 	bool	thread_running;
++	bool	in_syscall;
++	/* modified by interrupt handler; should not be shared with other bitfields */
++	bool	xsave_area_in_use:1;
+ 	atomic8_t	interrupt_state;
++	struct thread_tf	*entry_regs;
++	unsigned long	junction_tstate_buf[8];
+ 	struct stack	*stack;
+ 	uint16_t	last_cpu;
+ 	uint16_t	cur_kthread;
+@@ -36,6 +43,7 @@ struct thread {
+ 	size_t			waitq_micros;
+ 	uint64_t	tlsvar;
+ 	uint64_t	fsbase;
++	unsigned long	junction_cold_state_buf[32];
+ };
+ 
+ extern uint64_t thread_get_total_cycles(thread_t *th);
+@@ -70,16 +78,6 @@ static inline thread_t *thread_self(void)
+ 	return perthread_read_const_p(__const_self);
+ }
+ 
+-static inline uint64_t get_uthread_specific(void)
+-{
+-    return thread_self()->tlsvar;
+-}
+-
+-static inline void set_uthread_specific(uint64_t val)
+-{
+-    thread_self()->tlsvar = val;
+-}
+-
+ 
+ /*
+  * High-level routines, use this API most of the time.
+diff --git a/runtime/defs.h b/runtime/defs.h
+index e61c50c..a095d29 100644
+--- a/runtime/defs.h
++++ b/runtime/defs.h
+@@ -40,6 +40,8 @@
+ #define RUNTIME_WATCHDOG_US		50
+ #define RUNTIME_RX_BATCH_SIZE		32
+ 
++#define XSAVE_AREA_SIZE (24 * KB)
++#define XSAVE_AREA_PTR_SIZE (XSAVE_AREA_SIZE / sizeof(uintptr_t))
+ 
+ /*
+  * Thread support
+@@ -72,6 +74,23 @@ struct stack {
+ };
+ 
+ DECLARE_PERTHREAD(struct tcache_perthread, stack_pt);
++DECLARE_PERTHREAD(void *, runtime_stack);
++
++static __always_inline void *stack_to_tcache_handle(struct stack *s)
++{
++	/*
++	 * use the bottom page of the stack (before the xsave area) for the tcache's
++	 * intrusive list. This way we don't fault in any more pages than we need.
++	 */
++	return (void *)((uintptr_t)(s + 1) - XSAVE_AREA_SIZE - PGSIZE_4KB);
++}
++
++static __always_inline struct stack *stack_from_tcache_handle(void *handle)
++{
++	uintptr_t addr = (uintptr_t)handle + PGSIZE_4KB + XSAVE_AREA_SIZE;
++	return (struct stack *)addr - 1;
++}
++
+ 
+ /**
+  * stack_alloc - allocates a stack
+@@ -85,7 +104,7 @@ static inline struct stack *stack_alloc(void)
+ 	void *s = tcache_alloc(perthread_ptr(stack_pt));
+ 	if (unlikely(!s))
+ 		return NULL;
+-	return container_of((uintptr_t (*)[STACK_PTR_SIZE])s, struct stack, usable);
++	return stack_from_tcache_handle(s);
+ }
+ 
+ /**
+@@ -94,7 +113,7 @@ static inline struct stack *stack_alloc(void)
+  */
+ static inline void stack_free(struct stack *s)
+ {
+-	tcache_free(perthread_ptr(stack_pt), (void *)s->usable);
++	tcache_free(perthread_ptr(stack_pt), stack_to_tcache_handle(s));
+ }
+ 
+ #define RSP_ALIGNMENT	16
+@@ -122,6 +141,17 @@ static inline uint64_t stack_init_to_rsp(struct stack *s, void (*exit_fn)(void))
+ {
+ 	uint64_t rsp;
+ 
++	s->usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1] = (uintptr_t)exit_fn;
++	rsp = (uint64_t)&s->usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1];
++	assert_rsp_aligned(rsp);
++	return rsp;
++}
++
++static inline uint64_t runtime_stack_init_to_rsp(struct stack *s,
++                                                 void (*exit_fn)(void))
++{
++	uint64_t rsp;
++
+ 	s->usable[STACK_PTR_SIZE - 1] = (uintptr_t)exit_fn;
+ 	rsp = (uint64_t)&s->usable[STACK_PTR_SIZE - 1];
+ 	assert_rsp_aligned(rsp);
+@@ -142,7 +172,7 @@ static inline uint64_t
+ stack_init_to_rsp_with_buf(struct stack *s, void **buf, size_t buf_len,
+ 			   void (*exit_fn)(void))
+ {
+-	uint64_t rsp, pos = STACK_PTR_SIZE;
++	uint64_t rsp, pos = STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE;
+ 
+ 	/* reserve the buffer */
+ 	pos -= div_up(buf_len, sizeof(uint64_t));
+diff --git a/runtime/init.c b/runtime/init.c
+index ae57dfb..aeb38b1 100644
+--- a/runtime/init.c
++++ b/runtime/init.c
+@@ -54,10 +54,10 @@ static const struct init_entry global_init_handlers[] = {
+ /* per-kthread subsystem initialization */
+ static const struct init_entry thread_init_handlers[] = {
+ 	/* runtime core */
++	THREAD_INITIALIZER(stack),
+ 	THREAD_INITIALIZER(preempt),
+ 	THREAD_INITIALIZER(kthread),
+ 	THREAD_INITIALIZER(ioqueues),
+-	THREAD_INITIALIZER(stack),
+ 	THREAD_INITIALIZER(sched),
+ 	THREAD_INITIALIZER(timer),
+ 	THREAD_INITIALIZER(smalloc),
+diff --git a/runtime/preempt.c b/runtime/preempt.c
+index ad64206..7f955ea 100644
+--- a/runtime/preempt.c
++++ b/runtime/preempt.c
+@@ -26,6 +26,8 @@
+ 
+ /* the current preemption count */
+ DEFINE_PERTHREAD(unsigned int, preempt_cnt);
++/* whether uintr is enabled */
++bool uintr_enabled;
+ /* perthread stack to use supply for UIPIs */
+ DEFINE_PERTHREAD(void *, uintr_stack);
+ /* maximum size in bytes needed for xsave */
+@@ -166,8 +168,20 @@ void preempt(void)
+ 
+ int preempt_init_thread(void)
+ {
++	struct stack *s;
++	uint64_t stack_val;
++
+ 	perthread_store(preempt_cnt, PREEMPT_NOT_PENDING);
+-	perthread_store(uintr_stack, (void *)REDZONE_SIZE);
++
++	if (!uintr_enabled)
++		return 0;
++
++	s = stack_alloc();
++	if (!s)
++		return -ENOMEM;
++
++	stack_val = ((uint64_t)&s->usable[STACK_PTR_SIZE]) | 1UL;
++	perthread_store(uintr_stack, (void *)stack_val);
+ 	return 0;
+ }
+ 
+@@ -184,6 +198,7 @@ int preempt_init(void)
+ 	int ret;
+ 	struct cpuid_info regs;
+ #endif
++
+ 	act.sa_flags = SA_SIGINFO | SA_NODEFER;
+ 
+ 	if (sigemptyset(&act.sa_mask) != 0) {
+@@ -211,6 +226,7 @@ int preempt_init(void)
+ 	}
+ 
+ 	log_info("uintr: enabled");
++	uintr_enabled = true;
+ 
+ 	ret = syscall(SYS_arch_prctl, ARCH_GET_XCOMP_SUPP, &xsave_features);
+ 	if (unlikely(ret)) {
+diff --git a/runtime/sched.c b/runtime/sched.c
+index 406e8ce..f5834bf 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -3,6 +3,7 @@
+  */
+ 
+ #include <sched.h>
++#include <signal.h>
+ #include <immintrin.h>
+ 
+ #include <base/stddef.h>
+@@ -24,7 +25,7 @@ DEFINE_PERTHREAD(thread_t *, __self);
+ DEFINE_PERTHREAD_ALIAS(thread_t * const, __self, __const_self);
+ 
+ /* a pointer to the top of the per-kthread (TLS) runtime stack */
+-static DEFINE_PERTHREAD(void *, runtime_stack);
++DEFINE_PERTHREAD(void *, runtime_stack);
+ DEFINE_PERTHREAD(uint64_t, runtime_fsbase);
+ /* Flag to prevent watchdog from running */
+ bool disable_watchdog;
+@@ -40,6 +41,9 @@ static DEFINE_PERTHREAD(struct tcache_perthread, thread_pt);
+ /* used to track cycle usage in scheduler */
+ static DEFINE_PERTHREAD(uint64_t, last_tsc);
+ 
++// Junction overrides this function.
++void __weak on_sched(thread_t *th) {}
++
+ /**
+  * In inc/runtime/thread.h, this function is declared inline (rather than static
+  * inline) so that it is accessible to the Rust bindings. As a result, it must
+@@ -93,6 +97,10 @@ static void jmp_thread(thread_t *th)
+ 	set_fsbase(th->fsbase);
+ 
+ 	th->thread_running = true;
++
++	if (th->junction_thread)
++		on_sched(th);
++
+ 	__jmp_thread(&th->tf);
+ }
+ 
+@@ -123,6 +131,10 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
+ 	set_fsbase(newth->fsbase);
+ 
+ 	newth->thread_running = true;
++
++	if (newth->junction_thread)
++		on_sched(newth);
++
+ 	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
+ }
+ 
+@@ -730,7 +742,26 @@ uint64_t thread_get_total_cycles(thread_t *th) {
+ 	return cycles;
+ }
+ 
+-static void thread_finish_cede(void)
++void thread_finish_yield(void)
++{
++	thread_t *curth = thread_self();
++	struct kthread *k = myk();
++
++	assert_preempt_disabled();
++
++	spin_lock(&k->lock);
++
++	/* check for softirqs */
++	softirq_run_locked(k);
++
++	curth->thread_ready = false;
++	curth->last_cpu = k->curr_cpu;
++	thread_ready_locked(curth);
++
++	schedule();
++}
++
++void thread_finish_cede(void)
+ {
+ 	struct kthread *k = myk();
+ 	thread_t *myth = thread_self();
+@@ -824,10 +855,13 @@ static __always_inline thread_t *__thread_create(void)
+ 	th->thread_running = false;
+ 	th->waitq_micros = 0;
+ 	th->tlsvar = 0;
++	th->junction_thread = false;
++	th->link_armed = false;
+ 	th->cur_kthread = NCPU;
+ 	// Can be used to detect newly created thread.
+ 	th->ready_tsc = 0;
+ 	th->total_cycles = 0;
++	th->xsave_area_in_use = false;
+ 	atomic8_write(&th->interrupt_state, 0);
+ 
+ 	return th;
+@@ -993,6 +1027,7 @@ static void runtime_top_of_stack(void)
+  */
+ int sched_init_thread(void)
+ {
++    stack_t ss;
+ 	struct stack *s;
+ 
+ 	tcache_init_perthread(thread_tcache, perthread_ptr(thread_pt));
+@@ -1001,9 +1036,15 @@ int sched_init_thread(void)
+ 	if (!s)
+ 		return -ENOMEM;
+ 
+-	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
++	perthread_store(runtime_stack, (void *)runtime_stack_init_to_rsp(s, runtime_top_of_stack));
+ 	perthread_store(runtime_fsbase, _readfsbase_u64());
+ 
++	ss.ss_sp = &s->usable[0];
++	ss.ss_size = RUNTIME_STACK_SIZE;
++	ss.ss_flags = 0;
++	if (sigaltstack(&ss, NULL) == -1)
++		return -errno;
++
+ 	return 0;
+ }
+ 
+diff --git a/runtime/stack.c b/runtime/stack.c
+index b9fba77..97ce479 100644
+--- a/runtime/stack.c
++++ b/runtime/stack.c
+@@ -57,7 +57,7 @@ static void stack_tcache_free(struct tcache *tc, int nr, void **items)
+ 
+ 	/* try to release the backing memory first */
+ 	for (i = 0; i < nr; i++)
+-		stack_reclaim(container_of(items[i], struct stack, usable));
++		stack_reclaim(stack_from_tcache_handle(items[i]));
+ 
+ 	/* then make the stacks available for reallocation */
+ 	spin_lock(&stack_lock);
+@@ -87,7 +87,7 @@ static int stack_tcache_alloc(struct tcache *tc, int nr, void **items)
+ 		s = stack_create(base);
+ 		if (unlikely(!s))
+ 			goto fail;
+-		items[i] = s->usable;
++		items[i] = stack_to_tcache_handle(s);
+ 	}
+ 
+ 	return 0;

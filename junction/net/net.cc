@@ -149,9 +149,7 @@ long usys_setsockopt(int sockfd, [[maybe_unused]] int level,
                      [[maybe_unused]] socklen_t option_len) {
   auto sock_ret = FDToSocket(sockfd);
   if (unlikely(!sock_ret)) return MakeCError(sock_ret);
-  if (level == SOL_IPV6) {
-    return -ENOPROTOOPT;
-  }
+  if (level == SOL_IPV6) { return -ENOPROTOOPT; }
   LOG_ONCE(WARN) << "Unsupported: setsockopt";
   return 0;
 }

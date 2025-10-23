@@ -1,0 +1,19 @@
+name: Clang-Format Check
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  clang_format_check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run clang-format style check
+        uses: jidicula/clang-format-action@v4.11.0
+        with:
+          clang-format-version: "20"
+          check-path: "junction"
+          exclude-regex: ".*\\.proto$"

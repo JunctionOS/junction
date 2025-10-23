@@ -217,9 +217,7 @@ int main(int, char** argv) {
 
   int n = atoi(argv[1]);
 
-  for (int i = 1; i <= n; i++) {
-    advance(solar_system);
-  }
+  for (int i = 1; i <= n; i++) { advance(solar_system); }
 
   printf("%.9f\n", energy(solar_system));
 

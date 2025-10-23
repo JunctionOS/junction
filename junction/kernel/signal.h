@@ -353,7 +353,7 @@ inline constexpr defer_init_t DeferInit{};
 // SignalTable is a table of the signal actions for a process.
 class alignas(kCacheLineSize) SignalTable {
  public:
-  SignalTable() noexcept : table_(){};
+  SignalTable() noexcept : table_() {};
   ~SignalTable() = default;
   SignalTable(defer_init_t t) noexcept {}
 

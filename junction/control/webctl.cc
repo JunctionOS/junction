@@ -44,9 +44,7 @@ bool HandleRun(ControlConn &c, const ctl_schema::RunRequest *req) {
     error_msg << "failed to run(";
 
     size_t idx = 0;
-    for (; idx < argc - 1; idx++) {
-      error_msg << argv[idx] << ", ";
-    }
+    for (; idx < argc - 1; idx++) { error_msg << argv[idx] << ", "; }
     error_msg << argv[idx] << "): " << proc.error();
     if (!c.SendError(error_msg.str())) {
       LOG(WARN) << "ctl: failed to send error: " << error_msg.str();

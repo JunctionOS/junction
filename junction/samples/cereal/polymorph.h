@@ -12,9 +12,7 @@ class Table {
   void push(std::shared_ptr<DummyData> dat) { tab_.push_back(std::move(dat)); }
 
   void test() const {
-    for (auto const &dat : tab_) {
-      dat->test();
-    }
+    for (auto const &dat : tab_) { dat->test(); }
   }
 
   template <class Archive>

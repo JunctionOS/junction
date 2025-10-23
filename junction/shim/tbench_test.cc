@@ -44,9 +44,7 @@ int getMeasureRounds() {
 }
 
 void BenchGetPid(int measure_rounds) {
-  for (int i = 0; i < measure_rounds; ++i) {
-    std::ignore = getpid();
-  }
+  for (int i = 0; i < measure_rounds; ++i) { std::ignore = getpid(); }
 }
 
 void BenchSpawnJoin(int measure_rounds) {
@@ -269,8 +267,7 @@ void BenchSignalPingPongSigSuspend(int measure_rounds) {
 
   EXPECT_EQ(sigprocmask(SIG_BLOCK, &s, nullptr), 0);
 
-  while (!t2)
-    ;
+  while (!t2);
 
   for (int i = 0; i < measure_rounds / 2; ++i) {
     // Wait for flag
@@ -301,15 +298,13 @@ void BenchSignalPingPongSpin(int measure_rounds) {
       EXPECT_EQ(tgkill(mypid, t1, SIGUSR1), 0) << std::strerror(errno);
 
       // Wait for flag
-      while (vals[1] == i)
-        ;
+      while (vals[1] == i);
     }
   });
 
   for (int i = 0; i < measure_rounds / 2; ++i) {
     // Wait for flag
-    while (vals[0] == i)
-      ;
+    while (vals[0] == i);
 
     // send signal
     EXPECT_EQ(tgkill(mypid, t2, SIGUSR2), 0) << std::strerror(errno);
@@ -768,13 +763,9 @@ class ThreadingTest : public ::testing::Test {
   }
 
   static void PrintAllResults() {
-    for (const auto &[k, v] : results_) {
-      std::cerr << k << ",";
-    }
+    for (const auto &[k, v] : results_) { std::cerr << k << ","; }
     std::cerr << std::endl;
-    for (const auto &[k, v] : results_) {
-      std::cerr << v.count() << ",";
-    }
+    for (const auto &[k, v] : results_) { std::cerr << v.count() << ","; }
     std::cerr << std::endl;
   }
 };

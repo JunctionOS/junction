@@ -73,9 +73,7 @@ inline std::span<std::byte> readable_span(iovec iov) {
 
 inline size_t SumIOV(std::span<const iovec> iov) {
   size_t len = 0;
-  for (const iovec &e : iov) {
-    len += e.iov_len;
-  }
+  for (const iovec &e : iov) { len += e.iov_len; }
   return len;
 }
 

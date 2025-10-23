@@ -12,9 +12,7 @@ int main(int argc, char *argv[]) {
   kill(getpid(), SIGSTOP);
 
   // restored
-  if (magic != 42) {
-    return EXIT_FAILURE;
-  }
+  if (magic != 42) { return EXIT_FAILURE; }
 
   return 0;
 }

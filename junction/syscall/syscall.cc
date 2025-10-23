@@ -16,12 +16,10 @@ struct SyscallTarget {
   uintptr_t end;
 };
 
-#define DECLARE_TARGET(name)                          \
-  {                                                   \
-    reinterpret_cast<uintptr_t>(name),                \
-        reinterpret_cast<uintptr_t>(name##_postcall), \
-        reinterpret_cast<uintptr_t>(name##_end)       \
-  }
+#define DECLARE_TARGET(name)                     \
+  {reinterpret_cast<uintptr_t>(name),            \
+   reinterpret_cast<uintptr_t>(name##_postcall), \
+   reinterpret_cast<uintptr_t>(name##_end)}
 
 const std::array<SyscallTarget, 10> syscallTargets = {
     {DECLARE_TARGET(junction_fncall_enter),

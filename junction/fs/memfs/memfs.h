@@ -214,7 +214,7 @@ class MemIDir : public IDir {
  protected:
   // Subclasses override this to add custom logic run on the first access of
   // this directory (e.g. to populate entries).
-  virtual void DoInitialize(){};
+  virtual void DoInitialize() {};
 
   Status<std::shared_ptr<DirectoryEntry>> LookupMissLocked(
       std::string_view name) override;

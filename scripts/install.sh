@@ -1,6 +1,13 @@
 #!/bin/bash
 set -xe
 
+# Check flags
+CI_MODE=false
+if [ "$1" == "--ci" ]; then
+    CI_MODE=true
+    echo "Running in CI mode"
+fi
+
 # Globals
 SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
@@ -22,7 +29,18 @@ git submodule update --init --recursive --jobs=`nproc`
 cd $SCRIPT_DIR
 ./install_cereal.sh
 ./install_cmake.sh
-./install_caladan.sh
+if [ "$CI_MODE" = true ]; then
+    ./install_caladan.sh --ci
+else
+    ./install_caladan.sh
+fi
 ./install_glibc.sh
 ./install_flatbuffers.sh
-./install_function_bench.sh
+if [ "$CI_MODE" = false ]; then
+    ./install_function_bench.sh
+fi
+
+
+
+
+
