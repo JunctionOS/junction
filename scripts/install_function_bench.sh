@@ -22,3 +22,5 @@ if [ ! -f "minio" ]; then
   mv minio.download minio
 fi
 popd
+
+touch ${ROOT_DIR}/.function_bench_installed
