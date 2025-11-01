@@ -1036,7 +1036,6 @@ Status<void> InitFs(
 }
 
 ino_t AllocateInodeNumber() {
-  static std::atomic_size_t inos;
   return inos.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 
