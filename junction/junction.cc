@@ -165,8 +165,8 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   snapshot_on_stop_ = vm["snapshot-on-stop"].as<int>();
   expecting_snapshot_ = vm["snapshot_enabled"].as<bool>();
   expecting_snapshot_ |= snapshot_on_stop_;
-  expecting_snapshot_ |= vm.count("function_arg") && !restore;
-  function_name_ = vm["function_name"].as<std::string>();
+  expecting_snapshot_ |=
+      vm["function_arg"].as<std::string>().size() > 0 && !restore;
 
   uid_ = vm["uid"].as<uid_t>();
   gid_ = vm["gid"].as<uid_t>();
@@ -183,10 +183,9 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   madv_remap = vm["madv_remap"].as<bool>();
   kernel_restoring_ = vm["kernel-restore"].as<bool>();
   jif_ = vm["jif"].as<bool>();
-  snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
   cache_linux_fs_ = vm["cache_linux_fs"].as<bool>();
   port_ = vm["port"].as<int>();
-  if (snapshot_on_stop_ && snapshot_prefix_.empty()) {
+  if (snapshot_on_stop_ && vm["snapshot-prefix"].as<std::string>().empty()) {
     std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;
     return MakeError(EINVAL);
   }
