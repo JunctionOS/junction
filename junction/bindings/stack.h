@@ -107,7 +107,9 @@ __always_inline __nofp void* GetXsaveArea(struct stack& stack) {
 __always_inline __nofp uint64_t
 GetSyscallStackBottom(const struct stack& stack) {
   const uint64_t* rsp = &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1];
-  return reinterpret_cast<uint64_t>(rsp);
+  // Stackswitch entry may be in the process of setting up its trapframe on the
+  // syscall stack, subtract the redzone to avoid overwriting it.
+  return reinterpret_cast<uint64_t>(rsp) - kRedzoneSize;
 }
 
 // returns the bottom of a thread's syscall stack
