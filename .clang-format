@@ -8,3 +8,7 @@ TabWidth: 2
 AllowShortFunctionsOnASingleLine: All
 AllowShortBlocksOnASingleLine: true
 AllowShortLoopsOnASingleLine: true
+
+DerivePointerAlignment: false
+PointerAlignment: Right
+ReferenceAlignment: Right

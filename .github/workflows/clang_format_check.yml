@@ -11,9 +11,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Run clang-format style check
-        uses: jidicula/clang-format-action@v4.11.0
-        with:
-          clang-format-version: "20"
-          check-path: "junction"
-          exclude-regex: ".*\\.proto$"
+      - name: Install and set up clang-format-20
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang-format-20
+          sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-20 100
+
+      - name: Run formatting check script
+        run: ./scripts/fmt_check.sh

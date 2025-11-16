@@ -18,5 +18,5 @@ class SyscallTestEnvironment : public ::testing::Environment {
   };
 };
 
-testing::Environment* const fs_test_env =
+testing::Environment *const fs_test_env =
     testing::AddGlobalTestEnvironment(new SyscallTestEnvironment);

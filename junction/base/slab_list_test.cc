@@ -48,7 +48,7 @@ TEST_F(SlabListTest, FillTest) {
   std::fill(sl.begin(), sl.end(), val);
 
   // Read back filled values.
-  for (const std::byte& v : sl) { EXPECT_EQ(v, val); }
+  for (const std::byte &v : sl) { EXPECT_EQ(v, val); }
 }
 
 TEST_F(SlabListTest, CopyNTest) {

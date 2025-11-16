@@ -79,7 +79,7 @@ void MainHandler() {
 
 using namespace junction;
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   int ret;
 
   if (argc < 2) {

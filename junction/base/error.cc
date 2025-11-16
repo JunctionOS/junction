@@ -247,7 +247,7 @@ std::string_view Error::ToString() const {
   }
 }
 
-std::ostream& operator<<(std::ostream& os, const Error& x) {
+std::ostream &operator<<(std::ostream &os, const Error &x) {
   return os << x.ToString();
 }
 

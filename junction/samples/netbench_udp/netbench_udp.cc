@@ -88,7 +88,7 @@ void ServerWorker(int c) {
     struct sockaddr_in sender;
     socklen_t slen = sizeof(sender);
     ssize_t ret = recvfrom(c, &buf, sizeof(buf), 0,
-                           reinterpret_cast<sockaddr*>(&sender), &slen);
+                           reinterpret_cast<sockaddr *>(&sender), &slen);
     if (ret <= 0 || ret > static_cast<ssize_t>(sizeof(buf))) {
       if (ret == 0) break;
       perror("recvfrom");
@@ -105,8 +105,8 @@ void ServerWorker(int c) {
     if (p.workn != 0) w->Work(p.workn * 82.0);
 
     // Send a network request.
-    ssize_t sret = sendto(c, &buf, ret, 0, reinterpret_cast<sockaddr*>(&sender),
-                          sizeof(sender));
+    ssize_t sret = sendto(
+        c, &buf, ret, 0, reinterpret_cast<sockaddr *>(&sender), sizeof(sender));
     if (sret != ret) {
       if (sret == -EPIPE) break;
       perror("sendto");
@@ -135,7 +135,7 @@ void ServerHandler() {
 
   printf("Waiting on IP: %s\n", str);
 
-  if (bind(c, reinterpret_cast<sockaddr*>(&in), sizeof(in)) == -1)
+  if (bind(c, reinterpret_cast<sockaddr *>(&in), sizeof(in)) == -1)
     panic("cannot bind\n");
 
   while (true) {
@@ -143,7 +143,7 @@ void ServerHandler() {
     sockaddr_in raddr;
     socklen_t addrlen = sizeof(raddr);
     ssize_t ret = recvfrom(c, &req, sizeof(req), 0 /* flags */,
-                           reinterpret_cast<sockaddr*>(&raddr), &addrlen);
+                           reinterpret_cast<sockaddr *>(&raddr), &addrlen);
     if (ret != sizeof(req) || req.magic != kMagic) continue;
 
     char str[INET_ADDRSTRLEN];
@@ -174,13 +174,13 @@ void ServerHandler() {
 
         struct sockaddr_in ephem = {0};
         ephem.sin_family = AF_INET;
-        int ret =
-            bind(cin, reinterpret_cast<const sockaddr*>(&ephem), sizeof(ephem));
+        int ret = bind(cin, reinterpret_cast<const sockaddr *>(&ephem),
+                       sizeof(ephem));
         if (ret) panic("couldn't connect socket\n");
 
         sockaddr_in laddr;
         socklen_t laddrlen = sizeof(laddr);
-        ret = getsockname(cin, reinterpret_cast<sockaddr*>(&laddr), &laddrlen);
+        ret = getsockname(cin, reinterpret_cast<sockaddr *>(&laddr), &laddrlen);
         if (ret) panic("couldn't getsockname\n");
 
         resp.ports[i] = laddr.sin_port;
@@ -200,13 +200,13 @@ void ServerHandler() {
       printf("Sending to IP: %s\n", str);
 
       ssize_t ret = sendto(c, &resp, len, 0 /* flags */,
-                           reinterpret_cast<const sockaddr*>(&raddr), addrlen);
+                           reinterpret_cast<const sockaddr *>(&raddr), addrlen);
       if (ret != len) {
         perror("sendto");
         fprintf(stderr, "[ServerHandler] udp write failed, ret = %ld\n", ret);
       }
 
-      for (auto& t : threads) t.join();
+      for (auto &t : threads) t.join();
 
       printf("done\n");
     }).detach();
@@ -223,10 +223,10 @@ void KillConn(int c) {
   for (int i = 0; i < kKillRetries; ++i) {
     sockaddr_in addr;
     socklen_t addrlen = sizeof(addr);
-    int ret = getpeername(c, reinterpret_cast<sockaddr*>(&addr), &addrlen);
+    int ret = getpeername(c, reinterpret_cast<sockaddr *>(&addr), &addrlen);
     if (ret) panic("getpeername failed, ret = %d\n", ret);
     ret = sendto(c, buf, sizeof(buf), 0 /* flags */,
-                 reinterpret_cast<sockaddr*>(&addr), addrlen);
+                 reinterpret_cast<sockaddr *>(&addr), addrlen);
     if (!ret) panic("sendto failed, ret = %d\n", ret);
   }
 }
@@ -235,7 +235,7 @@ std::vector<double> PoissonWorker(int c, double req_rate, double service_time) {
   // Seed the random generator with the local port number.
   sockaddr_in addr;
   socklen_t addrlen = sizeof(addr);
-  int ret = getpeername(c, reinterpret_cast<sockaddr*>(&addr), &addrlen);
+  int ret = getpeername(c, reinterpret_cast<sockaddr *>(&addr), &addrlen);
   if (ret) panic("getpeername failed, ret = %d\n", ret);
   std::mt19937 g(addr.sin_port);
 
@@ -333,11 +333,11 @@ std::vector<double> PoissonWorker(int c, double req_rate, double service_time) {
   return timings;
 }
 
-std::vector<double> RunExperiment(double req_rate, double* reqs_per_sec) {
+std::vector<double> RunExperiment(double req_rate, double *reqs_per_sec) {
   int c = socket(AF_INET, SOCK_DGRAM, 0);
   if (c < 0) panic("couldn't create socket\n");
 
-  int err = connect(c, reinterpret_cast<sockaddr*>(&raddr), raddrlen);
+  int err = connect(c, reinterpret_cast<sockaddr *>(&raddr), raddrlen);
   if (err) panic("couldn't connect socket, ret = %d\n", err);
 
   // Send the control message.
@@ -368,7 +368,7 @@ std::vector<double> RunExperiment(double req_rate, double* reqs_per_sec) {
     int outc = socket(AF_INET, SOCK_DGRAM, 0);
     if (outc < 0) panic("couldn't create socket\n");
 
-    int ret = connect(outc, reinterpret_cast<sockaddr*>(&addr), addrlen);
+    int ret = connect(outc, reinterpret_cast<sockaddr *>(&addr), addrlen);
     if (ret) panic("couldn't connect socket\n");
 
     conns.emplace_back(std::move(outc));
@@ -399,7 +399,7 @@ std::vector<double> RunExperiment(double req_rate, double* reqs_per_sec) {
   barrier();
 
   // Wait for the workers to finish.
-  for (auto& t : th) t.join();
+  for (auto &t : th) t.join();
 
   // |--- end experiment duration timing ---|
   barrier();
@@ -407,13 +407,13 @@ std::vector<double> RunExperiment(double req_rate, double* reqs_per_sec) {
   barrier();
 
   // Close the connections.
-  for (auto& c : conns) KillConn(c);
+  for (auto &c : conns) KillConn(c);
 
   // Aggregate all the latency timings together.
   uint64_t total = 0;
   std::vector<double> timings;
   for (int i = 0; i < threads; ++i) {
-    auto& v = *samples[i];
+    auto &v = *samples[i];
     total += v.size();
     if (v.size() <= kDiscardSamples * 2)
       panic("not enough samples (%ld <= %ld)\n", v.size(), kDiscardSamples * 2);
@@ -464,7 +464,7 @@ void ClientHandler() {
 
 }  // anonymous namespace
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   int err = time_init();
   if (err) { return err; }
 

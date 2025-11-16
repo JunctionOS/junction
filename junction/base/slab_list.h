@@ -20,16 +20,16 @@ class SlabList {
     using iterator_category = std::random_access_iterator_tag;
     using difference_type = ssize_t;
     using value_type = std::byte;
-    using pointer = std::byte*;
-    using reference = std::byte&;
+    using pointer = std::byte *;
+    using reference = std::byte &;
 
     iterator() {}
-    explicit iterator(SlabList* sl, size_t idx) : sl_(sl), idx_(idx) {}
+    explicit iterator(SlabList *sl, size_t idx) : sl_(sl), idx_(idx) {}
     reference operator*() const { return *(sl_->get_ptr(idx_)); }
     pointer operator->() const { return sl_->get_ptr(idx_); }
 
     // Prefix increment
-    iterator& operator++() {
+    iterator &operator++() {
       ++idx_;
       return *this;
     }
@@ -48,7 +48,7 @@ class SlabList {
     }
 
     // Prefix decrement
-    iterator& operator--() {
+    iterator &operator--() {
       --idx_;
       return *this;
     }
@@ -60,22 +60,22 @@ class SlabList {
       return tmp;
     }
 
-    friend bool operator==(const iterator& a, const iterator& b) {
+    friend bool operator==(const iterator &a, const iterator &b) {
       return a.idx_ == b.idx_;
     };
-    friend bool operator!=(const iterator& a, const iterator& b) {
+    friend bool operator!=(const iterator &a, const iterator &b) {
       return a.idx_ != b.idx_;
     };
-    friend size_t operator-(const iterator& a, const iterator& b) {
+    friend size_t operator-(const iterator &a, const iterator &b) {
       return a.idx_ - b.idx_;
     };
-    friend bool operator<(const iterator& a, const iterator& b) {
+    friend bool operator<(const iterator &a, const iterator &b) {
       return a.idx_ < b.idx_;
     };
     friend const_iterator;
 
    private:
-    SlabList* sl_{nullptr};
+    SlabList *sl_{nullptr};
     size_t idx_{-1};
   };
 
@@ -83,17 +83,17 @@ class SlabList {
     using iterator_category = std::random_access_iterator_tag;
     using difference_type = ssize_t;
     using value_type = const std::byte;
-    using pointer = const std::byte*;
-    using reference = const std::byte&;
+    using pointer = const std::byte *;
+    using reference = const std::byte &;
 
     const_iterator() {}
-    explicit const_iterator(SlabList* sl, size_t idx) : sl_(sl), idx_(idx) {}
-    const_iterator(const const_iterator& it) : sl_(it.sl_), idx_(it.idx_) {}
+    explicit const_iterator(SlabList *sl, size_t idx) : sl_(sl), idx_(idx) {}
+    const_iterator(const const_iterator &it) : sl_(it.sl_), idx_(it.idx_) {}
     reference operator*() const { return (*sl_)[idx_]; }
     pointer operator->() const { return sl_->get_ptr(idx_); }
 
     // Prefix increment
-    const_iterator& operator++() {
+    const_iterator &operator++() {
       idx_++;
       return *this;
     }
@@ -114,7 +114,7 @@ class SlabList {
     }
 
     // Prefix decrement
-    const_iterator& operator--() {
+    const_iterator &operator--() {
       idx_--;
       return *this;
     }
@@ -126,18 +126,18 @@ class SlabList {
       return tmp;
     }
 
-    friend bool operator==(const const_iterator& a, const const_iterator& b) {
+    friend bool operator==(const const_iterator &a, const const_iterator &b) {
       return a.idx_ == b.idx_;
     };
-    friend bool operator!=(const const_iterator& a, const const_iterator& b) {
+    friend bool operator!=(const const_iterator &a, const const_iterator &b) {
       return a.idx_ != b.idx_;
     };
-    friend size_t operator-(const const_iterator& a, const const_iterator& b) {
+    friend size_t operator-(const const_iterator &a, const const_iterator &b) {
       return a.idx_ - b.idx_;
     };
 
    private:
-    SlabList* sl_{nullptr};
+    SlabList *sl_{nullptr};
     size_t idx_{-1};
   };
 
@@ -163,26 +163,26 @@ class SlabList {
     size_ = size;
   }
 
-  std::byte& operator[](int idx) { return *(get_ptr(idx)); }
+  std::byte &operator[](int idx) { return *(get_ptr(idx)); }
 
-  std::byte* get_ptr(size_t idx) {
+  std::byte *get_ptr(size_t idx) {
     // Note: No bounds checks are performed.
     const size_t block = idx / BlockSize;
-    return reinterpret_cast<std::byte*>(block_ptrs_[block].get()) +
+    return reinterpret_cast<std::byte *>(block_ptrs_[block].get()) +
            (idx % BlockSize);
   }
 
   size_t size() const { return size_; }
 
   template <class Archive>
-  void save(Archive& ar) const {
+  void save(Archive &ar) const {
     ar(size_, n_blocks_in_use_);
     for (size_t i = 0; i < n_blocks_in_use_; i++)
       ar(cereal::binary_data(block_ptrs_[i].get(), BlockSize));
   }
 
   template <class Archive>
-  void load(Archive& ar) {
+  void load(Archive &ar) {
     ar(size_, n_blocks_in_use_);
     block_ptrs_.resize(n_blocks_in_use_);
     for (size_t i = 0; i < n_blocks_in_use_; i++) {

@@ -20,7 +20,7 @@ extern "C" [[noreturn]] void __nosave_switch_preempt_enable(thread_fn_t fn,
                                                             uint64_t arg0);
 
 extern "C" [[noreturn]] void __nosave_switch_setui(void (*fn)(void),
-                                                   void* stack,
+                                                   void *stack,
                                                    uint64_t arg0 = 0);
 
 extern "C" void _stack_switch_link(uint64_t arg0, uint64_t stack,
@@ -31,14 +31,14 @@ namespace junction {
 inline constexpr size_t kStackAlign = 16;
 inline constexpr size_t kRedzoneSize = 128;
 
-[[noreturn]] inline void nosave_switch_preempt_enable(thread_tf& tf) {
+[[noreturn]] inline void nosave_switch_preempt_enable(thread_tf &tf) {
   __nosave_switch_preempt_enable(reinterpret_cast<thread_fn_t>(tf.rip), tf.rsp,
                                  tf.rdi);
 }
 
-[[noreturn]] inline void nosave_switch_interrupt_enable(thread_tf& tf) {
+[[noreturn]] inline void nosave_switch_interrupt_enable(thread_tf &tf) {
   __nosave_switch_setui(reinterpret_cast<void (*)()>(tf.rip),
-                        reinterpret_cast<void*>(tf.rsp), tf.rdi);
+                        reinterpret_cast<void *>(tf.rsp), tf.rdi);
 }
 
 __always_inline __nofp constexpr uintptr_t AlignForFunctionEntry(
@@ -68,19 +68,19 @@ __always_inline __nofp bool IsOnStack(uint64_t cur_rsp, uint64_t top,
   return cur_rsp > top && cur_rsp <= bottom;
 }
 
-__always_inline __nofp bool IsOnStack(uint64_t cur_rsp, const stack_t& ss) {
+__always_inline __nofp bool IsOnStack(uint64_t cur_rsp, const stack_t &ss) {
   uint64_t top = reinterpret_cast<uint64_t>(ss.ss_sp);
   return IsOnStack(cur_rsp, top, top + ss.ss_size);
 }
 
 __always_inline __nofp bool IsOnStack(uint64_t cur_rsp,
-                                      const struct stack& ss) {
+                                      const struct stack &ss) {
   uint64_t top = reinterpret_cast<uint64_t>(&ss.usable[0]);
   return IsOnStack(cur_rsp, top, top + RUNTIME_STACK_SIZE);
 }
 
 template <typename T>
-__always_inline __nofp bool IsOnStack(const T& ss) {
+__always_inline __nofp bool IsOnStack(const T &ss) {
   return IsOnStack(GetRsp(), ss);
 }
 
@@ -95,23 +95,23 @@ __always_inline __nofp bool IsOnRuntimeStack(uint64_t rsp) {
 }
 
 // returns the bottom of the local thread's syscall stack
-inline struct stack& GetSyscallStack(const thread_t* th = thread_self()) {
+inline struct stack &GetSyscallStack(const thread_t *th = thread_self()) {
   return *th->stack;
 }
 
-__always_inline __nofp void* GetXsaveArea(struct stack& stack) {
+__always_inline __nofp void *GetXsaveArea(struct stack &stack) {
   return &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE];
 }
 
 // returns the bottom of a syscall stack
 __always_inline __nofp uint64_t
-GetSyscallStackBottom(const struct stack& stack) {
-  const uint64_t* rsp = &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1];
+GetSyscallStackBottom(const struct stack &stack) {
+  const uint64_t *rsp = &stack.usable[STACK_PTR_SIZE - XSAVE_AREA_PTR_SIZE - 1];
   return reinterpret_cast<uint64_t>(rsp);
 }
 
 // returns the bottom of a thread's syscall stack
-inline uint64_t GetSyscallStackBottom(const thread_t* th = thread_self()) {
+inline uint64_t GetSyscallStackBottom(const thread_t *th = thread_self()) {
   return GetSyscallStackBottom(*th->stack);
 }
 
@@ -139,24 +139,24 @@ inline __nofp void assert_on_uintr_stack() {
 inline void assert_on_runtime_stack() { assert(on_runtime_stack()); }
 
 template <typename T, size_t Alignment = alignof(T)>
-T* AllocateOnStack(uint64_t* rsp) {
+T *AllocateOnStack(uint64_t *rsp) {
   assert(*rsp % 8 == 0);
   // rsp is always 0 mod 8.
   if constexpr (Alignment > 8)
     *rsp = AlignDown(*rsp - sizeof(T), Alignment);
   else
     *rsp -= sizeof(T);
-  return reinterpret_cast<T*>(*rsp);
+  return reinterpret_cast<T *>(*rsp);
 }
 
 template <>
-inline thread_tf* AllocateOnStack(uint64_t* rsp) {
+inline thread_tf *AllocateOnStack(uint64_t *rsp) {
   return AllocateOnStack<thread_tf, kStackAlign>(rsp);
 }
 
 template <typename T>
-T* PushToStack(uint64_t* rsp, const T& src) {
-  T* newT = AllocateOnStack<T>(rsp);
+T *PushToStack(uint64_t *rsp, const T &src) {
+  T *newT = AllocateOnStack<T>(rsp);
   new (newT) T(src);
   return newT;
 }
@@ -170,16 +170,16 @@ T* PushToStack(uint64_t* rsp, const T& src) {
 // stack, since a kernel signal may be delivered at the bottom of the signal
 // stack once we switch.
 template <typename Callable, typename... Args>
-__noreturn void __RunOnStackAtPostMove(uint64_t rsp, Callable&& func,
-                                       Args&&... args) {
+__noreturn void __RunOnStackAtPostMove(uint64_t rsp, Callable &&func,
+                                       Args &&...args) {
   using Data = rt::thread_internal::basic_data;
   using Wrapper = rt::thread_internal::Wrapper<Data, Callable, Args...>;
 
   Wrapper w(std::forward<Callable>(func), std::forward<Args>(args)...);
   rsp = AlignDown(rsp, 16) - 8;
 
-  auto f = [](void* arg) {
-    Wrapper* w = reinterpret_cast<Wrapper*>(arg);
+  auto f = [](void *arg) {
+    Wrapper *w = reinterpret_cast<Wrapper *>(arg);
     Wrapper wmove(std::move(*w));
     wmove.Run();
     std::unreachable();
@@ -196,17 +196,17 @@ __noreturn void __RunOnStackAtPostMove(uint64_t rsp, Callable&& func,
 // stack is switched so that interrupts don't overwrite the data on the syscall
 // stack.
 template <typename Callable, typename... Args>
-__noreturn void __RunOnStackAtPreMove(uint64_t rsp, Callable&& func,
-                                      Args&&... args) {
+__noreturn void __RunOnStackAtPreMove(uint64_t rsp, Callable &&func,
+                                      Args &&...args) {
   using Data = rt::thread_internal::basic_data;
   using Wrapper = rt::thread_internal::Wrapper<Data, Callable, Args...>;
 
-  Wrapper* buf = AllocateOnStack<Wrapper>(&rsp);
+  Wrapper *buf = AllocateOnStack<Wrapper>(&rsp);
   new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
   rsp = AlignDown(rsp, 16) - 8;
 
-  auto f = [](void* arg) {
-    Wrapper* w = reinterpret_cast<Wrapper*>(arg);
+  auto f = [](void *arg) {
+    Wrapper *w = reinterpret_cast<Wrapper *>(arg);
     w->Run();
   };
 
@@ -215,8 +215,8 @@ __noreturn void __RunOnStackAtPreMove(uint64_t rsp, Callable&& func,
 }
 
 template <typename Callable, typename... Args>
-__noreturn void __RunOnStackPostMove(stack& stack, size_t reserved,
-                                     Callable&& func, Args&&... args)
+__noreturn void __RunOnStackPostMove(stack &stack, size_t reserved,
+                                     Callable &&func, Args &&...args)
   requires std::invocable<Callable, Args...>
 {
   // Just run the function if we're already on the stack
@@ -233,8 +233,8 @@ __noreturn void __RunOnStackPostMove(stack& stack, size_t reserved,
 }
 
 template <typename Callable, typename... Args>
-auto __CallOnStack(stack& stack, size_t reserved, Callable&& func,
-                   Args&&... args)
+auto __CallOnStack(stack &stack, size_t reserved, Callable &&func,
+                   Args &&...args)
   requires std::invocable<Callable, Args...>
 {
   using Data = rt::thread_internal::basic_data;
@@ -251,8 +251,8 @@ auto __CallOnStack(stack& stack, size_t reserved, Callable&& func,
   Wrapper w(std::forward<Callable>(func), std::forward<Args>(args)...);
   rsp = AlignDown(rsp, 16) - 8;
 
-  auto f = [](void* arg) {
-    Wrapper* w = reinterpret_cast<Wrapper*>(arg);
+  auto f = [](void *arg) {
+    Wrapper *w = reinterpret_cast<Wrapper *>(arg);
     w->Run();
   };
 
@@ -261,15 +261,15 @@ auto __CallOnStack(stack& stack, size_t reserved, Callable&& func,
 }
 
 template <typename Callable, typename... Args>
-__noreturn void RunOnStackAtFromSignalStack(uint64_t rsp, Callable&& func,
-                                            Args&&... args) {
+__noreturn void RunOnStackAtFromSignalStack(uint64_t rsp, Callable &&func,
+                                            Args &&...args) {
   assert_preempt_disabled();
   __RunOnStackAtPreMove(rsp, std::forward<Callable>(func),
                         std::forward<Args>(args)...);
 }
 
 template <typename Callable, typename... Args>
-__noreturn void RunOnSyscallStack(Callable&& func, Args&&... args)
+__noreturn void RunOnSyscallStack(Callable &&func, Args &&...args)
   requires std::invocable<Callable, Args...>
 {
   assert(!on_runtime_stack());
@@ -279,7 +279,7 @@ __noreturn void RunOnSyscallStack(Callable&& func, Args&&... args)
 }
 
 template <typename Callable, typename... Args>
-auto CallOnSyscallStack(Callable&& func, Args&&... args)
+auto CallOnSyscallStack(Callable &&func, Args &&...args)
   requires std::invocable<Callable, Args...>
 {
   return __CallOnStack(GetSyscallStack(), 2 * XSAVE_AREA_SIZE + kRedzoneSize,

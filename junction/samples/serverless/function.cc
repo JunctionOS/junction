@@ -4,9 +4,9 @@
 #include <string>
 #include <unordered_map>
 
-constexpr const char* CHANNEL_PATH = "/serverless/chan0";
-constexpr const char* SNAPSHOT_REQ = "SNAPSHOT_PREPARE";
-constexpr const char* OK = "OK";
+constexpr const char *CHANNEL_PATH = "/serverless/chan0";
+constexpr const char *SNAPSHOT_REQ = "SNAPSHOT_PREPARE";
+constexpr const char *OK = "OK";
 
 namespace {
 
@@ -56,7 +56,7 @@ void GetUserHandler(int user_id) {
   } catch (...) { channel << "User not found"; }
 }
 
-void AddUserHandler(const std::string& name) {
+void AddUserHandler(const std::string &name) {
   users.insert({count, name});
   channel << "Added {" << count << ": " << name << "}";
   count++;

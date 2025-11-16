@@ -36,7 +36,7 @@ struct join_data {
 template <typename Data, typename Callable, typename... Args>
 class WrapperBase : public Data {
  public:
-  WrapperBase(Callable&& func, Args&&... args) noexcept
+  WrapperBase(Callable &&func, Args &&...args) noexcept
       : func_(std::forward<Callable>(func)),
         args_(std::forward<Args>(args)...) {}
   ~WrapperBase() override = default;
@@ -113,7 +113,7 @@ class AsyncBase {
 
 template <typename T>
 struct async_state {
-  void set_value(T&& value) {
+  void set_value(T &&value) {
     value_ = std::move(value);
     base_.Notify();
   }
@@ -123,14 +123,14 @@ struct async_state {
 };
 
 template <typename T>
-struct async_state<T&> {
-  void set_value(T& value) {
+struct async_state<T &> {
+  void set_value(T &value) {
     value_ = value;
     base_.Notify();
   }
 
   AsyncBase base_;
-  T& value_;
+  T &value_;
 };
 
 template <>
@@ -143,8 +143,8 @@ struct async_state<void> {
 template <typename Ret, typename Callable, typename... Args>
 class AsyncWrapper : public basic_data {
  public:
-  AsyncWrapper(async_state<Ret>* state, Callable&& func,
-               Args&&... args) noexcept
+  AsyncWrapper(async_state<Ret> *state, Callable &&func,
+               Args &&...args) noexcept
       : state_(state),
         func_(std::forward<Callable>(func)),
         args_{std::forward<Args>(args)...} {}
@@ -160,13 +160,13 @@ class AsyncWrapper : public basic_data {
   }
 
  private:
-  async_state<Ret>* state_;
+  async_state<Ret> *state_;
   std::decay_t<Callable> func_;
   std::tuple<std::decay_t<Args>...> args_;
 };
 
-extern "C" void ThreadTrampoline(void* arg);
-extern "C" void ThreadTrampolineWithJoin(void* arg);
+extern "C" void ThreadTrampoline(void *arg);
+extern "C" void ThreadTrampolineWithJoin(void *arg);
 
 template <typename Callable, typename... Args>
 using ret_t =
@@ -182,13 +182,13 @@ inline void Yield() { thread_yield(); }
 
 // Spawns a new thread.
 template <typename Callable, typename... Args>
-void Spawn(Callable&& func, Args&&... args)
+void Spawn(Callable &&func, Args &&...args)
   requires std::invocable<Callable, Args...>
 {
-  void* buf;
+  void *buf;
   using Data = thread_internal::basic_data;
   using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
-  thread_t* th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
+  thread_t *th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
                                         sizeof(Wrapper));
   if (unlikely(!th)) BUG();
   new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
@@ -197,13 +197,13 @@ void Spawn(Callable&& func, Args&&... args)
 
 // Spawns a new thread at the head of the runqueue.
 template <typename Callable, typename... Args>
-void SpawnHead(Callable&& func, Args&&... args)
+void SpawnHead(Callable &&func, Args &&...args)
   requires std::invocable<Callable, Args...>
 {
-  void* buf;
+  void *buf;
   using Data = thread_internal::basic_data;
   using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
-  thread_t* th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
+  thread_t *th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
                                         sizeof(Wrapper));
   if (unlikely(!th)) BUG();
   new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
@@ -215,7 +215,7 @@ template <typename T>
 class Future {
  public:
   template <typename Callable, typename... Args>
-  friend auto Async(Callable&& func, Args&&... args)
+  friend auto Async(Callable &&func, Args &&...args)
     requires std::invocable<Callable, Args...>;
 
   Future() noexcept = default;
@@ -224,12 +224,12 @@ class Future {
   }
 
   // disable copy.
-  Future(const Future&) = delete;
-  Future& operator=(const Future&) = delete;
+  Future(const Future &) = delete;
+  Future &operator=(const Future &) = delete;
 
   // Move support.
-  Future(Future&& t) noexcept : state_(std::move(t.state_)) {}
-  Future& operator=(Future&& t) noexcept {
+  Future(Future &&t) noexcept : state_(std::move(t.state_)) {}
+  Future &operator=(Future &&t) noexcept {
     state_ = std::move(t.state_);
     return *this;
   }
@@ -263,13 +263,13 @@ class Future {
 
 // Spawns a new thread and provides its return value as a future.
 template <typename Callable, typename... Args>
-auto Async(Callable&& func, Args&&... args)
+auto Async(Callable &&func, Args &&...args)
   requires std::invocable<Callable, Args...>
 {
-  void* buf;
+  void *buf;
   using Ret = thread_internal::ret_t<Callable, Args...>;
   using Wrapper = thread_internal::AsyncWrapper<Ret, Callable, Args...>;
-  thread_t* th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
+  thread_t *th = thread_create_with_buf(thread_internal::ThreadTrampoline, &buf,
                                         sizeof(Wrapper));
   if (unlikely(!th)) BUG();
   auto state = std::make_unique<thread_internal::async_state<Ret>>();
@@ -289,14 +289,14 @@ class Thread {
   }
 
   // disable copy.
-  Thread(const Thread&) = delete;
-  Thread& operator=(const Thread&) = delete;
+  Thread(const Thread &) = delete;
+  Thread &operator=(const Thread &) = delete;
 
   // Move support.
-  Thread(Thread&& t) noexcept : join_data_(t.join_data_) {
+  Thread(Thread &&t) noexcept : join_data_(t.join_data_) {
     t.join_data_ = nullptr;
   }
-  Thread& operator=(Thread&& t) noexcept {
+  Thread &operator=(Thread &&t) noexcept {
     join_data_ = t.join_data_;
     t.join_data_ = nullptr;
     return *this;
@@ -304,7 +304,7 @@ class Thread {
 
   // Spawns a thread that runs the callable with the supplied arguments.
   template <typename Callable, typename... Args>
-  Thread(Callable&& func, Args&&... args)
+  Thread(Callable &&func, Args &&...args)
     requires std::invocable<Callable, Args...>;
 
   // Can the thread be joined?
@@ -317,19 +317,19 @@ class Thread {
   void Detach();
 
  private:
-  thread_internal::join_data* join_data_{nullptr};
+  thread_internal::join_data *join_data_{nullptr};
 };
 
 template <typename Callable, typename... Args>
-inline Thread::Thread(Callable&& func, Args&&... args)
+inline Thread::Thread(Callable &&func, Args &&...args)
   requires std::invocable<Callable, Args...>
 {
   using Data = thread_internal::join_data;
   using Wrapper = thread_internal::Wrapper<Data, Callable, Args...>;
-  Wrapper* buf;
-  thread_t* th =
+  Wrapper *buf;
+  thread_t *th =
       thread_create_with_buf(thread_internal::ThreadTrampolineWithJoin,
-                             reinterpret_cast<void**>(&buf), sizeof(*buf));
+                             reinterpret_cast<void **>(&buf), sizeof(*buf));
   if (unlikely(!th)) BUG();
   new (buf) Wrapper(std::forward<Callable>(func), std::forward<Args>(args)...);
   join_data_ = buf;

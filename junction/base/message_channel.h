@@ -21,7 +21,7 @@ struct Message {
   T aux_data;
   std::vector<std::byte> data;
   template <class Archive>
-  void serialize(Archive& ar) {
+  void serialize(Archive &ar) {
     ar(flags, aux_data, data);
   }
 };
@@ -31,7 +31,7 @@ struct Message<void> {
   uint64_t flags{0};
   std::vector<std::byte> data;
   template <class Archive>
-  void serialize(Archive& ar) {
+  void serialize(Archive &ar) {
     ar(flags, data);
   }
 };
@@ -47,10 +47,10 @@ class MessageChannel {
   ~MessageChannel() = default;
 
   // disable copy and move.
-  MessageChannel(const MessageChannel&) = delete;
-  MessageChannel& operator=(const MessageChannel&) = delete;
-  MessageChannel(MessageChannel&& c) = delete;
-  MessageChannel& operator=(MessageChannel&& c) = delete;
+  MessageChannel(const MessageChannel &) = delete;
+  MessageChannel &operator=(const MessageChannel &) = delete;
+  MessageChannel(MessageChannel &&c) = delete;
+  MessageChannel &operator=(MessageChannel &&c) = delete;
 
   // Returns true if the channel is empty. Should only be called by the reader.
   [[nodiscard]] bool is_empty() const;
@@ -62,7 +62,7 @@ class MessageChannel {
   [[nodiscard]] static constexpr bool has_aux() { return !std::is_void_v<T>; }
 
   // Reads bytes out of the channel. May return less than the bytes available.
-  Status<size_t> Read(std::span<std::byte> buf, T* aux_out = nullptr,
+  Status<size_t> Read(std::span<std::byte> buf, T *aux_out = nullptr,
                       bool peek = false);
 
   Status<size_t> Read(std::span<std::byte> buf, bool peek = false) {
@@ -71,19 +71,19 @@ class MessageChannel {
 
   // Writes bytes in to the channel.
   Status<size_t> Write(std::span<const std::byte> buf,
-                       const T* aux_in = nullptr);
-  Status<size_t> Readv(std::span<iovec> iov, bool peek, T* aux_out = nullptr);
-  Status<size_t> Writev(std::span<const iovec> iov, const T* aux_in = nullptr);
+                       const T *aux_in = nullptr);
+  Status<size_t> Readv(std::span<iovec> iov, bool peek, T *aux_out = nullptr);
+  Status<size_t> Writev(std::span<const iovec> iov, const T *aux_in = nullptr);
 
   template <class Archive>
-  void save(Archive& ar) const {
+  void save(Archive &ar) const {
     size_t nr_msg = in_ - out_;
     ar(nr_msg);
     for (size_t cur = out_; cur != in_; cur++) ar(msgs_[cur & mask_]);
   }
 
   template <class Archive>
-  void load(Archive& ar) {
+  void load(Archive &ar) {
     // Assume we have already been constructed with the proper size.
     ar(in_);
     for (size_t i = 0; i < in_; i++) ar(msgs_[i]);
@@ -112,13 +112,13 @@ inline bool MessageChannel<T>::is_full() const {
 
 template <typename T>
 inline Status<size_t> MessageChannel<T>::Read(std::span<std::byte> buf,
-                                              T* aux_out, bool peek) {
+                                              T *aux_out, bool peek) {
   size_t in = in_.load(std::memory_order_acquire);
   size_t out = out_.load(std::memory_order_relaxed);
 
   if (in == out) return MakeError(EAGAIN);
 
-  Message<T>& src_msg = msgs_[out & mask_];
+  Message<T> &src_msg = msgs_[out & mask_];
   size_t to_copy = std::min(buf.size(), src_msg.data.size());
   std::copy_n(std::begin(src_msg.data), to_copy, buf.begin());
 
@@ -134,14 +134,14 @@ inline Status<size_t> MessageChannel<T>::Read(std::span<std::byte> buf,
 
 template <typename T>
 inline Status<size_t> MessageChannel<T>::Write(std::span<const std::byte> buf,
-                                               const T* aux_in) {
+                                               const T *aux_in) {
   size_t in = in_.load(std::memory_order_relaxed);
   size_t out = out_.load(std::memory_order_acquire);
 
   assert(buf.size() > 0);
 
   if (in - out >= size_) return MakeError(EAGAIN);
-  Message<T>& dst_msg = msgs_[in & mask_];
+  Message<T> &dst_msg = msgs_[in & mask_];
   dst_msg.data.assign(buf.begin(), buf.end());
 
   if constexpr (has_aux())
@@ -153,13 +153,13 @@ inline Status<size_t> MessageChannel<T>::Write(std::span<const std::byte> buf,
 
 template <typename T>
 inline Status<size_t> MessageChannel<T>::Readv(std::span<iovec> iov, bool peek,
-                                               T* aux_out) {
+                                               T *aux_out) {
   size_t in = in_.load(std::memory_order_acquire);
   size_t out = out_.load(std::memory_order_relaxed);
 
   if (in == out) return MakeError(EAGAIN);
 
-  Message<T>& src_msg = msgs_[out & mask_];
+  Message<T> &src_msg = msgs_[out & mask_];
   if (!iov.size()) return MakeError(EINVAL);
   size_t read = GenericReadv(src_msg.data, iov);
 
@@ -175,13 +175,13 @@ inline Status<size_t> MessageChannel<T>::Readv(std::span<iovec> iov, bool peek,
 
 template <typename T>
 inline Status<size_t> MessageChannel<T>::Writev(std::span<const iovec> iov,
-                                                const T* aux_in) {
+                                                const T *aux_in) {
   size_t in = in_.load(std::memory_order_relaxed);
   size_t out = out_.load(std::memory_order_acquire);
 
   if (in - out >= size_) return MakeError(EAGAIN);
 
-  Message<T>& dst_msg = msgs_[in & mask_];
+  Message<T> &dst_msg = msgs_[in & mask_];
 
   size_t msg_len = SumIOV(iov);
   if (unlikely(msg_len == 0)) return MakeError(EINVAL);

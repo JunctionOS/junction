@@ -8,7 +8,7 @@
 #include <vector>
 
 constexpr int PORT = 43;
-constexpr const char* HOST = "192.168.127.7";
+constexpr const char *HOST = "192.168.127.7";
 
 namespace {
 
@@ -30,7 +30,7 @@ bool ConnectToServer() {
   }
 
   std::cout << "Connecting to " << HOST << ":" << PORT << "...\n";
-  if (connect(fd, reinterpret_cast<sockaddr*>(&server_addr),
+  if (connect(fd, reinterpret_cast<sockaddr *>(&server_addr),
               sizeof(server_addr)) < 0) {
     std::cerr << "Failed to connect to server\n";
     return false;
@@ -40,9 +40,9 @@ bool ConnectToServer() {
 
 void CloseConnection() { close(fd); }
 
-bool WriteRequest(const std::string& req) {
+bool WriteRequest(const std::string &req) {
   std::cout << "Sending: " << req << "\n";
-  const char* data = req.c_str();
+  const char *data = req.c_str();
   uint64_t len = req.length();
 
   if (write(fd, &len, sizeof(len)) != sizeof(len)) {
@@ -57,7 +57,7 @@ bool WriteRequest(const std::string& req) {
   return true;
 }
 
-bool ReadResponse(std::string& res) {
+bool ReadResponse(std::string &res) {
   uint64_t len = 0;
   if (read(fd, &len, sizeof(len)) != sizeof(len)) {
     std::cerr << "Failed to read response length\n";
@@ -79,7 +79,7 @@ bool ReadResponse(std::string& res) {
 
 }  // namespace
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
   if (argc < 2) {
     std::cerr << "Usage: ./client \"Your request string\"\n";
     return 1;
