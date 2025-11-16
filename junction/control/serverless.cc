@@ -22,7 +22,7 @@ rt::SharedMutex lock_;
 std::unordered_map<int, std::shared_ptr<FunctionInode>> channels_;
 
 std::string from_byte_span(std::span<const std::byte> byte_span) {
-  return std::string(reinterpret_cast<const char *>(byte_span.data()),
+  return std::string(reinterpret_cast<const char*>(byte_span.data()),
                      byte_span.size());
 }
 
@@ -155,7 +155,7 @@ class FunctionChannel {
   }
 
   template <class Archive>
-  void serialize(Archive &ar) {
+  void serialize(Archive& ar) {
     ar(latencies_us_);
   }
 
@@ -174,13 +174,13 @@ class FunctionChannel {
 
   friend class FunctionChannelFile;
 
-  void Attach(PollSource *p) {
+  void Attach(PollSource* p) {
     rt::SpinGuard g(lock_);
     pollers_.Attach(p);
     if (request_.size()) p->Set(kPollIn);
   }
 
-  void Detach(PollSource *p) {
+  void Detach(PollSource* p) {
     rt::SpinGuard g(lock_);
     pollers_.Detach(p);
   }
@@ -206,13 +206,13 @@ class FunctionInode : public Inode {
       uint32_t flags, FileMode mode,
       std::shared_ptr<DirectoryEntry> dent) override;
 
-  Status<void> GetStats(struct stat *buf) const override {
+  Status<void> GetStats(struct stat* buf) const override {
     InodeToStats(*this, buf);
     return {};
   }
 
   template <class Archive>
-  void save(Archive &ar) const {
+  void save(Archive& ar) const {
     BUG_ON(chan_.in_progress());
     ar(id_, get_inum());
     ar(cereal::base_class<Inode>(this));
@@ -220,8 +220,8 @@ class FunctionInode : public Inode {
   }
 
   template <class Archive>
-  static void load_and_construct(Archive &ar,
-                                 cereal::construct<FunctionInode> &construct) {
+  static void load_and_construct(Archive& ar,
+                                 cereal::construct<FunctionInode>& construct) {
     int id;
     ino_t inum;
     ar(id, inum);
@@ -233,8 +233,8 @@ class FunctionInode : public Inode {
         std::static_pointer_cast<FunctionInode>(construct->get_this());
   }
 
-  [[nodiscard]] FunctionChannel &get_chan() { return chan_; }
-  [[nodiscard]] const FunctionChannel &get_chan() const { return chan_; }
+  [[nodiscard]] FunctionChannel& get_chan() { return chan_; }
+  [[nodiscard]] const FunctionChannel& get_chan() const { return chan_; }
 
  private:
   int id_;
@@ -247,42 +247,41 @@ class FunctionChannelFile : public SeekableFile {
                       std::shared_ptr<DirectoryEntry> dent) noexcept
       : SeekableFile(FileType::kNormal, flags & kFlagNonblock, mode,
                      std::move(dent)) {
-    FunctionInode &ino = fast_cast<FunctionInode &>(get_inode_ref());
+    FunctionInode& ino = fast_cast<FunctionInode&>(get_inode_ref());
     ino.get_chan().Attach(&get_poll_source());
   }
 
   ~FunctionChannelFile() override {
-    FunctionInode &ino = fast_cast<FunctionInode &>(get_inode_ref());
+    FunctionInode& ino = fast_cast<FunctionInode&>(get_inode_ref());
     ino.get_chan().Detach(&get_poll_source());
   }
 
   Status<size_t> Read(std::span<std::byte> buf,
-                      [[maybe_unused]] off_t *off) override {
-    FunctionInode &ino = fast_cast<FunctionInode &>(get_inode_ref());
+                      [[maybe_unused]] off_t* off) override {
+    FunctionInode& ino = fast_cast<FunctionInode&>(get_inode_ref());
     return ino.get_chan().Read(buf, is_nonblocking());
   }
 
   Status<size_t> Write(std::span<const std::byte> buf,
-                       [[maybe_unused]] off_t *off) override {
-    FunctionInode &ino = fast_cast<FunctionInode &>(get_inode_ref());
+                       [[maybe_unused]] off_t* off) override {
+    FunctionInode& ino = fast_cast<FunctionInode&>(get_inode_ref());
     return ino.get_chan().Write(buf);
   }
 
   [[nodiscard]] Status<size_t> get_input_bytes() const override {
-    const FunctionInode &ino =
-        fast_cast<const FunctionInode &>(get_inode_ref());
+    const FunctionInode& ino = fast_cast<const FunctionInode&>(get_inode_ref());
     return ino.get_chan().get_input_bytes();
   }
 
   template <class Archive>
-  void save(Archive &ar) const {
+  void save(Archive& ar) const {
     ar(get_mode(), get_dent());
     ar(cereal::base_class<SeekableFile>(this));
   }
 
   template <class Archive>
   static void load_and_construct(
-      Archive &ar, cereal::construct<FunctionChannelFile> &construct) {
+      Archive& ar, cereal::construct<FunctionChannelFile>& construct) {
     FileMode mode;
     std::shared_ptr<DirectoryEntry> dent;
     ar(mode, dent);
@@ -304,16 +303,16 @@ std::shared_ptr<FunctionInode> get_channel(int chan) {
 }
 
 Status<void> SetupServerlessChannel(int chan) {
-  FSRoot &fs = FSRoot::GetGlobalRoot();
+  FSRoot& fs = FSRoot::GetGlobalRoot();
   rt::ScopedLock g(lock_);
 
   if (channels_.count(chan) > 0) return MakeError(EEXIST);
 
   Status<std::shared_ptr<Inode>> srvdir = LookupInode(fs, "/serverless");
-  IDir *dir;
+  IDir* dir;
   if (srvdir) {
     assert((*srvdir)->is_dir());
-    dir = static_cast<IDir *>(srvdir->get());
+    dir = static_cast<IDir*>(srvdir->get());
   } else {
     dir = memfs::MkFolder(*fs.get_root().get(), "serverless").get();
   }
@@ -325,7 +324,7 @@ Status<void> SetupServerlessChannel(int chan) {
   return {};
 }
 
-void PrintTimes(const std::vector<uint64_t> &times, std::string_view name) {
+void PrintTimes(const std::vector<uint64_t>& times, std::string_view name) {
   std::stringstream ss;
   ss << "DATA  {\"times\": [";
   for (size_t i = 0; i < times.size(); i++) {
@@ -360,7 +359,7 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
     syscall_exit(-1);
   }
 
-  FunctionChannel &chan = fino->get_chan();
+  FunctionChannel& chan = fino->get_chan();
 
 #ifdef FUNCTION_PROFILING
   std::vector<std::pair<std::string, PerfEventMon>> evmons;
@@ -416,7 +415,7 @@ void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
     syscall_exit(-1);
   }
 
-  FunctionChannel &chan = fino->get_chan();
+  FunctionChannel& chan = fino->get_chan();
 
   for (size_t i = 0; i < 10; i++) chan.DoRequest(std::string{arg});
 
@@ -454,10 +453,10 @@ pid_t GetLastBlockedTid(int chan) {
   return fino->get_chan().get_last_blocked_tid();
 }
 
-void ChannelWorker(rt::TCPConn &c) {
+void ChannelWorker(rt::TCPConn& c) {
   std::vector<std::byte> data;
   std::shared_ptr<FunctionInode> fino = get_channel(0);
-  FunctionChannel &chan = fino->get_chan();
+  FunctionChannel& chan = fino->get_chan();
 
   while (true) {
     size_t nbytes;
@@ -473,7 +472,7 @@ void ChannelWorker(rt::TCPConn &c) {
     ret = ReadFull(c, {data.data(), nbytes});
     if (unlikely(!ret)) break;
 
-    std::string req(reinterpret_cast<const char *>(data.data()), nbytes);
+    std::string req(reinterpret_cast<const char*>(data.data()), nbytes);
     std::string res = chan.DoRequest(std::move(req));
 
     nbytes = res.size();
@@ -485,10 +484,12 @@ void ChannelWorker(rt::TCPConn &c) {
   }
 }
 
-void ChannelServer(rt::TCPQueue &q) {
+void ChannelServer(rt::TCPQueue& q) {
   while (true) {
+    LOG(INFO) << "waiting for client connection...";
     Status<rt::TCPConn> c = q.Accept();
     if (!c) panic("couldn't accept a connection");
+    LOG(INFO) << "client connected, spawning a channel worker";
     rt::Spawn([c = std::move(*c)] mutable { ChannelWorker(c); });
   }
 }
@@ -496,6 +497,7 @@ void ChannelServer(rt::TCPQueue &q) {
 Status<void> InitChannelClient() {
   Status<rt::TCPQueue> q = rt::TCPQueue::Listen({0, kChannelPort}, 4096);
   if (!q) return MakeError(q);
+  LOG(INFO) << "started channel client on port " << kChannelPort;
 
   rt::Spawn([q = std::move(*q)] mutable { ChannelServer(q); });
   return {};
