@@ -1,17 +1,21 @@
+#include "gateway.h"
+
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
 #include <cstdio>
+#include <cstring>
 #include <ios>
 #include <iostream>
 #include <thread>
 
+constexpr const char *GATEWAY_IP = "10.10.1.1";
 constexpr int GATEWAY_PORT = 8080;
-constexpr const char *FUNCTION_IP = "10.10.1.3";
 constexpr int FUNCTION_PORT = 43;
 constexpr int REQ_BUF_SIZE = 4096;
+constexpr int RES_BUF_SIZE = 1024;
 
 namespace {
 
@@ -54,23 +58,39 @@ bool InitGateway() {
   return true;
 }
 
-bool ConnectToFunctionServer() {
+/**
+ * @brief Connect to function server
+ *
+ * @return
+ */
+bool ConnectToFunctionServer(const char *buf) {
   func_fd = socket(AF_INET, SOCK_STREAM, 0);
   if (func_fd < 0) {
-    std::cerr << "Failed to create socket with function server\n";
+    std::cerr << "Failed to create socket for function server\n";
+    return false;
+  }
+
+  // route to correct function server
+  std::string function_ip;
+  if (std::strstr(buf, "/user") != nullptr) {
+    function_ip = "10.10.1.3";
+  } else if (std::strstr(buf, "/followers") != nullptr) {
+    function_ip = "10.10.1.4";
+  } else {
+    std::cerr << "Invalid request to function server\n";
     return false;
   }
 
   sockaddr_in server_addr;
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(FUNCTION_PORT);
-  if (inet_pton(AF_INET, FUNCTION_IP, &server_addr.sin_addr) <= 0) {
+  if (inet_pton(AF_INET, function_ip.c_str(), &server_addr.sin_addr) <= 0) {
     std::cerr << "Failed to set function server IP address\n";
     close(func_fd);
     return false;
   }
 
-  std::cout << std::unitbuf << "[Gateway] Connecting to " << FUNCTION_IP << ":"
+  std::cout << std::unitbuf << "[Gateway] Connecting to " << function_ip << ":"
             << FUNCTION_PORT << "...\n";
   if (connect(func_fd, reinterpret_cast<sockaddr *>(&server_addr),
               sizeof(server_addr)) < 0) {
@@ -79,7 +99,7 @@ bool ConnectToFunctionServer() {
     return false;
   }
 
-  std::cout << std::unitbuf << "[Gateway] Connected to " << FUNCTION_IP << ":"
+  std::cout << std::unitbuf << "[Gateway] Connected to " << function_ip << ":"
             << FUNCTION_PORT << "\n";
   return true;
 }
@@ -104,7 +124,7 @@ ssize_t ReadResponseFromFunc(char *buf) {
             << "[Gateway] Waiting for response from function server...\n";
   ssize_t len = 0;
   if (read(func_fd, &len, sizeof(len)) != sizeof(len)) {
-    std::cerr << "Failed to read response lenght\n";
+    std::cerr << "Failed to read response length\n";
     return -1;
   }
 
@@ -153,7 +173,7 @@ void ProcessRequest(int client_fd) {
     return;
   }
 
-  if (!ConnectToFunctionServer()) {
+  if (!ConnectToFunctionServer(buffer)) {
     close(client_fd);
     return;
   }
@@ -188,6 +208,50 @@ void HandleRequest() {
     // TODO: mutex for fd
     std::thread(ProcessRequest, new_socket).detach();
   }
+}
+
+/**
+ * @brief Call the gateway from a function when there is a function-to-function
+ * invocation.
+ *
+ * @param req
+ * @return response
+ */
+std::string CallGateway(const std::string &req) {
+  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  if (fd < 0) {
+    std::cerr << "Failed to create socket with gateway\n";
+    return "Failed";
+  }
+
+  sockaddr_in addr;
+  addr.sin_family = AF_INET;
+  addr.sin_port = htons(GATEWAY_PORT);
+  if (inet_pton(AF_INET, GATEWAY_IP, &addr.sin_addr) <= 0) {
+    std::cerr << "Failed to set gateway IP address\n";
+    close(fd);
+    return "Failed";
+  }
+
+  if (connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
+    std::cerr << "Failed to connect to gateway\n";
+    close(fd);
+    return "Failed";
+  }
+
+  if (write(fd, req.c_str(), req.length()) != req.length()) {
+    std::cerr << "Failed to write request to gateway\n";
+    return "Failed";
+  }
+
+  char res[RES_BUF_SIZE];
+  ssize_t n = read(fd, res, RES_BUF_SIZE - 1);
+  if (n < 0) {
+    std::cerr << "Failed to read response from gateway\n";
+    return "Failed";
+  }
+  res[n] = '\0';
+  return res;
 }
 }  // namespace
 

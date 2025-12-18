@@ -10,8 +10,14 @@ runtime_priority lc
 runtime_quantum_us 0"
 )
 
-set(caladan_function_config
+set(caladan_user_service_config
 "host_addr 10.10.1.3
+host_gateway 10.10.1.2
+${caladan_config_common}"
+)
+
+set(caladan_follower_service_config
+"host_addr 10.10.1.4
 host_gateway 10.10.1.2
 ${caladan_config_common}"
 )
@@ -28,10 +34,15 @@ host_gateway 10.10.1.2
 ${caladan_config_common}"
 )
 
-set(caladan_function_config_path
-    ${CMAKE_CURRENT_BINARY_DIR}/caladan_function.config
+set(caladan_user_service_config_path
+    ${CMAKE_CURRENT_BINARY_DIR}/caladan_user_service.config
 )
-file(WRITE ${caladan_function_config_path} ${caladan_function_config})
+file(WRITE ${caladan_user_service_config_path} ${caladan_user_service_config})
+
+set(caladan_follower_service_config_path
+    ${CMAKE_CURRENT_BINARY_DIR}/caladan_follower_service.config
+)
+file(WRITE ${caladan_follower_service_config_path} ${caladan_follower_service_config})
 
 set(caladan_client_config_path
     ${CMAKE_CURRENT_BINARY_DIR}/caladan_client.config
@@ -43,9 +54,14 @@ set(caladan_gateway_config_path
 )
 file(WRITE ${caladan_gateway_config_path} ${caladan_gateway_config})
 
-# function
-add_executable(function 
-    function.cc
+# user service
+add_executable(user_service 
+    user_service.cc
+)
+
+# follower service
+add_executable(follower_service 
+    follower_service.cc
 )
 
 # client

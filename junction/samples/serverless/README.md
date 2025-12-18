@@ -19,24 +19,50 @@ cd ./build/junction
 ./junction_run ./samples/serverless/caladan_gateway.config --function_name gateway --keep_alive -- ./samples/serverless/gateway
 ```
 
-### Function
+### Functions
 
-Open a new terminal and follow these steps.
+There are two services, `user_service` and `follower_service`.
 
-This will warmup the function.
+For each service, open a new terminal and follow these steps to start a junction instance.
+
+Go to build directory.
 
 ```bash
 cd ./build/junction
-./junction_run ./samples/serverless/caladan_function.config --function_name function_warmup --function_arg warmup_data -- ./samples/serverless/function
+```
+
+This will warmup the function.
+
+#### user_service
+
+```bash
+./junction_run ./samples/serverless/caladan_user_service.config --function_name user_warmup --function_arg warmup_data --snapshot-prefix user -- ./samples/serverless/user_service
+```
+
+#### follower_service
+
+```bash
+./junction_run ./samples/serverless/caladan_follower_service.config --function_name follower_warmup --function_arg warmup_data --snapshot-prefix follower -- ./samples/serverless/follower_service
 ```
 
 After the warmup completes, run in restored mode to continue from the main function. We will set the `keep_alive` flag to keep the channel alive to listen for client requests.
 
+#### user_service
+
 ```bash
-./junction_run ./samples/serverless/caladan_function.config --restore --function_name function --function_arg restore --keep_alive -- .metadata .elf
+./junction_run ./samples/serverless/caladan_user_service.config --restore --function_name user_service --function_arg restore --keep_alive -- user.metadata user.elf
 ```
 
-The function is able to get or add users. The valid requests are `GET /user/{id}` and `POST /user {name}`.  
+#### follower_service
+
+```bash
+./junction_run ./samples/serverless/caladan_follower_service.config --restore --function_name follower_service --function_arg restore  --keep_alive -- follower.metadata follower.elf
+```
+
+The `user_service` is able to get or add users. The valid requests are `GET /user/{id}` and `POST /user {name}`.
+
+The `follower_service` is able to get all followers for a certain user id with `GET /followers/{id}`.
+
 You should see the server response if it was successful.
 
 ### Client
