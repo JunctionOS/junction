@@ -1,7 +1,7 @@
-#include <fmt/core.h>
-
 #include <string>
 #include <unordered_map>
+
+#include "junction/samples/serverless/watchdog.h"
 
 namespace {
 std::unordered_map<int, std::string> users_db = {
@@ -17,16 +17,19 @@ std::string GetUserHandler(int user_id) {
 
 std::string AddUserHandler(const std::string &name) {
   users_db.insert({count, name});
+  std::string res = "Added {" + std::to_string(count) + ": " + name + "}";
   count++;
-  return fmt::format("Added {{{}: {}}}", count, name);
+  return res;
 }
 
 std::string UserLogic(const std::string &method, const std::string &path,
                       const std::string &body) {
   std::string res;
   if (method == "GET" && path.rfind("/user/", 0) == 0) {
-    int user_id = std::stoi(path.substr(6));
-    res = GetUserHandler(user_id);
+    try {
+      int user_id = std::stoi(path.substr(6));
+      res = GetUserHandler(user_id);
+    } catch (...) { res = "Invalid user id"; }
   } else if (method == "POST" && path == "/user") {
     res = AddUserHandler(body);
   } else {
@@ -37,6 +40,7 @@ std::string UserLogic(const std::string &method, const std::string &path,
 }  // namespace
 
 int main() {
-  // TODO: call watchdog with user logic
+  WatchDog w("user", UserLogic);
+  w.Run();
   return 0;
 }

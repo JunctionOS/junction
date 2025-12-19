@@ -125,7 +125,7 @@ pid_t GetLinuxPid();
 Status<void> init();
 Status<void> InitUnixTime();
 Status<void> InitControlServer();
-Status<void> InitChannelClient();
+Status<void> InitChannelClient(std::string_view name);
 Status<void> InitZpoline();
 Status<std::unique_ptr<Process>> InitTestProc();
 void MarkRuntimeReady();

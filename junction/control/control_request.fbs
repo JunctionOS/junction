@@ -15,7 +15,7 @@ table SnapshotRequest {
 table RestoreRequest {
     snapshot_path: string;
     elf_path: string;
-    chan: int32;
+    name: string;
     argument: string;
 }
 

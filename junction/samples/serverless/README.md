@@ -13,9 +13,11 @@ Make sure you have built junction using `scripts/build.sh` and the scheduler is 
 ### Gateway
 
 This will run the gateway.
-
 ```bash
 cd ./build/junction
+```
+
+```bash
 ./junction_run ./samples/serverless/caladan_gateway.config --function_name gateway --keep_alive -- ./samples/serverless/gateway
 ```
 
@@ -36,13 +38,13 @@ This will warmup the function.
 #### user_service
 
 ```bash
-./junction_run ./samples/serverless/caladan_user_service.config --function_name user_warmup --function_arg warmup_data --snapshot-prefix user -- ./samples/serverless/user_service
+./junction_run ./samples/serverless/caladan_user_service.config --function_name user --function_arg warmup_data --snapshot-prefix user -- ./samples/serverless/user_service
 ```
 
 #### follower_service
 
 ```bash
-./junction_run ./samples/serverless/caladan_follower_service.config --function_name follower_warmup --function_arg warmup_data --snapshot-prefix follower -- ./samples/serverless/follower_service
+./junction_run ./samples/serverless/caladan_follower_service.config --function_name follower --function_arg warmup_data --snapshot-prefix follower -- ./samples/serverless/follower_service
 ```
 
 After the warmup completes, run in restored mode to continue from the main function. We will set the `keep_alive` flag to keep the channel alive to listen for client requests.
@@ -50,13 +52,13 @@ After the warmup completes, run in restored mode to continue from the main funct
 #### user_service
 
 ```bash
-./junction_run ./samples/serverless/caladan_user_service.config --restore --function_name user_service --function_arg restore --keep_alive -- user.metadata user.elf
+./junction_run ./samples/serverless/caladan_user_service.config --restore --function_name user --function_arg restore --keep_alive -- user.metadata user.elf
 ```
 
 #### follower_service
 
 ```bash
-./junction_run ./samples/serverless/caladan_follower_service.config --restore --function_name follower_service --function_arg restore  --keep_alive -- follower.metadata follower.elf
+./junction_run ./samples/serverless/caladan_follower_service.config --restore --function_name follower --function_arg restore  --keep_alive -- follower.metadata follower.elf
 ```
 
 The `user_service` is able to get or add users. The valid requests are `GET /user/{id}` and `POST /user {name}`.

@@ -9,12 +9,12 @@ namespace junction {
 
 class Process;
 
-Status<void> SetupServerlessChannel(int chan);
-void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
+Status<void> SetupServerlessChannel(std::string_view name);
+void WarmupAndSnapshot(std::shared_ptr<Process> proc, std::string_view name,
                        std::string_view arg);
 
-pid_t GetLastBlockedTid(int chan);
-std::string InvokeChan(int chan, std::string arg);
-void RunRestored(std::shared_ptr<Process> proc, int chan_id,
+pid_t GetLastBlockedTid(std::string_view name);
+std::string InvokeChan(std::string_view name, std::string arg);
+void RunRestored(std::shared_ptr<Process> proc, std::string_view name,
                  std::string_view arg);
 }  // namespace junction

@@ -112,7 +112,8 @@ bool HandleRestore(ControlConn &c, const ctl_schema::RestoreRequest *req) {
 
   std::string_view args = req->argument()->string_view();
   if (!args.empty()) {
-    std::string result = InvokeChan(req->chan(), std::string{args});
+    std::string result =
+        InvokeChan(req->name()->string_view(), std::string{args});
     if (!c.InvokeResponse(result)) {
       LOG(WARN) << "failed to send invocation response";
       return true;

@@ -3,7 +3,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "junction/samples/serverless/gateway.h"
+#include "junction/samples/serverless/gateway_client.h"
+#include "junction/samples/serverless/watchdog.h"
 
 namespace {
 std::unordered_map<int, std::vector<int>> followers_db = {
@@ -29,8 +30,10 @@ std::string FollowerLogic(const std::string &method, const std::string &path,
                           const std::string &body) {
   std::string res;
   if (method == "GET" && path.rfind("/followers/", 0) == 0) {
-    int user_id = std::stoi(path.substr(11));
-    res = GetFollowersHandler(user_id);
+    try {
+      int user_id = std::stoi(path.substr(11));
+      res = GetFollowersHandler(user_id);
+    } catch (...) { res = "Invalid user id"; }
   } else {
     res = "Invalid Request";
   }
@@ -39,6 +42,7 @@ std::string FollowerLogic(const std::string &method, const std::string &path,
 }  // namespace
 
 int main() {
-  // TODO: call watchdog with follower logic
+  WatchDog w("follower", FollowerLogic);
+  w.Run();
   return 0;
 }
