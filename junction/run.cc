@@ -130,6 +130,7 @@ void JunctionMain(int argc, char *argv[]) {
 
   std::shared_ptr<Process> proc;
   std::string function_arg = GetCfg().GetArg("function_arg");
+  std::string function_name = GetCfg().GetArg("function_name");
 
   if (GetCfg().restoring()) {
     if (unlikely(argc < 2)) {
@@ -157,7 +158,7 @@ void JunctionMain(int argc, char *argv[]) {
     timings().first_function_start = Time::Now();
   } else if (!args.empty()) {
     if (!function_arg.empty()) {
-      Status<void> ret = SetupServerlessChannel(0);
+      Status<void> ret = SetupServerlessChannel(function_name);
       if (unlikely(!ret)) {
         LOG(ERR) << "failed to setup channel";
         syscall_exit(-1);
@@ -176,11 +177,12 @@ void JunctionMain(int argc, char *argv[]) {
 
   if (proc) {
     if (!function_arg.empty()) {
-      rt::SpawnHead([p = proc, arg = std::move(function_arg)] mutable {
+      rt::SpawnHead([p = proc, name = std::move(function_name),
+                     arg = std::move(function_arg)] mutable {
         if (GetCfg().restoring())
-          RunRestored(std::move(p), 0, arg);
+          RunRestored(std::move(p), name, arg);
         else
-          WarmupAndSnapshot(std::move(p), 0, arg);
+          WarmupAndSnapshot(std::move(p), name, arg);
       });
     } else if (unlikely(GetCfg().snapshot_on_stop())) {
       rt::Spawn([p = proc] mutable {

@@ -24,7 +24,7 @@ struct tuple<H, T...> {
   head fst;
   tail snd;
 
-  tuple(const head& a, const tail& b) : fst(a), snd(b) {}
+  tuple(const head &a, const tail &b) : fst(a), snd(b) {}
   tuple() = delete;
 };
 
@@ -39,7 +39,7 @@ tuple<H, T...> construct_tuple(H h, T... a) {
 template <class OP>
 void FOREACH(OP, tuple<>) {}
 template <typename OP, class... T>
-void FOREACH(OP& op, tuple<T...>& t) {
+void FOREACH(OP &op, tuple<T...> &t) {
   op(t.fst);
   FOREACH(op, t.snd);
 }
@@ -48,7 +48,7 @@ template <class OP>
 void FOR(OP, tuple<>) {}
 
 template <typename OP, class... T>
-void FOR(OP& op, tuple<T...>& t) {
+void FOR(OP &op, tuple<T...> &t) {
   op(t);
   FOR(op, t.snd);
 }
@@ -102,10 +102,10 @@ struct {
   struct {
     template <class T>
     struct foreach_block {
-      T& t;
+      T &t;
       template <class T2>
-      void operator()(T2& b2) {
-        auto& b = t.fst;
+      void operator()(T2 &b2) {
+        auto &b = t.fst;
         double dx = b.x - b2.x;
         double dy = b.y - b2.y;
         double dz = b.z - b2.z;
@@ -122,7 +122,7 @@ struct {
     };
 
     template <class T>
-    void operator()(T& bodies) {
+    void operator()(T &bodies) {
       foreach_block<decltype(bodies)> run = {bodies};
       FOREACH(run, bodies.snd);
     }
@@ -130,7 +130,7 @@ struct {
 
   struct {
     template <class T>
-    void operator()(T& body) {
+    void operator()(T &body) {
       body.x += dt * body.vx;
       body.y += dt * body.vy;
       body.z += dt * body.vz;
@@ -138,7 +138,7 @@ struct {
   } foreach_block;
 
   template <class T>
-  void operator()(T& bodies) {
+  void operator()(T &bodies) {
     FOR(for_block, bodies);
     FOREACH(foreach_block, bodies);
   }
@@ -147,14 +147,14 @@ struct {
 
 struct {
   struct for_block {
-    double& e;
+    double &e;
     template <class T>
     struct foreach_block {
-      T& t;
-      double& e;
+      T &t;
+      double &e;
       template <class T2>
-      void operator()(T2& b2) {
-        auto& b = t.fst;
+      void operator()(T2 &b2) {
+        auto &b = t.fst;
         double dx = b.x - b2.x;
         double dy = b.y - b2.y;
         double dz = b.z - b2.z;
@@ -164,8 +164,8 @@ struct {
     };
 
     template <class T>
-    void operator()(T& bodies) {
-      auto& p = bodies.fst;
+    void operator()(T &bodies) {
+      auto &p = bodies.fst;
       e += 0.5 * p.mass * (p.vx * p.vx + p.vy * p.vy + p.vz * p.vz);
 
       foreach_block<decltype(bodies)> run = {bodies, e};
@@ -174,7 +174,7 @@ struct {
   };
 
   template <class T>
-  double operator()(T& bodies) {
+  double operator()(T &bodies) {
     double e = 0.0;
     for_block run = {e};
     FOR(run, bodies);
@@ -187,7 +187,7 @@ struct {
   struct foreach_block {
     double &px, &py, &pz;
     template <class T>
-    void operator()(T& body) {
+    void operator()(T &body) {
       px += body.vx * body.mass;
       py += body.vy * body.mass;
       pz += body.vz * body.mass;
@@ -195,7 +195,7 @@ struct {
   };
 
   template <class T>
-  void operator()(T& bodies) {
+  void operator()(T &bodies) {
     double px = 0.0, py = 0.0, pz = 0.0;
     foreach_block run = {px, py, pz};
     FOREACH(run, bodies);
@@ -209,7 +209,7 @@ struct {
 
 }  // namespace
 
-int main(int, char** argv) {
+int main(int, char **argv) {
   auto solar_system = construct_tuple(sun, jupiter, saturn, uranus, neptune);
   offset(solar_system);
 

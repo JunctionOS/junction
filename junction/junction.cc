@@ -275,7 +275,7 @@ Status<void> init() {
   ret = InitControlServer();
   if (unlikely(!ret)) return ret;
 
-  return InitChannelClient();
+  return InitChannelClient(GetCfg().GetArg("function_name"));
 }
 
 }  // namespace junction

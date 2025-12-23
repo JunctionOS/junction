@@ -19,7 +19,7 @@ constexpr uint64_t kChannelPort = 43;
 class FunctionInode;
 
 rt::SharedMutex lock_;
-std::unordered_map<int, std::shared_ptr<FunctionInode>> channels_;
+std::unordered_map<std::string, std::shared_ptr<FunctionInode>> channels_;
 
 std::string from_byte_span(std::span<const std::byte> byte_span) {
   return std::string(reinterpret_cast<const char *>(byte_span.data()),
@@ -88,11 +88,15 @@ class FunctionChannel {
   Status<size_t> Write(std::span<const std::byte> buf) {
     BUG_ON(!buf.size());
     Time end = Time::Now();
+    LOG(INFO) << "FunctionChannel::Write: received " << buf.size()
+              << " bytes from app";
     if (unlikely(!timings().first_function_end))
       timings().first_function_end = end;
     rt::SpinGuard g(lock_);
     BUG_ON(!in_progress_);
     response_ = from_byte_span(buf);
+    LOG(INFO) << "FunctionChannel::Write: response_ set to '" << response_
+              << "'";
     junction_waiter_.Wake(true);
     if (!start_.IsZero()) {
       latencies_us_.push_back((end - start_).Microseconds());
@@ -199,8 +203,8 @@ class FunctionChannel {
 
 class FunctionInode : public Inode {
  public:
-  FunctionInode(int id, ino_t inum = AllocateInodeNumber())
-      : Inode(kTypeFIFO | 0666, inum), id_(id) {}
+  FunctionInode(std::string name, ino_t inum = AllocateInodeNumber())
+      : Inode(kTypeFIFO | 0666, inum), name_(name) {}
 
   Status<std::shared_ptr<File>> Open(
       uint32_t flags, FileMode mode,
@@ -214,7 +218,7 @@ class FunctionInode : public Inode {
   template <class Archive>
   void save(Archive &ar) const {
     BUG_ON(chan_.in_progress());
-    ar(id_, get_inum());
+    ar(name_, get_inum());
     ar(cereal::base_class<Inode>(this));
     ar(chan_);
   }
@@ -222,14 +226,14 @@ class FunctionInode : public Inode {
   template <class Archive>
   static void load_and_construct(Archive &ar,
                                  cereal::construct<FunctionInode> &construct) {
-    int id;
+    std::string name;
     ino_t inum;
-    ar(id, inum);
-    construct(id, inum);
+    ar(name, inum);
+    construct(name, inum);
     ar(cereal::base_class<Inode>(construct.ptr()));
     ar(construct->chan_);
     rt::ScopedLock g(lock_);
-    channels_[id] =
+    channels_[name] =
         std::static_pointer_cast<FunctionInode>(construct->get_this());
   }
 
@@ -237,7 +241,7 @@ class FunctionInode : public Inode {
   [[nodiscard]] const FunctionChannel &get_chan() const { return chan_; }
 
  private:
-  int id_;
+  std::string name_;
   FunctionChannel chan_;
 };
 
@@ -296,18 +300,18 @@ Status<std::shared_ptr<File>> FunctionInode::Open(
   return std::make_shared<FunctionChannelFile>(flags, mode, std::move(dent));
 }
 
-std::shared_ptr<FunctionInode> get_channel(int chan) {
+std::shared_ptr<FunctionInode> get_channel(std::string_view name) {
   rt::ScopedSharedLock g(lock_);
-  auto it = channels_.find(chan);
+  auto it = channels_.find(std::string(name));
   if (it == channels_.end()) return {};
   return it->second;
 }
 
-Status<void> SetupServerlessChannel(int chan) {
+Status<void> SetupServerlessChannel(std::string_view name) {
   FSRoot &fs = FSRoot::GetGlobalRoot();
   rt::ScopedLock g(lock_);
 
-  if (channels_.count(chan) > 0) return MakeError(EEXIST);
+  if (channels_.count(std::string(name)) > 0) return MakeError(EEXIST);
 
   Status<std::shared_ptr<Inode>> srvdir = LookupInode(fs, "/serverless");
   IDir *dir;
@@ -318,10 +322,11 @@ Status<void> SetupServerlessChannel(int chan) {
     dir = memfs::MkFolder(*fs.get_root().get(), "serverless").get();
   }
 
-  std::shared_ptr<FunctionInode> fino = std::make_shared<FunctionInode>(chan);
-  Status<void> ret = dir->Link(std::format("chan{}", chan), fino);
+  std::shared_ptr<FunctionInode> fino =
+      std::make_shared<FunctionInode>(std::string(name));
+  Status<void> ret = dir->Link(name, fino);
   if (!ret) return ret;
-  channels_.emplace(chan, std::move(fino));
+  channels_.emplace(name, std::move(fino));
   return {};
 }
 
@@ -352,9 +357,9 @@ void PrintTimes(const std::vector<uint64_t> &times, std::string_view name) {
   LOG(ERR) << ss.str();
 }
 
-void RunRestored(std::shared_ptr<Process> proc, int chan_id,
+void RunRestored(std::shared_ptr<Process> proc, std::string_view name,
                  std::string_view arg) {
-  std::shared_ptr<FunctionInode> fino = get_channel(chan_id);
+  std::shared_ptr<FunctionInode> fino = get_channel(name);
   if (unlikely(!fino)) {
     LOG(ERR) << "Missing serverless channel";
     syscall_exit(-1);
@@ -393,7 +398,9 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
               << " flushed: " << samples[i][4] - samples[i][3];
   }
 #else
+  LOG(INFO) << "RunRestored: Sending restore signal: " << arg;
   chan.DoRequest(std::string{arg});
+  LOG(INFO) << "RunRestored: Restore signal acknowledged by app";
 #endif
 
   if (GetCfg().mem_trace()) {
@@ -408,9 +415,9 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
   syscall_exit(0);
 }
 
-void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
+void WarmupAndSnapshot(std::shared_ptr<Process> proc, std::string_view name,
                        std::string_view arg) {
-  std::shared_ptr<FunctionInode> fino = get_channel(chan_id);
+  std::shared_ptr<FunctionInode> fino = get_channel(name);
   if (unlikely(!fino)) {
     LOG(ERR) << "Missing serverless channel";
     syscall_exit(-1);
@@ -442,21 +449,21 @@ void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
   syscall_exit(0);
 }
 
-std::string InvokeChan(int chan, std::string arg) {
-  std::shared_ptr<FunctionInode> fino = get_channel(chan);
+std::string InvokeChan(std::string_view name, std::string arg) {
+  std::shared_ptr<FunctionInode> fino = get_channel(name);
   assert(fino);
   return fino->get_chan().DoRequest(arg);
 }
 
-pid_t GetLastBlockedTid(int chan) {
-  std::shared_ptr<FunctionInode> fino = get_channel(chan);
+pid_t GetLastBlockedTid(std::string_view name) {
+  std::shared_ptr<FunctionInode> fino = get_channel(name);
   if (unlikely(!fino)) return 0;
   return fino->get_chan().get_last_blocked_tid();
 }
 
-void ChannelWorker(rt::TCPConn &c) {
+void ChannelWorker(rt::TCPConn &c, std::string_view name) {
   std::vector<std::byte> data;
-  std::shared_ptr<FunctionInode> fino = get_channel(0);
+  std::shared_ptr<FunctionInode> fino = get_channel(name);
   FunctionChannel &chan = fino->get_chan();
 
   while (true) {
@@ -474,7 +481,10 @@ void ChannelWorker(rt::TCPConn &c) {
     if (unlikely(!ret)) break;
 
     std::string req(reinterpret_cast<const char *>(data.data()), nbytes);
+
+    LOG(INFO) << "ChannelWorker: calling DoRequest for: " << req;
     std::string res = chan.DoRequest(std::move(req));
+    LOG(INFO) << "ChannelWorker: DoRequest returned: " << res;
 
     nbytes = res.size();
     ret = WriteFull(c, std::as_bytes(std::span{&nbytes, 1}));
@@ -482,22 +492,31 @@ void ChannelWorker(rt::TCPConn &c) {
 
     ret = WriteFull(c, std::as_bytes(std::span{res.data(), nbytes}));
     if (unlikely(!ret)) break;
+
+    LOG(INFO) << "ChannelWorker: Successfully flushed response to TCP socket";
   }
 }
 
-void ChannelServer(rt::TCPQueue &q) {
+void ChannelServer(rt::TCPQueue &q, std::string_view name) {
   while (true) {
+    LOG(INFO) << "waiting for client connection...";
     Status<rt::TCPConn> c = q.Accept();
     if (!c) panic("couldn't accept a connection");
-    rt::Spawn([c = std::move(*c)] mutable { ChannelWorker(c); });
+    LOG(INFO) << "client connected, spawning a channel worker";
+    rt::Spawn([c = std::move(*c), name_str = std::string(name)] mutable {
+      ChannelWorker(c, name_str);
+    });
   }
 }
 
-Status<void> InitChannelClient() {
+Status<void> InitChannelClient(std::string_view name) {
   Status<rt::TCPQueue> q = rt::TCPQueue::Listen({0, kChannelPort}, 4096);
   if (!q) return MakeError(q);
+  LOG(INFO) << "started channel client on port " << kChannelPort;
 
-  rt::Spawn([q = std::move(*q)] mutable { ChannelServer(q); });
+  rt::Spawn([q = std::move(*q), name_str = std::string(name)] mutable {
+    ChannelServer(q, name_str);
+  });
   return {};
 }
 

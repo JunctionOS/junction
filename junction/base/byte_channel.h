@@ -25,10 +25,10 @@ class ByteChannel {
   ~ByteChannel() = default;
 
   // disable copy and move.
-  ByteChannel(const ByteChannel&) = delete;
-  ByteChannel& operator=(const ByteChannel&) = delete;
-  ByteChannel(ByteChannel&& c) = delete;
-  ByteChannel& operator=(ByteChannel&& c) = delete;
+  ByteChannel(const ByteChannel &) = delete;
+  ByteChannel &operator=(const ByteChannel &) = delete;
+  ByteChannel(ByteChannel &&c) = delete;
+  ByteChannel &operator=(ByteChannel &&c) = delete;
 
   // Returns true if the channel is empty. Should only be called by the reader.
   [[nodiscard]] bool is_empty() const;
@@ -48,7 +48,7 @@ class ByteChannel {
   Status<size_t> Writev(std::span<const iovec> iov);
 
   template <class Archive>
-  void save(Archive& ar) const {
+  void save(Archive &ar) const {
     size_t sz = in_ - out_;
 
     // Data may wrap around, so we might serialize two segments
@@ -62,7 +62,7 @@ class ByteChannel {
   }
 
   template <class Archive>
-  void load(Archive& ar) {
+  void load(Archive &ar) {
     // Assume we have already been constructed with the proper size.
     size_t seg_1, seg_2;
     ar(seg_1, seg_2);

@@ -120,6 +120,7 @@ enum Command {
     Restore {
         snapshot_path: String,
         elf_path: String,
+        name: String,
         args: String,
     },
     StartTrace {
@@ -244,8 +245,8 @@ fn cli(uri: &str) -> anyhow::Result<()> {
             "restore",
             command! {
                 "restore a process",
-                (snapshot_path: String, elf_path: String, args: String) => |snapshot_path: String, elf_path: String, args: String| {
-                    restore(uri, snapshot_path.as_str(), elf_path.as_str(), args.as_str())?;
+                (snapshot_path: String, elf_path: String, name: String, args: String) => |snapshot_path: String, elf_path: String, name: String, args: String| {
+                    restore(uri, snapshot_path.as_str(), elf_path.as_str(), name.as_str(), args.as_str())?;
                     Ok(CommandStatus::Done)
                 }
             },
@@ -424,17 +425,18 @@ fn snapshot(uri: &str, pid: u64, snapshot_path: &str, elf_path: &str) -> anyhow:
     }
 }
 
-fn restore(uri: &str, snapshot_path: &str, elf_path: &str, args: &str) -> anyhow::Result<()> {
+fn restore(uri: &str, snapshot_path: &str, elf_path: &str, name: &str, args: &str) -> anyhow::Result<()> {
     let mut fbb = FlatBufferBuilder::new();
     let snapshot_path = Some(fbb.create_string(snapshot_path));
     let elf_path = Some(fbb.create_string(elf_path));
+    let name = Some(fbb.create_string(name));
     let argument = Some(fbb.create_string(args));
     let restore_req = RestoreRequest::create(
         &mut fbb,
         &RestoreRequestArgs {
             snapshot_path,
             elf_path,
-            chan: 0,
+            name,
             argument,
         },
     );
@@ -600,11 +602,13 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Restore {
             snapshot_path,
             elf_path,
+            name,
             args,
         }) => restore(
             uri.as_str(),
             snapshot_path.as_str(),
             elf_path.as_str(),
+            name.as_str(),
             args.as_str(),
         ),
         Some(Command::StartTrace { pid }) => start_trace(uri.as_str(), pid),

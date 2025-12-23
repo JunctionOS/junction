@@ -5,6 +5,7 @@ add_subdirectory(netbench_udp)
 add_subdirectory(netperf_tcp)
 add_subdirectory(tcp)
 add_subdirectory(udp)
+add_subdirectory(serverless)
 
 if(SNAPSHOT_SAMPLES)
   add_subdirectory(cereal)

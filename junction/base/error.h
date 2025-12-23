@@ -42,10 +42,10 @@ class Error {
   }
   ~Error() = default;
 
-  Error(const Error& e) { code_ = e.code_; }
-  Error& operator=(const Error& e) = default;
-  Error(Error&& e) noexcept : code_(e.code_) {}
-  Error& operator=(Error&& e) noexcept {
+  Error(const Error &e) { code_ = e.code_; }
+  Error &operator=(const Error &e) = default;
+  Error(Error &&e) noexcept : code_(e.code_) {}
+  Error &operator=(Error &&e) noexcept {
     std::swap(code_, e.code_);
     return *this;
   }
@@ -61,19 +61,19 @@ class Error {
 };
 
 // Operator overloads for error comparisons.
-inline bool operator==(const Error& lhs, const Error& rhs) {
+inline bool operator==(const Error &lhs, const Error &rhs) {
   return lhs.code() == rhs.code();
 }
-inline bool operator!=(const Error& lhs, const Error& rhs) {
+inline bool operator!=(const Error &lhs, const Error &rhs) {
   return lhs.code() != rhs.code();
 }
-inline bool operator==(const Error& lhs, int rhs) { return lhs.code() == rhs; }
-inline bool operator==(int lhs, const Error& rhs) { return lhs == rhs.code(); }
-inline bool operator!=(const Error& lhs, int rhs) { return lhs.code() != rhs; }
-inline bool operator!=(int lhs, const Error& rhs) { return lhs != rhs.code(); }
+inline bool operator==(const Error &lhs, int rhs) { return lhs.code() == rhs; }
+inline bool operator==(int lhs, const Error &rhs) { return lhs == rhs.code(); }
+inline bool operator!=(const Error &lhs, int rhs) { return lhs.code() != rhs; }
+inline bool operator!=(int lhs, const Error &rhs) { return lhs != rhs.code(); }
 
 // Prints a human readable explanation of the error to an output stream.
-std::ostream& operator<<(std::ostream& os, const Error& x);
+std::ostream &operator<<(std::ostream &os, const Error &x);
 
 // Returns an unexpected error object from an errno code.
 [[nodiscard]] inline std::unexpected<Error> MakeError(int code) {
@@ -86,14 +86,14 @@ std::ostream& operator<<(std::ostream& os, const Error& x);
 // same error type.
 template <typename T>
 [[nodiscard]] inline std::unexpected<Error> MakeError(
-    const std::expected<T, Error>& ret) {
+    const std::expected<T, Error> &ret) {
   assert(!ret);
   return std::unexpected(ret.error());
 }
 
 // Returns a C errno code as a negative int.
 template <typename T>
-[[nodiscard]] inline int MakeCError(const std::expected<T, Error>& ret) {
+[[nodiscard]] inline int MakeCError(const std::expected<T, Error> &ret) {
   assert(!ret);
   return -ret.error().code();
 }
@@ -101,7 +101,7 @@ template <typename T>
 // Returns a C errno code as a negative int.
 template <typename T>
 [[nodiscard]] inline int MakeCErrorRestartSys(
-    const std::expected<T, Error>& ret) {
+    const std::expected<T, Error> &ret) {
   assert(!ret);
   if (ret.error().code() == EINTR) return -ERESTARTSYS;
   return -ret.error().code();
