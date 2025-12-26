@@ -33,6 +33,7 @@ add_library(syscall
   syscall.cc
   seccomp.cc
   strace.cc
+  strace_maps.cc
   syscall_tbl.cc
   entry.S
   vdso/vdso_inc.S

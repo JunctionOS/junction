@@ -33,6 +33,7 @@ enum class FileType : int {
   kSymlink,
   kInotify,
   kSignalFd,
+  kPath,
 };
 
 //
@@ -100,6 +101,8 @@ inline constexpr std::pair<unsigned int, FileMode> FromFlags(
 inline constexpr unsigned int ToFlags(FileMode mode) {
   return static_cast<unsigned int>(mode);
 }
+
+class FSRoot;
 
 //
 // Seek from operations.
@@ -205,7 +208,7 @@ class File : public std::enable_shared_from_this<File> {
 
   [[nodiscard]] DirectoryEntry &get_dent_ref() const { return *dent_.get(); }
   [[nodiscard]] bool has_dent() const { return !!dent_; }
-  [[nodiscard]] virtual std::string get_filename() const;
+  [[nodiscard]] virtual std::string get_filename(const FSRoot &fs) const;
 
   // There is some limitation in cereal's polymorphic type registration that
   // seems to require base/derived classes to both use save/load or serialize.

@@ -153,6 +153,8 @@ struct Credential {
 
 class ThreadRef;
 
+[[noreturn]] void FinishExit(int status);
+
 // Thread is a UNIX thread object.
 class Thread {
  public:
@@ -582,11 +584,12 @@ class Limits {
 class Process : public std::enable_shared_from_this<Process> {
  public:
   // Constructor for init process
-  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm)
+  Process(pid_t pid, std::shared_ptr<MemoryMap> &&mm,
+          FSRoot &root = FSRoot::GetGlobalRoot())
       : pid_(pid),
         sid_(pid),
         pgid_(pid),
-        fs_(FSRoot::GetGlobalRoot()),
+        fs_(root),
         mem_map_(std::move(mm)),
         parent_(nullptr) {
     RegisterProcess(*this);
@@ -808,7 +811,8 @@ class Process : public std::enable_shared_from_this<Process> {
     NotifyParentWait(kWaitableContinued);
   }
 
-  static Status<std::pair<std::shared_ptr<Process>, Thread *>> CreateInit();
+  static Status<std::pair<std::shared_ptr<Process>, Thread *>> CreateInit(
+      FSRoot &fsr = FSRoot::GetGlobalRoot());
 
  private:
   friend class cereal::access;
@@ -878,7 +882,7 @@ class Process : public std::enable_shared_from_this<Process> {
     ar(pid_, pgid_, sid_, parent_, file_tbl_, mem_map_, limits_, signal_tbl_,
        shared_sig_q_, child_procs_, wait_state_, wait_status_, it_real_.get());
 
-    Status<std::string> cwd = fs_.get_cwd_ent()->GetPathStr();
+    Status<std::string> cwd = fs_.get_cwd_ent()->GetPathStr(fs_);
     if (!cwd) throw std::runtime_error("stale cwd during snapshot");
     ar(*cwd);
 
@@ -1044,6 +1048,13 @@ inline Thread &mythread() { return Thread::fromCaladanThread(thread_self()); }
 // myproc returns the Process object for the running thread.
 // Behavior is undefined if the running thread is not part of a process.
 inline Process &myproc() { return mythread().get_process(); }
+
+// Returns the FSRoot object for the running thread. If the running thread is
+// not part of a process, returns the global root.
+inline FSRoot &myproc_or_global_fs() {
+  if (IsJunctionThread()) return myproc().get_fs();
+  return FSRoot::GetGlobalRoot();
+}
 
 // SigMaskGuard masks signal delivery during its lifetime. The previous signal
 // mask is restored unless a signal is pending, in which case the old mask is

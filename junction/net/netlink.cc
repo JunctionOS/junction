@@ -31,7 +31,8 @@ class NetlinkSocket : public Socket {
   }
 
   Status<size_t> ReadvFrom(std::span<iovec> iovs, SockAddrPtr raddr, bool peek,
-                           bool nonblocking) override {
+                           bool nonblocking,
+                           [[maybe_unused]] aux_rx_pkt_data *aux) override {
     BUG_ON(peek && iovs.size() > 1);
     size_t read_bytes = 0;
     Status<size_t> ret;

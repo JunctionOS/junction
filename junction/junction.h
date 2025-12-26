@@ -65,16 +65,9 @@ class alignas(kCacheLineSize) JunctionCfg {
     return terminate_after_snapshot_;
   }
   [[nodiscard]] uint16_t port() const { return port_; }
-  [[nodiscard]] const std::string &get_snapshot_prefix() const {
-    return snapshot_prefix_;
-  }
 
   [[nodiscard]] bool using_chroot() const { return chroot_path.size() > 0; }
   [[nodiscard]] bool zpoline() const { return zpoline_; }
-
-  [[nodiscard]] const std::string &get_function_name() const {
-    return function_name_;
-  }
 
   static void PrintOptions();
   Status<void> FillFromArgs(int argc, char *argv[]);
@@ -112,8 +105,6 @@ class alignas(kCacheLineSize) JunctionCfg {
   bool terminate_after_snapshot_;
   int snapshot_on_stop_;
   bool mem_trace_;
-  std::string snapshot_prefix_;
-  std::string function_name_;
   static JunctionCfg singleton_;
 };
 

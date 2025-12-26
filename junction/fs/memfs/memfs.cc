@@ -11,6 +11,7 @@ extern "C" {
 #include "junction/kernel/ksys.h"
 
 #ifndef MFD_EXEC
+#define MFD_EXEC 0
 #define MFD_FLAGS 0
 #else
 #define MFD_FLAGS MFD_EXEC
@@ -172,7 +173,10 @@ std::shared_ptr<Inode> CreateIDevice(dev_t dev, mode_t mode) {
 
 Status<void> InitMemfs() {
   memfs_extent_fd = memfd_create("memfs", MFD_FLAGS);
-  if (memfs_extent_fd < 0) return MakeError(errno);
+  if (memfs_extent_fd < 0) {
+    memfs_extent_fd = memfd_create("memfs", MFD_FLAGS & ~MFD_EXEC);
+    if (memfs_extent_fd < 0) return MakeError(errno);
+  }
 
   int ret = ftruncate(memfs_extent_fd, kMaxMemfdExtent);
   if (ret < 0) return MakeError(errno);

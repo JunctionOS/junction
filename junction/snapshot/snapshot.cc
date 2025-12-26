@@ -75,7 +75,7 @@ Status<void> RestoreVMAProtections(MemoryMap &mm) {
 }
 
 Status<void> TakeSnapshot(Process *p) {
-  const std::string &prefix = GetCfg().get_snapshot_prefix();
+  const std::string prefix = GetCfg().GetArg("snapshot-prefix");
   if (GetCfg().jif())
     return SnapshotProcToJIF(p, prefix + ".jm", prefix + ".jif");
   return SnapshotProcToELF(p, prefix + ".metadata", prefix + ".elf");

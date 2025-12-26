@@ -18,7 +18,12 @@ static_assert(kFlagCloseExec == SOCK_CLOEXEC);
 inline constexpr unsigned int kMsgNoSignal = MSG_NOSIGNAL;
 inline constexpr unsigned int kMsgPeek = MSG_PEEK;
 inline constexpr unsigned int kMsgDontWait = MSG_DONTWAIT;
+inline constexpr unsigned int kMsgWaitOne = MSG_WAITFORONE;
 inline constexpr unsigned int kSockTypeMask = 0xf;
+
+// Bits defined by Junction to track requested socket options.
+inline constexpr size_t kSockOptPktInfo = BIT(0);
+inline constexpr size_t kSockOptRecvTos = BIT(1);
 
 enum class UnixSocketAddressType {
   Unnamed = 0,  // No name assigned.
@@ -110,8 +115,8 @@ class Socket : public File {
     return MakeError(ENOTCONN);
   }
   virtual Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr,
-                                   bool peek = false,
-                                   bool nonblocking = false) {
+                                   bool peek = false, bool nonblocking = false,
+                                   aux_rx_pkt_data *aux = nullptr) {
     return MakeError(ENOTCONN);
   }
   virtual Status<size_t> WriteTo(std::span<const std::byte> buf,
@@ -122,7 +127,8 @@ class Socket : public File {
 
   virtual Status<size_t> WritevTo(std::span<const iovec> iov,
                                   const SockAddrPtr raddr,
-                                  bool nonblocking = false) {
+                                  bool nonblocking = false,
+                                  aux_tx_pkt_data *aux = nullptr) {
     return MakeError(ENOTCONN);
   }
 
@@ -139,9 +145,11 @@ class Socket : public File {
     return MakeError(ENOTCONN);
   }
 
-  virtual Status<int> GetSockOpt(int level, int optname) const {
-    return MakeError(EINVAL);
-  }
+  Status<size_t> GetSockOpt(int level, int optname,
+                            std::span<std::byte> value) const;
+
+  Status<void> SetSockOpt(int level, int optname,
+                          std::span<const std::byte> value);
 
   Status<size_t> Read(std::span<std::byte> buf, off_t *off) override {
     return ReadFrom(buf, SockAddrPtr{});
@@ -157,20 +165,71 @@ class Socket : public File {
     return {};
   }
 
-  [[nodiscard]] std::string get_filename() const override { return "socket:"; }
+  [[nodiscard]] std::string get_filename(const FSRoot &fs) const override {
+    return "socket:";
+  }
+
+  [[nodiscard]] size_t socket_options() const { return socket_options_; }
+
+ protected:
+  [[nodiscard]] Duration read_timeout() const { return read_timeout_; }
+  [[nodiscard]] Duration write_timeout() const { return write_timeout_; }
+  [[nodiscard]] bool reuse_port() const { return reuse_port_; }
+
+  virtual Status<void> SetSockOptImpl(int level, int optname,
+                                      std::span<const std::byte> optval) {
+    return MakeError(EINVAL);
+  }
+
+  virtual Status<size_t> GetSockOptImpl(int level, int optname,
+                                        std::span<std::byte> value) const {
+    return MakeError(EINVAL);
+  }
+
+  virtual Status<void> SetIPSocketOptions(int optname,
+                                          std::span<const std::byte> optval) {
+    return MakeError(EINVAL);
+  }
+
+  virtual Status<size_t> GetIPSocketOptions(int optname,
+                                            std::span<std::byte> value) const {
+    return MakeError(EINVAL);
+  }
+
+  void add_socket_option(size_t option) { socket_options_ |= option; }
+
+  void remove_socket_option(size_t option) { socket_options_ &= ~option; }
 
  private:
   friend class cereal::access;
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(cereal::base_class<File>(this));
+    ar(reuse_port_, read_timeout_, write_timeout_, socket_options_,
+       cereal::base_class<File>(this));
   }
 
   template <class Archive>
   void load(Archive &ar) {
-    ar(cereal::base_class<File>(this));
+    ar(reuse_port_, read_timeout_, write_timeout_, socket_options_,
+       cereal::base_class<File>(this));
   }
+
+  bool reuse_port_{false};
+  Duration read_timeout_{0};
+  Duration write_timeout_{0};
+  size_t socket_options_{0};
+};
+
+class IPSocket : public Socket {
+  using Socket::Socket;
+
+ protected:
+  Status<void> SetIPSocketOptions(int optname,
+                                  std::span<const std::byte> optval) override;
+
+  Status<size_t> GetIPSocketOptions(int optname,
+                                    std::span<std::byte> value) const override;
 };
 
 }  // namespace junction

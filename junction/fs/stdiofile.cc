@@ -43,7 +43,7 @@ Status<void> StdIOFile::Sync() {
 }
 
 void StdIOFile::save(cereal::BinaryOutputArchive &ar) const {
-  Status<std::string> ret = get_dent_ref().GetPathStr();
+  Status<std::string> ret = get_dent_ref().GetPathStr(FSRoot::GetGlobalRoot());
   if (!ret) throw std::runtime_error("stale linuxfile handle");
   ar(get_flags(), get_mode(), *ret);
   ar(cereal::base_class<File>(this));

@@ -74,14 +74,6 @@ jobs:
             lib/.caladan_installed_ver
           key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
 
-      - uses: actions/cache@v4
-        name: Retrieve cached python venv
-        with:
-          path: |
-            bin/venv
-            bin/node_modules
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
-
       - name: Install
         run: |
           sudo apt-get update
@@ -96,6 +88,18 @@ jobs:
 
       - name: Main tests
         run: ./scripts/test.sh
+
+      - uses: actions/cache@v4
+        name: Retrieve cached python venv
+        with:
+          path: |
+            bin/venv
+            bin/node_modules
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
+
+      - name: Install python venv
+        run: |
+          ./scripts/install_function_bench.sh
 
       - name: Build snapshot tests
         run: |
@@ -167,14 +171,6 @@ jobs:
             lib/.caladan_installed_ver
           key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
 
-      - uses: actions/cache@v4
-        name: Retrieve cached python venv
-        with:
-          path: |
-            bin/venv
-            bin/node_modules
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
-
       - name: Install
         run: |
           sudo apt-get update
@@ -189,6 +185,18 @@ jobs:
 
       - name: Main tests (debug)
         run: ./scripts/test.sh -d
+
+      - uses: actions/cache@v4
+        name: Retrieve cached python venv
+        with:
+          path: |
+            bin/venv
+            bin/node_modules
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
+
+      - name: Install python venv
+        run: |
+          ./scripts/install_function_bench.sh
 
       - name: Build snapshot tests (debug)
         run: |
@@ -269,13 +277,6 @@ jobs:
             bin/node_modules
           key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
 
-      - uses: actions/cache@v4
-        name: Retrieve cached chroot environment
-        with:
-          path: |
-            chroot.tar.gz
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_chroot.sh') }}
-
       - name: Install
         run: |
           sudo apt-get update
@@ -294,6 +295,18 @@ jobs:
 
       - name: Main tests
         run: ./scripts/test.sh --use-chroot
+
+      - uses: actions/cache@v4
+        name: Retrieve cached python venv
+        with:
+          path: |
+            bin/venv
+            bin/node_modules
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
+
+      - name: Install python venv
+        run: |
+          ./scripts/install_function_bench.sh
 
       - name: Build snapshot tests
         run: |
@@ -366,14 +379,6 @@ jobs:
           key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
 
       - uses: actions/cache@v4
-        name: Retrieve cached python venv
-        with:
-          path: |
-            bin/venv
-            bin/node_modules
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
-
-      - uses: actions/cache@v4
         name: Retrieve cached chroot environment
         with:
           path: |
@@ -398,6 +403,18 @@ jobs:
 
       - name: Main tests (debug)
         run: ./scripts/test.sh -d --use-chroot
+
+      - uses: actions/cache@v4
+        name: Retrieve cached python venv
+        with:
+          path: |
+            bin/venv
+            bin/node_modules
+          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
+
+      - name: Install python venv
+        run: |
+          ./scripts/install_function_bench.sh
 
       - name: Build snapshot tests (debug)
         run: |

@@ -17,6 +17,8 @@ results/**
 lib/.caladan_installed_ver
 lib/.glibc_installed_ver
 lib/.jiftools_installed_ver
+.install_script_ran
+.function_bench_installed
 *.snapshot
 *.elf
 *.metadata

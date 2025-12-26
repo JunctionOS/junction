@@ -103,6 +103,11 @@ class Duration {
     return Duration(duration_ + other.Microseconds());
   }
 
+  template <class Archive>
+  void serialize(Archive &ar) {
+    ar(duration_);
+  }
+
  private:
   int64_t duration_;
 };

@@ -99,13 +99,13 @@ Status<DirectoryEntry *> LinuxIDir::AddInode(const struct stat &stat,
 
   std::shared_ptr<Inode> ino;
 
-  if (S_ISREG(stat.st_mode)) {
-    ino = std::make_shared<LinuxInode>(stat, std::move(abspath));
-  } else if (S_ISLNK(stat.st_mode)) {
+  if (S_ISLNK(stat.st_mode)) {
     char buf[PATH_MAX];
     Status<std::string_view> target = linux_root_fd.ReadLinkAt(abspath, {buf});
     if (!target) return MakeError(target);
     ino = std::make_shared<LinuxISoftLink>(stat, std::string(*target));
+  } else {
+    ino = std::make_shared<LinuxInode>(stat, std::move(abspath));
   }
 
   if (ino) return AddDentLockedNoCheck(std::string(entry_name), std::move(ino));
@@ -199,7 +199,23 @@ Status<void> LinuxWrIDir::DoRename(LinuxWrIDir &src, std::string_view src_name,
                                           linux_root_fd, dst_path, replace);
   if (!ret) return ret;
 
-  if (src.is_initialized()) return MoveFrom(src, src_name, dst_name, replace);
+  if (src.is_initialized()) {
+    // This is pretty hacky, maybe we can come up with a better design if the
+    // writeable linuxfs becomes more important.
+    auto on_success = [this, &dst_path](DirectoryEntry *dent) {
+      Inode *inode = &dent->get_inode_ref();
+      // TODO: this is also possibly race-y, should consider protecting the
+      // path_ with rcu.
+      if (inode->is_dir()) {
+        LinuxWrIDir *dir = fast_cast<LinuxWrIDir *>(inode);
+        dir->path_ = dst_path;
+      } else if (inode->is_regular()) {
+        LinuxInode *file = fast_cast<LinuxInode *>(inode);
+        file->path_ = dst_path;
+      }
+    };
+    return MoveFrom(src, src_name, dst_name, replace, on_success);
+  }
 
   if (!is_initialized()) return {};
 

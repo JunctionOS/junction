@@ -14,6 +14,14 @@ table InvokeResponse {
     message: string;
 }
 
+table RunResponse {
+    pid: int;
+}
+
+table PSResponse {
+    pids: [int];
+}
+
 table TracePoint {
     timestamp_us: uint64;
     accessed_location: uint64;
@@ -28,7 +36,9 @@ union InnerResponse {
     genericSuccess: SuccessResponse,
     getStats: GetStatsResponse,
     traceReport: TraceReport,
-    invokeResponse: InvokeResponse
+    invokeResponse: InvokeResponse,
+    runResponse: RunResponse,
+    psResponse: PSResponse,
 }
 
 table Response {

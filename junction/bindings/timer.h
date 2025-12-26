@@ -171,4 +171,19 @@ class WakeOnTimeout {
   Timer<std::function<void()>> timer_;
 };
 
+// RAII-style object that sets a thread's blocking timer for the caladan
+// runtime.
+class RuntimeWaitqTimeout {
+ public:
+  [[nodiscard]] RuntimeWaitqTimeout(Duration timeout) {
+    thread_self()->waitq_micros = timeout.Microseconds();
+  }
+  ~RuntimeWaitqTimeout() { thread_self()->waitq_micros = 0; }
+  // disable copy and move.
+  RuntimeWaitqTimeout(const RuntimeWaitqTimeout &) = delete;
+  RuntimeWaitqTimeout &operator=(const RuntimeWaitqTimeout &) = delete;
+  RuntimeWaitqTimeout(RuntimeWaitqTimeout &&) = delete;
+  RuntimeWaitqTimeout &operator=(RuntimeWaitqTimeout &&) = delete;
+};
+
 }  // namespace junction::rt

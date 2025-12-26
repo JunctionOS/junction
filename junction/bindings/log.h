@@ -29,6 +29,16 @@ class Logger {
   }
   ~Logger();
 
+  // Helper method targetting strace, where some argument printers may provide
+  // deferred formatting of other arguments via optional stringstreams.
+  bool absorb(std::optional<std::stringstream> &in_ss) {
+    if (!in_ss) return false;
+    RuntimeLibcGuard guard_;
+    if (!ss_) ss_.emplace();
+    *ss_ << in_ss->rdbuf();
+    return true;
+  }
+
   template <typename T>
   Logger &operator<<(T const &value) {
     RuntimeLibcGuard guard_;

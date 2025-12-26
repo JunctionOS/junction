@@ -36,11 +36,9 @@ else
 fi
 ./install_glibc.sh
 ./install_flatbuffers.sh
+
+touch ${ROOT_DIR}/.install_script_ran
+
 if [ "$CI_MODE" = false ]; then
     ./install_function_bench.sh
 fi
-
-
-
-
-

@@ -57,6 +57,14 @@ else
     . "${SCRIPT_DIR}"/submodule_check.sh
 fi
 
+if [ "$SNAP_SAMPLES" = "ON" ] && [ ! -f "${ROOT_DIR}/.function_bench_installed" ]; then
+    set +x
+	echo -n -e "$RED"
+    echo "Snapshot samples require Function Bench to be installed. Please run scripts/install_function_bench.sh first."
+    echo -e "$NC"
+    exit 1
+fi
+
 mkdir -p "$BUILD_DIR"
 cd "$BUILD_DIR"
 

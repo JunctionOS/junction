@@ -56,6 +56,7 @@ STRACE_ARGS_THAT_ARE_PATHNAMES = set([
     ("symlink", 1),
     ("symlinkat", 0),
     ("symlinkat", 2),
+    ("statx", 1),
 ])
 
 AT_FDS = [
@@ -74,6 +75,7 @@ AT_FDS = [
     ("linkat", 0),
     ("linkat", 2),
     ("readlinkat", 0),
+    ("statx", 0),
 ]
 
 TYPE_ARR = {
@@ -120,6 +122,10 @@ TYPE_ARR.update({
     ("rt_sigprocmask", 0): 'static_cast<strace::SigProcMaskOp>',
     ("waitpid", 2): 'static_cast<strace::WaitOptions>',
     ("waitid", 3): 'static_cast<strace::WaitOptions>',
+    ("statx", 3): 'static_cast<strace::StatxMask>',
+    ("statx", 2): 'static_cast<strace::AtFlag>',
+    ("getsockopt", 1): 'static_cast<strace::SockoptLevel>',
+    ("setsockopt", 1): 'static_cast<strace::SockoptLevel>',
 })
 
 SKIP_STRACE_TARGET = [
@@ -129,6 +135,32 @@ SKIP_STRACE_TARGET = [
     "clone",
     "clone3",
     "rt_sigreturn"]
+
+ARRAY_ARGS = {
+    ("poll", 0) : 1,
+    ("epoll_wait", 1) : 2,
+    ("epoll_pwait", 1) : 2,
+    ("epoll_pwait2", 1) : 2,
+    ("recvmmsg", 1) : 2,
+    ("writev", 1) : 2,
+    ("readv", 1) : 2,
+    ("pwritev", 1) : 2,
+    ("pwritev2", 1) : 2,
+    ("preadv", 1) : 2,
+}
+
+BYTE_SPAN_ARGS = {
+    ("read", 1): 2,
+    ("write", 1) : 2,
+    ("pread64", 1) : 2,
+    ("pwrite64", 1) : 2,
+    ("pread", 1) : 2,
+    ("pwrite", 1) : 2,
+    ("recv", 1): 2,
+    ("recvfrom", 1): 2,
+    ("send", 1): 2,
+    ("sendto", 1): 2,
+}
 
 systabl_targets = [None for i in range(SYS_NR)]
 systabl_strace_targets = [None for i in range(SYS_NR)]
@@ -142,35 +174,51 @@ systabl_targets[455] = "junction_fncall_stackswitch_enter_eax"
 for i in range(451, 456):
     systabl_strace_targets[i] = systabl_targets[i]
 
-
 def genLogSyscallCall(pretty_name, with_ret, fnname):
     ret = ""
+
+    fn = "\n\t{"
+    for i in range(6):
+        if (pretty_name, i) in ARRAY_ARGS:
+            fn += f"\n\t\tstrace::ArrayInfo arrinfo{i} = {{reinterpret_cast<void *>(arg{i}), static_cast<ssize_t>(arg{ARRAY_ARGS[(pretty_name, i)]})}};"
+        elif (pretty_name, i) in BYTE_SPAN_ARGS:
+            fn += f"\n\t\tstrace::ByteSpan binfo{i} = {{reinterpret_cast<void *>(arg{i}), static_cast<size_t>(arg{BYTE_SPAN_ARGS[(pretty_name, i)]})}};"
+
     if with_ret:
         if (pretty_name, -1) in TYPE_ARR:
             ret = f"{TYPE_ARR[(pretty_name, -1)]}(ret), "
         else:
             ret = "ret, "
-    fn = f"\n\tLogSyscall({ret}\"{pretty_name}\", &{fnname},"
+
+    fn += f"\n\t\tLogSyscall(ctx, {ret}\"{pretty_name}\", &{fnname},"
     for i in range(6):
-        if (pretty_name, i) not in TYPE_ARR:
-            fn += f"\n\t\t(arg{i})"
+        if (pretty_name, i) in ARRAY_ARGS:
+            fn += f"\n\t\t\t(&arrinfo{i})"
+        elif (pretty_name, i) in BYTE_SPAN_ARGS:
+            fn += f"\n\t\t\t(&binfo{i})"
+        elif (pretty_name, i) not in TYPE_ARR:
+            fn += f"\n\t\t\t(arg{i})"
         else:
-            fn += f"\n\t\t{TYPE_ARR[(pretty_name, i)]}(arg{i})"
+            fn += f"\n\t\t\t{TYPE_ARR[(pretty_name, i)]}(arg{i})"
         if i < 5:
             fn += ","
     fn += ");"
+    fn += "\n\t}"
     return fn
 
 
-def emit_strace_target(pretty_name, function_name, output):
+def emit_strace_target(pretty_name, function_name, output, sysnr):
     fn = f"\nextern \"C\" __attribute__((cold)) int64_t {function_name}_trace(int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4, int64_t arg5) {'{'}"
     fn += "\n\tassert_stack_is_aligned();"
+    fn += f"\n\tstrace::SyscallCtx ctx(std::make_tuple(arg0, arg1, arg2, arg3, arg4, arg5), {sysnr});"
     runsyscall_cmd = f"\n\tint64_t ret = reinterpret_cast<sysfn_t>(&{function_name})(arg0, arg1, arg2, arg3, arg4, arg5);"
 
     if STRACE_LOG_BEFORE_RETURN:
         fn += genLogSyscallCall(pretty_name, False, function_name)
 
     fn += runsyscall_cmd
+
+    fn += f"\n\tctx.retval = ret;"
 
     if STRACE_LOG_AFTER_RETURN:
         fn += genLogSyscallCall(pretty_name, True, function_name)
@@ -343,7 +391,7 @@ with open(USYS_LIST) as f:
         systabl_targets[sysnr] = target
         if name not in SKIP_STRACE_TARGET:
             systabl_strace_targets[sysnr] = emit_strace_target(
-                name, target, dispatch_file)
+                name, target, dispatch_file, sysnr)
         else:
             systabl_strace_targets[sysnr] = target
 
@@ -354,7 +402,7 @@ for i in range(SYS_NR):
     name = syscall_nr_to_name.get(i, f"SYS_{i}")
     target = emit_enosys_target(name, i, dispatch_file)
     systabl_targets[i] = target
-    systabl_strace_targets[i] = emit_strace_target(name, target, dispatch_file)
+    systabl_strace_targets[i] = emit_strace_target(name, target, dispatch_file, i)
 
 
 # generate the sysfn table

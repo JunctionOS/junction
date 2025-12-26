@@ -16,6 +16,8 @@ void serialize(Archive &archive, UnixSocketAddr &a) {
   archive(std::get<0>(a), std::get<1>(a));
 }
 
+// TODO(jsf): implement timeout support for unix sockets.
+
 // Table that tracks unix sockets with abstract names (not file-system based)
 // for a given type of socket.
 template <class SockType>
@@ -251,7 +253,8 @@ class UnixDatagramSocket : public Socket {
   }
 
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
-                           bool nonblocking) override {
+                           bool nonblocking,
+                           [[maybe_unused]] aux_rx_pkt_data *aux) override {
     UnixSocketAddr rem;
     nonblocking |= is_nonblocking();
     Status<size_t> ret = rx_->DoRead(nonblocking, [&](DatagramChannel &chan) {
@@ -301,7 +304,8 @@ class UnixDatagramSocket : public Socket {
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
-                          bool nonblocking) override {
+                          bool nonblocking,
+                          [[maybe_unused]] aux_tx_pkt_data *aux) override {
     if (writer_closed_) return MakeError(EPIPE);
     Status<std::shared_ptr<UnixDatagramSocket>> tmp = ResolvePeer(raddr);
     if (!tmp) return MakeError(tmp);
@@ -310,24 +314,6 @@ class UnixDatagramSocket : public Socket {
     return peer->rx_->DoWrite(nonblocking, [&](DatagramChannel &chan) {
       return chan.Writev(iov, &local_name_);
     });
-  }
-
-  Status<int> GetSockOpt(int level, int optname) const override {
-    if (level != SOL_SOCKET) return MakeError(EINVAL);
-    switch (optname) {
-      case SO_ACCEPTCONN:
-        return 0;
-      case SO_DOMAIN:
-        return AF_UNIX;
-      case SO_PROTOCOL:
-        return 0;
-      case SO_TYPE:
-        return SOCK_DGRAM;
-      case SO_ERROR:
-        return 0;
-      default:
-        return MakeError(EINVAL);
-    }
   }
 
   template <class Archive>
@@ -347,6 +333,35 @@ class UnixDatagramSocket : public Socket {
     UnixDatagramSocket &sock = *construct.ptr();
     ar(sock.local_name_, sock.remote_, sock.connected_, sock.dent_,
        sock.writer_closed_);
+  }
+
+ protected:
+  Status<size_t> GetSockOptImpl(int level, int optname,
+                                std::span<std::byte> value) const override {
+    if (level != SOL_SOCKET) return MakeError(EINVAL);
+    int ret;
+    switch (optname) {
+      case SO_ACCEPTCONN:
+        ret = 0;
+        break;
+      case SO_DOMAIN:
+        ret = AF_UNIX;
+        break;
+      case SO_PROTOCOL:
+        ret = 0;
+        break;
+      case SO_TYPE:
+        ret = SOCK_DGRAM;
+        break;
+      case SO_ERROR:
+        ret = 0;
+        break;
+      default:
+        return MakeError(EINVAL);
+    }
+    if (value.size() < sizeof(int)) return MakeError(EINVAL);
+    *reinterpret_cast<int *>(value.data()) = ret;
+    return sizeof(int);
   }
 
  private:
@@ -650,7 +665,8 @@ class UnixStreamSocket : public Socket {
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
-                          bool nonblocking) override {
+                          bool nonblocking,
+                          [[maybe_unused]] aux_tx_pkt_data *aux) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
@@ -666,7 +682,8 @@ class UnixStreamSocket : public Socket {
   }
 
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
-                           bool nonblocking) override {
+                           bool nonblocking,
+                           [[maybe_unused]] aux_rx_pkt_data *aux) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromUnixAddr(Connection().peer_name);
@@ -679,24 +696,6 @@ class UnixStreamSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     return Connection().rx->Readv(iov, is_nonblocking(), false);
-  }
-
-  Status<int> GetSockOpt(int level, int optname) const override {
-    if (level != SOL_SOCKET) return MakeError(EINVAL);
-    switch (optname) {
-      case SO_ACCEPTCONN:
-        return state_ == SocketState::kSockListening ? 1 : 0;
-      case SO_DOMAIN:
-        return AF_UNIX;
-      case SO_PROTOCOL:
-        return 0;
-      case SO_TYPE:
-        return SOCK_STREAM;
-      case SO_ERROR:
-        return 0;
-      default:
-        return MakeError(EINVAL);
-    }
   }
 
   [[nodiscard]] UnixStreamListener &Listener() {
@@ -724,6 +723,41 @@ class UnixStreamSocket : public Socket {
     UnixStreamSocket &sock = *construct.ptr();
     ar(sock.state_, sock.local_name_, sock.v_, sock.dent_,
        cereal::base_class<Socket>(construct.ptr()));
+  }
+
+ protected:
+  [[nodiscard]] Status<size_t> get_input_bytes() const override {
+    if (state_ == SocketState::kSockConnected)
+      return Connection().rx->get_readable_bytes();
+    return MakeError(EINVAL);
+  }
+
+  Status<size_t> GetSockOptImpl(int level, int optname,
+                                std::span<std::byte> value) const override {
+    if (level != SOL_SOCKET) return MakeError(EINVAL);
+    int ret;
+    switch (optname) {
+      case SO_ACCEPTCONN:
+        ret = state_ == SocketState::kSockListening ? 1 : 0;
+        break;
+      case SO_DOMAIN:
+        ret = AF_UNIX;
+        break;
+      case SO_PROTOCOL:
+        ret = 0;
+        break;
+      case SO_TYPE:
+        ret = SOCK_STREAM;
+        break;
+      case SO_ERROR:
+        ret = 0;
+        break;
+      default:
+        return MakeError(EINVAL);
+    }
+    if (value.size() < sizeof(int)) return MakeError(EINVAL);
+    *reinterpret_cast<int *>(value.data()) = ret;
+    return sizeof(int);
   }
 
  private:
