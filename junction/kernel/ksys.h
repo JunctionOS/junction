@@ -356,8 +356,7 @@ inline Status<void *> KernelMRemap(void *old_addr, size_t old_sz,
 // A wrapper around a struct stat that prevents zeroing on construction.
 struct KernelStatBuf {
   struct stat s;
-  KernelStatBuf() noexcept { /* do nothing */
-  }
+  KernelStatBuf() noexcept { /* do nothing */ }
   operator struct stat &() { return s; }
   operator const struct stat &() const { return s; }
   struct stat *ptr() { return &s; }

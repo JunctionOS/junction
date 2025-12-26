@@ -88,9 +88,7 @@ void PrintEscapedString(std::span<const char> str, rt::Logger &ss) {
     }
     len++;
   }
-  if (*pos) {
-    ss << "...";
-  }
+  if (*pos) { ss << "..."; }
   ss << "\"";
 }
 
@@ -141,9 +139,7 @@ void PrintIoctlReq(unsigned int request, rt::Logger &ss) {
     ss << "_IOC_WRITE";
     printed = true;
   }
-  if (!printed) {
-    ss << "0";
-  }
+  if (!printed) { ss << "0"; }
 
   ss << ", 0x" << std::hex << type << ", 0x" << std::hex << nr << ", 0x"
      << std::hex << size << ")";

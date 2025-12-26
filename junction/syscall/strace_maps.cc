@@ -35,8 +35,7 @@ extern "C" {
 namespace junction {
 namespace strace {
 
-#define VAL(x) \
-  { x, #x }
+#define VAL(x) {x, #x}
 
 const std::map<int, std::string> protection_flags{
     VAL(PROT_READ),

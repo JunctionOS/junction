@@ -343,9 +343,7 @@ inline void PrintArg(T *, ArrayInfo *arrinfo, rt::Logger &ss,
 template <typename T>
 inline void PrintArg(T *, ByteSpan *binfo, rt::Logger &ss,
                      [[maybe_unused]] SyscallCtx &ctx) {
-  if (binfo->size <= 0) {
-    return;
-  }
+  if (binfo->size <= 0) { return; }
   // Make a span from the array info
   std::span<const char> span(reinterpret_cast<const char *>(binfo->ptr),
                              binfo->size);

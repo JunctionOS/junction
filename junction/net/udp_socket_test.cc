@@ -57,14 +57,14 @@ std::string DiscoverSpecificIP() {
   inet_pton(AF_INET, "8.8.8.8", &serv.sin_addr);  // Google's DNS
 
   // "Connect" (no packets actually sent yet)
-  if (connect(sock, (struct sockaddr*)&serv, sizeof(serv)) < 0) {
+  if (connect(sock, (struct sockaddr *)&serv, sizeof(serv)) < 0) {
     perror("connect");
     close(sock);
     exit(1);
   }
 
   // Get local address
-  if (getsockname(sock, (struct sockaddr*)&name, &namelen) == -1) {
+  if (getsockname(sock, (struct sockaddr *)&name, &namelen) == -1) {
     perror("getsockname");
     close(sock);
     exit(1);
@@ -94,11 +94,9 @@ class UDPSocketTest : public ::testing::Test {
   int GetNextPort() { return port_counter_++; }
 
   // Helper function to create and bind a socket
-  int CreateBoundSocket(const std::string& bind_addr, int port) {
+  int CreateBoundSocket(const std::string &bind_addr, int port) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd == -1) {
-      return -1;
-    }
+    if (fd == -1) { return -1; }
 
     int yes = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(int)) == -1) {
@@ -116,7 +114,7 @@ class UDPSocketTest : public ::testing::Test {
       return -1;
     }
 
-    if (bind(fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+    if (bind(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
       close(fd);
       return -1;
     }
@@ -125,11 +123,9 @@ class UDPSocketTest : public ::testing::Test {
   }
 
   // Helper function to create a connected socket
-  int CreateConnectedSocket(const std::string& target_addr, int port) {
+  int CreateConnectedSocket(const std::string &target_addr, int port) {
     int fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (fd == -1) {
-      return -1;
-    }
+    if (fd == -1) { return -1; }
 
     struct sockaddr_in addr;
     memset(&addr, 0, sizeof(addr));
@@ -141,7 +137,7 @@ class UDPSocketTest : public ::testing::Test {
       return -1;
     }
 
-    if (connect(fd, (struct sockaddr*)&addr, sizeof(addr)) == -1) {
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == -1) {
       close(fd);
       return -1;
     }
@@ -150,7 +146,7 @@ class UDPSocketTest : public ::testing::Test {
   }
 
   // Test sendto/recvfrom combination
-  void TestSendtoRecvfrom(const TestConfig& config) {
+  void TestSendtoRecvfrom(const TestConfig &config) {
     int server_fd = -1, client_fd = -1;
 
     // Create server socket
@@ -194,7 +190,7 @@ class UDPSocketTest : public ::testing::Test {
         sent = send(client_fd, send_buf, MESSAGE_SIZE, 0);
       } else {
         sent = sendto(client_fd, send_buf, MESSAGE_SIZE, 0,
-                      (struct sockaddr*)&target_addr, sizeof(target_addr));
+                      (struct sockaddr *)&target_addr, sizeof(target_addr));
       }
       EXPECT_EQ(sent, MESSAGE_SIZE) << "Send failed on iteration " << i;
 
@@ -202,7 +198,7 @@ class UDPSocketTest : public ::testing::Test {
       struct sockaddr_in from_addr;
       socklen_t from_len = sizeof(from_addr);
       ssize_t received = recvfrom(server_fd, recv_buf, MESSAGE_SIZE, 0,
-                                  (struct sockaddr*)&from_addr, &from_len);
+                                  (struct sockaddr *)&from_addr, &from_len);
       EXPECT_EQ(received, MESSAGE_SIZE) << "Recvfrom failed on iteration " << i;
 
       // Verify data
@@ -211,7 +207,7 @@ class UDPSocketTest : public ::testing::Test {
 
       // Send response back
       ssize_t response_sent = sendto(server_fd, recv_buf, MESSAGE_SIZE, 0,
-                                     (struct sockaddr*)&from_addr, from_len);
+                                     (struct sockaddr *)&from_addr, from_len);
       EXPECT_EQ(response_sent, MESSAGE_SIZE)
           << "Response send failed on iteration " << i;
 
@@ -232,7 +228,7 @@ class UDPSocketTest : public ::testing::Test {
   }
 
   // Test send/recv combination (for connected sockets)
-  void TestSendRecv(const TestConfig& config) {
+  void TestSendRecv(const TestConfig &config) {
     ASSERT_TRUE(config.use_connected_socket)
         << "TestSendRecv requires connected socket";
 
@@ -265,7 +261,7 @@ class UDPSocketTest : public ::testing::Test {
       struct sockaddr_in from_addr;
       socklen_t from_len = sizeof(from_addr);
       ssize_t received = recvfrom(server_fd, recv_buf, MESSAGE_SIZE, 0,
-                                  (struct sockaddr*)&from_addr, &from_len);
+                                  (struct sockaddr *)&from_addr, &from_len);
       EXPECT_EQ(received, MESSAGE_SIZE) << "Recvfrom failed on iteration " << i;
 
       // Verify data
@@ -297,7 +293,7 @@ class UDPSocketTest : public ::testing::Test {
     inet_pton(AF_INET, custom_ip_.c_str(), &target_addr.sin_addr);
 
     ssize_t sent = sendto(localhost_fd, send_buf, MESSAGE_SIZE, 0,
-                          (struct sockaddr*)&target_addr, sizeof(target_addr));
+                          (struct sockaddr *)&target_addr, sizeof(target_addr));
     EXPECT_EQ(sent, MESSAGE_SIZE) << "Failed to send to custom IP";
 
     // Try to receive on localhost socket - should timeout or fail
@@ -386,7 +382,7 @@ TEST_F(UDPSocketTest, MixedSyscalls_ConnectedSocket) {
       target_addr.sin_port = htons(portno);
       inet_pton(AF_INET, "127.0.0.1", &target_addr.sin_addr);
       sent = sendto(client_fd, send_buf, MESSAGE_SIZE, 0,
-                    (struct sockaddr*)&target_addr, sizeof(target_addr));
+                    (struct sockaddr *)&target_addr, sizeof(target_addr));
     }
     EXPECT_EQ(sent, MESSAGE_SIZE) << "Send failed on iteration " << i;
 
@@ -394,7 +390,7 @@ TEST_F(UDPSocketTest, MixedSyscalls_ConnectedSocket) {
     struct sockaddr_in from_addr;
     socklen_t from_len = sizeof(from_addr);
     ssize_t received = recvfrom(server_fd, recv_buf, MESSAGE_SIZE, 0,
-                                (struct sockaddr*)&from_addr, &from_len);
+                                (struct sockaddr *)&from_addr, &from_len);
     EXPECT_EQ(received, MESSAGE_SIZE) << "Recvfrom failed on iteration " << i;
   }
 
@@ -435,13 +431,13 @@ TEST_F(UDPSocketTest, LargeMessage) {
   inet_pton(AF_INET, "127.0.0.1", &target_addr.sin_addr);
 
   ssize_t sent = sendto(client_fd, send_buf, large_size, 0,
-                        (struct sockaddr*)&target_addr, sizeof(target_addr));
+                        (struct sockaddr *)&target_addr, sizeof(target_addr));
   EXPECT_EQ(sent, large_size) << "Failed to send large message";
 
   struct sockaddr_in from_addr;
   socklen_t from_len = sizeof(from_addr);
   ssize_t received = recvfrom(server_fd, recv_buf, large_size, 0,
-                              (struct sockaddr*)&from_addr, &from_len);
+                              (struct sockaddr *)&from_addr, &from_len);
   EXPECT_EQ(received, large_size) << "Failed to receive large message";
 
   EXPECT_EQ(memcmp(send_buf, recv_buf, large_size), 0)
