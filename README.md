@@ -8,7 +8,7 @@ Applications run in Junction containers, each of which has a private copy of the
 
 Our [paper](https://www.usenix.org/conference/nsdi24/presentation/fried) on Junction appeared at NSDI 2024 and describes our motivation and design in greater detail.
 
-### Contributing
+## Contributing
 
 We welcome contributions to Junction. If you have an issue with missing functionality or other bugs, please let us know and feel free to submit a pull request!
 
@@ -25,42 +25,78 @@ Junction supports User IPIs (UIPIs) for increased security and better interrupt 
 
 ## Software Requirements
 
-Junction runs on unmodified Linux Kernels, and was tested on versions 6.2.0 and later. Building Junction requires GCC 12 or later. Our scripts assume your machine is using Ubuntu, though Junction itself can run on other distros.
+Junction runs on unmodified Linux Kernels, and was tested on versions 5.15 and later. Our scripts assume your machine is using Ubuntu, though Junction itself can run on other distros.
+
+<details>
+<summary>Building Junction requires GCC 12 or later.</summary>
+
+Depending on your setup, you may need to explicitly instruct the build to use GCC 12 (required for C++23):
+
+```shell
+sudo apt update
+sudo apt install -y gcc-12 g++-12
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
+sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+```
+
+</details>
 
 ## Building Junction
 
 Clone the Junction repo and run the following script that installs needed packages (using apt) and builds dependencies. This step can take a few minutes.
 
-```
+```shell
 scripts/install.sh
 ```
 
-Install rust.
+If your environment does not have the Rust compiler (check using `rustc --version`), install rust.
 
-```
+```shell
 curl https://sh.rustup.rs -sSf | sh -s -- -y --default-toolchain=nightly
+source "$HOME/.cargo/env"
 ```
 
 Next, run the following command to compile Junction itself.
 
-```
+```shell
 scripts/build.sh
 ```
 
+<details>
+<summary>To also compile the snapshot samples, add the -s flag.</summary>
+
+i.e. run:
+
+```shell
+scripts/build.sh -s
+```
+
+Building the snapshot samples requires Go 1.23. This may not match the version in your environment and may cause errors during build. Check your Go version using `go version`. To install and ensure the correct version is used during build, run:
+
+```shell
+wget [https://go.dev/dl/go1.23.0.linux-amd64.tar.gz](https://go.dev/dl/go1.23.0.linux-amd64.tar.gz)
+sudo rm -rf /usr/local/go && sudo tar -C /usr/local -xzf go1.23.0.linux-amd64.tar.gz
+export PATH=/usr/local/go/bin:$PATH
+```
+
+</details>
+
 ## Running Junction
 
-In order to run Junction, the core scheduler must be running. Run the following command in a seperate window:
+In order to run Junction, the core scheduler must be running. Run the following command in a separate window:
 
-```
+```shell
 sudo lib/caladan/scripts/setup_machine.sh
 sudo lib/caladan/iokerneld ias
 ```
 
-Note that the arguments that you provide to the core scheduler will vary depending on your network configuration (see [networking](#Networking-Options)).
+Note that the arguments that you provide to the core scheduler will vary depending on your network configuration (see [networking](#networking-options)). Running the first line above may print `rmmod: ERROR: Module ksched is not currently loaded` and `rm: cannot remove '/dev/ksched': No such file or directory`; this is normal if you are running the scheduler for the first time.
+
+You can confirm the scheduler is running using `lsmod | grep ksched`.
 
 You can start a Junction container using `junction_run`. Each Junction container is started with a configuration file that specifies the maximum number of cores to use and a unique IP address. A sample configuration file is provided at `build/junction/caladan_test.config`. To run a program, simply pass that program and its arguments to `junction_run` as follows:
 
-```
+```shell
 cd build/junction
 ./junction_run caladan_test.config -- /usr/bin/openssl speed
 ```
@@ -79,14 +115,14 @@ If the machine has multiple NICs, you can run `ip -br link show` to check the in
 
 Next, bind the NIC to the vfio driver. If you encounter an ‘Invalid argument’ error, ensure that `intel_iommu=on` is added to your kernel boot parameters.
 
-```
+```shell
 sudo modprobe vfio-pci
 sudo lib/caladan/dpdk/usertools/dpdk-devbind.py -b vfio-pci <pci address>
 ```
 
 Finally, use the following command when starting the core scheduler:
 
-```
+```shell
 sudo lib/caladan/iokerneld ias vfio nicpci <pci address>
 ```
 
@@ -96,7 +132,7 @@ If your machine has a high performance NIC that works with DPDK, you may use tha
 
 Use the following command to launch the core scheduler:
 
-```
+```shell
 sudo lib/caladan/iokerneld ias no_hw_qdel nicpci <pci address>
 ```
 
@@ -104,19 +140,19 @@ sudo lib/caladan/iokerneld ias no_hw_qdel nicpci <pci address>
 
 When a high performance networking is not needed, the DPDK SoftNIC can be configured to use a TUN/TAP device. Start the core scheduler with this command:
 
-```
+```shell
 sudo lib/caladan/iokerneld ias no_hw_qdel -- --allow 00:00.0 --vdev=net_tap0
 ```
 
 ## Configuring Preemption
 
-The scheduler time slice quantum can be set on a per-container basis by appending `runtime_quantum_us <us>` to the configuration file used to launch the container. If User IPIs are available on your [machine](#Hardware-Requirements), they will be enabled automatically. To force the use of Linux signals instead, add `nouintr` as an argument when running the `setup_machine.sh` script (see [Running Junction](#Running-Junction)). Note that all Junction containers and the scheduler must be closed when running this script.
+The scheduler time slice quantum can be set on a per-container basis by appending `runtime_quantum_us <us>` to the configuration file used to launch the container. If User IPIs are available on your [machine](#hardware-requirements), they will be enabled automatically. To force the use of Linux signals instead, add `nouintr` as an argument when running the `setup_machine.sh` script (see [Running Junction](#running-junction)). Note that all Junction containers and the scheduler must be closed when running this script.
 
 ## Testing
 
 You can run a suite of unit and end-to-end tests using the following script:
 
-```
+```shell
 scripts/test.sh
 ```
 

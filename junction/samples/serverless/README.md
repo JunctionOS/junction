@@ -8,11 +8,12 @@ A simple implementation of a mock FaaS.
 
 In order to simulate this experiment, it requires two separate machine that can talk within a private IP address (e.g. two nodes in a CloudLab experiment).
 
-Make sure you have built junction using `scripts/build.sh` and the scheduler is running. The scheduler should be bound to the NIC which is setup for the private IP communication. You may need to set the status of the NIC to DOWN to do this.
+Make sure you have built junction, and the scheduler is running, as described in the main README file. The scheduler should be bound to the NIC which is setup for the private IP communication. You may need to set the status of the NIC to DOWN to do this.
 
 ### Gateway
 
 This will run the gateway.
+
 ```bash
 cd ./build/junction
 ```
@@ -33,15 +34,15 @@ Go to build directory.
 cd ./build/junction
 ```
 
-This will warmup the function.
+These steps will warmup the function:
 
-#### user_service
+#### Warmup user_service
 
 ```bash
 ./junction_run ./samples/serverless/caladan_user_service.config --function_name user --function_arg warmup_data --snapshot-prefix user -- ./samples/serverless/user_service
 ```
 
-#### follower_service
+#### Warmup follower_service
 
 ```bash
 ./junction_run ./samples/serverless/caladan_follower_service.config --function_name follower --function_arg warmup_data --snapshot-prefix follower -- ./samples/serverless/follower_service
@@ -49,13 +50,13 @@ This will warmup the function.
 
 After the warmup completes, run in restored mode to continue from the main function. We will set the `keep_alive` flag to keep the channel alive to listen for client requests.
 
-#### user_service
+#### Restore user_service
 
 ```bash
 ./junction_run ./samples/serverless/caladan_user_service.config --restore --function_name user --function_arg restore --keep_alive -- user.metadata user.elf
 ```
 
-#### follower_service
+#### Restore follower_service
 
 ```bash
 ./junction_run ./samples/serverless/caladan_follower_service.config --restore --function_name follower --function_arg restore  --keep_alive -- follower.metadata follower.elf
@@ -89,4 +90,3 @@ Open a new terminal and send request directly to the serverless channel.
 cd ./build/junction
 ./junction_run ./samples/serverless/caladan_client.config -- ./samples/serverless/client "GET /user/0"
 ```
-
