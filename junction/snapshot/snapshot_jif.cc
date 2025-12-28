@@ -139,7 +139,7 @@ Status<std::tuple<jif_data, IOVAccumulator>> GetJifVmaData(
 
   for (const VMArea &vma : vmas) {
     if (vma.type == VMType::kFile && vma.file->SnapshotShareable()) {
-      const std::string &name = vma.file->get_filename();
+      const std::string &name = vma.file->get_filename(FSRoot::GetGlobalRoot());
       assert(name.size());
       jif.AddPhdr(iovs, vma.prot, vma.start, vma.DataLength(), vma.Length(),
                   vma.offset, name);

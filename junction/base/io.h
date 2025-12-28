@@ -61,6 +61,16 @@ inline std::span<const std::byte> writable_span(const char *buf, size_t len) {
   return {reinterpret_cast<const std::byte *>(buf), len};
 }
 
+// Cast a legacy UNIX read buffer as a span.
+inline std::span<std::byte> readable_span(void *buf, size_t len) {
+  return {reinterpret_cast<std::byte *>(buf), len};
+}
+
+// Cast a legacy UNIX write buffer as a span.
+inline std::span<const std::byte> writable_span(const void *buf, size_t len) {
+  return {reinterpret_cast<const std::byte *>(buf), len};
+}
+
 // Cast a legacy UNIX write buffer as a span.
 inline std::span<const std::byte> writable_span(iovec iov) {
   return {reinterpret_cast<const std::byte *>(iov.iov_base), iov.iov_len};

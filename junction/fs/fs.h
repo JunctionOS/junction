@@ -208,14 +208,14 @@ class DirectoryEntry : public std::enable_shared_from_this<DirectoryEntry> {
   }
 
   // Place the full path of this entry into os.
-  [[nodiscard]] Status<void> GetFullPath(std::ostream &os);
+  [[nodiscard]] Status<void> GetFullPath(const FSRoot &fs, std::ostream &os);
 
   // Get the full pathname to this directory entry in a string. This slower
   // variant should be used outside of performance critical sections.
-  [[nodiscard]] Status<std::string> GetPathStr() {
+  [[nodiscard]] Status<std::string> GetPathStr(const FSRoot &fs) {
     rt::RuntimeLibcGuard g;
     std::stringstream ss;
-    if (Status<void> ret = GetFullPath(ss); !ret) return MakeError(ret);
+    if (Status<void> ret = GetFullPath(fs, ss); !ret) return MakeError(ret);
     return ss.str();
   }
 
@@ -276,7 +276,9 @@ class DirectoryEntry : public std::enable_shared_from_this<DirectoryEntry> {
     if (intrusive_ref_.use_count() > 1) {
       rt::RuntimeLibcGuard g;
       std::stringstream ss;
-      if (Status<void> ret = GetFullPath(ss); !ret) BUG();
+      // TODO: fixme
+      // if (Status<void> ret = GetFullPath(FSRoot::GetGlobalRoot(), ss); !ret)
+      // BUG();
       ss << " (deleted)";
       rt::SpinGuard g1(lock_);
       name_ = ss.str();
@@ -369,9 +371,10 @@ class DentryMap {
 
   [[nodiscard]] size_t size() const { return dents_.size(); }
 
-  [[nodiscard]] Status<void> MoveFrom(DentryMap &src, std::string_view src_name,
-                                      std::string_view dst_name,
-                                      bool overwrite) {
+  [[nodiscard]] Status<void> MoveFrom(
+      DentryMap &src, std::string_view src_name, std::string_view dst_name,
+      bool overwrite,
+      std::function<void(DirectoryEntry *)> on_success = nullptr) {
     assert_locked();
     assert(src.getdir().lock_.IsHeld());
 
@@ -410,6 +413,8 @@ class DentryMap {
       dents_.insert_commit(*dent, commit_data);
       dent->parent_.store(getdir().get_entry(), std::memory_order_relaxed);
     }
+
+    if (on_success) on_success(dent);
 
     return {};
   }
@@ -545,6 +550,11 @@ class IDir : public Inode, protected DentryMap<IDir> {
   // Create makes a new normal file.
   virtual Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                                mode_t mode, FileMode fmode) = 0;
+  // CreateTemp creates a new temporary file.
+  virtual Status<std::shared_ptr<File>> CreateTemp(int flags, mode_t mode,
+                                                   FileMode fmode) {
+    return MakeError(EOPNOTSUPP);
+  };
   // GetDents returns a vector of the current entries.
   virtual std::vector<dir_entry> GetDents() = 0;
 

@@ -8,6 +8,8 @@
 namespace junction {
 
 Status<void> ShimJmpInit() {
+  if (sizeof(shim_jmptbl) == 0) return {};
+
   Status<void> ret =
       KernelMMapFixed(reinterpret_cast<void *>(SHIMCALL_JMPTBL_LOC),
                       sizeof(shim_jmptbl), PROT_READ | PROT_WRITE, 0);

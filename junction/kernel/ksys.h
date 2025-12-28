@@ -353,11 +353,26 @@ inline Status<void *> KernelMRemap(void *old_addr, size_t old_sz,
   return reinterpret_cast<void *>(ret);
 }
 
-// Get file status.
-inline Status<void> KernelStat(const char *path, struct stat *buf) {
-  int ret = ksys_newfstatat(AT_FDCWD, path, buf, 0);
-  if (ret < 0) return MakeError(-ret);
-  return {};
+// A wrapper around a struct stat that prevents zeroing on construction.
+struct KernelStatBuf {
+  struct stat s;
+  KernelStatBuf() noexcept { /* do nothing */ }
+  operator struct stat &() { return s; }
+  operator const struct stat &() const { return s; }
+  struct stat *ptr() { return &s; }
+
+  [[nodiscard]] bool is_directory() const { return S_ISDIR(s.st_mode); }
+  [[nodiscard]] bool is_symlink() const { return S_ISLNK(s.st_mode); }
+  [[nodiscard]] bool is_regular() const { return S_ISREG(s.st_mode); }
+
+  [[nodiscard]] dev_t st_dev() const { return s.st_dev; }
+};
+
+inline Status<KernelStatBuf> KernelStat(const char *path) {
+  Status<KernelStatBuf> res;
+  int ret = ksys_newfstatat(AT_FDCWD, path, res->ptr(), 0);
+  if (ret < 0) res = MakeError(-ret);
+  return res;
 }
 
 }  // namespace junction

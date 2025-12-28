@@ -93,7 +93,7 @@ class alignas(kCacheLineSize) PollSource {
   }
 
   // Sets a mask of events and notifies (must be synchronized by caller).
-  void Set(unsigned int event_mask);
+  void Set(unsigned int event_mask, bool force_notify = false);
 
   // Clears a mask of events and notifies (must be synchronized by caller).
   void Clear(unsigned int event_mask);
@@ -184,9 +184,9 @@ class SinglePollSource {
   PollSource *source_{nullptr};
 };
 
-inline void PollSource::Set(unsigned int event_mask) {
+inline void PollSource::Set(unsigned int event_mask, bool force_notify) {
   unsigned int cur = event_mask_;
-  if ((cur & event_mask) == event_mask) return;
+  if ((cur & event_mask) == event_mask && !force_notify) return;
   event_mask_ = cur | event_mask;
   Notify();
 }

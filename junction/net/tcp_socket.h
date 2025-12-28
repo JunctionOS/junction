@@ -16,29 +16,37 @@ extern "C" {
 
 namespace junction {
 
-class TCPSocket : public Socket {
+class TCPSocket : public IPSocket {
  public:
   TCPSocket(int flags = 0) noexcept
-      : Socket(flags), state_(SocketState::kSockUnbound) {}
+      : IPSocket(flags), state_(SocketState::kSockUnbound) {}
   TCPSocket(rt::TCPConn conn, int flags = 0) noexcept
-      : Socket(flags),
+      : IPSocket(flags),
         state_(SocketState::kSockConnected),
         v_(std::move(conn)) {}
 
-  ~TCPSocket() override = default;
+  ~TCPSocket() = default;
 
   Status<void> Bind(const SockAddrPtr addr) override {
-    // TODO(jsf): this should in theory reserve a port in the socket table
     if (unlikely(state_ != SocketState::kSockUnbound)) return MakeError(EINVAL);
     Status<netaddr> na = addr.ToNetAddr();
     if (unlikely(!na)) return MakeError(na);
-    addr_ = *na;
+    Status<rt::BindToken> ret = rt::BindToken::AllocateTCP(*na, reuse_port());
+    if (unlikely(!ret)) return MakeError(ret);
+    v_ = std::move(*ret);
     state_ = SocketState::kSockBound;
     return {};
   }
 
   Status<void> Listen(int backlog) override {
-    Status<rt::TCPQueue> ret = rt::TCPQueue::Listen(addr_, backlog);
+    Status<rt::TCPQueue> ret;
+    if (state_ == SocketState::kSockBound) {
+      ret = BindToken().ListenTCP(backlog);
+    } else if (state_ == SocketState::kSockUnbound) {
+      ret = rt::TCPQueue::Listen({}, backlog);
+    } else {
+      return MakeError(EINVAL);
+    }
     if (unlikely(!ret)) return MakeError(ret);
     if (is_nonblocking()) ret->SetNonBlocking(true);
     v_ = std::move(*ret);
@@ -60,10 +68,14 @@ class TCPSocket : public Socket {
     Status<netaddr> na = addr.ToNetAddr();
     if (unlikely(!na)) return MakeError(na);
     Status<rt::TCPConn> ret;
-    if (is_nonblocking())
-      ret = rt::TCPConn::DialNonBlocking(addr_, *na);
-    else
-      ret = rt::TCPConn::Dial(addr_, *na);
+    if (state_ == SocketState::kSockBound) {
+      ret = BindToken().DialTCP(*na, is_nonblocking());
+    } else if (is_nonblocking()) {
+      ret = rt::TCPConn::DialNonBlocking({}, *na);
+    } else {
+      ret = rt::TCPConn::Dial({}, *na);
+    }
+
     if (unlikely(!ret)) return MakeError(ret);
     v_ = std::move(*ret);
     state_ = SocketState::kSockConnected;
@@ -113,7 +125,7 @@ class TCPSocket : public Socket {
     switch (state_) {
       case SocketState::kSockUnbound:
       case SocketState::kSockBound:
-        ptr.FromNetAddr(addr_);
+        ptr.FromNetAddr(BindToken().LocalAddr());
         break;
       case SocketState::kSockConnected:
         ptr.FromNetAddr(TcpConn().LocalAddr());
@@ -138,6 +150,7 @@ class TCPSocket : public Socket {
                        [[maybe_unused]] off_t *off = nullptr) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return TcpConn().Write(buf);
   }
 
@@ -146,6 +159,7 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     return TcpConn().Read(buf, peek, nonblocking);
   }
 
@@ -154,14 +168,17 @@ class TCPSocket : public Socket {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return TcpConn().Write(buf, nonblocking);
   }
 
   Status<size_t> WritevTo(std::span<const iovec> iov, const SockAddrPtr raddr,
-                          bool nonblocking) override {
+                          bool nonblocking,
+                          [[maybe_unused]] aux_tx_pkt_data *aux) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) return MakeError(EISCONN);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return TcpConn().Writev(iov, nonblocking);
   }
 
@@ -169,14 +186,17 @@ class TCPSocket : public Socket {
                         [[maybe_unused]] off_t *off = nullptr) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
+    rt::RuntimeWaitqTimeout timeout(write_timeout());
     return TcpConn().Writev(iov);
   }
 
   Status<size_t> ReadvFrom(std::span<iovec> iov, SockAddrPtr raddr, bool peek,
-                           bool nonblocking) override {
+                           bool nonblocking,
+                           [[maybe_unused]] aux_rx_pkt_data *aux) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
     if (raddr) raddr.FromNetAddr(TcpConn().RemoteAddr());
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     return TcpConn().Readv(iov, peek, nonblocking);
   }
 
@@ -184,29 +204,40 @@ class TCPSocket : public Socket {
                        [[maybe_unused]] off_t *off) override {
     if (unlikely(state_ != SocketState::kSockConnected))
       return MakeError(EINVAL);
+    rt::RuntimeWaitqTimeout timeout(read_timeout());
     return TcpConn().Readv(iov);
   }
 
-  Status<int> GetSockOpt(int level, int optname) const override {
+ protected:
+  Status<size_t> GetSockOptImpl(int level, int optname,
+                                std::span<std::byte> value) const override {
     if (level != SOL_SOCKET) return MakeError(EINVAL);
+    int ret;
+    Status<void> rret;
     switch (optname) {
       case SO_ACCEPTCONN:
-        return state_ == SocketState::kSockListening ? 1 : 0;
+        ret = state_ == SocketState::kSockListening ? 1 : 0;
+        break;
       case SO_DOMAIN:
-        return AF_INET;
+        ret = AF_INET;
+        break;
       case SO_PROTOCOL:
-        return IPPROTO_TCP;
+        ret = IPPROTO_TCP;
+        break;
       case SO_TYPE:
-        return SOCK_STREAM;
+        ret = SOCK_STREAM;
+        break;
       case SO_ERROR:
-        if (state_ == SocketState::kSockConnected) {
-          Status<void> ret = TcpConn().GetStatus();
-          return ret ? 0 : ret.error().code();
-        }
-        /* fallthrough */
+        if (state_ != SocketState::kSockConnected) return MakeError(EINVAL);
+        rret = TcpConn().GetStatus();
+        ret = rret ? 0 : rret.error().code();
+        break;
       default:
         return MakeError(EINVAL);
     }
+    if (value.size() < sizeof(int)) return MakeError(EINVAL);
+    *reinterpret_cast<int *>(value.data()) = ret;
+    return sizeof(int);
   }
 
  private:
@@ -230,24 +261,40 @@ class TCPSocket : public Socket {
       TcpConn().SetNonBlocking(nonblocking);
   }
 
-  [[nodiscard]] rt::TCPConn &TcpConn() { return std::get<rt::TCPConn>(v_); }
-  [[nodiscard]] rt::TCPQueue &TcpQueue() { return std::get<rt::TCPQueue>(v_); }
+  [[nodiscard]] rt::TCPConn &TcpConn() {
+    assert(state_ == SocketState::kSockConnected);
+    return std::get<rt::TCPConn>(v_);
+  }
+  [[nodiscard]] rt::TCPQueue &TcpQueue() {
+    assert(state_ == SocketState::kSockListening);
+    return std::get<rt::TCPQueue>(v_);
+  }
   [[nodiscard]] const rt::TCPConn &TcpConn() const {
+    assert(state_ == SocketState::kSockConnected);
     return std::get<rt::TCPConn>(v_);
   }
   [[nodiscard]] const rt::TCPQueue &TcpQueue() const {
+    assert(state_ == SocketState::kSockListening);
     return std::get<rt::TCPQueue>(v_);
+  }
+  [[nodiscard]] rt::BindToken &BindToken() {
+    assert(state_ == SocketState::kSockBound);
+    return std::get<rt::BindToken>(v_);
+  }
+  [[nodiscard]] const rt::BindToken &BindToken() const {
+    assert(state_ == SocketState::kSockBound);
+    return std::get<rt::BindToken>(v_);
   }
 
   friend class cereal::access;
 
   template <class Archive>
   void save(Archive &ar) const {
-    ar(cereal::base_class<Socket>(this), state_);
+    ar(cereal::base_class<IPSocket>(this), state_);
 
     switch (state_) {
       case SocketState::kSockBound:
-        ar(addr_);
+        ar(BindToken().LocalAddr());
         break;
       case SocketState::kSockConnected:
         ar(TcpConn().LocalAddr(), TcpConn().RemoteAddr());
@@ -262,11 +309,16 @@ class TCPSocket : public Socket {
 
   template <class Archive>
   void load(Archive &ar) {
-    ar(cereal::base_class<Socket>(this), state_);
+    ar(cereal::base_class<IPSocket>(this), state_);
 
     if (state_ == SocketState::kSockUnbound) return;
     if (state_ == SocketState::kSockBound) {
-      ar(addr_);
+      netaddr addr;
+      ar(addr, reuse_port());
+      Status<rt::BindToken> ret =
+          rt::BindToken::AllocateTCP(addr, reuse_port());
+      BUG_ON(!ret);
+      v_ = std::move(*ret);
       return;
     }
 
@@ -292,13 +344,14 @@ class TCPSocket : public Socket {
       v_ = std::move(*c);
     } else {
       assert(state_ == SocketState::kSockListening);
-      ar(addr_, is_shut_, backlog_);
-      Status<rt::TCPQueue> q = rt::TCPQueue::Listen(addr_, backlog_);
+      netaddr addr;
+      ar(addr, is_shut_, backlog_);
+      Status<rt::TCPQueue> q = rt::TCPQueue::Listen(addr, backlog_);
       if (unlikely(!q)) {
         char str[IP_ADDR_STR_LEN];
-        char *ip = ip_addr_to_str(addr_.ip, str);
+        char *ip = ip_addr_to_str(addr.ip, str);
         LOG(ERR) << "failed to restore TCP listen socket @ " << ip << ":"
-                 << addr_.port;
+                 << addr.port;
         BUG();
       }
       if (is_nonblocking()) q->SetNonBlocking(true);
@@ -310,10 +363,9 @@ class TCPSocket : public Socket {
   }
 
   SocketState state_;
-  netaddr addr_{0, 0};
   int backlog_;
   std::atomic_bool is_shut_{false};
-  std::variant<rt::TCPConn, rt::TCPQueue> v_;
+  std::variant<rt::TCPConn, rt::TCPQueue, rt::BindToken> v_;
 };
 
 }  // namespace junction

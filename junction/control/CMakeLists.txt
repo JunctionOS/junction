@@ -11,6 +11,7 @@ set(FLATBUFFER_SCHEMA_FILES
 )
 set(FLATBUFFER_GENERATED_CPP_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
 set(FLATBUFFER_GENERATED_RS_INCLUDE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../junction-ctl/src")
+set(FLATBUFFER_GENERATED_PY_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
 function(compile_flatbuffers flatbuffers_schemas
                            custom_target_name
@@ -76,14 +77,21 @@ compile_flatbuffers("${FLATBUFFER_SCHEMA_FILES}"
     rs
 )
 
+compile_flatbuffers("${FLATBUFFER_SCHEMA_FILES}"
+    control_schema_py
+    "--python"
+    "${FLATBUFFER_GENERATED_PY_INCLUDE_DIR}"
+    py
+)
+
 add_library(control_fbs INTERFACE)
 target_include_directories(control_fbs INTERFACE
     ${FLATBUFFERS_INCLUDE_DIR}
     )
-add_dependencies(control_fbs control_schema_cpp control_schema_rs)
+add_dependencies(control_fbs control_schema_cpp control_schema_rs control_schema_py)
 
 add_library(control_c_cpp OBJECT ${SOURCES_C_CPP})
-add_dependencies(control_c_cpp control_schema_cpp control_schema_rs)
+add_dependencies(control_c_cpp control_schema_cpp control_schema_rs control_schema_py)
 
 add_library(control STATIC
   $<TARGET_OBJECTS:control_c_cpp>

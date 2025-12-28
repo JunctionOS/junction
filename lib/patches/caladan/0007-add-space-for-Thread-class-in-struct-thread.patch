@@ -1,4 +1,4 @@
-From 3d4b923679dae2c6830f44df91e6d380f94d98a7 Mon Sep 17 00:00:00 2001
+From d57babb0d52836090578e03bcb62a1ec2bc76507 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Sun, 19 Feb 2023 00:34:47 -0500
 Subject: [PATCH 07/13] add space for Thread class in struct thread
@@ -8,11 +8,11 @@ Subject: [PATCH 07/13] add space for Thread class in struct thread
  1 file changed, 1 insertion(+)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 5a68ebe..060b30d 100644
+index 3c80761..01c603a 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -35,6 +35,7 @@ struct thread {
- 	struct list_node	interruptible_link;
+@@ -36,6 +36,7 @@ struct thread {
+ 	size_t			waitq_micros;
  	uint64_t	tlsvar;
  	uint64_t	fsbase;
 +	unsigned long		junction_tstate_buf[8];

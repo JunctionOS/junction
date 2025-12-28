@@ -57,6 +57,32 @@ std::string GetMounts() {
   return "tmpfs / tmpfs rw,nosuid,nodev,inode64 0 0\n";
 }
 
+// /proc/net/snmp
+std::string GetSNMPInfo() {
+  rt::RuntimeLibcGuard g;
+  static std::string snmp_info = R"(
+Ip: Forwarding DefaultTTL InReceives InHdrErrors InAddrErrors ForwDatagrams InUnknownProtos InDiscards InDelivers OutRequests OutDiscards OutNoRoutes ReasmTimeout ReasmReqds ReasmOKs ReasmFails FragOKs FragFails FragCreates OutTransmits
+Ip: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+Icmp: InMsgs InErrors InCsumErrors InDestUnreachs InTimeExcds InParmProbs InSrcQuenchs InRedirects InEchos InEchoReps InTimestamps InTimestampReps InAddrMasks InAddrMaskReps OutMsgs OutErrors OutRateLimitGlobal OutRateLimitHost OutDestUnreachs OutTimeExcds OutParmProbs OutSrcQuenchs OutRedirects OutEchos OutEchoReps OutTimestamps OutTimestampReps OutAddrMasks OutAddrMaskReps
+Icmp: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+IcmpMsg: InType0 InType3 InType8 OutType0 OutType3 OutType8
+IcmpMsg: 0 0 0 0 0 0
+Tcp: RtoAlgorithm RtoMin RtoMax MaxConn ActiveOpens PassiveOpens AttemptFails EstabResets CurrEstab InSegs OutSegs RetransSegs InErrs OutRsts InCsumErrors
+Tcp: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0
+Udp: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
+Udp: 0 0 0 0 0 0 0 0 0
+UdpLite: InDatagrams NoPorts InErrors OutDatagrams RcvbufErrors SndbufErrors InCsumErrors IgnoredMulti MemErrors
+UdpLite: 0 0 0 0 0 0 0 0 0)";
+  return snmp_info;
+}
+// /proc/net/dev
+std::string GetDev() {
+  rt::RuntimeLibcGuard g;
+  return R"(Inter-|   Receive                                                |  Transmit
+ face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed
+      eth0: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0)";
+}
+
 std::optional<int> ParseInt(std::string_view s) {
   int result;
   if (std::from_chars(s.data(), s.data() + s.size(), result).ec == std::errc{})
@@ -261,8 +287,9 @@ class FDDir : public ProcFSDir {
     if (fds_with_symlink_inodes_.size() <= static_cast<size_t>(fd))
       fds_with_symlink_inodes_.resize(1 + fd * 2);
     fds_with_symlink_inodes_.set(fd);
-    return AddDentLockedNoCheck(std::to_string(fd),
-                                std::make_shared<ProcFSLink>(f.get_filename()));
+    return AddDentLockedNoCheck(
+        std::to_string(fd),
+        std::make_shared<ProcFSLink>(f.get_filename(FSRoot::GetGlobalRoot())));
   }
 
   void DeleteEntry(int fd) {
@@ -336,6 +363,19 @@ class TaskDir : public ProcFSDir {
 };
 
 // /proc/<pid>
+class ProcFSNetDir : public ProcFSDir {
+ public:
+  ProcFSNetDir(Token t) : ProcFSDir(t, 0555) {}
+  ~ProcFSNetDir() override = default;
+
+ protected:
+  void DoInitialize() override {
+    AddDentLockedNoCheck("snmp", MakeInode(0444, GetSNMPInfo));
+    AddDentLockedNoCheck("dev", MakeInode(0444, GetDev));
+  }
+};
+
+// /proc/<pid>
 class ProcessDir : public ProcFSDir {
  public:
   ProcessDir(Token t, Process &p)
@@ -371,6 +411,10 @@ class ProcessDir : public ProcFSDir {
                          MakeInode(0444, [p = proc_] { return GetStatus(p); }));
     AddDentLockedNoCheck(
         "stat", MakeInode(0444, [p = proc_] { return GetProcStat(p); }));
+
+    DirectoryEntry *dx = AddIDirLockedNoCheck<ProcFSDir>("ns", 0555);
+    static_cast<ProcFSDir &>(dx->get_inode_ref())
+        .Link("pid", MakeInode(0444, [p = proc_] { return ""; }));
 
     DirectoryEntry *de = AddIDirLockedNoCheck<FDDir>(std::string(kFDDirName));
     fd_dir_ =
@@ -519,6 +563,7 @@ class ProcRootDir : public ProcFSDir {
     AddDentLockedNoCheck("meminfo", MakeInode(0444, GetMemInfo));
     AddDentLockedNoCheck("mounts", MakeInode(0444, GetMounts));
     AddDentLockedNoCheck("stat", MakeInode(0444, GetStat));
+    AddIDirLockedNoCheck<ProcFSNetDir>("net");
   }
 
  private:

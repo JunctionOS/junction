@@ -4,10 +4,9 @@
 
 namespace junction {
 
-AdvisoryLockMap &AdvisoryLockMap::Get() {
-  static AdvisoryLockMap adv_map;
-  return adv_map;
-}
+static AdvisoryLockMap adv_map;
+
+AdvisoryLockMap &AdvisoryLockMap::Get() { return adv_map; }
 
 AdvisoryLockContext &AdvisoryLockMap::GetCtx(Inode *ino) {
   rt::SpinGuard g(lock_);

@@ -5,12 +5,13 @@ use flatbuffers::FlatBufferBuilder;
 
 use std::io::{Read, Write};
 use std::net::TcpStream;
+use std::time::Duration;
 
 use crate::control_request_generated::junction::ctl_schema::{
     finish_size_prefixed_request_buffer, GetStatsRequest, GetStatsRequestArgs, InnerRequest,
-    Request, RequestArgs, RestoreRequest, RestoreRequestArgs, RunRequest, RunRequestArgs,
-    SignalRequest, SignalRequestArgs, SnapshotRequest, SnapshotRequestArgs, StartTraceRequest,
-    StartTraceRequestArgs, StopTraceRequest, StopTraceRequestArgs,
+    PSRequest, PSRequestArgs, Request, RequestArgs, RestoreRequest, RestoreRequestArgs, RunRequest,
+    RunRequestArgs, SignalRequest, SignalRequestArgs, SnapshotRequest, SnapshotRequestArgs,
+    StartTraceRequest, StartTraceRequestArgs, StopTraceRequest, StopTraceRequestArgs,
 };
 
 use self::control_response_generated::junction::ctl_schema::{
@@ -43,6 +44,8 @@ enum GoodResponse {
     Stats,
     Trace(TraceReport),
     InvocationResult(String),
+    RunResult(i32),
+    PSResult(Vec<i32>),
 }
 
 fn parse_signal(s: &str) -> Result<u64, String> {
@@ -110,6 +113,8 @@ enum Command {
     },
     RunAux {
         bin: String,
+        cwd: String,
+        fsroot: String,
         argv: Vec<String>,
     },
     Snapshot {
@@ -136,9 +141,10 @@ enum Command {
         signal: u64,
     },
     GetStats,
+    PS,
 }
 
-fn await_response(mut stream: TcpStream) -> anyhow::Result<GoodResponse> {
+fn await_response(mut stream: &TcpStream) -> anyhow::Result<GoodResponse> {
     let mut size_buf = [0; std::mem::size_of::<u32>()];
     stream
         .read_exact(&mut size_buf)
@@ -199,6 +205,21 @@ fn await_response(mut stream: TcpStream) -> anyhow::Result<GoodResponse> {
                 .unwrap_or("<error message not found>");
             Ok(GoodResponse::InvocationResult(result.to_string()))
         }
+        InnerResponse::runResponse => {
+            let pid = resp
+                .inner_as_run_response()
+                .expect("we checked already")
+                .pid();
+            Ok(GoodResponse::RunResult(pid))
+        }
+        InnerResponse::psResponse => {
+            let pids = resp
+                .inner_as_ps_response()
+                .expect("we checked already")
+                .pids()
+                .expect("we checked already");
+            Ok(GoodResponse::PSResult(pids.iter().collect()))
+        }
         InnerResponse::NONE | _ => Err(anyhow::anyhow!("invalid response")),
     }
 }
@@ -226,7 +247,7 @@ fn cli(uri: &str) -> anyhow::Result<()> {
                         return Err(anyhow::anyhow!("Missing arguments: bin and argv"));
                     }
                     // Call run_aux with the arguments
-                    run_aux(uri, argv[0], &argv[1..])?;
+                    run_aux(uri, argv[0], &argv[1..], "/", "/")?;
                     Ok(CommandStatus::Done)
                 }),
             }
@@ -298,6 +319,16 @@ fn cli(uri: &str) -> anyhow::Result<()> {
                 }
             },
         )
+        .add(
+            "ps",
+            command! {
+                "get all processes",
+                () => || {
+                    ps(uri)?;
+                    Ok(CommandStatus::Done)
+                }
+            },
+        )
         .build()
         .context("Failed to create repl")?;
 
@@ -313,7 +344,7 @@ fn run(uri: &str, argv: &[&str]) -> anyhow::Result<()> {
         .collect::<Vec<_>>();
 
     let bin = Some(fbb.create_string(argv[0]));
-
+    let cwd = Some(fbb.create_string("/"));
     let argv = Some(fbb.create_vector_from_iter(argv_fb.into_iter()));
 
     let run_req = RunRequest::create(
@@ -321,7 +352,10 @@ fn run(uri: &str, argv: &[&str]) -> anyhow::Result<()> {
         &RunRequestArgs {
             bin,
             argv,
+            envp: None,
             is_init: true,
+            cwd: cwd,
+            fsroot: cwd,
         },
     );
 
@@ -340,7 +374,7 @@ fn run(uri: &str, argv: &[&str]) -> anyhow::Result<()> {
         .write_all(fbb.finished_data())
         .context("failed to write run request")?;
 
-    match await_response(stream)? {
+    match await_response(&stream)? {
         GoodResponse::Ok => Ok(()),
         _ => Err(anyhow::anyhow!(
             "mismatched response (expected SuccessResponse)"
@@ -348,10 +382,12 @@ fn run(uri: &str, argv: &[&str]) -> anyhow::Result<()> {
     }
 }
 
-fn run_aux(uri: &str, bin: &str, argv: &[&str]) -> anyhow::Result<()> {
+fn run_aux(uri: &str, bin: &str, argv: &[&str], cwd: &str, fsroot: &str) -> anyhow::Result<()> {
     let mut fbb = FlatBufferBuilder::new();
 
     let bin = Some(fbb.create_string(bin));
+    let cwd = Some(fbb.create_string(cwd));
+    let fsroot = Some(fbb.create_string(fsroot));
     let argv_fb = argv
         .iter()
         .map(|s| fbb.create_string(s))
@@ -363,7 +399,10 @@ fn run_aux(uri: &str, bin: &str, argv: &[&str]) -> anyhow::Result<()> {
         &RunRequestArgs {
             bin,
             argv,
+            envp:None,
             is_init: false,
+            cwd: cwd,
+            fsroot: fsroot,
         },
     );
 
@@ -382,12 +421,33 @@ fn run_aux(uri: &str, bin: &str, argv: &[&str]) -> anyhow::Result<()> {
         .write_all(fbb.finished_data())
         .context("failed to write run request")?;
 
-    match await_response(stream)? {
+    match await_response(&stream)? {
         GoodResponse::Ok => Ok(()),
+        GoodResponse::RunResult(p) => {
+            eprintln!("started pid {}", p);
+            Ok(())
+        }
         _ => Err(anyhow::anyhow!(
             "mismatched response (expected SuccessResponse)"
         )),
     }
+    .unwrap();
+
+    // Read bytes from stream and print to stdout until stream is closed:
+    let mut buffer = [0; 1024];
+    loop {
+        let n = stream
+            .read(&mut buffer)
+            .context("failed to read from stream")?;
+        if n == 0 {
+            break;
+        }
+        // Write read bytes directly to stdout
+        std::io::stdout()
+            .write_all(&buffer[..n])
+            .context("failed to write to stdout")?;
+    }
+    Ok(())
 }
 
 fn snapshot(uri: &str, pid: u64, snapshot_path: &str, elf_path: &str) -> anyhow::Result<()> {
@@ -417,7 +477,7 @@ fn snapshot(uri: &str, pid: u64, snapshot_path: &str, elf_path: &str) -> anyhow:
         .write_all(fbb.finished_data())
         .context("failed to write snapshot request")?;
 
-    match await_response(stream)? {
+    match await_response(&stream)? {
         GoodResponse::Ok => Ok(()),
         _ => Err(anyhow::anyhow!(
             "mismatched response (expected SuccessResponse)"
@@ -455,7 +515,7 @@ fn restore(uri: &str, snapshot_path: &str, elf_path: &str, name: &str, args: &st
         .write_all(fbb.finished_data())
         .context("failed to write snapshot request")?;
 
-    match await_response(stream)? {
+    match await_response(&stream)? {
         GoodResponse::Ok => Ok(()),
         GoodResponse::InvocationResult(s) => {
             println!("Got response {}", s);
@@ -485,7 +545,7 @@ fn start_trace(uri: &str, pid: u64) -> anyhow::Result<()> {
         .write_all(fbb.finished_data())
         .context("failed to write snapshot request")?;
 
-    match await_response(stream)? {
+    match await_response(&stream)? {
         GoodResponse::Ok => Ok(()),
         _ => Err(anyhow::anyhow!(
             "mismatched response (expected SuccessResponse)"
@@ -510,7 +570,7 @@ fn stop_trace(uri: &str, pid: u64) -> anyhow::Result<()> {
         .write_all(fbb.finished_data())
         .context("failed to write snapshot request")?;
 
-    match await_response(stream)? {
+    match await_response(&stream)? {
         GoodResponse::Ok => Err(anyhow::anyhow!(
             "mismatched response (expected Trace, got SuccessResponse)"
         )),
@@ -543,13 +603,48 @@ fn signal(uri: &str, pid: u64, signo: u64) -> anyhow::Result<()> {
         .write_all(fbb.finished_data())
         .context("failed to write snapshot request")?;
 
-    match await_response(stream)? {
+    match await_response(&stream)? {
         GoodResponse::Ok => Ok(()),
         _ => Err(anyhow::anyhow!(
             "mismatched response (expected SuccessResponse)"
         )),
     }
 }
+
+fn ps(uri: &str) -> anyhow::Result<()> {
+    let mut fbb = FlatBufferBuilder::new();
+    let inner = PSRequest::create(&mut fbb, &PSRequestArgs {});
+
+    let req = Request::create(
+        &mut fbb,
+        &RequestArgs {
+            inner_type: InnerRequest::ps,
+            inner: Some(inner.as_union_value()),
+        },
+    );
+
+    finish_size_prefixed_request_buffer(&mut fbb, req);
+    let mut stream = get_stream(uri)?;
+    stream
+        .write_all(fbb.finished_data())
+        .context("failed to write ps request")?;
+
+    match await_response(&stream)? {
+        GoodResponse::PSResult(pids) => {
+            print!("[");
+            for (i, pid) in pids.iter().enumerate() {
+                print!("{}", pid);
+                if i < pids.len() - 1 {
+                    print!(", ");
+                }
+            }
+            println!("]");
+            Ok(())
+        }
+        _ => Err(anyhow::anyhow!("mismatched response (expected PSResponse)")),
+    }
+}
+
 fn get_stats(uri: &str) -> anyhow::Result<()> {
     let mut fbb = FlatBufferBuilder::new();
     let inner = GetStatsRequest::create(&mut fbb, &GetStatsRequestArgs {});
@@ -568,7 +663,7 @@ fn get_stats(uri: &str) -> anyhow::Result<()> {
         .write_all(fbb.finished_data())
         .context("failed to write snapshot request")?;
 
-    match await_response(stream)? {
+    match await_response(&stream)? {
         GoodResponse::Stats => Ok(()),
         _ => Err(anyhow::anyhow!(
             "mismatched response (expected GetStatsResponse)"
@@ -577,7 +672,8 @@ fn get_stats(uri: &str) -> anyhow::Result<()> {
 }
 
 fn get_stream(uri: &str) -> anyhow::Result<TcpStream> {
-    TcpStream::connect(uri).context(format!("failed to connect to {}", uri))
+    TcpStream::connect_timeout(&uri.parse().unwrap(), Duration::from_secs(3))
+        .context(format!("failed to connect to {}", uri))
 }
 
 fn main() -> anyhow::Result<()> {
@@ -590,9 +686,20 @@ fn main() -> anyhow::Result<()> {
             let args = argv.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
             run(uri.as_str(), args.as_slice())
         }
-        Some(Command::RunAux { bin, argv }) => {
+        Some(Command::RunAux {
+            bin,
+            cwd,
+            fsroot,
+            argv,
+        }) => {
             let args = argv.iter().map(|x| x.as_str()).collect::<Vec<&str>>();
-            run_aux(uri.as_str(), bin.as_str(), args.as_slice())
+            run_aux(
+                uri.as_str(),
+                bin.as_str(),
+                args.as_slice(),
+                cwd.as_str(),
+                fsroot.as_str(),
+            )
         }
         Some(Command::Snapshot {
             pid,
@@ -615,5 +722,6 @@ fn main() -> anyhow::Result<()> {
         Some(Command::StopTrace { pid }) => stop_trace(uri.as_str(), pid),
         Some(Command::Signal { pid, signal: signo }) => signal(uri.as_str(), pid, signo),
         Some(Command::GetStats) => get_stats(uri.as_str()),
+        Some(Command::PS) => ps(uri.as_str()),
     }
 }

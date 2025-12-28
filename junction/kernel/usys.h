@@ -47,11 +47,11 @@ long usys_renameat2(int olddirfd, const char *oldpath, int newdirfd,
 long usys_unlinkat(int dirfd, const char *pathname, int flags);
 long usys_symlink(const char *target, const char *pathname);
 long usys_symlinkat(const char *target, int dirfd, const char *pathname);
-ssize_t usys_read(int fd, char *buf, size_t len);
+ssize_t usys_read(int fd, void *buf, size_t len);
 ssize_t usys_readv(int fd, struct iovec *iov, int iovcnt);
-ssize_t usys_write(int fd, const char *buf, size_t len);
-ssize_t usys_pread64(int fd, char *buf, size_t len, off_t offset);
-ssize_t usys_pwrite64(int fd, const char *buf, size_t len, off_t offset);
+ssize_t usys_write(int fd, const void *buf, size_t len);
+ssize_t usys_pread64(int fd, void *buf, size_t len, off_t offset);
+ssize_t usys_pwrite64(int fd, const void *buf, size_t len, off_t offset);
 ssize_t usys_writev(int fd, const iovec *iov, int iovcnt);
 ssize_t usys_pwritev(int fd, const iovec *iov, int iovcnt, off_t offset);
 ssize_t usys_pwritev2(int fd, const iovec *iov, int iovcnt, off_t offset,
@@ -71,6 +71,8 @@ long usys_newfstatat(int dirfd, const char *pathname, struct stat *statbuf,
 long usys_statfs(const char *path, struct statfs *buf);
 long usys_fstatfs(int fd, struct statfs *buf);
 long usys_stat(const char *path, struct stat *statbuf);
+long usys_statx(int dirfd, const char *pathname, int flag, unsigned int mask,
+                struct statx *statxbuf);
 long usys_lstat(const char *path, struct stat *statbuf);
 long usys_fstat(int fd, struct stat *statbuf);
 long usys_getdents(unsigned int fd, void *dirp, unsigned int count);
@@ -123,6 +125,8 @@ ssize_t usys_sendmsg(int sockfd, const struct msghdr *msg, int flags);
 ssize_t usys_sendmmsg(int sockfd, struct mmsghdr *msgvec, unsigned int vlen,
                       int flags);
 ssize_t usys_recvmsg(int sockfd, struct msghdr *msg, int flags);
+ssize_t usys_recvmmsg(int sockfd, struct mmsghdr *msgvec, int vlen, int flags,
+                      struct timespec *timeout);
 long usys_accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen);
 long usys_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen,
                   int flags);

@@ -44,7 +44,7 @@ void serialize(Archive &archive, siginfo_t &s) {
 
 template <class Archive>
 void serialize(Archive &archive, netaddr &n) {
-  archive(n.ip, n.port);
+  archive(cereal::binary_data(reinterpret_cast<uint8_t *>(&n), sizeof(n)));
 }
 
 template <class Archive>
