@@ -5,6 +5,16 @@ on:
     branches:
       - dev
       - main
+    paths-ignore:
+      - '**.md'
+
+      - '**/*.jpg'
+      - '**/*.jpeg'
+      - '**/*.png'
+      - '**/*.mp4'
+
+      - '.github/workflows/**'
+      - '!.github/workflows/build_and_test.yml'
 
 jobs:
   build_junction:
