@@ -1,6 +1,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
 #include <cstdint>
@@ -46,13 +47,14 @@ bool WriteRequest(const std::string &req) {
   const char *data = req.c_str();
   uint64_t len = req.length();
 
-  if (write(fd, &len, sizeof(len)) != sizeof(len)) {
-    std::cerr << "Failed to write length header\n";
-    return false;
-  }
+  struct iovec iov[2];
+  iov[0].iov_base = &len;
+  iov[0].iov_len = sizeof(len);
+  iov[1].iov_base = const_cast<char *>(data);
+  iov[1].iov_len = len;
 
-  if (write(fd, data, len) != len) {
-    std::cerr << "Failed to write data\n";
+  if (writev(fd, iov, 2) != static_cast<ssize_t>(sizeof(len) + len)) {
+    std::cerr << "Failed to write request\n";
     return false;
   }
   return true;
