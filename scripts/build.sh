@@ -39,12 +39,7 @@ fi
 BIN_DIR=${ROOT_DIR}/bin
 CMAKE=${BIN_DIR}/bin/cmake
 
-if [ "${CI}" = "ON" ];
-then
-    . "${SCRIPT_DIR}"/submodule_check.sh --ci
-else
-    . "${SCRIPT_DIR}"/submodule_check.sh
-fi
+. "${SCRIPT_DIR}"/submodule_check.sh
 
 if [ "$SNAP_SAMPLES" = "ON" ] && [ ! -f "${ROOT_DIR}/.function_bench_installed" ]; then
     set +x

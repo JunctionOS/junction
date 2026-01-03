@@ -2,18 +2,7 @@
 
 set +x
 
-CI_MODE=false
-if [ "$1" == "--ci" ]; 
-then
-    CI_MODE=true
-    echo "INFO: sumodule check running in CI mode."
-fi
-
-if [ "$CI_MODE" = true ]; then
-    CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan-ci
-else
-    CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan
-fi
+CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan
 GLIBC_PATCHES_DIR=${ROOT_DIR}/lib/patches/glibc
 
 RED='\033[0;31m'
