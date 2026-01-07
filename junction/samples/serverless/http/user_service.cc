@@ -4,8 +4,19 @@
 #include "watchdog.h"
 
 namespace {
-std::unordered_map<int, std::string> users_db = {
-    {0, "Alice"}, {1, "Bob"}, {2, "Carrol"}, {3, "David"}};
+
+std::unordered_map<int, std::string> GenerateUsers(int count) {
+  std::unordered_map<int, std::string> db;
+  db.reserve(count);
+
+  for (int i = 0; i < count; ++i) {
+    std::string name = "user_" + std::to_string(i);
+    db[i] = name;
+  }
+  return db;
+}
+
+std::unordered_map<int, std::string> users_db = GenerateUsers(100);
 
 void GetUserHandler(const httplib::Request &req, httplib::Response &res) {
   std::cout << "[User] Received request: " << req.path << std::endl;

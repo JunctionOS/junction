@@ -18,10 +18,15 @@ const std::string FOLLOWER_SOCK = "follower.sock";
 
 namespace {
 
-bool SpawnService(const std::string &bin) {
-  char *args[] = {const_cast<char *>(bin.c_str()), nullptr};
+bool SpawnService(const std::string &bin, bool enable_interception) {
+  std::vector<char *> args;
+  args.push_back(const_cast<char *>(bin.c_str()));
+  if (enable_interception) { args.push_back(const_cast<char *>("--int")); }
+  args.push_back(nullptr);
+
   pid_t pid;
-  if (posix_spawn(&pid, bin.c_str(), nullptr, nullptr, args, environ) == 0) {
+  if (posix_spawn(&pid, bin.c_str(), nullptr, nullptr, args.data(), environ) ==
+      0) {
     std::cout << "[Controller] Service spawned successfuly. PID: " << pid
               << std::endl;
     return true;
@@ -65,9 +70,14 @@ bool InitServer() {
 }
 }  // namespace
 
-int main() {
-  if (!SpawnService(CURR_DIR + USER_BIN)) { exit(1); }
-  if (!SpawnService(CURR_DIR + FOLLOWER_BIN)) { exit(1); }
+int main(int argc, char *argv[]) {
+  bool enable_interception = false;
+  if (argc > 1 && std::strcmp(argv[1], "--int") == 0) {
+    enable_interception = true;
+    std::cout << "[Controller] Interception enabled." << std::endl;
+  }
+  if (!SpawnService(CURR_DIR + USER_BIN, false)) { exit(1); }
+  if (!SpawnService(CURR_DIR + FOLLOWER_BIN, enable_interception)) { exit(1); }
 
   if (!InitServer()) {
     std::cerr << "[Controller] Failed to listen on port: " << CONTROLLER_PORT

@@ -8,12 +8,21 @@
 #include "watchdog.h"
 
 namespace {
-std::unordered_map<int, std::vector<int>> followers_db = {
-    {0, {1, 2}},     // Alice is followed by Bob and Carrol
-    {1, {2}},        // Bob is followed by Carrol
-    {2, {0, 3}},     // Carrol is followed by Alice and David
-    {3, {0, 1, 2}},  // David is followed by Alice, Bob, and Carrol
-};
+bool enable_interception = false;
+
+std::unordered_map<int, std::vector<int>> GenerateFollowers(int count) {
+  std::unordered_map<int, std::vector<int>> db;
+  db.reserve(count);
+
+  for (int i = 0; i < count; ++i) {
+    std::vector<int> users;
+    for (int j = 0; j < i; j++) { users.push_back(j); }
+    db[i] = users;
+  }
+  return db;
+}
+
+std::unordered_map<int, std::vector<int>> followers_db = GenerateFollowers(100);
 
 void GetFollowersHandler(const httplib::Request &req, httplib::Response &res) {
   try {
@@ -22,7 +31,8 @@ void GetFollowersHandler(const httplib::Request &req, httplib::Response &res) {
     std::string req_path = "/user/";
     std::vector<std::string> names;
     for (const int &id : followers) {
-      names.push_back(CallGateway(req_path + std::to_string(id)));
+      names.push_back(
+          CallGateway(req_path + std::to_string(id), enable_interception));
     }
     res.set_content(boost::algorithm::join(names, ", "), "text/plain");
   } catch (...) {
@@ -32,7 +42,10 @@ void GetFollowersHandler(const httplib::Request &req, httplib::Response &res) {
 }
 }  // namespace
 
-int main() {
+int main(int argc, char *argv[]) {
+  if (argc > 1 && std::strcmp(argv[1], "--int") == 0) {
+    enable_interception = true;
+  }
   WatchDog w("follower", "/followers/:id", GetFollowersHandler);
   w.Run();
   return 0;

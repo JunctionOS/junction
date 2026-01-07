@@ -4,6 +4,12 @@ A simple implementation of a mock FaaS. There are two implementations, one using
 
 ## HTTP
 
+### Prepare
+
+In order to run this experiment, it requires three separate machine that can talk within a private IP address (e.g. three nodes in a CloudLab experiment).
+
+Make sure you have built junction, and the scheduler is running, as described in the main README file. The scheduler should be bound to the NIC which is setup for the private IP communication. You may need to set the status of the NIC to DOWN to do this.
+
 ### Gateway
 
 This will run the gateway.
@@ -24,8 +30,16 @@ This will run the controller.
 cd ./build/junction
 ```
 
+To run it normally,
+
 ```bash
 ./junction_run ./samples/serverless/http/caladan_controller.config -- ./samples/serverless/http/controller
+```
+
+If you want to enable the socket interception,
+
+```bash
+./junction_run ./samples/serverless/http/caladan_controller.config -- ./samples/serverless/http/controller --int
 ```
 
 ### Client
