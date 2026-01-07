@@ -1,5 +1,6 @@
 import http.client
 import sys
+import time
 
 # --- CONFIGURATION ---
 DEFAULT_HOST = "127.0.0.1"
@@ -46,12 +47,16 @@ def run_client(host, port):
 
             # 3. Send Request
             conn = http.client.HTTPConnection(host, port, timeout=5)
+
+            start_time = time.perf_counter()
             conn.request(method, path, body=body, headers=headers)
             
             # 4. Get Response
             resp = conn.getresponse()
             resp_body = resp.read().decode('utf-8')
+            end_time = time.perf_counter()
 
+            print(f"< Latency: {(end_time - start_time) * 1000:.2f} ms")
             print(f"< HTTP {resp.status} {resp.reason}")
             # Print important headers
             for k, v in resp.getheaders():
