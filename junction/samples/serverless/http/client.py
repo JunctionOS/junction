@@ -1,81 +1,149 @@
 import http.client
 import sys
 import time
+import random
+import argparse
+import statistics
 
 # --- CONFIGURATION ---
 DEFAULT_HOST = "127.0.0.1"
 DEFAULT_PORT = 8080
 # ---------------------
 
-def run_client(host, port):
-    print(f"--- CLI HTTP Client targeting {host}:{port} ---")
-    print("Format: METHOD PATH [BODY]")
-    print("Ex:     GET /user")
-    print("Ex:     POST /user {\"name\": \"foo\"}")
-    print("Type 'quit' to exit.\n")
+def send_measured_request(conn, method, path, body=None):
+    """
+    Helper to send a request and measure latency.
+    Returns: (latency_ms, response_obj, response_body_bytes)
+    """
+    headers = {}
+    if body:
+        if body.startswith("{") or body.startswith("["):
+            headers["Content-Type"] = "application/json"
+        else:
+            headers["Content-Type"] = "text/plain"
 
+    # Start Clock
+    t_start = time.perf_counter()
+    
+    conn.request(method, path, body=body, headers=headers)
+    resp = conn.getresponse()
+    resp_body = resp.read() # Read entire body to complete the transaction
+    
+    # Stop Clock
+    t_end = time.perf_counter()
+    
+    latency_ms = (t_end - t_start) * 1000
+    return latency_ms, resp, resp_body
+
+
+def run_test_suite(host, port, request_count=1000):
+    print(f"--- Running Performance Benchmark ---")
+    print(f"Target:       {host}:{port}")
+    print(f"Sample Size:  {request_count}")
+    print(f"Workload:     /followers Only (Shim Target)")
+    
+    # 1. GENERATE PATHS (/followers only)
+    paths = []
+    for i in range(request_count):
+        user_id = random.randint(0, 99)
+        paths.append(f"/followers/{user_id}")
+
+    # 2. WARM UP
+    print("warming up...", end="", flush=True)
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=5)
+        # Warm up with a simple request
+        for _ in range(20):
+            send_measured_request(conn, "GET", "/followers/1")
+        print(" done.")
+    except Exception as e:
+        print(f"\n[!] Warm-up failed: {e}")
+        return
+
+    # 3. THE REAL TEST
+    print(f"Sending {request_count} requests...", flush=True)
+    
+    latencies = []
+    start_total = time.time()
+    
+    try:
+        conn = http.client.HTTPConnection(host, port, timeout=5)
+
+        for idx, path in enumerate(paths):
+            print(f"\rProgress: {idx+1}/{request_count}", end="", flush=True)
+            # --- USE HELPER ---
+            latency, resp, _ = send_measured_request(conn, "GET", path)
+            latencies.append(latency)
+            
+            if resp.status != 200:
+                print(f"!", end="") # Visual indicator of errors
+
+        conn.close()
+
+    except Exception as e:
+        print(f"\n[!] Error during test: {e}")
+        return
+
+    duration = time.time() - start_total
+    print(f" done in {duration:.2f}s.\n")
+
+    # 4. STATISTICS
+    if latencies:
+        print(f"--- Results ---")
+        print(f"Min:    {min(latencies):.3f} ms")
+        print(f"Avg:    {statistics.mean(latencies):.3f} ms")
+        print(f"Median: {statistics.median(latencies):.3f} ms")
+        print(f"P99:    {statistics.quantiles(latencies, n=100)[98]:.3f} ms")
+        print(f"Max:    {max(latencies):.3f} ms")
+        print("--------------------------------")
+
+
+def run_interactive_client(host, port):
+    print(f"--- Interactive Client ({host}:{port}) ---")
+    print("Type 'quit' to exit.")
+    
     while True:
         try:
-            # 1. Single Line Input
-            command = input(f"[{host}:{port}] > ").strip()
+            cmd = input(f"[{host}:{port}] > ").strip()
+            if cmd in ["quit", "exit"]: break
+            if not cmd: continue
             
-            if not command:
-                continue
-            
-            if command.lower() in ["quit", "exit"]:
-                break
-
-            # 2. Parse the Command
-            # Split into max 3 parts: Method, Path, Rest-is-Body
-            parts = command.split(maxsplit=2)
-            
+            parts = cmd.split(maxsplit=2)
             if len(parts) < 2:
-                print("Error: Invalid format. Usage: METHOD PATH [BODY]")
+                print("Usage: METHOD PATH [BODY]")
                 continue
 
-            method = parts[0].upper()
-            path = parts[1]
+            method, path = parts[0], parts[1]
             body = parts[2] if len(parts) > 2 else None
 
-            # Headers logic: If body looks like JSON, set header
-            headers = {}
-            if body:
-                if body.startswith("{") or body.startswith("["):
-                    headers["Content-Type"] = "application/json"
-                else:
-                    headers["Content-Type"] = "text/plain"
-
-            # 3. Send Request
             conn = http.client.HTTPConnection(host, port, timeout=5)
-
-            start_time = time.perf_counter()
-            conn.request(method, path, body=body, headers=headers)
             
-            # 4. Get Response
-            resp = conn.getresponse()
-            resp_body = resp.read().decode('utf-8')
-            end_time = time.perf_counter()
-
-            print(f"< Latency: {(end_time - start_time) * 1000:.2f} ms")
-            print(f"< HTTP {resp.status} {resp.reason}")
-            # Print important headers
-            for k, v in resp.getheaders():
-                if k.lower() in ['content-type', 'content-length', 'server']:
-                    print(f"< {k}: {v}")
-            
-            if resp_body:
-                print(f"\n{resp_body}")
-            print("") # Empty line for spacing
+            # --- USE HELPER ---
+            latency, resp, resp_body = send_measured_request(conn, method, path, body)
             
             conn.close()
+            
+            print(f"< HTTP {resp.status} ({latency:.2f} ms)")
+            if resp_body:
+                print(resp_body.decode('utf-8'))
+            print("")
 
         except ConnectionRefusedError:
             print(f"[!] Connection Refused at {host}:{port}")
         except Exception as e:
             print(f"[!] Error: {e}")
 
+
 if __name__ == "__main__":
-    target_host = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_HOST
-    target_port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PORT
+    parser = argparse.ArgumentParser()
+    parser.add_argument("host", nargs="?", default=DEFAULT_HOST)
+    parser.add_argument("port", nargs="?", type=int, default=DEFAULT_PORT)
+    parser.add_argument("--test", action="store_true", help="Run /followers benchmark")
+    parser.add_argument("-n", "--count", type=int, default=1000)
     
-    run_client(target_host, target_port)
+    args = parser.parse_args()
+
+    if args.test:
+        run_test_suite(args.host, args.port, args.count)
+    else:
+        run_interactive_client(args.host, args.port)
