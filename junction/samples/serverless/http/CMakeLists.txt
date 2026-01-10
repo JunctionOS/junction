@@ -55,3 +55,8 @@ add_executable(follower_service
     watchdog.cc
     gateway_client.cc
 )
+
+add_executable(proxy_service
+    proxy_service.cc
+    lib/httplib.h
+)

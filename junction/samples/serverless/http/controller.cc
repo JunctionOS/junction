@@ -9,6 +9,7 @@ extern char **environ;
 const std::string CURR_DIR = "./samples/serverless/http/";
 const std::string USER_BIN = "user_service";
 const std::string FOLLOWER_BIN = "follower_service";
+const std::string PROXY_BIN = "proxy_service";
 
 constexpr int CONTROLLER_PORT = 8080;
 
@@ -45,8 +46,8 @@ httplib::Server::Handler SocketHandler(const std::string &sock_path) {
       res.status = func_res->status;
       res.body = func_res->body;
       for (const auto &header : func_res->headers) {
-        if (header.first != "Content-Length" &&
-            header.first != "Transfer-Encoding") {
+        if (header.first != "content-length" &&
+            header.first != "transfer-encoding") {
           res.set_header(header.first, header.second);
         }
       }
@@ -78,6 +79,7 @@ int main(int argc, char *argv[]) {
   }
   if (!SpawnService(CURR_DIR + USER_BIN, false)) { exit(1); }
   if (!SpawnService(CURR_DIR + FOLLOWER_BIN, enable_interception)) { exit(1); }
+  if (!SpawnService(CURR_DIR + PROXY_BIN, false)) { exit(1); }
 
   if (!InitServer()) {
     std::cerr << "[Controller] Failed to listen on port: " << CONTROLLER_PORT
