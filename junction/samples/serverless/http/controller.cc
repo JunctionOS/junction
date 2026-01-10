@@ -17,17 +17,39 @@ const std::string SOCK_PATH = "/tmp/serverless/";
 const std::string USER_SOCK = "user.sock";
 const std::string FOLLOWER_SOCK = "follower.sock";
 
+const std::string SHIM_SO = "libshim.so";
+
 namespace {
 
 bool SpawnService(const std::string &bin, bool enable_interception) {
+  // create args
   std::vector<char *> args;
   args.push_back(const_cast<char *>(bin.c_str()));
-  if (enable_interception) { args.push_back(const_cast<char *>("--int")); }
   args.push_back(nullptr);
 
+  // create envs
+  std::vector<char *> envs;
+  for (char **env = environ; *env != nullptr; env++) { envs.push_back(*env); }
+  std::string preload_str;
+  if (enable_interception) {
+    preload_str = "LD_PRELOAD=" + CURR_DIR + SHIM_SO;
+    envs.push_back(const_cast<char *>(preload_str.c_str()));
+  }
+  envs.push_back(nullptr);
+
+  // log command
+  std::stringstream log_ss;
+  log_ss << "[Controller] Spawning: ";
+  if (enable_interception) { log_ss << preload_str << " "; }
+  for (auto *arg : args) {
+    if (arg != nullptr) { log_ss << arg << " "; }
+  }
+  std::cout << log_ss.str() << std::endl;
+
+  // spawn
   pid_t pid;
-  if (posix_spawn(&pid, bin.c_str(), nullptr, nullptr, args.data(), environ) ==
-      0) {
+  if (posix_spawn(&pid, bin.c_str(), nullptr, nullptr, args.data(),
+                  envs.data()) == 0) {
     std::cout << "[Controller] Service spawned successfuly. PID: " << pid
               << std::endl;
     return true;
@@ -77,7 +99,7 @@ int main(int argc, char *argv[]) {
     enable_interception = true;
     std::cout << "[Controller] Interception enabled." << std::endl;
   }
-  if (!SpawnService(CURR_DIR + USER_BIN, false)) { exit(1); }
+  if (!SpawnService(CURR_DIR + USER_BIN, enable_interception)) { exit(1); }
   if (!SpawnService(CURR_DIR + FOLLOWER_BIN, enable_interception)) { exit(1); }
   if (!SpawnService(CURR_DIR + PROXY_BIN, false)) { exit(1); }
 

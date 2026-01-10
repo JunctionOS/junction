@@ -2,4 +2,4 @@
 
 #include <string>
 
-std::string CallGateway(std::string_view req, bool enable_interception);
+std::string CallGateway(std::string_view req);

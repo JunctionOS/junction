@@ -60,3 +60,6 @@ add_executable(proxy_service
     proxy_service.cc
     lib/httplib.h
 )
+
+# shim
+add_library(shim SHARED shim.cc)
