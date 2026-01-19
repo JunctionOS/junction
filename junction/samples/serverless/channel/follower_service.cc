@@ -3,8 +3,8 @@
 #include <unordered_map>
 #include <vector>
 
-#include "junction/samples/serverless/gateway_client.h"
-#include "junction/samples/serverless/watchdog.h"
+#include "gateway_client.h"
+#include "watchdog.h"
 
 namespace {
 std::unordered_map<int, std::vector<int>> followers_db = {

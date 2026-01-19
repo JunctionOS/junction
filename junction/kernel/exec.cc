@@ -7,6 +7,7 @@ extern "C" {
 #include <sys/auxv.h>
 
 #include "lib/caladan/runtime/defs.h"
+#include "linux_rseq.h"
 }
 
 #include <cstring>
@@ -23,6 +24,11 @@ extern "C" {
 #include "junction/syscall/strace.h"
 #include "junction/syscall/syscall.h"
 #include "junction/syscall/vdso.h"
+
+#ifndef AT_RSEQ_FEATURE_SIZE
+#define AT_RSEQ_FEATURE_SIZE 27 /* rseq supported feature size */
+#define AT_RSEQ_ALIGN 28        /* rseq allocation alignment */
+#endif
 
 namespace junction {
 namespace {
@@ -248,7 +254,7 @@ Status<ExecInfo> Exec(Process &p, MemoryMap &mm, std::string_view pathname,
   if (!ret) return MakeError(ret);
 
   if (unlikely(GetCfg().strace_enabled())) {
-    Status<std::string> filename = ctx.file.get_dent()->GetPathStr();
+    Status<std::string> filename = ctx.file.get_dent()->GetPathStr(ctx.fs);
     BUG_ON(!filename);
     LogSyscallDirect("execve", *filename, ctx.get_argv_view(), envp);
   }
@@ -301,8 +307,7 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
     if (replace_non_reloc) {
       // Log while the memory is still available.
       if (unlikely(GetCfg().strace_enabled()))
-        LogSyscall("execve", &usys_execve, (strace::PathName *)filename, argv,
-                   envp);
+        LogSyscallDirect("execve", (strace::PathName *)filename, argv, envp);
 
       ctx.TakeArgvOwnership();
 
@@ -333,8 +338,8 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
 
     // The syscall has suceeded.
     if (unlikely(GetCfg().strace_enabled() && !replace_non_reloc))
-      LogSyscall(0, "execve", &usys_execve, (strace::PathName *)filename, argv,
-                 envp);
+      LogSyscallDirect((long)0, std::string_view("execve"),
+                       (strace::PathName *)filename, argv, envp);
 
     // Reset rseq since its memory may become invalid (and may be accessed if
     // preemption occurs).

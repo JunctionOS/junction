@@ -486,6 +486,10 @@ __kframe_unwind_uiret:
 	// and (B) ensure correct alignment for the next call
 	leaq    (JUNCTION_STACK_SIZE - JUNCTION_STACK_RESERVED - 16)(%r11), %r11;
 
+	// We start storing the trapframe on the stack in a "redzone" before we
+	// actually adjust the stack pointer. Other sites that place data on the
+	// bottom of the syscall stack must account for this redzone.
+
 	// save return stack pointer to new stack
 	leaq    8(%rsp), %r10;
 	movq    %r10, (%r11);

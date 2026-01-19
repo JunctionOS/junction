@@ -1,8 +1,10 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <sys/uio.h>
 #include <unistd.h>
 
+#include <chrono>
 #include <cstdint>
 #include <iostream>
 #include <vector>
@@ -42,17 +44,17 @@ bool ConnectToServer() {
 void CloseConnection() { close(fd); }
 
 bool WriteRequest(const std::string &req) {
-  std::cout << std::unitbuf << "Sending: " << req << "\n";
   const char *data = req.c_str();
   uint64_t len = req.length();
 
-  if (write(fd, &len, sizeof(len)) != sizeof(len)) {
-    std::cerr << "Failed to write length header\n";
-    return false;
-  }
+  struct iovec iov[2];
+  iov[0].iov_base = &len;
+  iov[0].iov_len = sizeof(len);
+  iov[1].iov_base = const_cast<char *>(data);
+  iov[1].iov_len = len;
 
-  if (write(fd, data, len) != len) {
-    std::cerr << "Failed to write data\n";
+  if (writev(fd, iov, 2) != static_cast<ssize_t>(sizeof(len) + len)) {
+    std::cerr << "Failed to write request\n";
     return false;
   }
   return true;
@@ -74,7 +76,6 @@ bool ReadResponse(std::string &res) {
   }
 
   res = std::string(buffer.data(), len);
-  std::cout << std::unitbuf << "Server Response: " << res << "\n";
   return true;
 }
 
@@ -89,10 +90,20 @@ int main(int argc, char *argv[]) {
 
   if (!ConnectToServer()) { return 1; }
 
+  std::cout << std::unitbuf << "Sending: " << req << "\n";
+  auto start = std::chrono::high_resolution_clock::now();
   if (!WriteRequest(req)) { return 1; }
 
   std::string res;
   if (!ReadResponse(res)) { return 1; }
+  auto end = std::chrono::high_resolution_clock::now();
+  std::cout << std::unitbuf << "Server Response: " << res << "\n";
+
+  std::cout << "Latency: "
+            << std::chrono::duration_cast<std::chrono::microseconds>(end -
+                                                                     start)
+                   .count()
+            << " us\n";
 
   CloseConnection();
   return 0;

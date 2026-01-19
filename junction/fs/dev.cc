@@ -16,11 +16,11 @@ namespace {
 
 template <Status<size_t> (*Reader)(std::span<std::byte>, bool),
           Status<size_t> (*Writer)(std::span<const std::byte>)>
-class SpecialFile : public File {
+class SpecialFile : public SeekableFile {
  public:
   SpecialFile(unsigned int flags, FileMode mode,
               std::shared_ptr<DirectoryEntry> dent) noexcept
-      : File(FileType::kSpecial, flags, mode, std::move(dent)) {
+      : SeekableFile(FileType::kSpecial, flags, mode, std::move(dent)) {
     get_poll_source().Init(kPollIn | kPollOut);
   }
   ~SpecialFile() override = default;

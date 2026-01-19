@@ -1,5 +1,9 @@
 // core.cc - core file system support
 
+extern "C" {
+#include <sys/stat.h>
+}
+
 #include <algorithm>
 #include <spanstream>
 #include <utility>
@@ -45,6 +49,7 @@ Status<std::shared_ptr<DirectoryEntry>> WalkPath(
   for (const std::string_view &v : path) {
     if (v.empty() || v == ".") continue;
     if (v == "..") {
+      if (curent == fs.get_root_ent()) continue;
       curent = curent->get_parent_ent();
       curdir = static_cast<IDir *>(&curent->get_inode_ref());
       continue;
@@ -158,6 +163,7 @@ Status<Entry> LookupEntry(const FSRoot &fs, std::shared_ptr<IDir> pos,
   IDir &dir = static_cast<IDir &>(ino);
 
   if (name == "..") {
+    if (*ret == fs.get_root_ent()) return Entry{dir.get_this(), {}, true};
     Status<std::shared_ptr<IDir>> parent = (*ret)->get_parent_dir();
     if (unlikely(!parent)) return MakeError(parent);
     return Entry{std::move(*parent), {}, true};
@@ -219,8 +225,15 @@ Status<void> HardLink(std::shared_ptr<Inode> src, const Entry &dst_path) {
 Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
                                    int combined_flags, mode_t mode) {
   auto &[idir, name, must_be_dir] = path;
-
   auto [flags, fmode] = FromFlags(combined_flags);
+
+  bool target_must_be_dir = flags & kFlagDirectory;
+  bool target_no_follow = flags & kFlagNoFollow;
+  bool wants_path_file = flags & kFlagPath;
+  bool truncate = flags & kFlagTruncate;
+  bool create = flags & kFlagCreate;
+  bool exclusive = flags & kFlagExclusive;
+  bool wants_temp_file = (flags & kFlagTemp) == kFlagTemp;
 
   // Special case for "/"
   if (!name.size()) {
@@ -230,21 +243,43 @@ Status<std::shared_ptr<File>> Open(const FSRoot &fs, const Entry &path,
 
   Status<std::shared_ptr<DirectoryEntry>> in = idir->LookupDent(name);
   if (!in) {
-    if (flags & kFlagCreate)
+    if (create && !target_must_be_dir)
       return idir->Create(name, flags, mode & ~fs.get_umask(), fmode);
     return MakeError(ENOENT);
   }
 
-  if (flags & kFlagExclusive) return MakeError(EEXIST);
+  if (exclusive && create) return MakeError(EEXIST);
 
-  if ((*in)->get_inode_ref().is_symlink()) {
-    if (!must_be_dir && (flags & (kFlagNoFollow | kFlagPath)) == kFlagNoFollow)
-      return MakeError(ELOOP);
-    in = WalkPath(fs, std::move(idir), {name}, true);
-    if (!in) return MakeError(in);
+  Inode *ino = &(*in)->get_inode_ref();
+  if (target_must_be_dir && !ino->is_dir()) return MakeError(ENOTDIR);
+
+  // Create a temporary file in the directory from @path.
+  if (wants_temp_file) {
+    static_assert(kFlagTemp & kFlagDirectory,
+                  "kFlagTemp implies kFlagDirectory");
+    assert(target_must_be_dir && ino->is_dir());
+    IDir &idir = static_cast<IDir &>(*ino);
+    return idir.CreateTemp(flags, mode & ~fs.get_umask(), fmode);
   }
 
-  if (flags & kFlagTruncate) (*in)->get_inode_ref().SetSize(0);
+  // Resolve symlink unless kFlagNoFollow is set.
+  if (ino->is_symlink()) {
+    if (!target_no_follow) {
+      in = WalkPath(fs, std::move(idir), {name}, true);
+      if (!in) return MakeError(in);
+      ino = &(*in)->get_inode_ref();
+    } else if (!wants_path_file) {
+      return MakeError(ELOOP);
+    }
+  }
+
+  // Caller wants a file that just references this path, does not need
+  // read/write/map operations
+  if (wants_path_file)
+    return std::make_shared<File>(FileType::kPath, flags, fmode,
+                                  std::move(*in));
+
+  if (truncate) ino->SetSize(0);
   return (*in)->Open(flags, fmode);
 }
 
@@ -275,6 +310,12 @@ Status<std::shared_ptr<DirectoryEntry>> LookupDirEntry(Process &p, int dirfd,
                                                        std::string_view path,
                                                        bool chase_link) {
   if (!PathIsValid(path)) return MakeError(EINVAL);
+  if (path.empty()) {
+    FileTable &ftbl = p.get_file_table();
+    File *f = ftbl.Get(dirfd);
+    if (unlikely(!f)) return MakeError(EBADF);
+    return f->get_dent();
+  }
   Status<std::shared_ptr<IDir>> pathd = GetPathDirAt(p, dirfd, path);
   if (!pathd) return MakeError(pathd);
   bool must_be_dir;
@@ -293,7 +334,8 @@ Status<std::shared_ptr<File>> ISoftLink::Open(
 // Attempts to get the full path from the root of the filesystem to this IDir by
 // traversing the chain of parents. The result is placed in @dst and an updated
 // span is returned.
-[[nodiscard]] Status<void> DirectoryEntry::GetFullPath(std::ostream &os) {
+[[nodiscard]] Status<void> DirectoryEntry::GetFullPath(const FSRoot &fs,
+                                                       std::ostream &os) {
   // This entry is no longer valid, return the name stored in name_.
   if (!intrusive_ref_) {
     rt::SpinGuard g(lock_);
@@ -307,7 +349,7 @@ Status<std::shared_ptr<File>> ISoftLink::Open(
     auto [name, parent] = cur->get_info();
     if (unlikely(!parent)) return MakeError(ESTALE);
     // TODO - check if the parent is the root instead?
-    if (parent.get() == cur.get()) break;
+    if (cur == fs.get_root_ent()) break;
     paths.emplace_back(std::move(name));
     cur = std::move(parent);
   }
@@ -379,7 +421,9 @@ long usys_mkdirat(int dirfd, const char *pathname, mode_t mode) {
 }
 
 long usys_unlink(const char *pathname) {
-  Status<Entry> entry = LookupEntry(myproc().get_fs(), pathname);
+  std::string_view pathnamev(pathname);
+  if (pathnamev == "") return -ENOENT;
+  Status<Entry> entry = LookupEntry(myproc().get_fs(), pathnamev);
   if (!entry) return MakeCError(entry);
   Status<void> ret = Unlink(*entry);
   if (!ret) return MakeCError(ret);
@@ -594,7 +638,7 @@ long usys_getcwd(char *buf, size_t size) {
   FSRoot &fs = myproc().get_fs();
   rt::RuntimeLibcGuard g;
   std::ospanstream out(std::span<char>(buf, size - 1));
-  Status<void> pth = fs.get_cwd_ent()->GetFullPath(out);
+  Status<void> pth = fs.get_cwd_ent()->GetFullPath(fs, out);
   if (unlikely(!pth)) return -ENOENT;
   if (unlikely(out.fail())) return -ERANGE;
   size_t sz = out.span().size();
@@ -626,6 +670,44 @@ long usys_stat(const char *path, struct stat *statbuf) {
   if (!tmp) return MakeCError(tmp);
   Status<void> stat = (*tmp)->GetStats(statbuf);
   if (!stat) return MakeCError(stat);
+  return 0;
+}
+
+long usys_statx(int dirfd, const char *pathname_c, int flag, unsigned int mask,
+                struct statx *statxbuf) {
+  if (!pathname_c) return -EFAULT;
+  std::string_view pathname(pathname_c);
+  bool chase_link = !(flag & AT_SYMLINK_NOFOLLOW);
+  bool at_empty_path = flag & AT_EMPTY_PATH;
+  if (pathname.empty() && !at_empty_path) return -ENOENT;
+  Process &p = myproc();
+  Status<std::shared_ptr<Inode>> tmp =
+      LookupInode(p, dirfd, pathname, chase_link);
+  if (!tmp) return MakeCError(tmp);
+  struct stat statbuf;
+  Status<void> stat = (*tmp)->GetStats(&statbuf);
+  if (!stat) return MakeCError(stat);
+
+  memset(statxbuf, 0, sizeof(struct statx));
+  statxbuf->stx_mode = statbuf.st_mode;
+  statxbuf->stx_blksize = statbuf.st_blksize;
+  statxbuf->stx_nlink = statbuf.st_nlink;
+  statxbuf->stx_uid = statbuf.st_uid;
+  statxbuf->stx_gid = statbuf.st_gid;
+  statxbuf->stx_ino = statbuf.st_ino;
+  statxbuf->stx_size = statbuf.st_size;
+  statxbuf->stx_blocks = statbuf.st_blocks;
+  statxbuf->stx_blksize = statbuf.st_blksize;
+  statxbuf->stx_mnt_id = statbuf.st_dev;
+  statxbuf->stx_mask = STATX_BASIC_STATS;
+
+  statxbuf->stx_atime.tv_sec = statbuf.st_atim.tv_sec;
+  statxbuf->stx_atime.tv_nsec = statbuf.st_atim.tv_nsec;
+  statxbuf->stx_mtime.tv_sec = statbuf.st_mtim.tv_sec;
+  statxbuf->stx_mtime.tv_nsec = statbuf.st_mtim.tv_nsec;
+  statxbuf->stx_ctime.tv_sec = statbuf.st_ctim.tv_sec;
+  statxbuf->stx_ctime.tv_nsec = statbuf.st_ctim.tv_nsec;
+
   return 0;
 }
 
@@ -801,7 +883,8 @@ void DirectoryEntry::save(cereal::BinaryOutputArchive &ar) const {
     ar(true, name_, get_inode(), get_parent_ent());
   } else {
     std::string path;
-    Status<std::string> ret = const_cast<DirectoryEntry *>(this)->GetPathStr();
+    Status<std::string> ret =
+        const_cast<DirectoryEntry *>(this)->GetPathStr(FSRoot::GetGlobalRoot());
     if (ret) path = std::move(*ret);
     ar(false, path, get_inode());
   }
@@ -953,7 +1036,6 @@ Status<void> InitFs(
 }
 
 ino_t AllocateInodeNumber() {
-  static std::atomic_size_t inos;
   return inos.fetch_add(1, std::memory_order_relaxed) + 1;
 }
 

@@ -110,7 +110,7 @@ Status<size_t> EventFDFile::Write(std::span<const std::byte> buf,
   }
 
   val_ += val;
-  get_poll_source().Set(kPollIn);
+  get_poll_source().Set(kPollIn, true /* force notify */);
   if (val_ == UINT64_MAX) get_poll_source().Clear(kPollOut);
   queue_.WakeAll();
   return kEventFdValSize;

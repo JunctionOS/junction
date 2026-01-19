@@ -55,6 +55,7 @@ fstatfs
 stat
 lstat
 fstat
+statx
 getdents
 getdents64
 mkdir
@@ -86,6 +87,7 @@ setsockopt
 getsockopt
 recvfrom
 recvmsg
+recvmmsg
 sendto
 sendmsg
 sendmmsg
@@ -186,7 +188,7 @@ prctl
 times
 msync:::stub
 sched_setaffinity:::stub
-set_robust_list:::enosys_quiet
+set_robust_list:::stub
 rseq
 flock:::stub
 inotify_init
@@ -199,3 +201,5 @@ mlock2:::stub
 munlock:::stub
 mlockall:::stub
 munlockall:::stub
+setpriority:::stub
+getpriority:::stub

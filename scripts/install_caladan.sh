@@ -5,34 +5,20 @@ set -xe
 CI_MODE=false
 if [ "$1" == "--ci" ]; then
     CI_MODE=true
-    echo "Running in CI mode: Makefile will be patched."
+    echo "Running in CI mode"
 fi
 
 # Globals
 SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 CALADAN_DIR=${ROOT_DIR}/lib/caladan
-if [ "$CI_MODE" = true ]; then
-    CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan-ci
-else
-    CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan
-fi
+CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan
 
 # Install Linux packages
 sudo -E apt install -y make cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev libncurses-dev meson python3-pyelftools
 
 cd $CALADAN_DIR/../
 git submodule update --init --recursive -f caladan
-
-# Switch to dev branch in CI_MODE
-if [ "$CI_MODE" = true ]; then
-    echo "Switching Caladan submodule to dev branch."
-    cd $CALADAN_DIR
-    git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
-    git fetch origin dev
-    git branch -a
-    git checkout dev
-fi
 
 # Apply patches
 cd $CALADAN_DIR/
@@ -58,7 +44,7 @@ else
 fi
 
 prev=$(cat "$ROOT_DIR/lib/.caladan_installed_ver" 2>&1 || true)
-cur=$(cat "$CALADAN_PATCHES_DIR"/* | sha256sum)
+cur=$((cd ${ROOT_DIR}; git ls-tree HEAD lib/caladan; cat "$CALADAN_PATCHES_DIR"/*) | sha256sum)
 
 # Install Caladan
 if [ "$prev" != "$cur" ] || [ ! -f $CALADAN_DIR/deps/pcm/build/src/libpcm.a ]; then
@@ -67,4 +53,4 @@ fi
 
 (cd ksched && make -j `nproc`)
 
-cat $CALADAN_PATCHES_DIR/* | sha256sum >  $CALADAN_DIR/../.caladan_installed_ver
+printf '%s\n' "$cur" > $CALADAN_DIR/../.caladan_installed_ver

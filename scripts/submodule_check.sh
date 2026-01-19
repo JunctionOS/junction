@@ -2,25 +2,21 @@
 
 set +x
 
-CI_MODE=false
-if [ "$1" == "--ci" ]; 
-then
-    CI_MODE=true
-    echo "INFO: sumodule check running in CI mode."
-fi
-
-if [ "$CI_MODE" = true ]; then
-    CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan-ci
-else
-    CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan
-fi
+CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan
 GLIBC_PATCHES_DIR=${ROOT_DIR}/lib/patches/glibc
 
 RED='\033[0;31m'
 NC='\033[0m' # No Color
 
+if [ ! -f ${ROOT_DIR}/.install_script_ran ]; then
+	echo -n -e "$RED"
+	echo "Please run scripts/install.sh first."
+	echo -e "$NC"
+	exit 1
+fi
+
 prev=$(cat "$ROOT_DIR/lib/.caladan_installed_ver" 2>&1 || true)
-cur=$(cat "$CALADAN_PATCHES_DIR"/* | sha256sum)
+cur=$((cd ${ROOT_DIR}; git ls-tree HEAD lib/caladan; cat "$CALADAN_PATCHES_DIR"/*) | sha256sum)
 
 
 err=0
@@ -31,10 +27,12 @@ if [ "$prev" != "$cur" ]; then
 	echo "Please run scripts/install_caladan.sh to update"
 	echo -e "$NC"
 	err=1
+	echo prev $prev
+	echo cur $cur
 fi
 
 prev=$(cat "$ROOT_DIR/lib/.glibc_installed_ver" 2>&1 || true)
-cur=$(cat "$GLIBC_PATCHES_DIR"/* | sha256sum)
+cur=$((git ls-tree HEAD ${ROOT_DIR}/lib/glibc; cat "$GLIBC_PATCHES_DIR"/*) | sha256sum)
 
 if [ "$prev" != "$cur" ]; then
 	echo -n -e "$RED"

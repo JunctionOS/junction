@@ -5,6 +5,16 @@ on:
     branches:
       - dev
       - main
+    paths-ignore:
+      - '**.md'
+
+      - '**/*.jpg'
+      - '**/*.jpeg'
+      - '**/*.png'
+      - '**/*.mp4'
+
+      - '.github/workflows/**'
+      - '!.github/workflows/build_and_test.yml'
 
 jobs:
   build_junction:
@@ -42,7 +52,7 @@ jobs:
             lib/caladan/rdma-core/build
             lib/caladan/deps/pcm/build
             lib/.caladan_installed_ver
-          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan-ci/*') }}
+          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
 
       - name: Retrieve cached python venv
         uses: actions/cache@v4

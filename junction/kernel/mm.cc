@@ -92,6 +92,21 @@ bool VMArea::TryMergeRight(const VMArea &lhs) {
   return true;
 }
 
+std::string VMArea::TypeString() const {
+  switch (type) {
+    case VMType::kNormal:
+      return "";
+    case VMType::kHeap:
+      return "[heap]";
+    case VMType::kStack:
+      return "[stack]";
+    case VMType::kFile:
+      return file->get_filename(FSRoot::GetGlobalRoot());
+    default:
+      return "";
+  }
+}
+
 bool MemoryMap::ContainedInMapBounds(void *addr, size_t len) const {
   auto [start, end] = AddressToBounds(addr, len);
   return start >= mm_start_ && end <= mm_end_;
@@ -434,7 +449,7 @@ std::string MemoryMap::get_bin_path() const {
   out.reserve(PATH_MAX);
   rt::RuntimeLibcGuard g;
   std::ostringstream ss(std::move(out));
-  Status<void> ret = binary_path_->GetFullPath(ss);
+  Status<void> ret = binary_path_->GetFullPath(myproc_or_global_fs(), ss);
   if (unlikely(!ret)) return "[STALE]";
   return ss.str();
 }

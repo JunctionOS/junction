@@ -1,7 +1,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "junction/samples/serverless/watchdog.h"
+#include "watchdog.h"
 
 namespace {
 std::unordered_map<int, std::string> users_db = {

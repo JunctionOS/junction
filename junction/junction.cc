@@ -165,8 +165,8 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   snapshot_on_stop_ = vm["snapshot-on-stop"].as<int>();
   expecting_snapshot_ = vm["snapshot_enabled"].as<bool>();
   expecting_snapshot_ |= snapshot_on_stop_;
-  expecting_snapshot_ |= vm.count("function_arg") && !restore;
-  function_name_ = vm["function_name"].as<std::string>();
+  expecting_snapshot_ |=
+      vm["function_arg"].as<std::string>().size() > 0 && !restore;
 
   uid_ = vm["uid"].as<uid_t>();
   gid_ = vm["gid"].as<uid_t>();
@@ -183,10 +183,9 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   madv_remap = vm["madv_remap"].as<bool>();
   kernel_restoring_ = vm["kernel-restore"].as<bool>();
   jif_ = vm["jif"].as<bool>();
-  snapshot_prefix_ = vm["snapshot-prefix"].as<std::string>();
   cache_linux_fs_ = vm["cache_linux_fs"].as<bool>();
   port_ = vm["port"].as<int>();
-  if (snapshot_on_stop_ && snapshot_prefix_.empty()) {
+  if (snapshot_on_stop_ && vm["snapshot-prefix"].as<std::string>().empty()) {
     std::cerr << "need a snapshot prefix if we are snapshotting" << std::endl;
     return MakeError(EINVAL);
   }
@@ -240,16 +239,28 @@ Status<void> init() {
   linux_pid = getpid();
 
   Status<void> ret = InitSignal();
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize signal: " << ret.error();
+    return ret;
+  }
 
   ret = SyscallInit();
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize syscall: " << ret.error();
+    return ret;
+  }
 
   ret = InitZpoline();
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize zpoline: " << ret.error();
+    return ret;
+  }
 
   ret = InitChroot();
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize chroot: " << ret.error();
+    return ret;
+  }
 
   char *dropuid = getenv("DROP_PRIV_UID");
   if (dropuid) {
@@ -261,19 +272,34 @@ Status<void> init() {
   }
 
   ret = InitFs(linux_mount_points, GetFsMounts());
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize fs: " << ret.error();
+    return ret;
+  }
 
   ret = ShimJmpInit();
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize shim: " << ret.error();
+    return ret;
+  }
 
   ret = InitUnixTime();
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize unix time: " << ret.error();
+    return ret;
+  }
 
   ret = init_seccomp();
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize seccomp: " << ret.error();
+    return ret;
+  }
 
   ret = InitControlServer();
-  if (unlikely(!ret)) return ret;
+  if (unlikely(!ret)) {
+    LOG(ERR) << "failed to initialize control server: " << ret.error();
+    return ret;
+  }
 
   return InitChannelClient(GetCfg().GetArg("function_name"));
 }

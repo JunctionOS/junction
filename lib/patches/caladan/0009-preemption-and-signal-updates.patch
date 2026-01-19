@@ -1,4 +1,4 @@
-From cb0cee6c7bf4e72708e8bf40c8898f92a061a114 Mon Sep 17 00:00:00 2001
+From 08e546ccaba95a3f6ce5f5e7982646e57ad00975 Mon Sep 17 00:00:00 2001
 From: Josh Fried <joshuafried@gmail.com>
 Date: Mon, 10 Jul 2023 03:17:58 -0400
 Subject: [PATCH 09/13] preemption and signal updates
@@ -11,11 +11,11 @@ Subject: [PATCH 09/13] preemption and signal updates
  4 files changed, 32 insertions(+), 3 deletions(-)
 
 diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
-index 9bb8882..3a61fdf 100644
+index 6b4ece2..4e3454e 100644
 --- a/inc/runtime/thread.h
 +++ b/inc/runtime/thread.h
-@@ -35,7 +35,7 @@ struct thread {
- 	struct list_node	interruptible_link;
+@@ -36,7 +36,7 @@ struct thread {
+ 	size_t			waitq_micros;
  	uint64_t	tlsvar;
  	uint64_t	fsbase;
 -	unsigned long		junction_tstate_buf[8];
@@ -24,7 +24,7 @@ index 9bb8882..3a61fdf 100644
  
  extern uint64_t thread_get_total_cycles(thread_t *th);
 diff --git a/runtime/defs.h b/runtime/defs.h
-index 694c199..3093af3 100644
+index 2725f37..726c10f 100644
 --- a/runtime/defs.h
 +++ b/runtime/defs.h
 @@ -71,6 +71,7 @@ struct stack {
@@ -48,7 +48,7 @@ index ad64206..de0fd8b 100644
  
  	if (sigemptyset(&act.sa_mask) != 0) {
 diff --git a/runtime/sched.c b/runtime/sched.c
-index b9d82be..f38396d 100644
+index 1a97084..ed817f3 100644
 --- a/runtime/sched.c
 +++ b/runtime/sched.c
 @@ -3,6 +3,7 @@
@@ -96,7 +96,7 @@ index b9d82be..f38396d 100644
  {
  	struct kthread *k = myk();
  	thread_t *myth = thread_self();
-@@ -997,6 +1017,7 @@ static void runtime_top_of_stack(void)
+@@ -998,6 +1018,7 @@ static void runtime_top_of_stack(void)
   */
  int sched_init_thread(void)
  {
@@ -104,7 +104,7 @@ index b9d82be..f38396d 100644
  	struct stack *s;
  
  	tcache_init_perthread(thread_tcache, perthread_ptr(thread_pt));
-@@ -1008,6 +1029,12 @@ int sched_init_thread(void)
+@@ -1009,6 +1030,12 @@ int sched_init_thread(void)
  	perthread_store(runtime_stack, (void *)stack_init_to_rsp(s, runtime_top_of_stack));
  	perthread_store(runtime_fsbase, _readfsbase_u64());
  

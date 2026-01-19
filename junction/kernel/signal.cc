@@ -804,7 +804,7 @@ extern "C" [[noreturn]] void usys_rt_sigreturn_finish(uint64_t rsp) {
   if (unlikely(jframe->magic != kJunctionFrameMagic))
     print_msg_abort("invalid stack frame used in rt_sigreturn");
 
-  if (unlikely(GetCfg().strace_enabled())) LogSyscall("rt_sigreturn");
+  if (unlikely(GetCfg().strace_enabled())) LogSyscallDirect("rt_sigreturn");
 
   // set blocked
   hand.ReplaceMask(sigframe->uc.mask);
@@ -996,6 +996,11 @@ void ThreadSignalHandler::DeliverSignals(Trapframe &entry, long rax) {
     // Check if we need to restart the system call.
     if (!IsRestartSys(rax)) return;
     myth.GetSyscallFrame().JmpSyscallStart();
+    std::unreachable();
+  }
+
+  if (unlikely(myproc().exited())) {
+    FinishExit(0);
     std::unreachable();
   }
 

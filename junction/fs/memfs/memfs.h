@@ -14,9 +14,9 @@ namespace junction::memfs {
 
 inline constexpr __fsword_t TMPFS_MAGIC = 0x01021994;
 inline constexpr size_t kBlockSize = 4096;
-inline constexpr size_t kMaxSizeBytes = (1UL << 30);                  // 1 GB
+inline constexpr size_t kMaxSizeBytes = (1UL << 28);                  // 256 MB
 inline constexpr size_t kMaxMemfdExtent = (1UL << 45);                // 35 TB
-inline constexpr size_t kMaxFiles = kMaxMemfdExtent / kMaxSizeBytes;  // 32K
+inline constexpr size_t kMaxFiles = kMaxMemfdExtent / kMaxSizeBytes;  // 128K
 
 inline void StatFs(struct statfs *buf) {
   buf->f_type = TMPFS_MAGIC;
@@ -180,6 +180,8 @@ class MemIDir : public IDir {
 
   Status<std::shared_ptr<File>> Create(std::string_view name, int flags,
                                        mode_t mode, FileMode fmode) override;
+  Status<std::shared_ptr<File>> CreateTemp(int flags, mode_t mode,
+                                           FileMode fmode) override;
   std::vector<dir_entry> GetDents() override;
 
   // Inode ops

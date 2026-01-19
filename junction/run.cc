@@ -14,12 +14,53 @@
 
 namespace junction {
 
+Status<FSRoot> CreateFSRoot(const std::string &fsroot, const std::string &cwd) {
+  std::shared_ptr<IDir> root;
+  if (fsroot.empty()) {
+    root = FSRoot::GetGlobalRoot().get_root();
+  } else {
+    Status<std::shared_ptr<Inode>> ino =
+        LookupInode(FSRoot::GetGlobalRoot(), fsroot, true);
+    if (unlikely(!ino)) {
+      LOG(ERR) << "failed to find " << fsroot;
+      return MakeError(ino);
+    }
+    if (unlikely(!(*ino)->is_dir())) {
+      LOG(ERR) << "fsroot is not a directory: " << fsroot;
+      return MakeError(ENOTDIR);
+    }
+    root = std::static_pointer_cast<IDir>(std::move(*ino));
+  }
+
+  FSRoot f(root, root);
+
+  if (cwd.empty()) {
+    f.SetCwd(FSRoot::GetGlobalRoot().get_cwd());
+  } else {
+    Status<std::shared_ptr<Inode>> ino = LookupInode(f, cwd, true);
+    if (unlikely(!ino)) {
+      LOG(ERR) << "failed to find cwd" << cwd;
+      return MakeError(ino);
+    }
+    if (unlikely(!(*ino)->is_dir())) {
+      LOG(ERR) << "cwd is not a directory: " << cwd;
+      return MakeError(ENOTDIR);
+    }
+    f.SetCwd(std::static_pointer_cast<IDir>(std::move(*ino)));
+  }
+  return f;
+}
+
 Status<std::shared_ptr<Process>> CreateFirstProcess(
     std::string_view path, std::vector<std::string_view> &argv,
-    const std::vector<std::string_view> &envp, bool is_init) {
+    const std::vector<std::string_view> &envp, bool is_init, std::string cwd,
+    std::string fsroot, Thread **th_out) {
+  Status<FSRoot> f = CreateFSRoot(fsroot, cwd);
+  if (!f) return MakeError(f);
+
   // Create the process object
   Status<std::pair<std::shared_ptr<Process>, Thread *>> tmp =
-      Process::CreateInit();
+      Process::CreateInit(*f);
   if (!tmp) return MakeError(tmp);
   auto &[proc, th] = *tmp;
 
@@ -54,7 +95,10 @@ Status<std::shared_ptr<Process>> CreateFirstProcess(
 
   th->mark_enter_kernel();
   entry.MakeUnwinderSysret(*th, th->GetCaladanThread()->tf);
-  th->ThreadReady();
+  if (th_out)
+    *th_out = th;
+  else
+    th->ThreadReady();
   return std::move(proc);
 }
 

@@ -12,7 +12,7 @@ GLIBC_INSTALL_DIR=${ROOT_DIR}/install
 mkdir -p $GLIBC_INSTALL_DIR
 
 prev=$(cat "$ROOT_DIR/lib/.glibc_installed_ver" 2>&1 || true)
-cur=$(cat "$GLIBC_PATCHES_DIR"/* | sha256sum)
+cur=$((cd $ROOT_DIR; git ls-tree HEAD lib/glibc; cat "$GLIBC_PATCHES_DIR"/*) | sha256sum)
 
 if [ "$prev" == "$cur" ] && [ -f $GLIBC_INSTALL_DIR/lib/ld-linux-x86-64.so.2 ] && [ -f $GLIBC_INSTALL_DIR/lib/libc.so.6 ]; then
   exit 0
@@ -45,4 +45,4 @@ make -j "$(nproc)" CFLAGS="-U_FORTIFY_SOURCE -O3"
 make install -j "$(nproc)"
 
 # record the set of patches used for this build
-cat $GLIBC_PATCHES_DIR/* | sha256sum >  $GLIBC_DIR/../.glibc_installed_ver
+printf '%s\n' "$cur" >  $GLIBC_DIR/../.glibc_installed_ver
