@@ -19,13 +19,28 @@ const std::string FOLLOWER_SOCK = "follower.sock";
 
 const std::string SHIM_SO = "libshim.so";
 
+const std::string PYTHON = "/usr/local/src/Python-3.9.18/python";
+
 namespace {
 
-bool SpawnService(const std::string &bin, bool enable_interception) {
-  // create args
-  std::vector<char *> args;
-  args.push_back(const_cast<char *>(bin.c_str()));
-  args.push_back(nullptr);
+enum class ServiceLang : std::uint8_t { CPP, PYTHON };
+
+std::vector<char *> MakeArgv(const std::string &bin,
+                             const std::vector<std::string> &args) {
+  std::vector<char *> argv;
+  argv.reserve(args.size() + 2);
+  argv.push_back(const_cast<char *>(bin.c_str()));
+  for (const auto &arg : args) {
+    argv.push_back(const_cast<char *>(arg.c_str()));
+  }
+  argv.push_back(nullptr);
+  return argv;
+}
+
+bool SpawnService(const std::string &bin, const std::vector<std::string> &args,
+                  bool enable_interception) {
+  // create argv
+  auto argv = MakeArgv(bin, args);
 
   // create envs
   std::vector<char *> envs;
@@ -41,14 +56,14 @@ bool SpawnService(const std::string &bin, bool enable_interception) {
   std::stringstream log_ss;
   log_ss << "[Controller] Spawning: ";
   if (enable_interception) { log_ss << preload_str << " "; }
-  for (auto *arg : args) {
+  for (auto *arg : argv) {
     if (arg != nullptr) { log_ss << arg << " "; }
   }
   std::cout << log_ss.str() << std::endl;
 
   // spawn
   pid_t pid;
-  if (posix_spawn(&pid, bin.c_str(), nullptr, nullptr, args.data(),
+  if (posix_spawn(&pid, bin.c_str(), nullptr, nullptr, argv.data(),
                   envs.data()) == 0) {
     std::cout << "[Controller] Service spawned successfuly. PID: " << pid
               << std::endl;
@@ -95,13 +110,54 @@ bool InitServer() {
 
 int main(int argc, char *argv[]) {
   bool enable_interception = false;
-  if (argc > 1 && std::strcmp(argv[1], "--int") == 0) {
-    enable_interception = true;
-    std::cout << "[Controller] Interception enabled." << std::endl;
+
+  ServiceLang user_lang = ServiceLang::CPP;
+  ServiceLang follower_lang = ServiceLang::CPP;
+
+  for (int i = 1; i < argc; i++) {
+    if (std::strcmp(argv[i], "--int") == 0) {
+      enable_interception = true;
+      std::cout << "[Controller] Interception enabled." << std::endl;
+    } else if (std::strcmp(argv[i], "--lang") == 0 && i + 1 < argc) {
+      std::string mode = argv[i + 1];
+      if (mode == "py") {
+        user_lang = ServiceLang::PYTHON;
+        follower_lang = ServiceLang::PYTHON;
+        std::cout << "[Controller] Mode: All Python" << std::endl;
+      } else if (mode == "hybrid") {
+        user_lang = ServiceLang::PYTHON;
+        follower_lang = ServiceLang::CPP;
+        std::cout << "[Controller] Mode: Hybrid (User=Py, Follower=C++)"
+                  << std::endl;
+      } else {
+        std::cout << "[Controller] Mode: All C++ (Default)" << std::endl;
+      }
+      i++;
+    }
   }
-  if (!SpawnService(CURR_DIR + USER_BIN, enable_interception)) { exit(1); }
-  if (!SpawnService(CURR_DIR + FOLLOWER_BIN, enable_interception)) { exit(1); }
-  if (!SpawnService(CURR_DIR + PROXY_BIN, false)) { exit(1); }
+  if (user_lang == ServiceLang::PYTHON) {
+    if (!SpawnService(PYTHON, {CURR_DIR + USER_BIN + ".py"},
+                      enable_interception)) {
+      exit(1);
+    }
+  } else {
+    if (!SpawnService(CURR_DIR + USER_BIN, {}, enable_interception)) {
+      exit(1);
+    }
+  }
+
+  if (follower_lang == ServiceLang::PYTHON) {
+    if (!SpawnService(PYTHON, {CURR_DIR + FOLLOWER_BIN + ".py"},
+                      enable_interception)) {
+      exit(1);
+    }
+  } else {
+    if (!SpawnService(CURR_DIR + FOLLOWER_BIN, {}, enable_interception)) {
+      exit(1);
+    }
+  }
+
+  if (!SpawnService(CURR_DIR + PROXY_BIN, {}, false)) { exit(1); }
 
   if (!InitServer()) {
     std::cerr << "[Controller] Failed to listen on port: " << CONTROLLER_PORT
