@@ -65,6 +65,7 @@ add_executable(proxy_service
 file(COPY watchdog.py
     user_service.py
     follower_service.py
+    patch.py
     DESTINATION ${CMAKE_CURRENT_BINARY_DIR})
 
 # shim

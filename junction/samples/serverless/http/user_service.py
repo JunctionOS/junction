@@ -1,6 +1,9 @@
 from http.server import BaseHTTPRequestHandler
 import urllib.parse
 from watchdog import WatchDog
+import patch
+
+patch.patch_socket()
 
 # --- 1. Generate Database ---
 USERS_DB = {i: f"user_{i}" for i in range(100)}

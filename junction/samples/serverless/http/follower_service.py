@@ -1,24 +1,10 @@
 import http.client
 from http.server import BaseHTTPRequestHandler
 import sys
-import socket
-
-# --- 0. MONKEY PATCH FOR JUNCTION / LIBOS ---
-# Junction does not support setsockopt, which http.client tries to use (TCP_NODELAY).
-# We wrap the standard setsockopt to ignore errors.
-_original_setsockopt = socket.socket.setsockopt
-
-def patched_setsockopt(self, level, optname, value):
-    try:
-        _original_setsockopt(self, level, optname, value)
-    except OSError:
-        # Ignore "Invalid argument" or "Protocol not available" from the runtime
-        pass
-
-socket.socket.setsockopt = patched_setsockopt
-# --------------------------------------------
-
 from watchdog import WatchDog
+import patch
+
+patch.patch_socket()
 
 # --- 1. CONFIGURATION ---
 GATEWAY_IP = "10.10.1.1"
