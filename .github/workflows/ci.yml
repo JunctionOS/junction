@@ -76,8 +76,7 @@ jobs:
 
       - name: Install
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-12 g++-12
+          dpkg -s gcc-12 g++-12 || sudo apt update; sudo apt-get install -y gcc-12 g++-12
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
           ./scripts/install.sh
@@ -173,8 +172,7 @@ jobs:
 
       - name: Install
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-12 g++-12
+          dpkg -s gcc-12 g++-12 || sudo apt update; sudo apt-get install -y gcc-12 g++-12
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
           ./scripts/install.sh
@@ -277,10 +275,16 @@ jobs:
             bin/node_modules
           key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
 
+      - uses: actions/cache@v4
+        name: Retrieve cached chroot environment
+        with:
+          path: |
+            chroot.tar.gz
+          key: ${{ runner.os }}-build-chroot-${{ hashFiles('scripts/install_chroot.sh') }}
+
       - name: Install
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-12 g++-12
+          dpkg -s gcc-12 g++-12 || sudo apt update; sudo apt-get install -y gcc-12 g++-12
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
           ./scripts/install.sh
@@ -383,12 +387,11 @@ jobs:
         with:
           path: |
             chroot.tar.gz
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_chroot.sh') }}
+          key: ${{ runner.os }}-build-chroot-${{ hashFiles('scripts/install_chroot.sh') }}
 
       - name: Install
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-12 g++-12
+          dpkg -s gcc-12 g++-12 || sudo apt update; sudo apt-get install -y gcc-12 g++-12
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
           sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
           ./scripts/install.sh
