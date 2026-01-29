@@ -268,14 +268,6 @@ jobs:
           key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
 
       - uses: actions/cache@v4
-        name: Retrieve cached python venv
-        with:
-          path: |
-            bin/venv
-            bin/node_modules
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
-
-      - uses: actions/cache@v4
         name: Retrieve cached chroot environment
         with:
           path: |
