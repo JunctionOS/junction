@@ -7,7 +7,9 @@ SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 VENV_DIR=${ROOT_DIR}/bin/venv
 
-sudo -E apt install -y libgl1 python3-venv python3-grpcio python3-grpc-tools
+. "${SCRIPT_DIR}"/helpers.sh
+
+install_missing_packages libgl1 python3-venv python3-grpcio python3-grpc-tools
 mkdir -p ${ROOT_DIR}/bin/
 python3 -m venv ${VENV_DIR}
 ${VENV_DIR}/bin/pip install chameleon pillow numpy pyaes six torch opencv-python scikit-learn pandas tensorflow-cpu grpcio grpcio-tools minio --extra-index-url https://download.pytorch.org/whl/cpu #[and-cuda]

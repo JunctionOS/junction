@@ -5,15 +5,14 @@ set -xe
 SCRIPT_DIR=$(dirname $(readlink -f $0))
 ROOT_DIR=${SCRIPT_DIR}/../
 
-export DEBIAN_FRONTEND=noninteractive
+. "${SCRIPT_DIR}"/helpers.sh
 
 # Install Linux packages
-sudo apt update
-sudo -E apt install -y perl libboost-dev libboost-program-options-dev bison gcc-12 g++-12 gawk binutils yapf3 libfmt-dev libcap-dev python3-termcolor
-sudo -E apt install -y clang-tidy-16 clang-format-16 || true
+install_missing_packages perl libboost-dev libboost-program-options-dev bison gcc-12 g++-12 gawk binutils yapf3 libfmt-dev libcap-dev python3-termcolor
+install_missing_packages clang-tidy-16 clang-format-16 || true
 
 # Install packages for nbody tests and samples
-sudo -E apt install -y gfortran php-cli golang-go python3-numpy openjdk-21-jre-headless nodejs python3-pil ruby npm
+install_missing_packages gfortran php-cli golang-go python3-numpy openjdk-21-jre-headless nodejs python3-pil ruby npm
 
 # Initialize submodules
 git submodule update --init --recursive --jobs=`nproc`

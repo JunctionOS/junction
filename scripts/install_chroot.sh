@@ -11,10 +11,9 @@ if ! mkdir ${CHROOT}; then
  exit 0
 fi
 
-export DEBIAN_FRONTEND=noninteractive
+. "${SCRIPT_DIR}"/helpers.sh
 
-sudo apt update
-sudo -E apt install -y debootstrap
+install_missing_packages debootstrap
 
 sudo debootstrap --arch=amd64 noble ${CHROOT}  http://archive.ubuntu.com/ubuntu/
 

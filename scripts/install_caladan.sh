@@ -7,8 +7,9 @@ ROOT_DIR=${SCRIPT_DIR}/../
 CALADAN_DIR=${ROOT_DIR}/lib/caladan
 CALADAN_PATCHES_DIR=${ROOT_DIR}/lib/patches/caladan
 
-# Install Linux packages
-sudo -E apt install -y make cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev libncurses-dev meson python3-pyelftools
+. "${SCRIPT_DIR}"/helpers.sh
+
+install_missing_packages make cmake pkg-config libnl-3-dev libnl-route-3-dev libnuma-dev uuid-dev libssl-dev libaio-dev libcunit1-dev libclang-dev libncurses-dev meson python3-pyelftools
 
 cd $CALADAN_DIR/../
 git submodule update --init --recursive -f caladan
