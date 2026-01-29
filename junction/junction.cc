@@ -235,6 +235,11 @@ Status<void> init() {
   // Make sure any one-time routines in the logger get run now.
   LOG(INFO) << "Initializing junction";
   GetCfg().Print();
+  // Initialize some C++ internals to avoid issues with pthread_once called
+  // after the seccomp filter is installed.
+  std::locale::global(std::locale::classic());
+  static std::ios_base::Init ios_init;
+  (void)std::locale();
 
   linux_pid = getpid();
 
