@@ -63,22 +63,6 @@ set_target_properties(caladan_runtime PROPERTIES IMPORTED_LOCATION ${CALADAN_PAT
 target_link_libraries(caladan_runtime INTERFACE "${CALADAN_RUNTIME_LIBS}")
 target_link_options(caladan_runtime INTERFACE "${CALADAN_RUNTIME_LDFLAGS}")
 
-
-ExternalProject_Add(caladan_shim_src
-  SOURCE_DIR ${CALADAN_PATH}/shim
-  CONFIGURE_COMMAND ""
-  INSTALL_COMMAND ""
-  BUILD_IN_SOURCE 1
-  BUILD_ALWAYS 1
-  JOB_SERVER_AWARE 1
-)
-
-add_library(caladan_shim STATIC IMPORTED GLOBAL)
-add_dependencies(caladan_shim caladan_shim_src caladan_src)
-set_target_properties(caladan_shim PROPERTIES IMPORTED_LOCATION ${CALADAN_PATH}/shim/libshim.a)
-target_link_options(caladan_shim INTERFACE "-Wl,--wrap=main")
-target_link_libraries(caladan_shim INTERFACE "-ldl" caladan_runtime)
-
 set(FLATBUFFERS_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/flatbuffers")
 add_subdirectory(${FLATBUFFERS_SRC_DIR}
   ${CMAKE_CURRENT_BINARY_DIR}/flatbuffers-build

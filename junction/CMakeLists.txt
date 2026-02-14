@@ -15,13 +15,6 @@ FetchContent_MakeAvailable(googletest)
 enable_testing()
 set(CMAKE_GTEST_DISCOVER_TESTS_DISCOVERY_MODE PRE_TEST)
 
-# Generate shim libraries for tests
-add_library(gtest_shim INTERFACE)
-target_link_libraries(gtest_shim INTERFACE
-  "$<LINK_LIBRARY:WHOLE_ARCHIVE,caladan_shim>"
-  "$<LINK_LIBRARY:WHOLE_ARCHIVE,gtest_main>"
-)
-
 macro(test_bin_junction test_name test_commands)
   add_test(
     NAME ${test_name}_junction
