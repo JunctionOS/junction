@@ -331,7 +331,7 @@ long DoExecve(std::shared_ptr<DirectoryEntry> dent, const char *filename,
     if (!regs) {
       if (replace_non_reloc) {
         LOG(ERR) << "failed to replace non-relocatable image";
-        syscall_exit(-1);
+        ksys_exit(-1);
       }
       return MakeCError(regs);
     }

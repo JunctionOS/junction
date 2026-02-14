@@ -272,11 +272,11 @@ Status<void> Process::JoinProcessGroup(pid_t pgid) {
 void Process::ProcessFinish() {
   if (unlikely(!mem_map_->DumpTracerReport())) {
     LOG(ERR) << "Failed to dump memory trace";
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
   // Check if init has died
   if (unlikely(init_proc.get() == this)) {
-    syscall_exit(xstate_);
+    ksys_exit(xstate_);
     std::unreachable();
   }
 

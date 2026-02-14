@@ -132,7 +132,7 @@ void __noinline print_msg_abort(const char *msg) {
   syscall_write(2, m, __strlen(m));
   syscall_write(2, msg, __strlen(msg));
   syscall_write(2, "\n", 1);
-  syscall_exit(-1);
+  ksys_exit(-1);
 }
 
 // Setup @signal on the stack given by @rsp (may be switched). @prev_frame is

@@ -391,7 +391,7 @@ class Thread {
     Status<void> ret = DropUnusedStack();
     if (unlikely(!ret)) {
       LOG(ERR) << "Failed to trim stack: " << ret.error();
-      syscall_exit(-1);
+      ksys_exit(-1);
     }
 
     bool has_fsbase = GetCaladanThread()->has_fsbase;

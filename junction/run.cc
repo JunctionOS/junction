@@ -169,7 +169,7 @@ void JunctionMain(int argc, char *argv[]) {
   Status<void> ret = init();
   if (unlikely(!ret)) {
     LOG(ERR) << "failed to initialize Junction: " << ret.error();
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
 
   std::shared_ptr<Process> proc;
@@ -178,7 +178,7 @@ void JunctionMain(int argc, char *argv[]) {
   if (GetCfg().restoring()) {
     if (unlikely(argc < 2)) {
       LOG(ERR) << "Too few arguments for restore";
-      syscall_exit(-1);
+      ksys_exit(-1);
     }
 
     Status<std::shared_ptr<Process>> tmp;
@@ -193,7 +193,7 @@ void JunctionMain(int argc, char *argv[]) {
 
     if (unlikely(!tmp)) {
       LOG(ERR) << "Failed to restore proc: " << tmp.error();
-      syscall_exit(-1);
+      ksys_exit(-1);
     }
 
     proc = std::move(*tmp);
@@ -204,7 +204,7 @@ void JunctionMain(int argc, char *argv[]) {
       Status<void> ret = SetupServerlessChannel(0);
       if (unlikely(!ret)) {
         LOG(ERR) << "failed to setup channel";
-        syscall_exit(-1);
+        ksys_exit(-1);
       }
     }
 
@@ -214,7 +214,7 @@ void JunctionMain(int argc, char *argv[]) {
     // Create the first process
     Status<std::shared_ptr<Process>> tmp =
         CreateFirstProcess(args[0], args, envp_view);
-    if (!tmp) syscall_exit(-1);
+    if (!tmp) ksys_exit(-1);
     proc = std::move(*tmp);
   }
 
@@ -232,7 +232,7 @@ void JunctionMain(int argc, char *argv[]) {
         Status<void> ret = TakeSnapshot(p.get());
         if (!ret) {
           LOG(ERR) << "Failed to snapshot: " << ret.error();
-          syscall_exit(-1);
+          ksys_exit(-1);
         } else {
           LOG(INFO) << "snapshot successful!";
         }

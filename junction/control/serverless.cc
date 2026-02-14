@@ -357,7 +357,7 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
   std::shared_ptr<FunctionInode> fino = get_channel(chan_id);
   if (unlikely(!fino)) {
     LOG(ERR) << "Missing serverless channel";
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
 
   FunctionChannel &chan = fino->get_chan();
@@ -405,7 +405,7 @@ void RunRestored(std::shared_ptr<Process> proc, int chan_id,
 
   if (GetCfg().GetBool("keep_alive")) rt::WaitForever();
 
-  syscall_exit(0);
+  ksys_exit(0);
 }
 
 void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
@@ -413,7 +413,7 @@ void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
   std::shared_ptr<FunctionInode> fino = get_channel(chan_id);
   if (unlikely(!fino)) {
     LOG(ERR) << "Missing serverless channel";
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
 
   FunctionChannel &chan = fino->get_chan();
@@ -427,7 +427,7 @@ void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
   Status<void> ret = TakeSnapshot(proc.get());
   if (!ret) {
     LOG(ERR) << "Failed to snapshot: " << ret.error();
-    syscall_exit(-1);
+    ksys_exit(-1);
   } else {
     LOG(INFO) << "snapshot successful!";
   }
@@ -439,7 +439,7 @@ void WarmupAndSnapshot(std::shared_ptr<Process> proc, int chan_id,
     rt::WaitForever();
   }
 
-  syscall_exit(0);
+  ksys_exit(0);
 }
 
 std::string InvokeChan(int chan, std::string arg) {

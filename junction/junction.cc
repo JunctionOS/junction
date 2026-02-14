@@ -51,6 +51,17 @@ extern "C" void log_message_end(uint64_t *cb_data) {
   }
 }
 
+// Override and disable backtrace function for log messages in Caladan.
+extern "C" void logk_backtrace(void) {}
+
+// Provide definition of init_shutdown that directly calls
+// syscall(__NR_exit_group).
+extern "C" void init_shutdown(int status) {
+  log_info("init: shutting down -> %s",
+           status == EXIT_SUCCESS ? "SUCCESS" : "FAILURE");
+  ksys_exit(status);
+}
+
 namespace po = boost::program_options;
 
 po::options_description GetOptions() {
@@ -242,6 +253,8 @@ Status<void> init() {
   (void)std::locale();
 
   linux_pid = getpid();
+
+  tcp_set_default_window(kDefaultTcpWin);
 
   Status<void> ret = InitSignal();
   if (unlikely(!ret)) {

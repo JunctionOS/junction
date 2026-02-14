@@ -30,10 +30,9 @@ namespace junction {
 
 // Filter for syscalls from the caladan runtime.
 static struct sock_filter caladan_filter[] = {
-    ALLOW_CALADAN_SYSCALL(ioctl),      ALLOW_CALADAN_SYSCALL(mmap),
-    ALLOW_CALADAN_SYSCALL(madvise),    ALLOW_CALADAN_SYSCALL(mprotect),
-    ALLOW_CALADAN_SYSCALL(exit_group), ALLOW_CALADAN_SYSCALL(pwritev2),
-    ALLOW_CALADAN_SYSCALL(writev)};
+    ALLOW_CALADAN_SYSCALL(ioctl),    ALLOW_CALADAN_SYSCALL(mmap),
+    ALLOW_CALADAN_SYSCALL(madvise),  ALLOW_CALADAN_SYSCALL(mprotect),
+    ALLOW_CALADAN_SYSCALL(pwritev2), ALLOW_CALADAN_SYSCALL(writev)};
 
 // Syscalls needed to manipulate the host fs.
 static struct sock_filter writeable_linux_fs[] = {
@@ -168,12 +167,12 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
 
   if (unlikely(info->si_code != SYS_SECCOMP)) {
     log_syscall_msg("Unexpected signal delivered to syscall handler", 0);
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
 
   if (unlikely(!ctx)) {
     log_syscall_msg("Missing context in syscall handler", 0);
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
 
   long sysn = static_cast<long>(ctx->uc_mcontext.rax);
@@ -219,17 +218,17 @@ extern "C" void syscall_trap_handler(int nr, siginfo_t *info,
 
   if (unlikely(!thread_self())) {
     log_syscall_msg("Unexpected syscall from Caladan", sysn);
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
 
   if (unlikely(!IsJunctionThread())) {
     log_syscall_msg("Intercepted syscall originating in junction", sysn);
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
 
   if (unlikely(mythread().in_kernel())) {
     log_syscall_msg("Unexpected syscall while in_kernel", sysn);
-    syscall_exit(-1);
+    ksys_exit(-1);
   }
 
   LOG_ONCE(WARN) << "Warning: intercepting syscalls with seccomp traps";

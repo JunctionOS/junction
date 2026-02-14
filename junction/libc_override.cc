@@ -5,6 +5,7 @@
 
 #include "junction/bindings/runtime.h"
 #include "junction/junction.h"
+#include "junction/kernel/ksys.h"
 
 extern "C" {
 #include <base/log.h>
@@ -41,7 +42,7 @@ void __cxa_throw(void *thrown_exception, void *pvtinfo, void (*dest)(void *)) {
   write_msg("Exception unwinding and backtrace is not supported.\n");
   write_msg("Rebuild with the PERMISSIVE_SECCOMP flag.\n");
   write_msg("Killing Junction instance.\n");
-  syscall_exit(-1);
+  junction::ksys_exit(-1);
   std::unreachable();
 }
 
@@ -57,7 +58,7 @@ void __cxa_throw(void *thrown_exception, void *pvtinfo, void (*dest)(void *)) {
   }
 
   write_msg("\n");
-  syscall_exit(-1);
+  junction::ksys_exit(-1);
   std::unreachable();
 }
 

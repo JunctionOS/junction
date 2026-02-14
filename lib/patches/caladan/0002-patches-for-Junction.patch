@@ -1,0 +1,167 @@
+From a483fd1163321444050108ccc2f2f3872f97204b Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sun, 19 Feb 2023 00:34:47 -0500
+Subject: [PATCH 2/2] patches for Junction
+
+- extend struct thread
+- configure signal/interrupt stacks
+- hook sched operations
+---
+ inc/runtime/thread.h |  8 ++++++++
+ runtime/init.c       |  2 +-
+ runtime/preempt.c    | 14 +++++++++++++-
+ runtime/sched.c      | 22 ++++++++++++++++++++++
+ 4 files changed, 44 insertions(+), 2 deletions(-)
+
+diff --git a/inc/runtime/thread.h b/inc/runtime/thread.h
+index 7ad0110..62127d2 100644
+--- a/inc/runtime/thread.h
++++ b/inc/runtime/thread.h
+@@ -23,8 +23,15 @@ struct thread {
+ 	bool	main_thread:1;
+ 	bool	has_fsbase:1;
+ 	bool	thread_ready:1;
++	bool	link_armed:1;
++	bool	junction_thread;
+ 	bool	thread_running;
++	bool	in_syscall;
++	/* modified by interrupt handler; should not be shared with other bitfields */
++	bool	xsave_area_in_use:1;
+ 	atomic8_t	interrupt_state;
++	struct thread_tf	*entry_regs;
++	unsigned long	junction_tstate_buf[8];
+ 	struct stack	*stack;
+ 	uint16_t	last_cpu;
+ 	uint16_t	cur_kthread;
+@@ -36,6 +43,7 @@ struct thread {
+ 	size_t			waitq_micros;
+ 	uint64_t	tlsvar;
+ 	uint64_t	fsbase;
++	unsigned long	junction_cold_state_buf[32];
+ };
+ 
+ extern uint64_t thread_get_total_cycles(thread_t *th);
+diff --git a/runtime/init.c b/runtime/init.c
+index 3331c15..4692476 100644
+--- a/runtime/init.c
++++ b/runtime/init.c
+@@ -54,10 +54,10 @@ static const struct init_entry global_init_handlers[] = {
+ /* per-kthread subsystem initialization */
+ static const struct init_entry thread_init_handlers[] = {
+ 	/* runtime core */
++	THREAD_INITIALIZER(stack),
+ 	THREAD_INITIALIZER(preempt),
+ 	THREAD_INITIALIZER(kthread),
+ 	THREAD_INITIALIZER(ioqueues),
+-	THREAD_INITIALIZER(stack),
+ 	THREAD_INITIALIZER(sched),
+ 	THREAD_INITIALIZER(timer),
+ 	THREAD_INITIALIZER(smalloc),
+diff --git a/runtime/preempt.c b/runtime/preempt.c
+index 466bb74..43e18f6 100644
+--- a/runtime/preempt.c
++++ b/runtime/preempt.c
+@@ -168,8 +168,20 @@ void preempt(void)
+ 
+ int preempt_init_thread(void)
+ {
++	struct stack *s;
++	uint64_t stack_val;
++
+ 	perthread_store(preempt_cnt, PREEMPT_NOT_PENDING);
+-	perthread_store(uintr_stack, (void *)REDZONE_SIZE);
++
++	if (!uintr_enabled)
++		return 0;
++
++	s = stack_alloc();
++	if (!s)
++		return -ENOMEM;
++
++	stack_val = ((uint64_t)&s->usable[STACK_PTR_SIZE]) | 1UL;
++	perthread_store(uintr_stack, (void *)stack_val);
+ 	return 0;
+ }
+ 
+diff --git a/runtime/sched.c b/runtime/sched.c
+index fff961e..dc3ca06 100644
+--- a/runtime/sched.c
++++ b/runtime/sched.c
+@@ -3,6 +3,7 @@
+  */
+ 
+ #include <sched.h>
++#include <signal.h>
+ #include <immintrin.h>
+ 
+ #include <base/stddef.h>
+@@ -40,6 +41,9 @@ static DEFINE_PERTHREAD(struct tcache_perthread, thread_pt);
+ /* used to track cycle usage in scheduler */
+ static DEFINE_PERTHREAD(uint64_t, last_tsc);
+ 
++// Junction overrides this function.
++void __weak on_sched(thread_t *th) {}
++
+ /**
+  * In inc/runtime/thread.h, this function is declared inline (rather than static
+  * inline) so that it is accessible to the Rust bindings. As a result, it must
+@@ -93,6 +97,10 @@ static void jmp_thread(thread_t *th)
+ 	set_fsbase(th->fsbase);
+ 
+ 	th->thread_running = true;
++
++	if (th->junction_thread)
++		on_sched(th);
++
+ 	__jmp_thread(&th->tf);
+ }
+ 
+@@ -123,6 +131,10 @@ static void jmp_thread_direct(thread_t *oldth, thread_t *newth)
+ 	set_fsbase(newth->fsbase);
+ 
+ 	newth->thread_running = true;
++
++	if (newth->junction_thread)
++		on_sched(newth);
++
+ 	__jmp_thread_direct(&oldth->tf, &newth->tf, &oldth->thread_running);
+ }
+ 
+@@ -843,10 +855,13 @@ static __always_inline thread_t *__thread_create(void)
+ 	th->thread_running = false;
+ 	th->waitq_micros = 0;
+ 	th->tlsvar = 0;
++	th->junction_thread = false;
++	th->link_armed = false;
+ 	th->cur_kthread = NCPU;
+ 	// Can be used to detect newly created thread.
+ 	th->ready_tsc = 0;
+ 	th->total_cycles = 0;
++	th->xsave_area_in_use = false;
+ 	atomic8_write(&th->interrupt_state, 0);
+ 
+ 	return th;
+@@ -1017,6 +1032,7 @@ static void runtime_top_of_stack(void)
+  */
+ int sched_init_thread(void)
+ {
++	stack_t ss;
+ 	struct stack *s;
+ 
+ 	tcache_init_perthread(thread_tcache, perthread_ptr(thread_pt));
+@@ -1028,6 +1044,12 @@ int sched_init_thread(void)
+ 	perthread_store(runtime_stack, (void *)runtime_stack_init_to_rsp(s, runtime_top_of_stack));
+ 	perthread_store(runtime_fsbase, _readfsbase_u64());
+ 
++	ss.ss_sp = &s->usable[0];
++	ss.ss_size = RUNTIME_STACK_SIZE;
++	ss.ss_flags = 0;
++	if (sigaltstack(&ss, NULL) == -1)
++		return -errno;
++
+ 	return 0;
+ }
+ 
+-- 
+2.43.0
+

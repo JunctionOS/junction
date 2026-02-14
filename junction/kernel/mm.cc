@@ -121,7 +121,7 @@ void __noinline MMPanic(ExclusiveIntervalSet<VMArea> *vmareas,
   }
   LOG(ERR) << "==== Regions ====";
   for (auto const &[end, iv] : regions) LOG(ERR) << iv;
-  syscall_exit(-1);
+  ksys_exit(-1);
 }
 
 Status<std::shared_ptr<MemoryMap>> MemoryMap::Create(size_t len) {
