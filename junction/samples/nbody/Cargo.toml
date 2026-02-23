@@ -1,0 +1,8 @@
+[package]
+name = "nbody-rust"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "nbody-rust"
+path = "nbody.rs"

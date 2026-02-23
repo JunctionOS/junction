@@ -2,15 +2,8 @@
 message(STATUS "Building nbody...")
 
 ## Rust
-set(nbody_rust "${CMAKE_CURRENT_BINARY_DIR}/nbody_rust")
-add_custom_command(
-	OUTPUT ${nbody_rust}
-	COMMAND rustc -O ${CMAKE_CURRENT_SOURCE_DIR}/nbody.rs -o ${nbody_rust}
-	DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/nbody.rs
-	COMMENT "Building Rust nbody"
-)
-add_custom_target(nbody_rust_bin ALL
-  DEPENDS ${nbody_rust})
+corrosion_import_crate(MANIFEST_PATH Cargo.toml)
+set(nbody_rust "${CMAKE_CURRENT_BINARY_DIR}/nbody-rust")
 
 
 ## C++

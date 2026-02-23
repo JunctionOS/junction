@@ -24,6 +24,7 @@ cd $SCRIPT_DIR
 ./install_caladan.sh
 ./install_glibc.sh
 ./install_flatbuffers.sh
+./install_rust.sh
 
 touch ${ROOT_DIR}/.install_script_ran
 

@@ -43,6 +43,23 @@ set(CMAKE_CXX_FLAGS "-Wall -g -fno-stack-protector -march=native -m64 -muintr -m
 set(CMAKE_CXX_FLAGS_DEBUG "-DDEBUG")
 set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3 -flto=auto -ffast-math -fconcepts-diagnostics-depth=100")
 
+# Prefer the repo-local Rust toolchain (installed by scripts/install_rust.sh).
+set(RUST_INSTALL_DIR "${CMAKE_SOURCE_DIR}/install/rust")
+set(RUSTUP_HOME "${RUST_INSTALL_DIR}/rustup")
+set(CARGO_HOME "${RUST_INSTALL_DIR}/cargo")
+set(RUST_CARGO_BIN "${CARGO_HOME}/bin/cargo")
+set(RUST_RUSTC_BIN "${CARGO_HOME}/bin/rustc")
+if(EXISTS "${RUST_CARGO_BIN}" AND EXISTS "${RUST_RUSTC_BIN}")
+    set(ENV{RUSTUP_HOME} "${RUSTUP_HOME}")
+    set(ENV{CARGO_HOME} "${CARGO_HOME}")
+    set(ENV{PATH} "${CARGO_HOME}/bin:$ENV{PATH}")
+    set(Rust_TOOLCHAIN "nightly")
+    set(Rust_CARGO "${RUST_CARGO_BIN}")
+    set(Rust_RUSTC "${RUST_RUSTC_BIN}")
+else()
+    message(WARNING "Repo-local Rust toolchain not found at ${CARGO_HOME}. Run scripts/install.sh to install nightly Rust.")
+endif()
+
 # Add corrosion: a way to build rust code in Cmake
 include(FetchContent)
 
