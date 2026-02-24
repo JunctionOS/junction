@@ -19,12 +19,12 @@ git submodule update --init --recursive --jobs=`nproc`
 
 # Install modules
 cd $SCRIPT_DIR
+./install_rust.sh
 ./install_cereal.sh
 ./install_cmake.sh
 ./install_caladan.sh
 ./install_glibc.sh
 ./install_flatbuffers.sh
-./install_rust.sh
 
 touch ${ROOT_DIR}/.install_script_ran
 

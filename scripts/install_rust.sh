@@ -7,10 +7,10 @@ ROOT_DIR=${SCRIPT_DIR}/../
 
 . "${SCRIPT_DIR}"/helpers.sh
 
-RUST_DIR="${ROOT_DIR}/install/rust"
-RUSTUP_HOME="${RUST_DIR}/rustup"
-CARGO_HOME="${RUST_DIR}/cargo"
-RUST_TOOLCHAIN="${RUST_TOOLCHAIN:-nightly}"
+export RUST_DIR="${ROOT_DIR}/install/rust"
+export RUSTUP_HOME="${RUST_DIR}/rustup"
+export CARGO_HOME="${RUST_DIR}/cargo"
+export RUST_TOOLCHAIN="${RUST_TOOLCHAIN:-nightly}"
 
 install_missing_packages curl ca-certificates
 

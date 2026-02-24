@@ -47,17 +47,26 @@ set(CMAKE_CXX_FLAGS_RELEASE "-DNDEBUG -O3 -flto=auto -ffast-math -fconcepts-diag
 set(RUST_INSTALL_DIR "${CMAKE_SOURCE_DIR}/install/rust")
 set(RUSTUP_HOME "${RUST_INSTALL_DIR}/rustup")
 set(CARGO_HOME "${RUST_INSTALL_DIR}/cargo")
-set(RUST_CARGO_BIN "${CARGO_HOME}/bin/cargo")
-set(RUST_RUSTC_BIN "${CARGO_HOME}/bin/rustc")
-if(EXISTS "${RUST_CARGO_BIN}" AND EXISTS "${RUST_RUSTC_BIN}")
+set(RUSTUP_BIN "${CARGO_HOME}/bin/rustup")
+if(DEFINED ENV{RUST_TOOLCHAIN} AND NOT "$ENV{RUST_TOOLCHAIN}" STREQUAL "")
+    set(RUST_TOOLCHAIN "$ENV{RUST_TOOLCHAIN}")
+else()
+    set(RUST_TOOLCHAIN "nightly")
+endif()
+
+if(EXISTS "${RUSTUP_BIN}")
     set(ENV{RUSTUP_HOME} "${RUSTUP_HOME}")
     set(ENV{CARGO_HOME} "${CARGO_HOME}")
     set(ENV{PATH} "${CARGO_HOME}/bin:$ENV{PATH}")
-    set(Rust_TOOLCHAIN "nightly")
-    set(Rust_CARGO "${RUST_CARGO_BIN}")
-    set(Rust_RUSTC "${RUST_RUSTC_BIN}")
+
+    # Let Corrosion resolve concrete rustc/cargo under this rustup home.
+    set(Rust_TOOLCHAIN "${RUST_TOOLCHAIN}" CACHE STRING "Requested rustup toolchain" FORCE)
+    set(Rust_RUSTUP "${RUSTUP_BIN}" CACHE FILEPATH "rustup executable" FORCE)
+    set(Rust_RESOLVE_RUSTUP_TOOLCHAINS ON CACHE BOOL "Resolve rustup proxy binaries" FORCE)
+    unset(Rust_COMPILER CACHE)
+    unset(Rust_CARGO CACHE)
 else()
-    message(WARNING "Repo-local Rust toolchain not found at ${CARGO_HOME}. Run scripts/install.sh to install nightly Rust.")
+    message(WARNING "Repo-local rustup not found at ${RUSTUP_BIN}. Run scripts/install_rust.sh to install Rust.")
 endif()
 
 # Add corrosion: a way to build rust code in Cmake
