@@ -19,7 +19,7 @@ namespace junction {
 
 namespace {
 
-using StreamPipe = WaitableChannel<ByteChannel, false>;
+using StreamPipe = WaitableChannel<ByteChannel, true>;
 using MsgPipe = WaitableChannel<MessageChannel<void>, false>;
 
 template <class Pipe>
