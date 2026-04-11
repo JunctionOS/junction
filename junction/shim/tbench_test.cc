@@ -11,6 +11,7 @@
 extern "C" {
 #include <fcntl.h>
 #include <poll.h>
+#include <sched.h>
 #include <semaphore.h>
 #include <signal.h>
 #include <spawn.h>
@@ -41,6 +42,15 @@ int getMeasureRounds() {
   std::cout << "Measure rounds: " << measure_rounds << std::endl;
 
   return measure_rounds;
+}
+
+int GetAvailableCpuCount() {
+  cpu_set_t mask;
+  CPU_ZERO(&mask);
+
+  if (sched_getaffinity(0, sizeof(mask), &mask) != 0) return 1;
+
+  return CPU_COUNT(&mask);
 }
 
 void BenchGetPid(int measure_rounds) {
@@ -798,10 +808,16 @@ TEST_F(ThreadingTest, TestKill) { TestKill(); }
 TEST_F(ThreadingTest, KernelSignalCatch) { TestKernelSignalCatch(); };
 
 TEST_F(ThreadingTest, SignalPingPongSpin) {
+  if (GetAvailableCpuCount() <= 1) {
+    GTEST_SKIP() << "requires more than one available CPU";
+  }
   Bench("SignalPingPongSpin", BenchSignalPingPongSpin);
 }
 
 TEST_F(ThreadingTest, SignalPingPongSuspend) {
+  if (GetAvailableCpuCount() <= 1) {
+    GTEST_SKIP() << "requires more than one available CPU";
+  }
   Bench("SignalPingPongSuspend", BenchSignalPingPongSigSuspend);
 }
 
