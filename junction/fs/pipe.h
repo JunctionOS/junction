@@ -270,7 +270,7 @@ inline void WaitableChannel<Channel, MultiWriter>::CloseReader(PollSource *p) {
 
 }  // namespace
 
-using StreamPipe = WaitableChannel<ByteChannel, false>;
+using StreamPipe = WaitableChannel<ByteChannel, true>;
 using MsgPipe = WaitableChannel<MessageChannel<void>, false>;
 using MultiWriterMsgPipe = WaitableChannel<MessageChannel<void>, true>;
 
