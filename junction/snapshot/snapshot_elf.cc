@@ -200,6 +200,7 @@ Status<void> SnapshotProcToELFStream(Process *p, VectoredWriter &out) {
   auto f = finally([] { EndSnapshotContext(); });
 
   // Serialize metadata into a buffer so we can length-prefix it.
+  Time t0 = Time::Now();
   std::vector<std::byte> metadata_buf;
   {
     rt::RuntimeLibcGuard guard;
@@ -217,6 +218,10 @@ Status<void> SnapshotProcToELFStream(Process *p, VectoredWriter &out) {
     ar(p->shared_from_this());
     SerializeUnixSocketState(ar);
   }
+  Time t1 = Time::Now();
+  LOG(INFO) << "migration sender: serialize took "
+            << (t1 - t0).Microseconds() << " us ("
+            << metadata_buf.size() << " bytes)";
 
   if (Status<void> ret =
           WriteU8(out, static_cast<uint8_t>(MigrationType::kStopAndCopy));
@@ -225,10 +230,15 @@ Status<void> SnapshotProcToELFStream(Process *p, VectoredWriter &out) {
   if (Status<void> ret = WriteU64LE(out, metadata_buf.size()); !ret) return ret;
   iovec meta_iov = {metadata_buf.data(), metadata_buf.size()};
   if (Status<void> ret = WritevFull(out, {&meta_iov, 1}); !ret) return ret;
-  LOG(INFO) << "migration: metadata bytes transferred: " << metadata_buf.size()
-            << " (" << (metadata_buf.size() / 1024) << " KiB)";
 
-  return SnapshotElfToStream(p->get_mem_map(), GetSnapshotContext(), out);
+  if (Status<void> ret = SnapshotElfToStream(p->get_mem_map(), GetSnapshotContext(), out); !ret)
+    return ret;
+  Time t2 = Time::Now();
+  LOG(INFO) << "migration sender: transfer took "
+            << (t2 - t1).Microseconds() << " us";
+  LOG(INFO) << "migration sender: total took "
+            << (t2 - t0).Microseconds() << " us";
+  return {};
 }
 
 Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
@@ -304,6 +314,8 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
 // Stream format: [8-byte metadata length LE][metadata bytes][ELF bytes]
 Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
     VectoredReader &in) {
+  Time t0 = Time::Now();
+
   // Read and dispatch on migration type.
   uint8_t migration_type = 0;
   iovec type_iov = {&migration_type, sizeof(migration_type)};
@@ -329,6 +341,9 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
     if (Status<void> ret = ReadvFull(in, {&iov, 1}); !ret)
       return MakeError(ret);
   }
+  Time t1 = Time::Now();
+  LOG(INFO) << "migration receiver: metadata transfer took "
+            << (t1 - t0).Microseconds() << " us (" << metadata_len << " bytes)";
 
   // Deserialize metadata — guard scoped here only, network reads above/below
   // can block and must not run with preemption disabled.
@@ -355,6 +370,9 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
     SerializeUnixSocketState(ar);
     timings().restore_data_start = Time::Now();
   }
+  Time t2 = Time::Now();
+  LOG(INFO) << "migration receiver: metadata deserialize took "
+            << (t2 - t1).Microseconds() << " us";
 
   // Buffer the ELF data into a tmpfile so LoadELF can seek/mmap it.
   Status<KernelFile> tmp =
@@ -362,17 +380,22 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
                        FileMode::kReadWrite, 0600);
   if (unlikely(!tmp)) return MakeError(tmp);
 
+  size_t elf_bytes = 0;
   {
     std::array<std::byte, 65536> buf;
     while (true) {
       iovec iov = {buf.data(), buf.size()};
       Status<size_t> n = in.Readv({&iov, 1});
       if (!n || *n == 0) break;
+      elf_bytes += *n;
       iovec wiov = {buf.data(), *n};
       if (Status<void> ret = WritevFull(*tmp, {&wiov, 1}); !ret)
         return MakeError(ret);
     }
   }
+  Time t3 = Time::Now();
+  LOG(INFO) << "migration receiver: ELF transfer took "
+            << (t3 - t2).Microseconds() << " us (" << elf_bytes << " bytes)";
 
   Status<JunctionFile> elf = JunctionFile::Open(
       p->get_fs(), "/tmp/junction_migrate.elf", 0, FileMode::kRead);
@@ -392,6 +415,11 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
     LOG(ERR) << "Elf load failed (stream restore): " << ret.error();
     return MakeError(ret);
   }
+  Time t4 = Time::Now();
+  LOG(INFO) << "migration receiver: ELF deserialize took "
+            << (t4 - t3).Microseconds() << " us";
+  LOG(INFO) << "migration receiver: total took "
+            << (t4 - t0).Microseconds() << " us";
 
   if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing(*p.get());
 
