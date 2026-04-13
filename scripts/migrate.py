@@ -44,7 +44,7 @@ def wait_for_service(ip, port, timeout=30):
     while time.monotonic() < deadline:
         try:
             send_cmd(ip, port, "GET", timeout=0.1)
-            return time.monotonic()
+            return time.perf_counter()
         except OSError:
             time.sleep(0.001)
     raise TimeoutError(f"Service at {ip}:{port} did not come up within {timeout}s")
@@ -88,10 +88,10 @@ def cmd_initiator(port):
     print(f"==> Migrating pid={pid} from {SRC_IP} to {DST_IP}:44")
 
     # Trigger migration and measure
-    t_start = time.monotonic()
+    t_start = time.perf_counter()
     subprocess.run([JUNCTION_CTL, SRC_IP, "migrate", pid, DST_IP, "44"],
                    check=True)
-    t_src_down = time.monotonic()
+    t_src_down = time.perf_counter()
 
     # Verify source is down
     print("==> Verifying source is no longer serving (expect error):")
@@ -104,8 +104,8 @@ def cmd_initiator(port):
     # Wait for destination to be ready
     t_dst_up = wait_for_service(DST_IP, port)
 
-    downtime_ms = (t_dst_up - t_src_down) * 1000
-    total_ms = (t_dst_up - t_start) * 1000
+    downtime_us = (t_dst_up - t_src_down) * 1e6
+    total_us = (t_dst_up - t_start) * 1e6
 
     print("==> Counter state on destination:")
     print(send_cmd(DST_IP, port, "GET"))
@@ -117,8 +117,8 @@ def cmd_initiator(port):
     print("==> Final counter state on destination:")
     print(send_cmd(DST_IP, port, "GET"))
 
-    print(f"\n==> Downtime:           {downtime_ms:.1f} ms")
-    print(f"==> Total migration time: {total_ms:.1f} ms")
+    print(f"\n==> Downtime:             {downtime_us:.1f} us")
+    print(f"==> Total migration time: {total_us:.1f} us")
 
 
 def main():
