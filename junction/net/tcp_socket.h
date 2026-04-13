@@ -371,3 +371,8 @@ class TCPSocket : public IPSocket {
 }  // namespace junction
 
 CEREAL_REGISTER_TYPE(junction::TCPSocket);
+// IPSocket is an intermediate base class with no cereal save/load of its own,
+// so cereal cannot automatically trace the path TCPSocket -> IPSocket ->
+// Socket. Explicitly register the relation to Socket so the full chain to File
+// is found.
+CEREAL_REGISTER_POLYMORPHIC_RELATION(junction::Socket, junction::TCPSocket);

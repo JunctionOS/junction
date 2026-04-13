@@ -6,10 +6,11 @@ add_subdirectory(netperf_tcp)
 add_subdirectory(tcp)
 add_subdirectory(udp)
 add_subdirectory(serverless)
+add_subdirectory(migration)
 
 if(SNAPSHOT_SAMPLES)
-  add_subdirectory(cereal)
-  add_subdirectory(snapshots)
+    add_subdirectory(cereal)
+    add_subdirectory(snapshots)
 endif()
 
 add_subdirectory(nbody)

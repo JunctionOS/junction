@@ -2,6 +2,15 @@ Diagnostics:
   Suppress: performance-avoid-endl
 
 CompileFlags:
-  Add: [-std=c++17, -I/usr/include/c++/13, -I/usr/include/x86_64-linux-gnu/c++/13]
-  Remove: [-fconcepts-diagnostics-depth*]
-
+  Add: 
+    - "-std=c++23"
+    # 1. Force clangd to check Junction's patched headers FIRST
+    - "-isystem"
+    - "~/quilt-junction/install/include"
+    # 2. Then fallback to the host's C++ standard library
+    - "-isystem"
+    - "/usr/include/c++/13"
+    - "-isystem"
+    - "/usr/include/x86_64-linux-gnu/c++/13"
+  Remove: 
+    - "-fconcepts-diagnostics-depth*"

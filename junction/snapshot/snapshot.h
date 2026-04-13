@@ -124,6 +124,13 @@ Status<void> RestoreVMAProtections(MemoryMap &mm);
 Status<void> TakeSnapshot(Process *p);
 
 /**
+ * Migration
+ */
+enum class MigrationType : uint8_t {
+  kStopAndCopy = 1,
+};
+
+/**
  * ELF utilities
  */
 Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
@@ -132,8 +139,17 @@ Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
 Status<void> SnapshotProcToELF(Process *p, std::string_view metadata_path,
                                std::string_view elf_path);
 
+// Snapshots a process directly to a stream (diskless).
+// Stream format: [1-byte MigrationType][8-byte metadata length LE][metadata
+// bytes][ELF bytes]
+Status<void> SnapshotProcToELFStream(Process *p, VectoredWriter &out);
+
 Status<std::shared_ptr<Process>> RestoreProcessFromELF(
     std::string_view metadata_path, std::string_view elf_path);
+
+// Restores a process from a stream produced by SnapshotProcToELFStream.
+Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
+    VectoredReader &in);
 
 /**
  * JIF utilities

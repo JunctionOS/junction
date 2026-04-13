@@ -24,3 +24,4 @@ endforeach()
 add_executable(yes
 	yes.cc
 )
+

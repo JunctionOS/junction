@@ -37,6 +37,12 @@ table SignalRequest {
     signo: uint64;
 }
 
+table MigrateRequest {
+    pid: uint64;
+    dest_ip: uint32;
+    dest_port: uint16;
+}
+
 table GetStatsRequest {
     // # TODO(control): figure out how to ask for stats
 }
@@ -49,7 +55,8 @@ union InnerRequest {
     startTrace: StartTraceRequest,
     stopTrace: StopTraceRequest,
     signal: SignalRequest,
-    getStats: GetStatsRequest
+    getStats: GetStatsRequest,
+    migrate: MigrateRequest
 }
 
 table Request {

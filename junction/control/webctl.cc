@@ -1,5 +1,6 @@
 #include <charconv>
 
+#include "junction/base/finally.h"
 #include "junction/base/string.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/net.h"
@@ -257,6 +258,42 @@ bool HandlePS(ControlConn &c, const ctl_schema::PSRequest *req) {
   }
   return false;
 }
+bool HandleMigrateStopAndCopy(ControlConn &c,
+                              const ctl_schema::MigrateRequest *req) {
+  LOG(INFO) << "handling stop-and-copy migration for pid " << req->pid();
+
+  std::shared_ptr<Process> p = Process::Find(req->pid());
+  if (!p) {
+    std::ostringstream msg;
+    msg << "migrate: pid " << req->pid() << " not found";
+    if (!c.SendError(msg.str())) LOG(WARN) << "ctl: failed to send error";
+    return false;
+  }
+
+  netaddr dest = {req->dest_ip(), req->dest_port()};
+  Status<rt::TCPConn> conn = rt::TCPConn::Dial({0, 0}, dest);
+  if (!conn) {
+    std::ostringstream msg;
+    msg << "migrate: failed to connect to destination: " << conn.error();
+    if (!c.SendError(msg.str())) LOG(WARN) << "ctl: failed to send error";
+    return false;
+  }
+
+  p->JobControlStop();
+  p->WaitForFullStop();
+  auto resume = finally([&] { p->DoExit(0); });
+
+  if (Status<void> ret = SnapshotProcToELFStream(p.get(), *conn); !ret) {
+    std::ostringstream msg;
+    msg << "migrate: snapshot failed: " << ret.error();
+    if (!c.SendError(msg.str())) LOG(WARN) << "ctl: failed to send error";
+    return false;
+  }
+
+  if (!c.SendSuccess()) LOG(WARN) << "ctl: failed to send success";
+  return false;
+}
+
 bool HandleRequest(ControlConn &c, const ctl_schema::Request *req) {
   switch (req->inner_type()) {
     case ctl_schema::InnerRequest_run:
@@ -275,6 +312,8 @@ bool HandleRequest(ControlConn &c, const ctl_schema::Request *req) {
       return HandleGetStats(c, req->inner_as_getStats());
     case ctl_schema::InnerRequest_ps:
       return HandlePS(c, req->inner_as_ps());
+    case ctl_schema::InnerRequest_migrate:
+      return HandleMigrateStopAndCopy(c, req->inner_as_migrate());
     default:
       // TODO(control): send error back
       return true;
@@ -300,6 +339,21 @@ void ControlWorker(ControlConn c) {
   }
 }
 
+void MigrationServer(rt::TCPQueue &q) {
+  while (true) {
+    Status<rt::TCPConn> c = q.Accept();
+    if (!c) panic("couldn't accept a migration connection");
+    rt::Spawn([c = std::move(*c)] mutable {
+      Status<std::shared_ptr<Process>> p = RestoreProcessFromELFStream(c);
+      if (!p) {
+        LOG(ERR) << "migration restore failed: " << p.error();
+      } else {
+        LOG(INFO) << "migration restore succeeded, pid=" << (*p)->get_pid();
+      }
+    });
+  }
+}
+
 void ControlServer(rt::TCPQueue &q) {
   while (true) {
     Status<rt::TCPConn> c = q.Accept();
@@ -314,8 +368,13 @@ Status<void> InitControlServer() {
   Status<rt::TCPQueue> q = rt::TCPQueue::Listen({0, GetCfg().port()}, 4096);
   if (!q) return MakeError(q);
   LOG(INFO) << "started control server on port " << GetCfg().port();
-
   rt::Spawn([q = std::move(*q)] mutable { ControlServer(q); });
+
+  uint16_t mig_port = GetCfg().port() + 2;
+  Status<rt::TCPQueue> mq = rt::TCPQueue::Listen({0, mig_port}, 4096);
+  if (!mq) return MakeError(mq);
+  LOG(INFO) << "started migration server on port " << mig_port;
+  rt::Spawn([mq = std::move(*mq)] mutable { MigrationServer(mq); });
 
   return {};
 }

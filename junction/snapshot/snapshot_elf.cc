@@ -25,6 +25,17 @@ namespace junction {
 
 namespace {
 
+// Writes a uint64 in little-endian to the writer.
+Status<void> WriteU64LE(VectoredWriter &w, uint64_t v) {
+  iovec iov = {&v, sizeof(v)};
+  return WritevFull(w, {&iov, 1});
+}
+
+Status<void> WriteU8(VectoredWriter &w, uint8_t v) {
+  iovec iov = {&v, sizeof(v)};
+  return WritevFull(w, {&iov, 1});
+}
+
 Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetElfPHDRs(
     MemoryMap &mm, SnapshotContext &ctx) {
   const std::vector<VMArea> vmas = mm.get_vmas();
@@ -94,17 +105,14 @@ Status<std::pair<std::vector<elf_phdr>, std::vector<iovec>>> GetElfPHDRs(
   return std::make_pair(phdrs, iovs);
 }
 
-Status<void> SnapshotElf(MemoryMap &mm, SnapshotContext &ctx,
-                         std::string_view elf_path) {
+// Builds the ELF iovec list (header + phdrs + padding + data) and writes it
+// to the given writer, then restores VMA protections.
+Status<void> WriteElfIovecs(MemoryMap &mm, SnapshotContext &ctx,
+                            VectoredWriter &out) {
   auto ret = GetElfPHDRs(mm, ctx);
   if (!ret) return MakeError(ret);
   auto &[pheaders, iovs] = *ret;
-  Status<KernelFile> elf_file =
-      KernelFile::Open(elf_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
 
-  if (unlikely(!elf_file)) return MakeError(elf_file);
-
-  // write headers
   elf_header hdr;
   memset(&hdr, 0, sizeof(elf_header));
   hdr.magic[0] = '\177';
@@ -128,22 +136,39 @@ Status<void> SnapshotElf(MemoryMap &mm, SnapshotContext &ctx,
   hdr.shnum = 0;
   hdr.shstrndx = 0;
 
-  std::vector<iovec> elf_iovecs;
   size_t header_size = sizeof(elf_header) + pheaders.size() * sizeof(elf_phdr);
   size_t padding = PageAlign(header_size) - header_size;
   std::array<std::byte, 4096> zeros{std::byte{0}};
-  elf_iovecs.reserve(2 * pheaders.size() + 2);
 
+  std::vector<iovec> elf_iovecs;
+  elf_iovecs.reserve(pheaders.size() + iovs.size() + 2);
   elf_iovecs.emplace_back(&hdr, sizeof(elf_header));
   for (auto &pheader : pheaders)
     elf_iovecs.emplace_back(&pheader, sizeof(elf_phdr));
-
   if (padding > 0) elf_iovecs.emplace_back(zeros.data(), padding);
-
   elf_iovecs.insert(elf_iovecs.end(), iovs.begin(), iovs.end());
 
-  if (Status<void> ret = WritevFull(*elf_file, elf_iovecs); !ret) return ret;
+  if (Status<void> r = WritevFull(out, elf_iovecs); !r) return r;
+
+  size_t elf_bytes = 0;
+  for (const auto &iov : elf_iovecs) elf_bytes += iov.iov_len;
+  LOG(INFO) << "migration: ELF bytes transferred: " << elf_bytes << " ("
+            << (elf_bytes / 1024) << " KiB)";
+
   return RestoreVMAProtections(mm);
+}
+
+Status<void> SnapshotElf(MemoryMap &mm, SnapshotContext &ctx,
+                         std::string_view elf_path) {
+  Status<KernelFile> elf_file =
+      KernelFile::Open(elf_path, O_CREAT | O_TRUNC, FileMode::kWrite, 0644);
+  if (unlikely(!elf_file)) return MakeError(elf_file);
+  return WriteElfIovecs(mm, ctx, *elf_file);
+}
+
+Status<void> SnapshotElfToStream(MemoryMap &mm, SnapshotContext &ctx,
+                                 VectoredWriter &out) {
+  return WriteElfIovecs(mm, ctx, out);
 }
 
 }  // namespace
@@ -164,6 +189,46 @@ Status<void> SnapshotProcToELF(Process *p, std::string_view metadata_path,
   Status<void> ret = SnapshotMetadata(*p, *metadata_file);
   if (!ret) return ret;
   return SnapshotElf(p->get_mem_map(), GetSnapshotContext(), elf_path);
+}
+
+// Snapshots a process to a stream without touching the filesystem.
+// Stream format: [8-byte metadata length LE][metadata bytes][ELF bytes]
+Status<void> SnapshotProcToELFStream(Process *p, VectoredWriter &out) {
+  LOG(INFO) << "snapshotting proc " << p->get_pid() << " to stream";
+
+  StartSnapshotContext();
+  auto f = finally([] { EndSnapshotContext(); });
+
+  // Serialize metadata into a buffer so we can length-prefix it.
+  std::vector<std::byte> metadata_buf;
+  {
+    rt::RuntimeLibcGuard guard;
+    struct VecWriter {
+      std::vector<std::byte> &buf;
+      Status<size_t> Write(std::span<const std::byte> src) {
+        buf.insert(buf.end(), src.begin(), src.end());
+        return src.size();
+      }
+    } vw{metadata_buf};
+    StreamBufferWriter<VecWriter> sbw(vw);
+    std::ostream outstream(&sbw);
+    cereal::BinaryOutputArchive ar(outstream);
+    if (Status<void> ret = FSSnapshot(ar); !ret) return ret;
+    ar(p->shared_from_this());
+    SerializeUnixSocketState(ar);
+  }
+
+  if (Status<void> ret =
+          WriteU8(out, static_cast<uint8_t>(MigrationType::kStopAndCopy));
+      !ret)
+    return ret;
+  if (Status<void> ret = WriteU64LE(out, metadata_buf.size()); !ret) return ret;
+  iovec meta_iov = {metadata_buf.data(), metadata_buf.size()};
+  if (Status<void> ret = WritevFull(out, {&meta_iov, 1}); !ret) return ret;
+  LOG(INFO) << "migration: metadata bytes transferred: " << metadata_buf.size()
+            << " (" << (metadata_buf.size() / 1024) << " KiB)";
+
+  return SnapshotElfToStream(p->get_mem_map(), GetSnapshotContext(), out);
 }
 
 Status<void> SnapshotPidToELF(pid_t pid, std::string_view metadata_path,
@@ -231,6 +296,105 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
 
   // mark threads as runnable
   // (must be last things to run, this will get the snapshot running)
+  p->RunThreads();
+  return p;
+}
+
+// Restores a process from a stream produced by SnapshotProcToELFStream.
+// Stream format: [8-byte metadata length LE][metadata bytes][ELF bytes]
+Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
+    VectoredReader &in) {
+  // Read and dispatch on migration type.
+  uint8_t migration_type = 0;
+  iovec type_iov = {&migration_type, sizeof(migration_type)};
+  if (Status<void> ret = ReadvFull(in, {&type_iov, 1}); !ret)
+    return MakeError(ret);
+  if (migration_type != static_cast<uint8_t>(MigrationType::kStopAndCopy)) {
+    LOG(ERR) << "unsupported migration type: " << migration_type;
+    return MakeError(EINVAL);
+  }
+
+  // Read metadata length prefix.
+  uint64_t metadata_len = 0;
+  {
+    iovec iov = {&metadata_len, sizeof(metadata_len)};
+    if (Status<void> ret = ReadvFull(in, {&iov, 1}); !ret)
+      return MakeError(ret);
+  }
+
+  // Read metadata into a buffer.
+  std::vector<std::byte> metadata_buf(metadata_len);
+  {
+    iovec iov = {metadata_buf.data(), metadata_buf.size()};
+    if (Status<void> ret = ReadvFull(in, {&iov, 1}); !ret)
+      return MakeError(ret);
+  }
+
+  // Deserialize metadata — guard scoped here only, network reads above/below
+  // can block and must not run with preemption disabled.
+  std::shared_ptr<Process> p;
+  {
+    rt::RuntimeLibcGuard guard;
+    struct VecReader {
+      std::span<const std::byte> remaining;
+      Status<size_t> Read(std::span<std::byte> dst) {
+        size_t n = std::min(dst.size(), remaining.size());
+        std::copy_n(remaining.begin(), n, dst.begin());
+        remaining = remaining.subspan(n);
+        return n ? n : Status<size_t>(MakeError(EUNEXPECTEDEOF));
+      }
+    } vr{metadata_buf};
+    StreamBufferReader<VecReader> sbr(vr);
+    std::istream instream(&sbr);
+    cereal::BinaryInputArchive ar(instream);
+
+    if (Status<void> ret = FSRestore(ar); unlikely(!ret)) return MakeError(ret);
+    timings().restore_metadata_start = Time::Now();
+
+    ar(p);
+    SerializeUnixSocketState(ar);
+    timings().restore_data_start = Time::Now();
+  }
+
+  // Buffer the ELF data into a tmpfile so LoadELF can seek/mmap it.
+  Status<KernelFile> tmp =
+      KernelFile::Open("/tmp/junction_migrate.elf", O_CREAT | O_TRUNC,
+                       FileMode::kReadWrite, 0600);
+  if (unlikely(!tmp)) return MakeError(tmp);
+
+  {
+    std::array<std::byte, 65536> buf;
+    while (true) {
+      iovec iov = {buf.data(), buf.size()};
+      Status<size_t> n = in.Readv({&iov, 1});
+      if (!n || *n == 0) break;
+      iovec wiov = {buf.data(), *n};
+      if (Status<void> ret = WritevFull(*tmp, {&wiov, 1}); !ret)
+        return MakeError(ret);
+    }
+  }
+
+  Status<JunctionFile> elf = JunctionFile::Open(
+      p->get_fs(), "/tmp/junction_migrate.elf", 0, FileMode::kRead);
+  if (unlikely(!elf)) return MakeError(elf);
+
+  MemoryMap mm(nullptr, kMemoryMappingSize);
+  mm.MarkAsFake();
+  Status<elf_data> ret = LoadELF(mm, *elf, p->get_fs());
+  if (GetCfg().restore_populate()) {
+    mm.ForEachVMA([](const VMArea &vma) {
+      if (!(vma.prot & PROT_READ)) return;
+      KernelMAdvise(vma.Addr(), vma.Length(), MADV_POPULATE_READ);
+    });
+  }
+
+  if (unlikely(!ret)) {
+    LOG(ERR) << "Elf load failed (stream restore): " << ret.error();
+    return MakeError(ret);
+  }
+
+  if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing(*p.get());
+
   p->RunThreads();
   return p;
 }

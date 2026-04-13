@@ -235,3 +235,6 @@ class IPSocket : public Socket {
 }  // namespace junction
 
 CEREAL_REGISTER_TYPE(junction::Socket);
+// Register the Socket -> File polymorphic relation so cereal can serialize
+// socket types (TCPSocket, UDPSocket, etc.) held as shared_ptr<File>.
+CEREAL_REGISTER_POLYMORPHIC_RELATION(junction::File, junction::Socket);

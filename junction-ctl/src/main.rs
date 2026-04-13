@@ -9,9 +9,10 @@ use std::time::Duration;
 
 use crate::control_request_generated::junction::ctl_schema::{
     finish_size_prefixed_request_buffer, GetStatsRequest, GetStatsRequestArgs, InnerRequest,
-    PSRequest, PSRequestArgs, Request, RequestArgs, RestoreRequest, RestoreRequestArgs, RunRequest,
-    RunRequestArgs, SignalRequest, SignalRequestArgs, SnapshotRequest, SnapshotRequestArgs,
-    StartTraceRequest, StartTraceRequestArgs, StopTraceRequest, StopTraceRequestArgs,
+    MigrateRequest, MigrateRequestArgs, PSRequest, PSRequestArgs, Request, RequestArgs,
+    RestoreRequest, RestoreRequestArgs, RunRequest, RunRequestArgs, SignalRequest,
+    SignalRequestArgs, SnapshotRequest, SnapshotRequestArgs, StartTraceRequest,
+    StartTraceRequestArgs, StopTraceRequest, StopTraceRequestArgs,
 };
 
 use self::control_response_generated::junction::ctl_schema::{
@@ -142,6 +143,11 @@ enum Command {
     },
     GetStats,
     PS,
+    Migrate {
+        pid: u64,
+        dest_ip: String,
+        dest_port: u16,
+    },
 }
 
 fn await_response(mut stream: &TcpStream) -> anyhow::Result<GoodResponse> {
@@ -671,6 +677,29 @@ fn get_stats(uri: &str) -> anyhow::Result<()> {
     }
 }
 
+fn migrate(uri: &str, pid: u64, dest_ip: &str, dest_port: u16) -> anyhow::Result<()> {
+    let dest_ip: u32 = dest_ip
+        .parse::<std::net::Ipv4Addr>()
+        .context("invalid dest_ip")?
+        .into();
+    let mut fbb = FlatBufferBuilder::new();
+    let inner = MigrateRequest::create(&mut fbb, &MigrateRequestArgs { pid, dest_ip, dest_port });
+    let req = Request::create(
+        &mut fbb,
+        &RequestArgs {
+            inner_type: InnerRequest::migrate,
+            inner: Some(inner.as_union_value()),
+        },
+    );
+    finish_size_prefixed_request_buffer(&mut fbb, req);
+    let mut stream = get_stream(uri)?;
+    stream.write_all(fbb.finished_data()).context("failed to write migrate request")?;
+    match await_response(&stream)? {
+        GoodResponse::Ok => Ok(()),
+        _ => Err(anyhow::anyhow!("mismatched response (expected SuccessResponse)")),
+    }
+}
+
 fn get_stream(uri: &str) -> anyhow::Result<TcpStream> {
     TcpStream::connect_timeout(&uri.parse().unwrap(), Duration::from_secs(3))
         .context(format!("failed to connect to {}", uri))
@@ -723,5 +752,8 @@ fn main() -> anyhow::Result<()> {
         Some(Command::Signal { pid, signal: signo }) => signal(uri.as_str(), pid, signo),
         Some(Command::GetStats) => get_stats(uri.as_str()),
         Some(Command::PS) => ps(uri.as_str()),
+        Some(Command::Migrate { pid, dest_ip, dest_port }) => {
+            migrate(uri.as_str(), pid, dest_ip.as_str(), dest_port)
+        }
     }
 }
