@@ -151,7 +151,8 @@ Status<void> WriteElfIovecs(MemoryMap &mm, SnapshotContext &ctx,
   size_t elf_bytes = 0;
   for (const auto &iov : elf_iovecs) elf_bytes += iov.iov_len;
 
-  if (Status<void> r = WriteU64LE(out, elf_bytes); !r) return r;
+  uint64_t elf_bytes_le = elf_bytes;  // little-endian on x86
+  elf_iovecs.insert(elf_iovecs.begin(), {&elf_bytes_le, sizeof(elf_bytes_le)});
   if (Status<void> r = WritevFull(out, elf_iovecs); !r) return r;
 
   LOG(INFO) << "migration: ELF bytes transferred: " << elf_bytes << " ("
