@@ -12,6 +12,7 @@
 #include <arpa/inet.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <csignal>
@@ -22,6 +23,10 @@
 static int counter = 0;
 
 static void handle_client(int fd) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  long long us = (long long)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+
   char buf[64];
   ssize_t n = read(fd, buf, sizeof(buf) - 1);
   if (n <= 0) return;
@@ -36,6 +41,8 @@ static void handle_client(int fd) {
   } else {
     snprintf(resp, sizeof(resp), "ERR\n");
   }
+  fprintf(stdout, "request '%.*s' at %lld us\n", (int)(n - 1), buf, us);
+  fflush(stdout);
   write(fd, resp, strlen(resp));
 }
 
