@@ -148,13 +148,10 @@ Status<void> WriteElfIovecs(MemoryMap &mm, SnapshotContext &ctx,
   if (padding > 0) elf_iovecs.emplace_back(zeros.data(), padding);
   elf_iovecs.insert(elf_iovecs.end(), iovs.begin(), iovs.end());
 
-  size_t elf_bytes = 0;
-  for (const auto &iov : elf_iovecs) elf_bytes += iov.iov_len;
-
-  uint64_t elf_bytes_le = elf_bytes;  // little-endian on x86
-  elf_iovecs.insert(elf_iovecs.begin(), {&elf_bytes_le, sizeof(elf_bytes_le)});
   if (Status<void> r = WritevFull(out, elf_iovecs); !r) return r;
 
+  size_t elf_bytes = 0;
+  for (const auto &iov : elf_iovecs) elf_bytes += iov.iov_len;
   LOG(INFO) << "migration: ELF bytes transferred: " << elf_bytes << " ("
             << (elf_bytes / 1024) << " KiB)";
 
@@ -384,19 +381,18 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
                        FileMode::kReadWrite, 0600);
   if (unlikely(!tmp)) return MakeError(tmp);
 
-  uint64_t elf_bytes;
+  size_t elf_bytes = 0;
   {
-    iovec iov = {&elf_bytes, sizeof(elf_bytes)};
-    if (Status<void> ret = ReadvFull(in, {&iov, 1}); !ret)
-      return MakeError(ret);
-  }
-  std::vector<std::byte> elf_buf(elf_bytes);
-  {
-    iovec iov = {elf_buf.data(), elf_bytes};
-    if (Status<void> ret = ReadvFull(in, {&iov, 1}); !ret)
-      return MakeError(ret);
-    if (Status<void> ret = WritevFull(*tmp, {&iov, 1}); !ret)
-      return MakeError(ret);
+    std::array<std::byte, 65536> buf;
+    while (true) {
+      iovec iov = {buf.data(), buf.size()};
+      Status<size_t> n = in.Readv({&iov, 1});
+      if (!n || *n == 0) break;
+      elf_bytes += *n;
+      iovec wiov = {buf.data(), *n};
+      if (Status<void> ret = WritevFull(*tmp, {&wiov, 1}); !ret)
+        return MakeError(ret);
+    }
   }
   Time t3 = Time::Now();
   LOG(INFO) << "migration receiver: ELF transfer took "
