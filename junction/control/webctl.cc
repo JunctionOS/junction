@@ -2,6 +2,7 @@
 
 #include "junction/base/finally.h"
 #include "junction/base/string.h"
+#include "junction/base/time.h"
 #include "junction/bindings/log.h"
 #include "junction/bindings/net.h"
 #include "junction/bindings/thread.h"
@@ -261,6 +262,7 @@ bool HandlePS(ControlConn &c, const ctl_schema::PSRequest *req) {
 bool HandleMigrateStopAndCopy(ControlConn &c,
                               const ctl_schema::MigrateRequest *req) {
   LOG(INFO) << "handling stop-and-copy migration for pid " << req->pid();
+  Time t0 = Time::Now();
 
   std::shared_ptr<Process> p = Process::Find(req->pid());
   if (!p) {
@@ -278,9 +280,15 @@ bool HandleMigrateStopAndCopy(ControlConn &c,
     if (!c.SendError(msg.str())) LOG(WARN) << "ctl: failed to send error";
     return false;
   }
+  Time t1 = Time::Now();
+  LOG(INFO) << "migration sender: TCP connect took " << (t1 - t0).Microseconds()
+            << " us";
 
   p->JobControlStop();
   p->WaitForFullStop();
+  Time t2 = Time::Now();
+  LOG(INFO) << "migration sender: stop took " << (t2 - t1).Microseconds()
+            << " us";
   auto resume = finally([&] { p->DoExit(0); });
 
   if (Status<void> ret = SnapshotProcToELFStream(p.get(), *conn); !ret) {
@@ -289,6 +297,9 @@ bool HandleMigrateStopAndCopy(ControlConn &c,
     if (!c.SendError(msg.str())) LOG(WARN) << "ctl: failed to send error";
     return false;
   }
+  Time t3 = Time::Now();
+  LOG(INFO) << "migration sender: total (connect+stop+snapshot) took "
+            << (t3 - t0).Microseconds() << " us";
 
   if (!c.SendSuccess()) LOG(WARN) << "ctl: failed to send success";
   return false;
