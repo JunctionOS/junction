@@ -46,7 +46,7 @@ def wait_for_service(ip, port, timeout=30):
             send_cmd(ip, port, "GET", timeout=0.1)
             return time.monotonic()
         except OSError:
-            time.sleep(0.01)
+            time.sleep(0.001)
     raise TimeoutError(f"Service at {ip}:{port} did not come up within {timeout}s")
 
 
