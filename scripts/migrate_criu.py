@@ -38,11 +38,11 @@ def send_cmd(ip, port, cmd, timeout=5):
 
 
 def wait_for_service(ip, port, timeout=30):
-    deadline = time.monotonic() + timeout
+    deadline = time.perf_counter() + timeout
     while time.monotonic() < deadline:
         try:
             send_cmd(ip, port, "GET", timeout=0.1)
-            return time.monotonic()
+            return time.perf_counter()
         except OSError:
             time.sleep(0.01)
     raise TimeoutError(f"Service at {ip}:{port} did not come up within {timeout}s")
@@ -103,7 +103,7 @@ def cmd_migrate(port, verbose):
     subprocess.run(["sudo", "mount", "-t", "tmpfs", "none", DUMP_DIR],
                    capture_output=True)
 
-    t_start = time.monotonic()
+    t_start = time.perf_counter()
 
     run([
         "sudo", "criu", "dump",
@@ -112,7 +112,7 @@ def cmd_migrate(port, verbose):
         "--leave-stopped",
         "--page-server", "--address", DST_IP, "--port", str(PAGE_SERVER_PORT),
     ] + v, check=True)
-    t_src_down = time.monotonic()
+    t_src_down = time.perf_counter()
 
     # Measure metadata size (pages already on dst)
     dump_size = sum(
