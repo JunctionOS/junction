@@ -93,6 +93,11 @@ def cmd_initiator(port):
                    check=True)
     t_src_down = time.perf_counter()
 
+    # Wait for destination to be ready
+    t_dst_up = wait_for_service(DST_IP, port)
+    wait_us = (t_dst_up - t_src_down) * 1e6
+    print(f"==> wait_for_service took: {wait_us:.1f} us")
+
     # Verify source is down
     print("==> Verifying source is no longer serving (expect error):")
     try:
@@ -100,12 +105,6 @@ def cmd_initiator(port):
         print("WARNING: source still responding!")
     except OSError:
         print("==> Source confirmed down.")
-
-    # Wait for destination to be ready
-    t_wait_start = time.perf_counter()
-    t_dst_up = wait_for_service(DST_IP, port)
-    wait_us = (t_dst_up - t_wait_start) * 1e6
-    print(f"==> wait_for_service took: {wait_us:.1f} us")
 
     downtime_us = (t_dst_up - t_src_down) * 1e6
     total_us = (t_dst_up - t_start) * 1e6
