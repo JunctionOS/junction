@@ -360,9 +360,12 @@ void MigrationServer(rt::TCPQueue &q) {
         LOG(ERR) << "migration restore failed: " << p.error();
       } else {
         LOG(INFO) << "migration restore succeeded, pid=" << (*p)->get_pid();
-        if (timings().migration_restore_start && timings().migration_restore_done) {
+        if (timings().migration_restore_start &&
+            timings().migration_restore_done) {
           LOG(INFO) << "migration receiver: restore to RunThreads took "
-                    << (*timings().migration_restore_done - *timings().migration_restore_start).Microseconds()
+                    << (*timings().migration_restore_done -
+                        *timings().migration_restore_start)
+                           .Microseconds()
                     << " us";
         }
       }

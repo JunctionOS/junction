@@ -219,9 +219,8 @@ Status<void> SnapshotProcToELFStream(Process *p, VectoredWriter &out) {
     SerializeUnixSocketState(ar);
   }
   Time t1 = Time::Now();
-  LOG(INFO) << "migration sender: serialize took "
-            << (t1 - t0).Microseconds() << " us ("
-            << metadata_buf.size() << " bytes)";
+  LOG(INFO) << "migration sender: serialize took " << (t1 - t0).Microseconds()
+            << " us (" << metadata_buf.size() << " bytes)";
 
   if (Status<void> ret =
           WriteU8(out, static_cast<uint8_t>(MigrationType::kStopAndCopy));
@@ -231,13 +230,15 @@ Status<void> SnapshotProcToELFStream(Process *p, VectoredWriter &out) {
   iovec meta_iov = {metadata_buf.data(), metadata_buf.size()};
   if (Status<void> ret = WritevFull(out, {&meta_iov, 1}); !ret) return ret;
 
-  if (Status<void> ret = SnapshotElfToStream(p->get_mem_map(), GetSnapshotContext(), out); !ret)
+  if (Status<void> ret =
+          SnapshotElfToStream(p->get_mem_map(), GetSnapshotContext(), out);
+      !ret)
     return ret;
   Time t2 = Time::Now();
-  LOG(INFO) << "migration sender: transfer took "
-            << (t2 - t1).Microseconds() << " us";
-  LOG(INFO) << "migration sender: total took "
-            << (t2 - t0).Microseconds() << " us";
+  LOG(INFO) << "migration sender: transfer took " << (t2 - t1).Microseconds()
+            << " us";
+  LOG(INFO) << "migration sender: total took " << (t2 - t0).Microseconds()
+            << " us";
   return {};
 }
 
@@ -419,8 +420,8 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
   Time t4 = Time::Now();
   LOG(INFO) << "migration receiver: ELF deserialize took "
             << (t4 - t3).Microseconds() << " us";
-  LOG(INFO) << "migration receiver: total took "
-            << (t4 - t0).Microseconds() << " us";
+  LOG(INFO) << "migration receiver: total took " << (t4 - t0).Microseconds()
+            << " us";
 
   if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing(*p.get());
 
