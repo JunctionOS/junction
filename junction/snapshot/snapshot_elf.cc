@@ -315,6 +315,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELF(
 Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
     VectoredReader &in) {
   Time t0 = Time::Now();
+  timings().migration_restore_start = t0;
 
   // Read and dispatch on migration type.
   uint8_t migration_type = 0;
@@ -423,6 +424,7 @@ Status<std::shared_ptr<Process>> RestoreProcessFromELFStream(
 
   if (unlikely(GetCfg().mem_trace())) p->get_mem_map().EnableTracing(*p.get());
 
+  timings().migration_restore_done = Time::Now();
   p->RunThreads();
   return p;
 }

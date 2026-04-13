@@ -49,6 +49,8 @@ struct StartupTimings {
   std::optional<Time> restore_data_start;
   std::optional<Time> first_function_start;
   std::optional<Time> first_function_end;
+  std::optional<Time> migration_restore_start;
+  std::optional<Time> migration_restore_done;
 
   Duration CaladanStartTime() {
     assert(junction_main_start);
