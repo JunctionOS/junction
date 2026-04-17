@@ -319,8 +319,10 @@ long DoFlocks(File *f, unsigned long op, struct flock *fl) {
       break;
     case F_SETLKW:
       ret = ctx.DoSet(fl, true, f);
+      break;
     case F_GETLK:
       ret = ctx.DoGet(fl, f);
+      break;
     default:
       return -EINVAL;
   }
