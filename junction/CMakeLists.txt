@@ -158,6 +158,16 @@ endif()
 
 # add_compile_definitions(FUNCTION_PROFILING="1")
 
+# Prefer static Boost for program_options so junction_run does not need libboost_program_options.so at runtime.
+set(Boost_USE_STATIC_LIBS ON)
+set(Boost_USE_STATIC_RUNTIME OFF)
+find_package(Boost REQUIRED COMPONENTS program_options)
+
+# Statically link GCC runtime and libstdc++ for targets under junction/ (fewer host .so deps).
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  add_link_options(-static-libgcc -static-libstdc++)
+endif()
+
 # Build all modules
 add_subdirectory(base)
 add_subdirectory(bindings)
@@ -184,7 +194,7 @@ target_link_libraries(junction INTERFACE
   kernel
   glibc_shim_backend
   bindings
-  boost_program_options
+  Boost::program_options
 )
 
 include(CheckIncludeFileCXX)
@@ -195,6 +205,11 @@ endif()
 
 if (NOT CXX_FORMAT_SUPPORT)
     target_link_libraries(junction INTERFACE fmt::fmt)
+endif()
+
+# With static libstdc++, forward __cxa_throw via ld --wrap only for consumers of libc_override.cc (junction target).
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND NOT PERMISSIVE_SECCOMP)
+  target_link_options(junction INTERFACE "-Wl,--wrap=__cxa_throw")
 endif()
 
 add_executable(junction_run

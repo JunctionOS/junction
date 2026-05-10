@@ -59,8 +59,10 @@ if [[ -z ${DRY_RUN} ]]; then
     while ! grep -q 'running dataplan' /tmp/iokernel.log; do
       sleep 0.3
       # make sure it is still alive
-      pgrep iokerneld > /dev/null || exit 1
-      cat /tmp/iokernel.log
+      if ! pgrep iokerneld > /dev/null; then
+        cat /tmp/iokernel.log
+        exit 1
+      fi
     done
     reset
     popd || exit 255
