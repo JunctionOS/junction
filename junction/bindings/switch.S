@@ -76,9 +76,11 @@ __nosave_switch:
 /**
  * __nosave_switch_setui - jumps to a function without saving the current stack
  * frame and re-enables user interrupts once on the new stack.
- * @fn: the function pointer to call (%rdi)
- * @stack: the stack to use (%rsi)
  * @arg0: an argument to @fn (%rdx)
+ * @arg1: second argument to @fn (%rsi)
+ * @arg2: third argument to @fn (%rdx)
+ * @fn: the function pointer to call (%rcx)
+ * @stack: the stack to use (%r8)
  *
  * No return value.
  */
@@ -87,16 +89,13 @@ __nosave_switch:
 .type __nosave_switch_setui, @function
 __nosave_switch_setui:
 	/* switch to new stack */
-	movq    %rsi, %rsp
-
-	movq    %rdi, %rsi
-	movq    %rdx, %rdi
+	movq    %r8, %rsp
 
 	/* enable interrupts */
 	stui
 
 	/* jump to fn */
-	jmpq    *%rsi
+	jmpq    *%rcx
 
 /*
  * _stack_switch_link - runs a function on a different stack

@@ -19,9 +19,10 @@ extern "C" [[noreturn]] void __nosave_switch_preempt_enable(thread_fn_t fn,
                                                             uint64_t stack,
                                                             uint64_t arg0);
 
-extern "C" [[noreturn]] void __nosave_switch_setui(void (*fn)(void),
-                                                   void* stack,
-                                                   uint64_t arg0 = 0);
+extern "C" [[noreturn]] void __nosave_switch_setui(uint64_t arg0, uint64_t arg1,
+                                                   uint64_t arg2,
+                                                   void (*fn)(void),
+                                                   void* stack);
 
 extern "C" void _stack_switch_link(uint64_t arg0, uint64_t stack,
                                    thread_fn_t fn);
@@ -36,9 +37,18 @@ inline constexpr size_t kRedzoneSize = 128;
                                  tf.rdi);
 }
 
+[[noreturn]] inline void nosave_switch_interrupt_enable(void (*fn)(void),
+                                                        void* stack) {
+  register long arg0 asm("rdi");
+  register long arg1 asm("rsi");
+  register long arg2 asm("rdx");
+  __nosave_switch_setui(arg0, arg1, arg2, fn, stack);
+}
+
 [[noreturn]] inline void nosave_switch_interrupt_enable(thread_tf& tf) {
-  __nosave_switch_setui(reinterpret_cast<void (*)()>(tf.rip),
-                        reinterpret_cast<void*>(tf.rsp), tf.rdi);
+  __nosave_switch_setui(tf.rdi, tf.rsi, tf.rdx,
+                        reinterpret_cast<void (*)()>(tf.rip),
+                        reinterpret_cast<void*>(tf.rsp));
 }
 
 __always_inline __nofp constexpr uintptr_t AlignForFunctionEntry(

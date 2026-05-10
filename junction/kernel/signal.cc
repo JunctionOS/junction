@@ -250,9 +250,9 @@ void UintrFinishYield(u_sigframe *uintr_frame, thread_t *th, void *xsave_buf,
 
   // switch to the runtime stack and re-enable user interrupts
   if (preempt_cede_needed(myk()))
-    __nosave_switch_setui(thread_finish_cede, stack);
+    nosave_switch_interrupt_enable(thread_finish_cede, stack);
   else
-    __nosave_switch_setui(thread_finish_yield, stack);
+    nosave_switch_interrupt_enable(thread_finish_yield, stack);
 
   std::unreachable();
 }
