@@ -1,0 +1,134 @@
+From 4416cc1a22132b5b8107631d6c3f18fc9f13ca56 Mon Sep 17 00:00:00 2001
+From: Josh Fried <joshuafried@gmail.com>
+Date: Sun, 10 May 2026 23:26:29 -0600
+Subject: [PATCH 3/3] hooks for fsbase switch
+
+---
+ base/log.c        | 17 +++++++++++++----
+ base/thread.c     |  3 +++
+ inc/base/thread.h |  2 ++
+ net/netdump.c     |  8 ++++++++
+ 4 files changed, 26 insertions(+), 4 deletions(-)
+
+diff --git a/base/log.c b/base/log.c
+index aecea51..72ff730 100644
+--- a/base/log.c
++++ b/base/log.c
+@@ -8,11 +8,12 @@
+ #include <execinfo.h>
+ #include <sched.h>
+ 
+-#include <base/stddef.h>
++#include <asm/ops.h>
+ #include <base/log.h>
+-#include <base/time.h>
++#include <base/stddef.h>
+ #include <base/syscall.h>
+-#include <asm/ops.h>
++#include <base/thread.h>
++#include <base/time.h>
+ 
+ #define MAX_LOG_LEN 4096
+ 
+@@ -65,8 +66,13 @@ void logk(int level, const char *fmt, ...)
+ __weak void logk_backtrace(void)
+ {
+ 	void *buf[MAX_CALL_DEPTH];
+-	const int calls = backtrace(buf, ARRAY_SIZE(buf));
++	int calls;
++	uint64_t libc_cb;
++
++	libc_enter(&libc_cb);
++	calls = backtrace(buf, ARRAY_SIZE(buf));
+ 	backtrace_symbols_fd(buf, calls, 1);
++	libc_exit(&libc_cb);
+ }
+ 
+ void logk_bug(bool fatal, const char *expr,
+@@ -87,12 +93,15 @@ void logk_bug_cmp(bool fatal, const char *op,
+ {
+ 	char expr[256];
+ 	int ret;
++	uint64_t libc_cb;
+ 
++	libc_enter(&libc_cb);
+ 	ret = snprintf(expr, sizeof(expr), "(%s %s %s) with (%s=%lld, %s=%lld)",
+ 		       expr_a, op, expr_b, expr_a, (long long)val_a, expr_b, (long long)val_b);
+ 	if (ret < 0 || (size_t)ret >= sizeof(expr))
+ 		snprintf(expr, sizeof(expr), "(%s %s %s) with values %lld, %lld",
+ 			 expr_a, op, expr_b, (long long)val_a, (long long)val_b);
++	libc_exit(&libc_cb);
+ 
+ 	logk_bug(fatal, expr, file, line, func);
+ }
+diff --git a/base/thread.c b/base/thread.c
+index 3d65bde..2776e53 100644
+--- a/base/thread.c
++++ b/base/thread.c
+@@ -30,6 +30,9 @@ DEFINE_PERTHREAD(bool, thread_init_done);
+ extern const char __perthread_start[];
+ extern const char __perthread_end[];
+ 
++__weak void libc_enter(uint64_t *cb_data) { }
++__weak void libc_exit(uint64_t *cb_data) { }
++
+ static int thread_alloc_perthread(unsigned int thread_id, unsigned int node)
+ {
+ 	int ret;
+diff --git a/inc/base/thread.h b/inc/base/thread.h
+index 18ab2fd..f684ba2 100644
+--- a/inc/base/thread.h
++++ b/inc/base/thread.h
+@@ -255,3 +255,5 @@ static inline unsigned int this_numa_node(void)
+ }
+ 
+ extern pid_t thread_gettid(void);
++extern void libc_enter(uint64_t *cb_data);
++extern void libc_exit(uint64_t *cb_data);
+diff --git a/net/netdump.c b/net/netdump.c
+index 36af0db..181bde7 100644
+--- a/net/netdump.c
++++ b/net/netdump.c
+@@ -9,6 +9,7 @@
+ 
+ #include <base/stddef.h>
+ #include <base/log.h>
++#include <base/thread.h>
+ #include <base/byteorder.h>
+ #include <net/ethernet.h>
+ #include <net/arp.h>
+@@ -96,6 +97,9 @@ void dump_udp_pkt(int loglvl, uint32_t saddr, struct udp_hdr *udp_hdr,
+     logk(loglvl, "UDP packet received from %s:%d on port %d", sip, sport,
+          dport);
+     for (c = 0; c < len;) {
++        uint64_t libc_cb;
++
++        libc_enter(&libc_cb);
+         d = snprintf(line, 256, "%016lx: ", c);
+         for (i = 0; i < 8 && c < len; i++) {
+             for (j = 0; j < 2 && c < len; j++, c++) {
+@@ -104,6 +108,7 @@ void dump_udp_pkt(int loglvl, uint32_t saddr, struct udp_hdr *udp_hdr,
+             }
+             d += snprintf(line + d, 256 - d, " ");
+         }
++        libc_exit(&libc_cb);
+         line[d] = 0;
+         logk(loglvl, "%s", line);
+     }
+@@ -118,10 +123,13 @@ void dump_udp_pkt(int loglvl, uint32_t saddr, struct udp_hdr *udp_hdr,
+  */
+ char *ip_addr_to_str(uint32_t addr, char *str)
+ {
++	uint64_t cbdata;
++	libc_enter(&cbdata);
+ 	snprintf(str, IP_ADDR_STR_LEN, "%d.%d.%d.%d",
+ 		 ((addr >> 24) & 0xff),
+                  ((addr >> 16) & 0xff),
+                  ((addr >> 8) & 0xff),
+                  (addr & 0xff));
++	libc_exit(&cbdata);
+ 	return str;
+ }
+-- 
+2.43.0
+

@@ -200,12 +200,17 @@ Status<void> ResolveElf(std::shared_ptr<DirectoryEntry> dent, ExecContext &ctx,
   if (max_depth == 0) return MakeError(ELOOP);
 
   file->Seek(0);
-  StreamBufferReader r(*file, 256);
-  std::istream instream(&r);
-  if (instream.get() != '#' || instream.get() != '!') return MakeError(EINVAL);
-
   std::string s;
-  std::getline(instream, s);
+
+  {
+    rt::RuntimeLibcGuard guard;
+    StreamBufferReader r(*file, 256);
+    std::istream instream(&r);
+    if (instream.get() != '#' || instream.get() != '!')
+      return MakeError(EINVAL);
+
+    std::getline(instream, s);
+  }
   std::vector<std::string_view> tokens = split(s, ' ', 1);
 
   Status<std::shared_ptr<DirectoryEntry>> path =

@@ -36,7 +36,7 @@ pid_t GetLinuxPid() { return linux_pid; }
 
 JunctionCfg JunctionCfg::singleton_;
 
-extern "C" void log_message_begin(uint64_t *cb_data) {
+extern "C" void libc_enter(uint64_t *cb_data) {
   if (base_init_done && thread_self() != NULL) {
     preempt_disable();
     *cb_data = GetFSBase();
@@ -44,12 +44,16 @@ extern "C" void log_message_begin(uint64_t *cb_data) {
   }
 }
 
-extern "C" void log_message_end(uint64_t *cb_data) {
+extern "C" void libc_exit(uint64_t *cb_data) {
   if (base_init_done && thread_self() != NULL) {
     SetFSBase(*cb_data);
     preempt_enable();
   }
 }
+
+extern "C" void log_message_begin(uint64_t *cb_data) { libc_enter(cb_data); }
+
+extern "C" void log_message_end(uint64_t *cb_data) { libc_exit(cb_data); }
 
 // Override and disable backtrace function for log messages in Caladan.
 extern "C" void logk_backtrace(void) {}
