@@ -3,12 +3,21 @@
 
 #include <cstring>
 
+extern "C" {
+#include <runtime/thread.h>
+}
+
+#include "junction/base/arch.h"
 #include "junction/junction.h"
 #include "junction/kernel/mm.h"
 #include "junction/syscall/systbl.h"
 #include "junction/syscall/vdso.h"
 
 namespace junction {
+
+void FsbaseSanitizeEnter() { SetFSBase(0); }
+
+void FsbaseSanitizeExit() { SetFSBase(thread_self()->fsbase); }
 
 struct SyscallTarget {
   uintptr_t start;
@@ -58,8 +67,12 @@ Status<void> SyscallInit() {
 
   MemoryMap::RegisterMMRegion(SYSTBL_TRAMPOLINE_LOC, sizeof(sys_tbl));
 
-  if (GetCfg().strace_enabled())
+  if (GetCfg().strace_enabled()) {
     std::memcpy(sys_tbl, sys_tbl_strace, sizeof(sys_tbl_strace));
+  } else if (GetCfg().fsbase_sanitize_enabled()) {
+    std::memcpy(sys_tbl, sys_tbl_fsbase_sanitize,
+                sizeof(sys_tbl_fsbase_sanitize));
+  }
 
   if (GetCfg().stack_switch_enabled()) {
     sys_tbl[453] = sys_tbl[451];

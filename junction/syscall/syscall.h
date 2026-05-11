@@ -16,6 +16,10 @@ namespace junction {
 
 Status<void> SyscallInit();
 
+// Used by generated syscall_tbl wrappers when fsbase sanitize mode is enabled.
+void FsbaseSanitizeEnter();
+void FsbaseSanitizeExit();
+
 // Update in entry.S if changed.
 static_assert(offsetof(thread, stack) == JUNCTION_STACK_OFFSET);
 static_assert(sizeof(struct stack) == JUNCTION_STACK_SIZE);

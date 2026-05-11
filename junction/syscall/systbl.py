@@ -229,6 +229,32 @@ def emit_strace_target(pretty_name, function_name, output, sysnr):
     return f"{function_name}_trace"
 
 
+def emit_fsbase_sanitize_wrap(handler_name, wrapper_name, output):
+    """Mirror strace: dispatch to the real C handler via sysfn_t, never junction_fncall_*."""
+    fn = f"""
+extern "C" __attribute__((cold)) int64_t {wrapper_name}(
+    int64_t arg0, int64_t arg1, int64_t arg2, int64_t arg3, int64_t arg4,
+    int64_t arg5) {{
+  assert_stack_is_aligned();
+  FsbaseSanitizeEnter();
+  int64_t ret = reinterpret_cast<sysfn_t>(&{handler_name})(
+      arg0, arg1, arg2, arg3, arg4, arg5);
+  FsbaseSanitizeExit();
+  return ret;
+}}"""
+    output.append(fn)
+
+
+# Table entries that use assembly syscall dispatch (must not be wrapped in C++).
+JUNCTION_FNCALL_HANDLERS = frozenset([
+    "junction_fncall_stackswitch_enter",
+    "junction_fncall_stackswitch_enter_preserve_regs",
+    "junction_fncall_enter",
+    "junction_fncall_enter_preserve_regs",
+    "junction_fncall_stackswitch_enter_eax",
+])
+
+
 def emit_enosys_target(syscall_name, sysnr, output):
     wrapper_name = f"{syscall_name}_enosys"
     fn = f"""
@@ -404,6 +430,17 @@ for i in range(SYS_NR):
     systabl_targets[i] = target
     systabl_strace_targets[i] = emit_strace_target(name, target, dispatch_file, i)
 
+systabl_fsbase_targets = [None for i in range(SYS_NR)]
+for i in range(SYS_NR):
+    handler = systabl_targets[i]
+    name = syscall_nr_to_name.get(i)
+    if handler in JUNCTION_FNCALL_HANDLERS or (
+            name is not None and name in SKIP_STRACE_TARGET):
+        systabl_fsbase_targets[i] = handler
+        continue
+    w = f"syscall_fsbase_wrap_{i}"
+    emit_fsbase_sanitize_wrap(handler, w, dispatch_file)
+    systabl_fsbase_targets[i] = w
 
 # generate the sysfn table
 dispatch_file += [f"sysfn_t sys_tbl[SYS_NR] = {'{'}"]
@@ -423,6 +460,13 @@ dispatch_file.append("};")
 # generate the sysfn-strace table
 dispatch_file += [f"sysfn_t sys_tbl_strace[SYS_NR] = {'{'}"]
 for i, entry in enumerate(systabl_strace_targets):
+    idx = f"__NR_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
+    dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{entry}),")
+dispatch_file.append("};")
+
+# fsbase sanitize: wraps sys_tbl targets (same composition pattern as strace)
+dispatch_file += [f"sysfn_t sys_tbl_fsbase_sanitize[SYS_NR] = {'{'}"]
+for i, entry in enumerate(systabl_fsbase_targets):
     idx = f"__NR_{syscall_nr_to_name[i]}" if i in syscall_nr_to_name else i
     dispatch_file.append(f"\t[{idx}] = reinterpret_cast<sysfn_t>(&{entry}),")
 dispatch_file.append("};")

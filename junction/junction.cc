@@ -95,6 +95,9 @@ po::options_description GetOptions() {
       ("port,p", po::value<int>()->default_value(42),
        "port number to setup control port on")                              //
       ("strace,s", po::bool_switch()->default_value(false), "strace mode")  //
+      ("fsbase-sanitize", po::bool_switch()->default_value(false),
+       "debug: clear %fs.base around each syscall handler (catch TLS "
+       "misuse)")  //
       ("restore,r", po::bool_switch()->default_value(false),
        "restore from a snapshot")  //
       ("kernel-restore,k", po::bool_switch()->default_value(false),
@@ -189,6 +192,13 @@ Status<void> JunctionCfg::FillFromArgs(int argc, char *argv[]) {
   }
 
   strace = vm["strace"].as<bool>();
+  fsbase_sanitize = vm["fsbase-sanitize"].as<bool>();
+  if (strace && fsbase_sanitize) {
+    fsbase_sanitize = false;
+    std::cerr
+        << "strace and --fsbase-sanitize are mutually exclusive; using strace"
+        << std::endl;
+  }
   stack_switching = vm["stackswitch"].as<bool>();
   max_loglevel = vm["loglevel"].as<int>();
   madv_remap = vm["madv_remap"].as<bool>();

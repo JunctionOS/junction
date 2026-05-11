@@ -51,6 +51,7 @@ class alignas(kCacheLineSize) JunctionCfg {
   [[nodiscard]] uid_t get_uid() const { return uid_; }
 
   [[nodiscard]] bool strace_enabled() const { return strace; }
+  [[nodiscard]] bool fsbase_sanitize_enabled() const { return fsbase_sanitize; }
   [[nodiscard]] bool restoring() const { return restore; }
   [[nodiscard]] bool kernel_restoring() const { return kernel_restoring_; }
   [[nodiscard]] bool expecting_snapshot() const { return expecting_snapshot_; }
@@ -80,6 +81,7 @@ class alignas(kCacheLineSize) JunctionCfg {
  private:
   // Hot state
   bool strace;
+  bool fsbase_sanitize;
   bool madv_remap;
   bool expecting_snapshot_;
   bool restore_populate_;
