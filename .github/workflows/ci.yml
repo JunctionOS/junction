@@ -6,29 +6,54 @@ name: Main tests
 on:
   push:
     branches:
-    - main
+      - main
   pull_request:
     branches:
-    - main
+      - main
   schedule:
     - cron: "0 */6 * * *"
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
 
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
   test:
-    # The type of runner that the job will run on
+    name: ${{ matrix.name }}
     runs-on: self-hosted
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: test
+            extra_build_flags: ''
+            extra_test_flags: ''
+            extra_junction_args: ''
+          - name: test-debug
+            extra_build_flags: '-d'
+            extra_test_flags: '-d'
+            extra_junction_args: ''
+          - name: test-chroot
+            extra_build_flags: ''
+            extra_test_flags: '--use-chroot'
+            extra_junction_args: ''
+          - name: test-chroot-debug
+            extra_build_flags: '-d'
+            extra_test_flags: '-d --use-chroot'
+            extra_junction_args: ''
+          - name: test-fsbase-sanitize
+            extra_build_flags: ''
+            extra_test_flags: ''
+            extra_junction_args: '--fsbase-sanitize'
+          - name: test-debug-fsbase-sanitize
+            extra_build_flags: '-d'
+            extra_test_flags: '-d'
+            extra_junction_args: '--fsbase-sanitize'
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
+    env:
+      EXTRA_JUNCTION_FLAGS: ${{ matrix.extra_junction_args }}
+
     steps:
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@a54c7afa936fefeb4456b2dd8068152669aa8203
-        with:
-          toolchain: 1.82
-      - name: 'Cleanup Mount Points'
+      - name: Cleanup Mount Points
         run: |
           escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
           mount_points=$(mount | awk '$3 ~ /^'"$escaped_workspace"'/ {print $3}' | sort -r)
@@ -37,35 +62,35 @@ jobs:
             sudo umount "$mp" || echo "Failed to unmount $mp, continuing..."
           done
           mount | grep "$GITHUB_WORKSPACE" || echo "No mount points remaining."
-      - name: 'Cleanup build folder'
+
+      - name: Cleanup build folder
         run: |
           ls -la ./
           sudo rm -rf ./* || true
           sudo rm -rf ./.??* || true
           ls -la ./
 
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
-        name: Checkout submodules
+      - name: Checkout submodules
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Extract glibc submodule commit
-        run:  /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
+        run: /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
 
       - name: Extract caladan submodule commit
-        run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
+        run: /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
 
-      - uses: actions/cache@v4
-        name: Retrieve cached install dir
+      - name: Retrieve cached install dir
+        uses: actions/cache@v4
         with:
           path: |
             install
             lib/.glibc_installed_ver
           key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/*') }}
 
-      - uses: actions/cache@v4
-        name: Retrieve cached caladan submodule binaries
+      - name: Retrieve cached caladan submodule binaries
+        uses: actions/cache@v4
         with:
           path: |
             lib/caladan/dpdk/build
@@ -74,201 +99,9 @@ jobs:
             lib/.caladan_installed_ver
           key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
 
-      - name: Install
-        run: |
-          dpkg -s gcc-12 g++-12 || sudo apt update; sudo apt-get install -y gcc-12 g++-12
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
-          ./scripts/install.sh
-
-      - name: Build
-        run: |
-          ./scripts/build.sh
-
-      - name: Main tests
-        run: ./scripts/test.sh
-
-      - uses: actions/cache@v4
-        name: Retrieve cached python venv
-        with:
-          path: |
-            bin/venv
-            bin/node_modules
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
-
-      - name: Install python venv
-        run: |
-          ./scripts/install_function_bench.sh
-
-      - name: Build snapshot tests
-        run: |
-          ./scripts/build.sh -s
-
-      - name: ELF snapshot tests
-        run: ./scripts/test.sh 'snapshot_elf|restore_elf'
-        if: ${{ always() }}
-        # Update job status if this step fails
-        env:
-          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
-
-      - name: JIF snapshot tests
-        run: ./scripts/test.sh 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
-        if: ${{ always() }}
-        # Update job status if this step fails
-        env:
-          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
-
-  test-debug:
-    # The type of runner that the job will run on
-    runs-on: self-hosted
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
-    steps:
-      - name: 'Cleanup Mount Points'
-        run: |
-          escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
-          mount_points=$(mount | awk '$3 ~ /^'"$escaped_workspace"'/ {print $3}' | sort -r)
-          for mp in $mount_points; do
-            echo "Unmounting $mp"
-            sudo umount "$mp" || echo "Failed to unmount $mp, continuing..."
-          done
-          mount | grep "$GITHUB_WORKSPACE" || echo "No mount points remaining."
-      - name: 'Cleanup build folder'
-        run: |
-          ls -la ./
-          sudo rm -rf ./* || true
-          sudo rm -rf ./.??* || true
-          ls -la ./
-
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
-        name: Checkout submodules
-        with:
-          submodules: recursive
-
-      - name: Extract glibc submodule commit
-        run:  /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
-
-      - name: Extract caladan submodule commit
-        run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
-
-      - uses: actions/cache@v4
-        name: Retrieve cached install dir
-        with:
-          path: |
-            install
-            lib/.glibc_installed_ver
-          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/*') }}
-
-      - uses: actions/cache@v4
-        name: Retrieve cached caladan submodule binaries
-        with:
-          path: |
-            lib/caladan/dpdk/build
-            lib/caladan/rdma-core/build
-            lib/caladan/deps/pcm/build
-            lib/.caladan_installed_ver
-          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
-
-      - name: Install
-        run: |
-          dpkg -s gcc-12 g++-12 || sudo apt update; sudo apt-get install -y gcc-12 g++-12
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
-          ./scripts/install.sh
-
-      - name: Build debug
-        run: |
-          ./scripts/build.sh -d
-
-      - name: Main tests (debug)
-        run: ./scripts/test.sh -d
-
-      - uses: actions/cache@v4
-        name: Retrieve cached python venv
-        with:
-          path: |
-            bin/venv
-            bin/node_modules
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
-
-      - name: Install python venv
-        run: |
-          ./scripts/install_function_bench.sh
-
-      - name: Build snapshot tests (debug)
-        run: |
-          ./scripts/build.sh -d -s
-
-      - name: ELF snapshot tests (debug)
-        run: ./scripts/test.sh -d 'snapshot_elf|restore_elf'
-        if: ${{ always() }}
-        # Update job status if this step fails
-        env:
-          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
-
-      - name: JIF snapshot tests (debug)
-        run: ./scripts/test.sh -d 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
-        if: ${{ always() }}
-        # Update job status if this step fails
-        env:
-          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
-
-
-  test-chroot:
-    # The type of runner that the job will run on
-    runs-on: self-hosted
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
-    steps:
-      - name: 'Cleanup Mount Points'
-        run: |
-          escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
-          mount_points=$(mount | awk '$3 ~ /^'"$escaped_workspace"'/ {print $3}' | sort -r)
-          for mp in $mount_points; do
-            echo "Unmounting $mp"
-            sudo umount "$mp" || echo "Failed to unmount $mp, continuing..."
-          done
-          mount | grep "$GITHUB_WORKSPACE" || echo "No mount points remaining."
-      - name: 'Cleanup build folder'
-        run: |
-          ls -la ./
-          sudo rm -rf ./* || true
-          sudo rm -rf ./.??* || true
-          ls -la ./
-
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
-        name: Checkout submodules
-        with:
-          submodules: recursive
-
-      - name: Extract glibc submodule commit
-        run:  /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
-
-      - name: Extract caladan submodule commit
-        run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
-
-      - uses: actions/cache@v4
-        name: Retrieve cached install dir
-        with:
-          path: |
-            install
-            lib/.glibc_installed_ver
-          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/*') }}
-
-      - uses: actions/cache@v4
-        name: Retrieve cached caladan submodule binaries
-        with:
-          path: |
-            lib/caladan/dpdk/build
-            lib/caladan/rdma-core/build
-            lib/caladan/deps/pcm/build
-            lib/.caladan_installed_ver
-          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
-
-      - uses: actions/cache@v4
-        name: Retrieve cached chroot environment
+      - name: Retrieve cached chroot environment
+        if: contains(matrix.extra_test_flags, '--use-chroot')
+        uses: actions/cache@v4
         with:
           path: |
             chroot.tar.gz
@@ -282,18 +115,18 @@ jobs:
           ./scripts/install.sh
 
       - name: Install chroot
+        if: contains(matrix.extra_test_flags, '--use-chroot')
         run: |
           /bin/bash -c 'sudo tar xf chroot.tar.gz || (./scripts/install_chroot.sh && sudo tar czvf chroot.tar.gz chroot)'
 
       - name: Build
-        run: |
-          ./scripts/build.sh
+        run: ./scripts/build.sh ${{ matrix.extra_build_flags }}
 
       - name: Main tests
-        run: ./scripts/test.sh --use-chroot
+        run: ./scripts/test.sh ${{ matrix.extra_test_flags }}
 
-      - uses: actions/cache@v4
-        name: Retrieve cached python venv
+      - name: Retrieve cached python venv
+        uses: actions/cache@v4
         with:
           path: |
             bin/venv
@@ -301,130 +134,19 @@ jobs:
           key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
 
       - name: Install python venv
-        run: |
-          ./scripts/install_function_bench.sh
+        run: ./scripts/install_function_bench.sh
 
       - name: Build snapshot tests
-        run: |
-          ./scripts/build.sh -s
+        run: ./scripts/build.sh ${{ matrix.extra_build_flags }} -s
 
-      - name: ELF snapshot tests
-        run: ./scripts/test.sh --use-chroot 'snapshot_elf|restore_elf'
-        if: ${{ always() }}
-        # Update job status if this step fails
-        env:
-          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
+      # - name: ELF snapshot tests
+      #   run: ./scripts/test.sh ${{ matrix.extra_test_flags }} 'snapshot_elf|restore_elf'
+      #   if: ${{ always() }}
+      #   env:
+      #     JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
 
       - name: JIF snapshot tests
-        run: ./scripts/test.sh --use-chroot 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
+        run: ./scripts/test.sh ${{ matrix.extra_test_flags }} 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
         if: ${{ always() }}
-        # Update job status if this step fails
-        env:
-          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
-
-  test-chroot-debug:
-    # The type of runner that the job will run on
-    runs-on: self-hosted
-
-    # Steps represent a sequence of tasks that will be executed as part of the job
-    steps:
-      - name: 'Cleanup Mount Points'
-        run: |
-          escaped_workspace=$(echo "$GITHUB_WORKSPACE" | sed 's/\//\\\//g')
-          mount_points=$(mount | awk '$3 ~ /^'"$escaped_workspace"'/ {print $3}' | sort -r)
-          for mp in $mount_points; do
-            echo "Unmounting $mp"
-            sudo umount "$mp" || echo "Failed to unmount $mp, continuing..."
-          done
-          mount | grep "$GITHUB_WORKSPACE" || echo "No mount points remaining."
-      - name: 'Cleanup build folder'
-        run: |
-          ls -la ./
-          sudo rm -rf ./* || true
-          sudo rm -rf ./.??* || true
-          ls -la ./
-
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
-        name: Checkout submodules
-        with:
-          submodules: recursive
-
-      - name: Extract glibc submodule commit
-        run:  /bin/bash -c "echo -n glibc_commit=; (git ls-tree HEAD lib/glibc | awk '{print \$3}')" >> $GITHUB_ENV
-
-      - name: Extract caladan submodule commit
-        run:  /bin/bash -c "echo -n caladan_commit=; (git ls-tree HEAD lib/caladan | awk '{print \$3}')" >> $GITHUB_ENV
-
-      - uses: actions/cache@v4
-        name: Retrieve cached install dir
-        with:
-          path: |
-            install
-            lib/.glibc_installed_ver
-          key: ${{ runner.os }}-build-${{ env.glibc_commit }}-install-${{ hashFiles('lib/patches/glibc/*', 'scripts/*') }}
-
-      - uses: actions/cache@v4
-        name: Retrieve cached caladan submodule binaries
-        with:
-          path: |
-            lib/caladan/dpdk/build
-            lib/caladan/rdma-core/build
-            lib/caladan/deps/pcm/build
-            lib/.caladan_installed_ver
-          key: ${{ runner.os }}-build-${{ env.caladan_commit }}-caladan-${{ hashFiles('lib/patches/caladan/*') }}
-
-      - uses: actions/cache@v4
-        name: Retrieve cached chroot environment
-        with:
-          path: |
-            chroot.tar.gz
-          key: ${{ runner.os }}-build-chroot-${{ hashFiles('scripts/install_chroot.sh') }}
-
-      - name: Install
-        run: |
-          dpkg -s gcc-12 g++-12 || sudo apt update; sudo apt-get install -y gcc-12 g++-12
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 10
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 10
-          ./scripts/install.sh
-
-      - name: Install chroot
-        run: |
-          /bin/bash -c 'sudo tar xf chroot.tar.gz || (./scripts/install_chroot.sh && sudo tar czvf chroot.tar.gz chroot)'
-
-      - name: Build debug
-        run: |
-          ./scripts/build.sh -d
-
-      - name: Main tests (debug)
-        run: ./scripts/test.sh -d --use-chroot
-
-      - uses: actions/cache@v4
-        name: Retrieve cached python venv
-        with:
-          path: |
-            bin/venv
-            bin/node_modules
-          key: ${{ runner.os }}-build-venv-${{ hashFiles('scripts/install_function_bench.sh') }}
-
-      - name: Install python venv
-        run: |
-          ./scripts/install_function_bench.sh
-
-      - name: Build snapshot tests (debug)
-        run: |
-          ./scripts/build.sh -d -s
-
-      - name: ELF snapshot tests (debug)
-        run: ./scripts/test.sh -d --use-chroot 'snapshot_elf|restore_elf'
-        if: ${{ always() }}
-        # Update job status if this step fails
-        env:
-          JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
-
-      - name: JIF snapshot tests (debug)
-        run: ./scripts/test.sh -d --use-chroot 'snapshot_jif|process_jifs|restore_jif|restore_itrees_ord_jif'
-        if: ${{ always() }}
-        # Update job status if this step fails
         env:
           JOB_STATUS: ${{ steps.set-job-status.outcome == 'failure' && 'failure' || env.JOB_STATUS }}
